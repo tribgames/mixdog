@@ -144,9 +144,9 @@ export function createProtocolRouter(
         // Node's send(): the call waits for the connection and the view sync first (remote-shim-calls.ts:298-303), and its deadline starts only
         // when it is handed on (invoke, :239). A call held by the gate cannot time out, so one that timed out was always run.
         let settle = (): void => undefined;
-        // Enqueued on receipt, as Node's relay does (remote-relay-client-calls.ts:481): readiness is awaited inside the queued job, so a
-        // call whose connection is not ready yet still keeps its place before every call that arrives after it.
-        runQueued(link.host.ctx, method, args, async () => {
+        // The gate is the phone's (Node's send() waits before the frame leaves), the queue is the desktop's (remote-relay-client-calls.ts:481
+        // enqueues a frame on receipt): a call waiting for its gate holds no lane slot, so the ungated boot reads leave beside the sync.
+        (async () => {
           if (!gated || UNGATED_CALLS.has(method)) await link.started();
           else await link.synced();
           onGate?.();
@@ -162,8 +162,8 @@ export function createProtocolRouter(
           // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
           const claim = firstFrame((sent) => void sent.then(watch.transmitted));
           const host: PhoneProtocolHost = { ...link.host, client: () => scopeClient(link.host.client(), claim) };
-          return handler(args, host);
-        }).then(
+          return runQueued(link.host.ctx, method, args, () => handler(args, host));
+        })().then(
           (value) => {
             settle();
             resolve(value as T);
@@ -225,10 +225,10 @@ export function createProtocolRouter(
         // Node's fire dropped a frame it could not write (`.catch(() => {})`).
         return;
       }
-      void runQueued(link.host.ctx, method, args, async () => {
-        await link.started();
-        return handler(args, link.host);
-      }).catch(() => undefined);
+      void link
+        .started()
+        .then(() => runQueued(link.host.ctx, method, args, () => handler(args, link.host)))
+        .catch(() => undefined);
     },
     install(): void {
       for (const adapter of adapters) adapter.install?.(link.host);

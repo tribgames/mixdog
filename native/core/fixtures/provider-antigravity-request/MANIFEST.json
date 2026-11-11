@@ -1,0 +1,231 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-antigravity-request.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test's asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is the input, and every declaration the Claude path produces is recorded whole. Ajv (the tree's own dependency) answers the validity / validate() checks.",
+  "exclusions": [
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2224356,
+      "path": "cases.json",
+      "sha256": "b97bc887bcb92f332cbdf31c2ef20ab364f94f954a8dfb8548d91559c4559b19"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "hosted-google-search-ahead-of-declarations",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "function-calling-mode-default-env-and-tool-choice",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "full-builtin-bridge-surface-sent-as-authored",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "standard-2020-12-forms-sent-as-written",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "boolean-schemas-recursive-defs-keyword-like-names",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "draft-07-standard-keyword-mapping",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "draft-07-definitions-follow-own-id-scope",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "draft-07-keywords-beside-ref-ignored",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "draft-07-definitions-reachable-from-ref-node",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "invalid-tool-left-out-with-warning-request-proceeds-in-order",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "provider-forbidden-roots-exclude-the-tool",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "schemas-invalid-under-their-dialect-excluded",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "every-tool-invalid-request-carries-no-tools",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "default-warning-channel-console-warn-once-per-problem",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "missing-schema-excludes-tool-order-kept",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "gemini-declarations-unchanged-by-claude-normalization",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "computer-per-action-alternatives-claude-flat-for-gemini",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "claude-replay-drops-empty-text-parts-around-tool-call",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "claude-turn-of-only-empty-parts-omitted",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "claude-replay-rejoins-streamed-thinking-deltas",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "plain-history-without-provider-replay-drops-thinking-for-claude",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "replay-from-another-family-or-provider-drops-thinking-and-signatures",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "interrupted-thought-run-dropped-for-claude-sentinel-for-gemini",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "recorded-sentinel-or-empty-signature-is-not-own",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "thinking-only-claude-turn-unsigned-omitted-signed-kept",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "thinking-after-tool-call-keeps-signed-run-drops-unsigned",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "thought-runs-never-merge-across-messages-or-part-types",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "open-loop-without-thinking-closed-with-fresh-turn-wire-only",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "signed-loop-no-open-loop-thinking-off-and-gemini-left-as-built",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "later-steps-keep-closure-and-fresh-turn-keeps-signed-thinking",
+      "level": "pure",
+      "rust": null
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-antigravity-request.mjs",
+  "recorderSha256": "905508641a14a9a927698dd2b758b266e6d00c7daa555206cd274faf5d801f36",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  "set": "provider-antigravity-request",
+  "totalBytes": 2224356,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

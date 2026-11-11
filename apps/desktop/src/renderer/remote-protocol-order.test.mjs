@@ -30,19 +30,13 @@ const coreMethods = {
   'terminal/resize': 'termResize',
 };
 
-// The phone's connection may or may not be ready when a call arrives (Node has no such step): ready before the first call, or only after
-// every call of the scenario has arrived. Node's order is the same for both.
-const readiness = {
-  'ready before the calls': (steps) => [['ready'], ...steps],
-  'ready only after the calls arrived': (steps) => {
-    const first = steps.findIndex(([op]) => op === 'settle');
-    return [...steps.slice(0, first), ['ready'], ...steps.slice(first)];
-  },
-};
-
-for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) for (const [when, withReady] of Object.entries(readiness)) {
-  const steps = withReady(recordedSteps);
-  test(`order of calls across groups: ${scenario} (${when})`, async () => {
+// The recording is Node's desktop queue, which sees a call when its frame arrives: the phone's gates (connection, view sync) come before
+// it, so the connection is ready before the first call here. Calls held at the gates leave in the order Node's phone sends them, which the
+// lifecycle recording compares (apps/mobile/fixtures/phone-lifecycle: the ungated boot reads leave beside the sync, a fire waits for the
+// connection only); this recording has no gate step to compare them against.
+for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) {
+  const steps = [['ready'], ...recordedSteps];
+  test(`order of calls across groups: ${scenario}`, async () => {
     let hooks;
     // The connection and the view sync are separate gates: the scenarios open both at once, the test below opens only the connection.
     const connected = Promise.withResolvers();

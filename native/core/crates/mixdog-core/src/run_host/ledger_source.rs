@@ -163,7 +163,7 @@ mod tests {
 
     use super::*;
 
-    const TWIN: &str = include_str!("../../../../fixtures/ai-admin/usage-ledger-source-twin.json");
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/ai-admin/usage-ledger-source-twin.json");
 
     struct NoPrices;
 
@@ -226,7 +226,7 @@ mod tests {
     /// Node's recorder runs with `MIXDOG_DATA_DIR` = `<root>/mixdog_data_dir`.
     #[tokio::test]
     async fn the_ledger_source_acts_as_nodes_get_usage_ledger() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let mut opened = 0;
         for (n, flow) in twin["flows"].as_array().unwrap().iter().enumerate() {

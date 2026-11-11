@@ -11,7 +11,7 @@ use crate::support::on_lane;
 use crate::quota_resume::{Entry, QUOTA_RESUME_FILE, QuotaError, QuotaResumeStore, is_agent_only_session};
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../fixtures/ai-admin/quota-resume-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/quota-resume-twin.json")).unwrap()
 }
 
 fn generation(args: &Value) -> Option<u64> {

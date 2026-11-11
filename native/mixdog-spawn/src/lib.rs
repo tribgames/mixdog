@@ -25,7 +25,7 @@ pub mod terminal;
 #[cfg(any(unix, test))]
 mod tree;
 
-#[cfg(feature = "core-test")]
+#[cfg(any(feature = "core-test", feature = "scripted-shell"))]
 pub mod scripted;
 
 /// Seams for the library's integration tests.

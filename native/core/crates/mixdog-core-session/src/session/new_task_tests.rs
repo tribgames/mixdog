@@ -812,7 +812,7 @@ async fn an_io_error_reading_the_receipt_fails_the_request() {
     std::fs::create_dir_all(receipt_path(&rig, "sub-i")).expect("obstruction");
     let failed = within("the request's refusal", submit(&directory, "op-1", "sub-i", "write the report", json!({}))).await.expect_err("refused");
     let CoreError::DomainError { code: Some(code), message: Some(message), .. } = &failed else { panic!("a coded failure: {failed:?}") };
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/new-task-dedupe/golden.json")).expect("golden");
     let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/MANIFEST.json")).expect("manifest");
     let mut node = golden["scenarios"]["io-error"]["recorded"][1]["reply"].clone();
     // Less only the reply fields the manifest declares not compared (fields of Node's in-process fs error that no caller receives).
