@@ -240,6 +240,9 @@ pub struct ChatDialect {
     /// A reply's reasoning is kept for replay even when the dialect does not
     /// replay it today (the receive side of the replay envelope).
     pub capture_reasoning: bool,
+    /// A replaying custom endpoint needs non-empty `reasoning_content` on every assistant tool-call turn: a turn
+    /// without stored reasoning sends `" "` (`toOpenAIMessages` `customReplay`).
+    pub pad_tool_call_reasoning: bool,
     pub reasoning_shape: Option<ReasoningShape>,
     pub effort: EffortDialect,
     pub tool_choice: ToolChoiceSupport,
@@ -284,6 +287,7 @@ impl ChatDialect {
         developer_role: false,
         replay_reasoning: false,
         capture_reasoning: false,
+        pad_tool_call_reasoning: false,
         reasoning_shape: None,
         effort: EffortDialect::None,
         tool_choice: ToolChoiceSupport::NoneOnly,
