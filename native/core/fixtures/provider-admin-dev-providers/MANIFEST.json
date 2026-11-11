@@ -10,7 +10,7 @@
   },
   "entry": "src/standalone/daemon.mjs (the real daemon process: session front door on a loopback port, per-daemon token in daemon.json) with the desktop requests POST /client/register and POST /call { name: session.create | session.read | session.configure, args: { sessionId, action, args } } with the actions setDeveloperOption(id, enabled), getDeveloperSettings, getProviderSetup and getProviderAccounts(id); the config file mixdog-config.json of the data directory before and after each change. The daemon boots with MIXDOG_DAEMON_SKIP_MEMORY=1 and MIXDOG_RUNTIME_ROOT / MIXDOG_SESSION_PORT pointing into the recording.",
   "exclusions": [
-    "result.full of every /call response (the daemon projection of the session view: items, client host pid, revisions) is written as <session view projection>; the session id and the revision / updatedAt / createdAt / startedAt numbers of the daemon (its clock) in a response are written as <session id> and <daemon clock>; requests[].headers: the VALUES of x-mixdog-daemon-token (the per-daemon random token read from daemon.json) and the client token in the body (random, returned by /client/register) are written as <daemon token> and <client token>; host carries the fixed session port of the recording as <port>; every other header and the body are recorded as sent",
+    "result.full of every /call response (the daemon projection of the session view) is recorded whole except its volatile leaves, each written as a marker at its path: result.full.clientHostPid (the daemon pid) as <daemon pid>; result.full.agentScope (null until the daemon attaches the host scope, then { clientHostPid }: which one depends on timing) as <agent scope: null or { clientHostPid: daemon pid }>; result.full.setupChanged (the announcement of a config change from the daemon's own config-file watcher: whether a response carries it yet, its seq and wall-clock at depend on when the watcher fired) as <setup change announcement: absent or { action, seq, at }>, both written whether or not the response carried them; the session id and the revision / updatedAt / createdAt / startedAt numbers of the daemon (its clock) in a response are written as <session id> and <daemon clock>; requests[].headers: the VALUES of x-mixdog-daemon-token (the per-daemon random token read from daemon.json) and the client token in the body (random, returned by /client/register) are written as <daemon token> and <client token>; host carries the loopback port as <port>; the request head is the one that arrived at the daemon's socket (read by a loopback tap that forwards every byte unchanged): method, target, HTTP version and the header lines in arrival order with their original case, Node's own Host and Connection included; every other header and the body are recorded as they arrived",
     "the daemon process, its pid and its listening ports are not recorded: only the HTTP exchanges with the front door and the config file text",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -19,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 347512,
+      "bytes": 834793,
       "path": "cases.json",
-      "sha256": "54981eb0ac1131a492f4b51905d75f07aabcea18bbaa727f8ce27e8aee78c84b"
+      "sha256": "6be874b0477074ba6f0babb02c2753cc660d039f876b9dc4ac190674fd4d504b"
     }
   ],
   "inputs": [
@@ -79,9 +79,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-admin-dev-providers.mjs",
-  "recorderSha256": "13aabe1f0859816d56165b5ff58a2353769e719092ad62a695e3e15bd96a1469",
+  "recorderSha256": "1ef7fae4706e1e47a8272f4dc6dd977de0ec0f257e33e32af53651ef56cb7cc3",
   "replay": "WIRE: the desktop requests as sent over a socket to the Rust daemon (the same /client/register and /call exchanges). No public Rust function replaces the daemon entry for these admin requests; the pure functions named in earlier revisions (service/admin_models provider_available, ai_account provider_setup and list_provider_accounts) cover availability, setup rows and the account error only, not the status rows nor the config writes.",
   "set": "provider-admin-dev-providers",
-  "totalBytes": 347512,
+  "totalBytes": 834793,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

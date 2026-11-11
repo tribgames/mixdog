@@ -8,9 +8,10 @@ import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import { setTimeout as realTimeout, clearTimeout as realClear } from 'node:timers';
 import { join } from 'node:path';
-import { startRecording } from './lib/provider-case-recorder.mjs';
+import { RecorderError, startRecording } from './lib/provider-case-recorder.mjs';
 
 // Processes the daemon leaves behind (its embedded database tools) are stopped by their command line, which names the data directory of the recording (the pattern is written in two pieces so that the stopping process does not match itself): before the recording starts (a failed earlier
 // run) and after the daemon has exited.
@@ -23,7 +24,7 @@ const rec = await startRecording({
   net: false,
   entry: 'src/standalone/daemon.mjs (the real daemon process: session front door on a loopback port, per-daemon token in daemon.json) with the desktop requests POST /client/register and POST /call { name: session.create | session.read | session.configure, args: { sessionId, action, args } } with the actions setDeveloperOption(id, enabled), getDeveloperSettings, getProviderSetup and getProviderAccounts(id); the config file mixdog-config.json of the data directory before and after each change. The daemon boots with MIXDOG_DAEMON_SKIP_MEMORY=1 and MIXDOG_RUNTIME_ROOT / MIXDOG_SESSION_PORT pointing into the recording.',
   exclusions: [
-    'result.full of every /call response (the daemon projection of the session view: items, client host pid, revisions) is written as <session view projection>; the session id and the revision / updatedAt / createdAt / startedAt numbers of the daemon (its clock) in a response are written as <session id> and <daemon clock>; requests[].headers: the VALUES of x-mixdog-daemon-token (the per-daemon random token read from daemon.json) and the client token in the body (random, returned by /client/register) are written as <daemon token> and <client token>; host carries the fixed session port of the recording as <port>; every other header and the body are recorded as sent',
+    'result.full of every /call response (the daemon projection of the session view) is recorded whole except its volatile leaves, each written as a marker at its path: result.full.clientHostPid (the daemon pid) as <daemon pid>; result.full.agentScope (null until the daemon attaches the host scope, then { clientHostPid }: which one depends on timing) as <agent scope: null or { clientHostPid: daemon pid }>; result.full.setupChanged (the announcement of a config change from the daemon\'s own config-file watcher: whether a response carries it yet, its seq and wall-clock at depend on when the watcher fired) as <setup change announcement: absent or { action, seq, at }>, both written whether or not the response carried them; the session id and the revision / updatedAt / createdAt / startedAt numbers of the daemon (its clock) in a response are written as <session id> and <daemon clock>; requests[].headers: the VALUES of x-mixdog-daemon-token (the per-daemon random token read from daemon.json) and the client token in the body (random, returned by /client/register) are written as <daemon token> and <client token>; host carries the loopback port as <port>; the request head is the one that arrived at the daemon\'s socket (read by a loopback tap that forwards every byte unchanged): method, target, HTTP version and the header lines in arrival order with their original case, Node\'s own Host and Connection included; every other header and the body are recorded as they arrived',
     'the daemon process, its pid and its listening ports are not recorded: only the HTTP exchanges with the front door and the config file text',
   ],
   compare: 'per step: send the recorded requests to the Rust daemon front door in order and compare each response whole (setDeveloperOption result, getDeveloperSettings, getProviderSetup oauth rows, listProviders rows, getProviderAccounts result or error) and the config file text the daemon wrote after each setDeveloperOption.',
@@ -38,7 +39,7 @@ const PORT = 47311;
 const runtimeRoot = join(rec.dataDir, 'runtime');
 const configPath = join(rec.dataDir, 'mixdog-config.json');
 const withDeadline = (promise, what) => new Promise((resolve, reject) => {
-  const timer = realTimeout(() => reject(new Error(`recorder: ${what} did not happen within ${DEADLINE_MS} ms`)), DEADLINE_MS);
+  const timer = realTimeout(() => reject(new RecorderError(`recorder: ${what} did not happen within ${DEADLINE_MS} ms`)), DEADLINE_MS);
   promise.then((value) => { realClear(timer); resolve(value); }, (error) => { realClear(timer); reject(error); });
 });
 
@@ -59,12 +60,49 @@ const ready = new Promise((resolve, reject) => {
 await withDeadline(ready, 'the daemon front door listening').catch((error) => { throw new Error(`${error.message}; daemon output: ${daemonOutput.slice(-600)}`); });
 const discovery = JSON.parse(readFileSync(join(runtimeRoot, 'daemon.json'), 'utf8')).endpoints.session;
 
+// The request head as it arrives at the daemon's socket: the desktop's requests go through a loopback tap that forwards every byte both ways
+// unchanged and reads, from the bytes it forwards to the daemon, each request head (method, target, version, the raw header lines in arrival
+// order with their original case) and skips the body by its Content-Length.
+const arrivedHeads = [];
+const tap = net.createServer((client) => {
+  const daemonSocket = net.connect(PORT, '127.0.0.1');
+  client.pipe(daemonSocket);
+  daemonSocket.pipe(client);
+  client.on('error', () => daemonSocket.destroy());
+  daemonSocket.on('error', () => client.destroy());
+  let pending = Buffer.alloc(0);
+  let bodyLeft = 0;
+  client.on('data', (chunk) => {
+    pending = Buffer.concat([pending, chunk]);
+    for (;;) {
+      if (bodyLeft > 0) {
+        const taken = Math.min(bodyLeft, pending.length);
+        bodyLeft -= taken;
+        pending = pending.subarray(taken);
+        if (bodyLeft > 0) return;
+      }
+      const end = pending.indexOf('\r\n\r\n');
+      if (end < 0) return;
+      const [requestLine, ...lines] = pending.subarray(0, end).toString('latin1').split('\r\n');
+      const [method, target, version] = requestLine.split(' ');
+      const headers = lines.map((line) => [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()]);
+      arrivedHeads.push({ method, target, version, headers });
+      bodyLeft = Number(headers.find(([n]) => n.toLowerCase() === 'content-length')?.[1] ?? 0);
+      pending = pending.subarray(end + 4);
+    }
+  });
+});
+await new Promise((resolve) => tap.listen(0, '127.0.0.1', resolve));
+tap.unref();
+const TAP_PORT = tap.address().port;
+
 const exchange = (method, path, headers, payload) => withDeadline(new Promise((resolve, reject) => {
   const text = payload === undefined ? null : JSON.stringify(payload);
-  const req = http.request({ hostname: '127.0.0.1', port: PORT, path, method, headers: { ...headers, ...(text ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) } : {}) } }, (res) => {
+  const req = http.request({ hostname: '127.0.0.1', port: TAP_PORT, path, method, headers: { ...headers, ...(text ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) } : {}) } }, (res) => {
     const chunks = [];
     res.on('data', (c) => chunks.push(c));
-    res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8'), requestHeaders: req.getHeaders(), requestBody: text }));
+    // The exchanges are sequential: the head the tap read last is this request's.
+    res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8'), arrived: arrivedHeads.at(-1), requestBody: text }));
   });
   req.on('error', reject);
   if (text) req.write(text);
@@ -93,10 +131,21 @@ const call = async (name, args) => {
   const parsed = JSON.parse(sent.text);
   if (!sessionId && parsed.result?.sessionId) sessionId = parsed.result.sessionId;
   const masked = maskRevisions(JSON.parse(mask(sent.text)));
+  // `result.full` (the daemon's projection of the session view) is kept whole but for its volatile leaves, each written as a marker at its
+  // path: `clientHostPid` (the pid of the daemon process); `agentScope` (null until the daemon attaches the host's scope, then
+  // { clientHostPid }: which one a response carries depends on when that happened); and `setupChanged` (the daemon's announcement of a config
+  // change, from its own config-file watcher: whether a response carries it yet, its seq and wall-clock `at` depend on when the watcher
+  // fired relative to the request). The two timing-dependent fields are written whether or not the response carried them.
+  const full = masked.result?.full;
+  if (full && typeof full === 'object') {
+    if ('clientHostPid' in full) full.clientHostPid = '<daemon pid>';
+    full.agentScope = '<agent scope: null or { clientHostPid: daemon pid }>';
+    full.setupChanged = '<setup change announcement: absent or { action, seq, at }>';
+  }
   // `result.full` is the daemon's projection of the session view (items, host pid, revisions): not part of the admin answer, written as a marker at that one path.
-  if (masked.result && 'full' in masked.result) masked.result.full = '<session view projection>';
   const reply = JSON.stringify(masked);
-  rec.net.records.push({ method: 'POST', origin: 'http://127.0.0.1:<port>', path: '/call', headers: Object.entries(sent.requestHeaders).map(([n, v]) => [n, n === 'x-mixdog-daemon-token' ? '<daemon token>' : n === 'host' ? '127.0.0.1:<port>' : v]), body: mask(sent.requestBody), reply: { status: sent.status, body: reply } });
+  const { arrived } = sent;
+  rec.net.records.push({ method: arrived.method, origin: 'http://127.0.0.1:<port>', path: arrived.target, httpVersion: arrived.version, headers: arrived.headers.map(([n, v]) => [n, /^x-mixdog-daemon-token$/i.test(n) ? '<daemon token>' : /^host$/i.test(n) ? '127.0.0.1:<port>' : v]), body: mask(sent.requestBody), reply: { status: sent.status, body: reply } });
   return { status: sent.status, body: JSON.parse(reply) };
 };
 await call('session.create', { cwd: rec.dataDir });
@@ -126,9 +175,10 @@ const step = async (developer) => {
     out.configAfter = configText();
   }
   out.settings = await action('session.read', 'getDeveloperSettings', []);
-  // `recheckKeychain: true` is the desktop's own request for the authoritative setup: the daemon answers a plain request from its warm-up cache (a quick snapshot first, the full one once its background
-  // check has finished), which depends on timing; the forced request always returns the full answer.
-  out.setup = await action('session.read', 'getProviderSetup', [{ recheckKeychain: true }]);
+  // `force: true` asks for the authoritative setup: an unforced request (`recheckKeychain` included) is answered from the warm-up cache, a quick
+  // snapshot while the setup the config change invalidated is being rebuilt (session-runtime/provider-auth/setup.mjs:56), which depends on
+  // timing; the forced request rebuilds and always returns the full answer.
+  out.setup = await action('session.read', 'getProviderSetup', [{ force: true }]);
   out.accounts = {};
   for (const id of KNOWN) out.accounts[id] = await action('session.read', 'getProviderAccounts', [id]);
   return out;
