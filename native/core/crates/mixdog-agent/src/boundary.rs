@@ -360,6 +360,7 @@ impl Run {
                 trigger: trigger_kind.clone(),
                 require_reduction,
                 reference_latest_attachments: false,
+                active_turn: true,
             };
             should = compactor.reduces(&request).await;
         }
@@ -410,6 +411,7 @@ impl Run {
             trigger: trigger_kind.clone(),
             require_reduction,
             reference_latest_attachments: reactive,
+            active_turn: true,
         };
         let outcome = or_cancelled(&self.cancel, compactor.compact(request))
             .await

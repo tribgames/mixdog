@@ -295,26 +295,121 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             1_800_000_000_000
         }
     }
-    let wire = |request: &ModelRequest| -> Value {
-        let messages: Vec<Value> = request
-            .messages
+    use mixdog_core_api::domain::provider::{Message, RequestOptions};
+    use mixdog_testkit::exact::Exact;
+    /// The request Node's `provider.send(messages, model, tools, opts)` was handed, as the core's request: every
+    /// argument and every option is read, and one the core has no field for must hold what the core sends in its
+    /// place (no callback, no abort, no tools).
+    fn request_of(sent: &Exact) -> ModelRequest {
+        let [messages, model, tools, opts] = sent.as_array() else { panic!("four arguments: {sent:?}") };
+        assert_eq!(tools, &Exact::Undefined, "no tools");
+        let messages = messages
+            .as_array()
             .iter()
             .map(|m| {
-                let role = match m.role {
-                    Role::System => "system",
-                    Role::User => "user",
-                    other => panic!("a summary request role: {other:?}"),
+                let keys: Vec<&str> = m.entries().iter().map(|(k, _)| k.as_str()).collect();
+                assert_eq!(keys, ["role", "content"], "a summary message");
+                let role = match m.get("role").as_str() {
+                    "system" => Role::System,
+                    "user" => Role::User,
+                    other => panic!("a summary request role: {other}"),
                 };
-                let Content::Text(text) = &m.content else { panic!("a text summary request") };
-                json!({ "role": role, "content": text })
+                Message::new(role, Content::Text(m.get("content").as_str().to_owned()))
             })
             .collect();
-        json!({ "messages": messages, "model": request.model })
-    };
+        let text = |e: &Exact| match e {
+            Exact::Undefined => None,
+            other => Some(other.as_str().to_owned()),
+        };
+        let mut options = RequestOptions::default();
+        for (key, value) in opts.entries() {
+            match key.as_str() {
+                "session" => {
+                    let keys: Vec<&str> = value.entries().iter().map(|(k, _)| k.as_str()).collect();
+                    assert_eq!(keys, ["id", "sourceType", "provider", "model", "cwd"], "the session handle");
+                    assert_eq!((value.get("provider").as_str(), value.get("model").as_str()), ("openai", model.as_str()), "the session's route is the request's");
+                    assert_eq!((value.get("sourceType"), value.get("cwd")), (&Exact::Undefined, &Exact::Undefined));
+                    assert_eq!(Some(value.get("id").as_str()), text(opts.get("sessionId")).as_deref(), "the session handle names the request's session");
+                }
+                "effort" => options.effort = text(value),
+                "fast" => options.fast = value.as_bool(),
+                "requestKind" => options.request_kind = text(value),
+                "maxOutputTokens" => options.max_output_tokens_override = Some(value.as_f64() as u32),
+                "sessionId" => options.session_id = text(value),
+                "usageSessionId" => options.usage_session_id = text(value),
+                "effortConfigurationEnabled" => assert!(!value.as_bool(), "{key}"),
+                "signal" => assert_eq!(value.get("aborted"), &Exact::Bool(false), "{key}"),
+                // Effort spellings of other wires, the configuration, a continuation and the stream callbacks: absent.
+                _ => assert_eq!(value, &Exact::Undefined, "{key}"),
+            }
+        }
+        ModelRequest { model: model.as_str().to_owned(), messages, tools: Vec::new(), options }
+    }
 
-    let recorded: Value = serde_json::from_slice(&std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/compaction-pasted-text.json")).unwrap()).unwrap();
+    /// The pass reads its snapshot from the caller here; the world is never asked.
+    struct NoWorld;
+    #[async_trait]
+    impl ContextWorld for NoWorld {
+        async fn snapshot(&self, _: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError> {
+            unreachable!("the pass is handed its snapshot")
+        }
+        fn lowering(&self, _: &ThreadId, _: &str) -> Meters {
+            unreachable!("the pass is handed its snapshot")
+        }
+    }
+    /// The live session's header, which a failed pass patches.
+    struct Headers(Mutex<Header>);
+    #[async_trait]
+    impl ThreadState for Headers {
+        async fn header(&self, _: &ThreadId) -> Result<Header, mixdog_tools::orch::util::PortError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        async fn patch_header(&self, _: &ThreadId, set: serde_json::Map<String, Value>, unset: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
+            let mut header = self.0.lock().unwrap();
+            header.extend(set);
+            for key in unset {
+                header.remove(&key);
+            }
+            Ok(())
+        }
+        async fn patch_header_if(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<Option<serde_json::Map<String, Value>>, mixdog_tools::orch::util::PortError> {
+            unreachable!("a manual pass patches unconditionally")
+        }
+        async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
+            Ok(())
+        }
+    }
+    /// The recorder ran no hook.
+    struct NoHooks;
+    #[async_trait]
+    impl super::super::compact_hooks::CompactHooks for NoHooks {
+        async fn pre(&self, _: &ThreadId, _: &str) {}
+        async fn post(&self, _: &ThreadId, _: &str) {}
+    }
+    struct NoGauge;
+    impl mixdog_core_session::session::route_session::ContextStatusCache for NoGauge {
+        fn invalidate(&self, _: &ThreadId) {}
+    }
+    /// Node's live session: the pass reads its transcript, and the commit lands with no row appended meanwhile.
+    struct Committed {
+        rows: Vec<Value>,
+        header: Header,
+    }
+    #[async_trait]
+    impl PassTranscript for Committed {
+        async fn context(&self, _: &ThreadId) -> Result<Vec<(ItemId, Value)>, CoreError> {
+            Ok(self.rows.iter().enumerate().map(|(n, row)| (ItemId::from(format!("item_{n}")), row.clone())).collect())
+        }
+        async fn commit(&self, _: &ThreadId, _: Vec<ItemId>, _: Compaction, header: CompactionHeader) -> Result<CompactionCommit, CoreError> {            header(&self.header, &[]);
+            Ok(CompactionCommit::Applied)
+        }
+    }
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/compaction-pasted-text.json");
+    let exact = Exact::load(&path);
+    let recorded: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let mut compared = 0;
-    for case in recorded["cases"].as_array().unwrap() {
+    for (case, whole) in recorded["cases"].as_array().unwrap().iter().zip(exact.get("cases").as_array()) {
         let name = case["name"].as_str().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
@@ -325,7 +420,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             super::super::fixture_fs::write(&path, base64::engine::general_purpose::STANDARD.decode(data).unwrap());
             (name == "held-open").then(|| hold_open(&path))
         });
-        let script = (0..case["sends"].as_array().unwrap().len()).map(|_| MockAttempt::Body(b"t:SUMMARY of the conversation so far\ndone\n".to_vec()));
+        let script = (0..case["sends"].as_array().unwrap().len()).map(|_| MockAttempt::Body(b"t:SUMMARY of the conversation so far\nu:1000,50\ndone\n".to_vec()));
         let provider = Arc::new(Recording { inner: MockProvider::new(script), sent: Mutex::new(Vec::new()) });
         let registry = Arc::new(ProviderRegistry::new(Arc::new(Builds(provider.clone()))));
         let saved = json!({ "providers": { "openai": { "enabled": true } } }).as_object().cloned().unwrap();
@@ -337,13 +432,18 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         let docs = services.docs.clone();
         let compactors = SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), Arc::new(Fixed));
 
-        let rows: Vec<Value> = case["messages"].as_array().unwrap().clone();
+        // A core transcript row carries its id from the start; Node stamps the same ids on the unstamped messages
+        // before the pass (`stampMessageIds`, what migration assigns them).
+        let thread = ThreadId::from(format!("gaps-pasted-{name}"));
+        let mut rows: Vec<Value> = case["messages"].as_array().unwrap().clone();
+        for (row, id) in rows.iter_mut().zip(mixdog_migrate::session::ids::message_iids(thread.as_str(), &case["messages"].as_array().unwrap().clone())) {
+            row["meta"]["transcript"]["messageId"] = json!(id);
+        }
         let messages: Vec<AgentMessage> = rows.iter().map(|row| message_of(row).expect("a stored row")).collect();
         let mut header = Header::new();
         for (key, value) in [("provider", json!("openai")), ("model", json!("gpt-x")), ("contextWindow", json!(8000)), ("rawContextWindow", json!(8000)), ("effectiveContextWindowPercent", json!(100)), ("tools", json!([])), ("compaction", json!({ "auto": true }))] {
             header.insert(key.into(), value);
         }
-        let thread = ThreadId::from(format!("gaps-pasted-{name}"));
         let lowering = Arc::new(MediaLowering::new(thread.clone(), docs, reader, facts, false, ProviderId::from("openai")));
         let snapshot = ContextSnapshot {
             header: header.clone(),
@@ -364,21 +464,50 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             rows: Arc::new(StoredBodies),
             replay_owner: ProviderId::from("openai"),
         };
-        let plan = forced_plan(&snapshot, &priced(&header, &messages)).expect("a window").expect("a plan");
         let (dir_seams, seams) = run_seams().await;
-        let input = CompactorInput {
-            settings: seams.compact_settings(&header, false),
-            rows: Arc::new(StoredRows::new()),
-            archive: Arc::new(ToolResultArtifacts::new(ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io }, dir_seams.path(), thread.as_str())),
+        let manual = HostManualCompaction::new(ManualParts {
+            world: Arc::new(NoWorld),
+            threads: Arc::new(Headers(Mutex::new(header.clone()))),
+            config: Arc::new(seams),
+            compactors: Arc::new(compactors),
+            next: super::super::next_request_source::NextRequestSource::new(),
+            hooks: Arc::new(NoHooks),
+            gauge: Arc::new(NoGauge),
+            clock: Arc::new(Fixed),
+            recover: Arc::new(|_| {}),
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            data_dir: dir_seams.path().to_path_buf(),
             blobs: Arc::new(super::super::attachment_store::StoreBlobs::new(blobs.clone(), &tokens)),
+        });
+        let committed = Committed { rows: rows.clone(), header: header.clone() };
+        // Node's `runSessionCompaction(live, { mode: 'manual', force: true })` is the core's manual pass.
+        let outcome = manual.pass(&thread, "manual", false, snapshot, &committed).await;
+        // The send group ties the core loop's own retries of one send; Node retries inside `provider.send`, which is
+        // handed no such id.
+        let sent: Vec<ModelRequest> = provider
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| ModelRequest { options: RequestOptions { send_group: None, ..r.options.clone() }, ..(**r).clone() })
+            .collect();
+        let node: Vec<ModelRequest> = whole.get("sends").as_array().iter().map(request_of).collect();
+        assert_eq!(sent, node, "{name}: the summary requests, outcome {outcome:?}");
+        // A failure reaches the client as its message (`compactFailureNotice` presents the error's text); Node's
+        // errno code and props do not cross the core's attachment reader, which carries text only.
+        let (answered, node) = match outcome {
+            Ok(Some(value)) => (Exact::plain(&json!({ "value": value })), whole.get("result").clone()),
+            Ok(None) => (Exact::plain(&json!({ "value": null })), whole.get("result").clone()),
+            Err(CoreError::DomainError { message, .. }) => {
+                let text = message.as_deref().unwrap_or_default().replace(&dir.path().display().to_string(), "<data>");
+                (
+                    Exact::plain(&json!({ "error": { "message": text } })),
+                    Exact::plain(&json!({ "error": { "message": case["result"]["error"]["message"] } })),
+                )
+            }
+            Err(other) => panic!("{name}: not a domain failure: {other:?}"),
         };
-        let compactor = compactors.compactor(&thread, &header, &rows, input).await.expect("a compactor");
-        compactor.prepare(&messages).await;
-        let request = CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
-        let outcome = compactor.compact(request).await;
-        let sent: Vec<Value> = provider.sent.lock().unwrap().iter().map(|r| wire(r)).collect();
-        assert_eq!(Value::Array(sent), case["sends"], "{name}: the summary requests, outcome {:?}", outcome.as_ref().err());
-        assert_eq!(outcome.is_err(), case["result"].get("error").is_some(), "{name}: the outcome {:?}", outcome.err());
+        assert_eq!(answered, node, "{name}: the outcome differs");
         compared += 1;
     }
     assert_eq!(compared, 3);

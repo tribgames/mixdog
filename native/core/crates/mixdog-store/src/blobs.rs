@@ -130,7 +130,9 @@ impl BlobStore {
     pub fn new(data_dir: &Path) -> Self {
         Self {
             inner: Arc::new(Inner {
-                root: data_dir.join(BLOB_DIR),
+                // One component at a time: the paths a failed read names carry the platform's separator, as
+                // Node's `path.join` writes them.
+                root: BLOB_DIR.split('/').fold(data_dir.to_path_buf(), |path, part| path.join(part)),
                 shards: (0..256).map(|_| Shard { pins: Mutex::new(HashMap::new()) }).collect(),
             }),
         }

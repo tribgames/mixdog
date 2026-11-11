@@ -183,7 +183,7 @@ impl FreshCompactor {
             context_window: self.config.context_window,
             handoff_token_cap: self.config.handoff_token_cap,
             handoff_text,
-            active_turn: true,
+            active_turn: request.active_turn,
             reference_latest_attachments: request.reference_latest_attachments,
             force: true,
             preview,
@@ -199,7 +199,9 @@ impl Compactor for FreshCompactor {
     }
 
     async fn prepare(&self, messages: &[AgentMessage]) {
-        self.parts.media.prepare(messages).await;
+        // A read that fails for now leaves the part unpriced here; the pass reads the blob again for its summary and
+        // fails there (`referencedText` rethrows it).
+        let _ = self.parts.media.prepare(messages).await;
     }
 
     /// Compares like-for-like local estimates using the actual rules; no
