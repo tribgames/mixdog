@@ -112,6 +112,8 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       hub.records.push(record);
       const reply = hub.reply?.(record, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
       record.reply = reply;
+      // `date` is the one wall-clock header Node adds; fixed so the response heads the product records are stable.
+      res.setHeader('date', 'Thu, 01 Jan 2026 00:00:00 GMT');
       res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.headers ?? {}) });
       res.end(reply.body);
     });

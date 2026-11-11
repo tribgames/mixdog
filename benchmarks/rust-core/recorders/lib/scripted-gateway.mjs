@@ -18,6 +18,8 @@ export async function gateway(respond) {
     map.delete(n);
   };
   const server = createServer((req, res) => {
+    // The Date header is the only wall-clock value the server adds: it is fixed so the recorded response heads are stable.
+    res.setHeader('Date', 'Thu, 01 Jan 2026 00:00:00 GMT');
     let raw = '';
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
