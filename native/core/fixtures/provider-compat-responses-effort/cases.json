@@ -270,7 +270,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -289,7 +323,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-chat"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -308,7 +376,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-5.6-sol",
+                "row": {
+                  "id": "openai/gpt-5.6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -327,7 +429,37 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         }
@@ -839,7 +971,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -847,7 +1013,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -928,7 +1128,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -936,7 +1170,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -1053,7 +1321,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -1061,7 +1363,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -1214,7 +1550,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -1222,7 +1592,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -1411,7 +1815,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -1419,7 +1857,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6-sol",
+                "row": {
+                  "id": "gpt-6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -2039,7 +2511,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -2047,7 +2553,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -2128,7 +2668,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -2136,7 +2710,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -2253,7 +2861,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -2261,7 +2903,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -2414,7 +3090,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -2422,7 +3132,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -2611,7 +3355,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -2619,7 +3397,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -2879,7 +3691,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "none",
+                    "low",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -2887,7 +3733,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "none",
+                    "low",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -2968,7 +3848,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "none",
+                    "low",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -2976,7 +3890,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "none",
+                    "low",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -3300,7 +4248,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -3324,7 +4306,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -3477,7 +4493,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -3485,7 +4535,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -3823,7 +4907,43 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.2-reject",
+                "row": {
+                  "id": "openai/gpt-6.2-reject",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": {
+                      "callback": "reject"
+                    }
+                  }
+                }
+              }
             }
           ]
         },
@@ -3831,7 +4951,43 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.2-reject",
+                "row": {
+                  "id": "openai/gpt-6.2-reject",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": {
+                      "callback": "reject"
+                    }
+                  }
+                }
+              }
             },
             [
               {
@@ -3912,7 +5068,43 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.2-reject",
+                "row": {
+                  "id": "openai/gpt-6.2-reject",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": {
+                      "callback": "reject"
+                    }
+                  }
+                }
+              }
             }
           ]
         },
@@ -3920,7 +5112,43 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.2-reject",
+                "row": {
+                  "id": "openai/gpt-6.2-reject",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": {
+                      "callback": "reject"
+                    }
+                  }
+                }
+              }
             },
             [
               {
@@ -4003,7 +5231,43 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.2-reject",
+                "row": {
+                  "id": "openai/gpt-6.2-reject",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": {
+                      "callback": "reject"
+                    }
+                  }
+                }
+              }
             }
           ]
         },
@@ -4011,7 +5275,43 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.3-other",
+                "row": {
+                  "id": "openai/gpt-6.3-other",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": {
+                      "callback": "reject"
+                    }
+                  }
+                }
+              }
             },
             [
               {
@@ -4409,7 +5709,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4428,7 +5762,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4448,7 +5816,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4468,7 +5870,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4490,7 +5926,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4510,7 +5980,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4532,7 +6036,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4551,7 +6089,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4571,7 +6143,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4595,7 +6201,42 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "opencode-go",
+              "config": {
+                "preconnect": false,
+                "responsesPromptCacheKey": true
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4616,7 +6257,44 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false,
+                "responsesParamsHook": {
+                  "callback": "responsesParamsHook"
+                }
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-6.1-sol",
+                "row": {
+                  "id": "openai/gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4802,7 +6480,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-5.6-sol",
+                "row": {
+                  "id": "openai/gpt-5.6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -4810,7 +6522,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-5.6-sol",
+                "row": {
+                  "id": "openai/gpt-5.6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4891,7 +6637,41 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-5.6-sol",
+                "row": {
+                  "id": "openai/gpt-5.6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -4899,7 +6679,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-5.6-sol",
+                "row": {
+                  "id": "openai/gpt-5.6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
@@ -4972,7 +6786,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-5.6-sol",
+                "row": {
+                  "id": "openai/gpt-5.6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -4999,7 +6847,41 @@
               ]
             },
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "custom-g",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "openai/gpt-5.6-sol",
+                "row": {
+                  "id": "openai/gpt-5.6-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             }
           ]
         },
@@ -5007,7 +6889,41 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "opencode-go",
+              "config": {
+                "preconnect": false
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "cachedModelInfo": {
+                "model": "gpt-6.1-sol",
+                "row": {
+                  "id": "gpt-6.1-sol",
+                  "reasoningLevels": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "customReasoning": {
+                    "wireFormat": "standard",
+                    "wireValues": {
+                      "high": "H"
+                    },
+                    "replay": false
+                  }
+                }
+              },
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)",
+                    "reject": null
+                  }
+                }
+              }
             },
             [
               {
