@@ -165,8 +165,8 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
             "/call/request/messages/*/turnReminder",
             "/call/request/tools/*/description",
             "/call/request/tools/*/inputSchema/**",
-            "/call/request/options/hostedTools/*/user_location/city",
-            "/call/request/options/hostedTools/*/user_location/region",
+            "/call/request/options/hostedTools/*/userLocation/city",
+            "/call/request/options/hostedTools/*/userLocation/region",
         ],
     ),
     (
