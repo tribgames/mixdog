@@ -117,7 +117,13 @@ pub struct TestCompaction {
     pub offloads: Mutex<Option<(std::path::PathBuf, u64)>>,
     /// The next listing tells `.0` it arrived, then waits for `.1`.
     pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// A compaction that commits its result as the host's does (`HostManualCompaction::compact` commits through the
+    /// directory): `compact` answers what it answers instead of `result`.
+    pub commits: Mutex<Option<CommitWith>>,
 }
+
+/// What [`TestCompaction::commits`] runs for a thread.
+pub type CommitWith = Arc<dyn Fn(ThreadId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Value>, mixdog_core_api::CoreError>> + Send>> + Send + Sync>;
 
 /// The host's tool-result store of `thread` under the data dir `data`.
 pub fn offload_store(data: &std::path::Path, thread: &ThreadId) -> mixdog_core_run::run_host::artifact::ToolResultArtifacts {
@@ -135,14 +141,18 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         }
         Ok(lock(&self.heir_rows).clone())
     }
-    async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
         self.called.notify_waiters();
         let hold = lock(&self.hold).clone();
         if let Some(hold) = hold {
             hold.notified().await;
         }
-        Ok(lock(&self.result).clone())
+        let commits = lock(&self.commits).clone();
+        match commits {
+            Some(commit) => commit(thread.clone()).await,
+            None => Ok(lock(&self.result).clone()),
+        }
     }
     async fn post_compact(&self, _: &ThreadId, trigger: &str) {
         lock(&self.calls).push(format!("post {trigger}"));
