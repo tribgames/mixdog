@@ -16,13 +16,13 @@
 // the stock tree, without --patch, shows the refusal).
 import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createConnection, createServer } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { register } from 'node:module';
-import { FIXTURES_ROOT, commitStage, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, nodeTreeIdentity, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest } from './lib/common.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -95,7 +95,40 @@ const { createAgentEditorApi } = await imp('src/session-runtime/workflow-agents-
 const { getPluginData } = await imp('src/runtime/agent/orchestrator/config.mjs');
 const { WebhookServer } = await imp('src/runtime/channels/lib/webhook.mjs');
 const pgAdapter = await imp('src/runtime/memory/lib/pg/adapter.mjs');
+const { setAgentHomeLiveSurface } = await imp('src/session-runtime/agent-home-delivery.mjs');
+const { agentHomeSessionId } = await imp('src/runtime/agent/orchestrator/session/agent-home.mjs');
 createAgentEditorApi({ cfgMod: { getPluginData } }).saveLeadIdentity({ name: 'Harness Lead' });
+
+// The session service, running: the live surface daemon.mjs:1170-1201 installs over `sessionService.submitSession`,
+// whose routine submit is the boundary kept here. Each routine turn is accepted, committed and settled `done`, and kept
+// in the order it was submitted. The owner's home thread is a stored session (the legacy record `loadSession` reads).
+const HOME = agentHomeSessionId('lead');
+mkdirSync(join(dataDir, 'sessions'), { recursive: true });
+writeFileSync(join(dataDir, 'sessions', `${HOME}.json`), JSON.stringify({ id: HOME, owner: 'user', agent: 'lead', closed: false, generation: 1, updatedAt: 1, messages: [] }));
+// The routine header's `Local time` (routine-trigger.mjs `now = new Date()`) is read on a virtual wall clock: a `new
+// Date()` made inside routine-trigger.mjs is this instant; every other Date is real.
+const WALL = 1_700_000_000_000;
+const RealDate = globalThis.Date;
+globalThis.Date = class extends RealDate {
+  constructor(...dateArgs) {
+    if (dateArgs.length === 0 && new Error().stack.includes('/routine-trigger.mjs')) super(WALL);
+    else super(...dateArgs);
+  }
+};
+const turns = [];
+const turnWaiters = [];
+setAgentHomeLiveSurface({
+  busy: () => false,
+  notice: () => {},
+  abort: () => {},
+  submit: async (sessionId, prompt, options) => {
+    turns.push({ sessionId, prompt, mode: options.mode, priority: options.priority, skillSelection: options.skillSelection, transcriptMeta: options.transcriptMeta });
+    for (const w of turnWaiters.filter((w) => turns.length >= w.n)) { turnWaiters.splice(turnWaiters.indexOf(w), 1); w.resolve(); }
+    queueMicrotask(() => { options.onCommitted?.(); options.onSettled?.({ status: 'done', result: { content: '' } }); });
+    return true;
+  },
+});
+const turnCount = (n) => (turns.length >= n ? Promise.resolve() : new Promise((resolve) => turnWaiters.push({ n, resolve })));
 
 const loader = createChannelsRuntimeLoader({ log: () => {}, setOwnerContext: () => {} });
 let attached = false;
@@ -130,25 +163,26 @@ const api = createChannelConfigApi({ channels, reloadChannelsSoon, ensureAutomat
 const PORT = 47312;
 const SECRET = 'late-reload-secret';
 const BODY = '{"action":"opened"}';
-const HEADERS = {
+const headersOf = (body) => ({
   'content-type': 'application/json',
   'x-github-event': 'issues',
-  'x-hub-signature-256': `sha256=${createHmac('sha256', SECRET).update(BODY).digest('hex')}`,
-};
+  'x-hub-signature-256': `sha256=${createHmac('sha256', SECRET).update(body).digest('hex')}`,
+});
+const HEADERS = headersOf(BODY);
 const listening = () => new Promise((resolve) => {
   const socket = createConnection({ host: '127.0.0.1', port: PORT }, () => { socket.destroy(); resolve(true); });
   socket.on('error', () => resolve(false));
 });
 // One delivery on a fresh connection: the reply, or the error the connection ended with.
-const deliver = () => new Promise((resolve) => {
-  const req = request({ host: '127.0.0.1', port: PORT, method: 'POST', path: '/webhook/gh', headers: HEADERS, agent: false }, (res) => {
+const deliver = (body = BODY) => new Promise((resolve) => {
+  const req = request({ host: '127.0.0.1', port: PORT, method: 'POST', path: '/webhook/gh', headers: headersOf(body), agent: false }, (res) => {
     let text = '';
     res.setEncoding('utf8');
     res.on('data', (chunk) => { text += chunk; });
     res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(text) }));
   });
   req.on('error', (error) => resolve({ error: error.code ?? String(error) }));
-  req.end(BODY);
+  req.end(body);
 });
 
 // The delivery goes out once the reload's webhook sync has entered `reloadConfig`.
@@ -162,7 +196,7 @@ WebhookServer.prototype.reloadConfig = function (...callArgs) {
 
 await admin.setWebhookConfigAsync({ port: PORT });
 const ENTRY = { name: 'gh', instructions: 'Triage the issue.', secret: SECRET };
-const result = { port: PORT, entry: ENTRY, body: BODY, headers: HEADERS };
+const result = { port: PORT, entry: ENTRY, body: BODY, headers: HEADERS, home: HOME, wallClock: WALL, timeZone: process.env.TZ };
 result.saveReply = await api.saveWebhook(ENTRY);
 await entered.promise;
 await fireVirtualTimers();
@@ -181,7 +215,8 @@ if (!delivery) throw new Error('the reload never reached WebhookServer.reloadCon
 result.delivery = await delivery;
 result.listeningAfter = await listening();
 
-// Every reload of the receiver, as it is entered and as it ends.
+// Every reload of the receiver, as it is entered and as it ends; the delivery its entry sends carries `nextBody`.
+let nextBody = BODY;
 const reloadsEntered = [];
 let reloadsEnded = 0;
 const reloadEnded = [];
@@ -190,7 +225,7 @@ WebhookServer.prototype.reloadConfig = function (config, ...rest) {
   reloadsEntered.push(config.port ?? null);
   for (const w of reloadEntered.splice(0)) w();
   const reloaded = reloadConfig.call(this, config, ...rest);
-  delivery ??= deliver();
+  delivery ??= deliver(nextBody);
   return Promise.resolve(reloaded).finally(() => { reloadsEnded += 1; for (const w of reloadEnded.splice(0)) w(); });
 };
 const reloadsSettled = async () => {
@@ -235,18 +270,22 @@ for (const port of [OTHER, PORT]) {
     // The delivery the reload's entry sent to the old port (its listener closing), and one sent once it ended.
     afterReload: await deliver(),
     listeningOnFirst: await listensOn(PORT),
-    log: log.slice(from).filter((line) => /^mixdog webhook: /.test(line)),
+    log: log.slice(from).filter((line) => /^mixdog webhook: /.test(line)).map((line) => line.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<id>')),
   });
 }
 for (const server of blockers) server.close();
 result.portBounce = { otherPort: OTHER, blocked: 8, steps };
 
-// An external config edit: another process changes the channels section (port kept); the worker's config watch
-// (config-reload-watch.mjs) hears it and reloads the runtime, whose webhook sync is where the delivery lands.
+// An external config edit: another process changes the channels section in the file on disk (port kept); the worker's
+// config watch (config-reload-watch.mjs) hears it and reloads the runtime, whose webhook sync is where the delivery
+// lands: a delivery not seen before, so it runs a routine turn in the owner's home thread, once.
 delivery = null;
 reloadsEntered.length = 0; reloadsEnded = 0;
+const EDIT_BODY = '{"action":"edited"}';
+nextBody = EDIT_BODY;
+const turnsBefore = turns.length;
 const sharedConfig = pathToFileURL(join(tree, 'src/runtime/shared/config.mjs')).href;
-result.configEdit = { section: 'channels', set: { revision: 1 } };
+result.configEdit = { section: 'channels', set: { revision: 1 }, body: EDIT_BODY, headers: headersOf(EDIT_BODY) };
 const write = `const { updateSection } = await import(${JSON.stringify(sharedConfig)}); updateSection('channels', (section) => ({ ...section, revision: 1 }));`;
 const entered1 = new Promise((resolve) => reloadEntered.push(resolve));
 const child = spawnSync(process.execPath, ['--input-type=module', '-e', write], { env: { ...process.env }, encoding: 'utf8', timeout: 30_000 });
@@ -256,6 +295,9 @@ await reloadsSettled();
 result.configEdit.delivery = await delivery;
 result.configEdit.reloads = reloadsEntered.length;
 result.configEdit.listeningAfter = await listening();
+await within('the config edit delivery\'s routine turn', turnCount(turnsBefore + 1));
+result.configEdit.turns = turns.slice(turnsBefore);
+result.turns = turns;
 result.log =log.filter((line) => /^mixdog webhook: /.test(line)).map((line) => line.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<id>'));
 
 const out = args.get('out');
