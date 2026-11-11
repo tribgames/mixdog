@@ -368,17 +368,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -1747,17 +1747,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -4749,17 +4749,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -4890,17 +4890,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -5031,17 +5031,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -5172,17 +5172,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -5313,17 +5313,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -9440,17 +9440,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -10194,17 +10194,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
