@@ -132,7 +132,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/call-tool/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/call-tool/golden.json");
 
 /// Everything observable, in the order it happened (the recording's `timeline`).
 #[derive(Clone, Default)]
@@ -1561,7 +1561,7 @@ const MANIFEST: &str = include_str!("../../../../fixtures/call-tool/MANIFEST.jso
 /// Replays the recorded scenarios and returns the differences from Node's recording, and how much each [`NOT_COMPARED`] entry removed
 /// from the recording.
 async fn differences() -> (usize, Vec<String>, Vec<usize>) {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
     let manifest: Value = serde_json::from_str(MANIFEST).expect("manifest parses");
     let clock_keys = strings(&manifest["normalisations"]["clockKeys"]);
     assert!(!clock_keys.is_empty(), "the manifest declares its clock keys");
@@ -1606,7 +1606,7 @@ async fn differences() -> (usize, Vec<String>, Vec<usize>) {
 /// Node's recording and the core's replay of every scenario: each output whole, less the paths `NOT_COMPARED` lists.
 #[tokio::test]
 async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
     let recorded_count = golden["scenarios"].as_array().expect("scenarios").len();
     let (compared, failures, removed) = awaiting_for(Duration::from_secs(300), || "the whole replay".to_owned(), differences()).await;
     assert_eq!(compared, recorded_count, "every recorded scenario is replayed");

@@ -1547,8 +1547,7 @@ mod tests {
     /// real TUI/desktop notice surface made of it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_providers_notice_reaches_the_threads_clients_as_the_row_node_showed() {
-        #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 4.8 MB out of the test build
-        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/wire-anthropic-gemini/gemini.json")).expect("the Gemini recording");
+        let text = mixdog_testkit::fixture!("../../fixtures/wire-anthropic-gemini/gemini.json");
         let recorded: Value = serde_json::from_str(&text).expect("the Gemini recording");
         let send = &recorded["scenarios"].as_array().unwrap().iter().find(|s| s["id"] == "pro25.boundary-at").expect("the redirect scenario")["sends"][0];
         let (notice, row) = (&send["notices"][0], &send["noticeRows"][0]);
@@ -1744,7 +1743,7 @@ mod tests {
         use mixdog_core_ports::ports::threads::ThreadState;
         // The same turn also carries a workflow switch, a prepared worktree's report and a deferred-tool delta, staged as
         // Node leaves them (`fixtures/turn-reminders`).
-        let reminders: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-reminders/twin.json")).unwrap();
+        let reminders: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/turn-reminders/twin.json")).unwrap();
         let session_of = |name: &str| reminders["cases"].as_array().unwrap().iter().find(|case| case["name"] == name).unwrap()["session"].clone();
         let (switched, setup, delta) = (session_of("workflow-carried-by-prompt"), session_of("setup-notice"), session_of("deferred-delta-removals-only"));
         let staged: serde_json::Map<String, Value> = [

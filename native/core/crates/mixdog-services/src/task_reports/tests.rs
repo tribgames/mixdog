@@ -14,10 +14,10 @@ use super::follow::*;
 use super::rearm::*;
 use super::{progress_run_id, turn_report_run_id};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/memory-jobs/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("golden parses")
+    serde_json::from_str(&GOLDEN).expect("golden parses")
 }
 
 fn outcome_json(outcome: &Outcome) -> Value {

@@ -101,7 +101,7 @@ pub enum DbError {
 pub(crate) fn open_connection(path: &Path) -> Result<Connection, DbError> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "FULL")?;
+    conn.pragma_update(None, "synchronous", crate::fsio::sqlite_synchronous())?;
     conn.pragma_update(None, "wal_autocheckpoint", 0)?;
     conn.pragma_update(None, "foreign_keys", "OFF")?;
     conn.busy_timeout(std::time::Duration::ZERO)?;
