@@ -1,6 +1,7 @@
 {
   "set": "provider-anthropic-server-fallback",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "eligible-families-default-fallback",
@@ -18,7 +19,44 @@
         },
         "appliedDisabled": false,
         "disabled": {}
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.supportsAnthropicServerFallback",
+          "args": [
+            "claude-opus-5"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.supportsAnthropicServerFallback",
+          "args": [
+            "claude-fable-5-20260801"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.supportsAnthropicServerFallback",
+          "args": [
+            "claude-opus-4-8"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.applyAnthropicServerFallback",
+          "args": [
+            {},
+            "claude-opus-5"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.applyAnthropicServerFallback",
+          "args": [
+            {},
+            "claude-opus-5",
+            {
+              "enabled": false
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "beta-header-gated-and-deduplicated",
@@ -31,7 +69,27 @@
         "onList": [
           "server-side-fallback-2026-07-01"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-betas.mjs.buildAnthropicBetaHeaders",
+          "args": [
+            {
+              "base": "",
+              "serverFallback": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-betas.mjs.buildAnthropicBetaHeaders",
+          "args": [
+            {
+              "base": "server-side-fallback-2026-07-01",
+              "serverFallback": true
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "oauth-body-opts-eligible-models",
@@ -84,7 +142,34 @@
             "type": "adaptive"
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs._buildRequestBodyForCacheSmoke",
+          "args": [
+            [],
+            "claude-opus-5"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs._buildRequestBodyForCacheSmoke",
+          "args": [
+            [],
+            "claude-opus-4-8"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs._buildRequestBodyForCacheSmoke",
+          "args": [
+            [],
+            "claude-opus-5",
+            [],
+            {
+              "serverFallback": false
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "fallback-block-parser",
@@ -112,7 +197,36 @@
           "category": "cyber"
         },
         "notAFallback": null
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.parseAnthropicFallbackBlock",
+          "args": [
+            {
+              "type": "fallback",
+              "from": {
+                "model": "claude-opus-5"
+              },
+              "to": {
+                "model": "claude-opus-4-8"
+              },
+              "trigger": {
+                "type": "refusal",
+                "category": "cyber"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.parseAnthropicFallbackBlock",
+          "args": [
+            {
+              "type": "text",
+              "text": "fallback"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "sse-records-fallback-attributes-serving-model",
@@ -187,6 +301,9 @@
         "result": {
           "content": "done",
           "model": "claude-opus-4-8",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 10,
             "outputTokens": 2,
@@ -199,11 +316,17 @@
             "promptTokens": 10
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "fallback",
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -243,7 +366,47 @@
           "ttftAt": 1794225600000,
           "emittedTextChars": 4
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs.parseSSEStream",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "attemptIndex": 0,
+              "sawMessageStart": false,
+              "sawCompleted": false,
+              "emittedToolCall": false,
+              "partialToolCall": false,
+              "emittedThinking": false,
+              "emittedText": false
+            },
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "agent-loop-usage-delta-serving-model",
@@ -262,7 +425,10 @@
             "cachedTokens": 3,
             "cacheWriteTokens": 4,
             "cacheWrite1hTokens": 0,
-            "promptTokens": 8
+            "promptTokens": 8,
+            "raw": {
+              "$exact": "undefined"
+            }
           },
           "lastTurnUsage": {
             "inputTokens": 1,
@@ -280,11 +446,20 @@
             "cachedTokens": 3,
             "cacheWriteTokens": 4,
             "cacheWrite1hTokens": 0,
-            "promptTokens": 8
+            "promptTokens": 8,
+            "raw": {
+              "$exact": "undefined"
+            }
           },
           "iterations": 1,
           "toolCallsTotal": 0,
+          "providerState": {
+            "$exact": "undefined"
+          },
           "providerStateUpdated": false,
+          "terminationReason": {
+            "$exact": "undefined"
+          },
           "providerContinuations": 0
         },
         "deltas": [
@@ -316,7 +491,38 @@
             "ts": 1794225600000
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/session/agent-loop.mjs.agentLoop",
+          "args": [
+            {
+              "name": "anthropic-oauth",
+              "send": {
+                "callback": "send"
+              }
+            },
+            [
+              {
+                "role": "user",
+                "content": "test"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {
+              "callback": ""
+            },
+            "C:\\Users\\tempe\\side\\pool\\w22",
+            {
+              "sessionId": "server-fallback-usage-test",
+              "onUsageDelta": {
+                "callback": "onUsageDelta"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
