@@ -46,7 +46,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "5a1bc2a993be16a1919a82639f5f10144f4a9fd529227651dcc68eaa51a9e9c4"
     }
   ],
   "nodeVersion": "v22.20.0",
