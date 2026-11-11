@@ -47,7 +47,7 @@
   "nodeVersion": "v22.20.0",
   "normalised": {
     "paths": [],
-    "reason": "the temp data dir is written <data>"
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-user-send-cases.mjs",
-  "recorderSha256": "7fb1063ec61a30d6319627c4f5494d955b4e1f9c1662065f68e9e1384e5628f2",
+  "recorderSha256": "592019bf0cb52c7bba17ca14e95d6a80e64bcd58405ba1d60c26180f290f5e8e",
   "replay": {
     "compare": "per case: each send's answer (`returned` = the reply, `threw` = Node's error as its caller got it, which the core's domain error must equal once the desktop's coreFailure (apps/desktop/src/shared/core-error.ts) turns it into an error: message, code, and details = the detail's fields without the wire's type tag), the log rows read back (DirectoryRoomDaemon::room_rows), the routed requests in Node's option shape ({ roomId, to, everyone, waiting }), the room fields after the send (lastSpeaker, lastAt, lastPreview, submissions), the catalog republish count, and for the files case the stored bytes of each part",
     "entry": "Drive these public items on o1: room/send (mixdog-app-protocol/src/methods.rs RoomSend; served by mixdog-core-rooms/src/rooms/service.rs RoomService, whose send step is rooms/user_send.rs UserSend over live.rs LiveRooms::send).",

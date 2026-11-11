@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "a22b6fb782dfb9f9c6290935b82654961925333fd2a1feb33734ce43cdfd2a4a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",

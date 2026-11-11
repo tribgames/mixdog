@@ -77,6 +77,8 @@ async function sending({ rooms = [room()], sends, files = false }) {
         throw new Error('recorder: a send relays nothing');
       },
     },
+    // Not the wall clock: openSet holds Date.now at FIXED_NOW for the whole run (lib/case-set.mjs:20), the
+    // golden's clock.dateNow, which the replay gives the core as its now.
     now: () => Date.now(),
     newId: () => {
       throw new Error('recorder: every recorded send has a valid submission id');
@@ -150,8 +152,6 @@ await set.finish({
     entry: "mixdog-core-rooms room/send (rooms/service.rs RoomService, rooms/user_send.rs) over LiveRooms (live.rs View::post) with mixdog-core's SessionFiles intake and DirectoryRoomDaemon on a real thread store: mixdog-core run_host/room_send_replay.rs",
     compare: "per case: each send's answer (`returned` = the reply, `threw` = Node's error as its caller got it, which the core's domain error must equal once the desktop's coreFailure (apps/desktop/src/shared/core-error.ts) turns it into an error: message, code, and details = the detail's fields without the wire's type tag), the log rows read back (DirectoryRoomDaemon::room_rows), the routed requests in Node's option shape ({ roomId, to, everyone, waiting }), the room fields after the send (lastSpeaker, lastAt, lastPreview, submissions), the catalog republish count, and for the files case the stored bytes of each part",
   },
-  replaceInText: [[dataDir, '<data>']],
-  normaliseReason: 'the temp data dir is written <data>',
 });
 rmSync(dataDir, { recursive: true, force: true });
 process.exit(0);
