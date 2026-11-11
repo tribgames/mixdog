@@ -7,7 +7,14 @@ use mixdog_core_api::domain::provider::RequestOptions;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use mixdog_ai::broker::SendError;
+use mixdog_testkit::Exact;
+
 use crate::provider_case::CaseSet;
+use crate::replay_errors::Left;
+use crate::replay_errors::compare_error;
+use crate::replay_errors::compare_outcome;
+use crate::replay_world::Events;
 use crate::provider_case::Endpoint;
 use crate::provider_case::within;
 use crate::replay_world;
@@ -57,26 +64,45 @@ async fn replay_requests(id: &str, entry: &str, end: End) {
         options: RequestOptions::default(),
     };
     let cancel = CancellationToken::new();
-    let send = replay_world::send(&*adapter, request, &cancel);
-    match end {
-        End::Served => {
-            let _ = within("the send", send).await;
-        }
-        End::Cancelled => {
-            let canceller = async {
-                endpoint.until("the request", |e| !e.arrivals().is_empty()).await;
-                cancel.cancel();
-            };
-            let _ = within("the cancelled send", async { tokio::join!(send, canceller) }).await;
-            // Node's cancel closed the held response's connection; the endpoint records that close.
-            endpoint
-                .until("the client to close the cancelled request's connection", |e| {
-                    e.arrivals().iter().any(|a| a.try_get("clientClosedConnection").is_some())
-                })
-                .await;
-        }
+    let sink = Events { cancel_on_text: (end == End::Cancelled).then(|| cancel.clone()), ..Events::default() };
+    let (sent, events) = within("the send", replay_world::send_with(&*adapter, request, &cancel, sink)).await;
+    if end == End::Cancelled {
+        // Node's cancel closed the held response's connection; the endpoint records that close.
+        endpoint
+            .until("the client to close the cancelled request's connection", |e| {
+                e.arrivals().iter().any(|a| a.try_get("clientClosedConnection").is_some())
+            })
+            .await;
     }
     set.assert_requests(case, &endpoint.arrivals(), None);
+    compare_result(&format!("{SET} {id}"), case.result(), &Left::of(&sent, &events), &sent);
+}
+
+/// The case's `{ error, outcome, classification, ... }` against what left the provider layer.
+fn compare_result(what: &str, result: &Exact, left: &Left<'_>, sent: &Result<u32, SendError>) {
+    for (key, value) in result.entries() {
+        let what = format!("{what}.{key}");
+        match key.as_str() {
+            "error" => compare_error(&what, value, left),
+            "outcome" => compare_outcome(&what, value, left),
+            // `classifyError`: `permanent` and `auth` surface the error with no retry (the one request compared above),
+            // `transient` retries it.
+            "classification" => match value.as_str() {
+                "permanent" | "auth" => assert!(
+                    matches!(sent, Err(SendError::Provider(_) | SendError::Cancelled)),
+                    "{what}: surfaced without a retry: {sent:?}"
+                ),
+                "transient" => assert!(matches!(sent, Err(SendError::Exhausted(_))), "{what}: retried: {sent:?}"),
+                other => panic!("{what}: classification {other}"),
+            },
+            // The recorder's check that the send rejected with the caller's abort reason.
+            "rejectedWithTheCallerReason" => assert_eq!(left.cancelled(), value.as_bool(), "{what}"),
+            // The AbortSignal listeners left after the send: Node's release of the pending read, which on the wire is
+            // the client's close of the held response (compared with the requests).
+            "listenersAfter" => assert_eq!(value.as_f64(), 0.0, "{what}: Node released the pending read"),
+            other => panic!("{what}: no comparison for result.{other}"),
+        }
+    }
 }
 
 #[tokio::test(start_paused = true)]

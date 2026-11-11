@@ -252,6 +252,141 @@ pub(super) fn classify_http(response: &ErrorResponse, now_ms: u64) -> ProviderEr
     })
 }
 
+/// `httpResponseError` (`openai-error-contract.mjs:261`): the message of a refused response (an HTTP/SSE request or a
+/// WebSocket upgrade) under `label`, with the typed wire error's user copy in place of the server's own text
+/// (`applyErrorContract`). `classified` is the response's classification (its code and reset time).
+pub(super) fn http_response_message(label: &str, response: &ErrorResponse, classified: &ProviderError, now_ms: u64) -> String {
+    let text = String::from_utf8_lossy(&response.body);
+    let json: Option<Value> = serde_json::from_str(&text).ok();
+    let error = json.as_ref().and_then(|j| match j.get("error") {
+        Some(e) if e.is_object() => Some(e),
+        _ => j.is_object().then_some(j),
+    });
+    let own = error.and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or_default();
+    let diagnostic = mixdog_js::slice_utf16(if own.is_empty() { &text } else { own }, MESSAGE_LIMIT);
+    let status = response.status.unwrap_or(0);
+    let message = if diagnostic.is_empty() { format!("{label} {status}") } else { format!("{label} {status}: {diagnostic}") };
+    let kind_type = error.and_then(|e| e.get("type")).and_then(Value::as_str).map(|t| t.trim().to_lowercase()).unwrap_or_default();
+    let reset_ms = classified.reset_at.and_then(|at| at.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as f64);
+    let mapped = typed_wire_message(classified.code.as_deref().unwrap_or_default(), &kind_type, error, &response.headers, reset_ms, now_ms);
+    if mapped.is_empty() {
+        return message;
+    }
+    // `applyTypedWireMessage`: the server's text at the end of the message is swapped for the copy.
+    for needle in [own.to_owned(), mixdog_js::slice_utf16(own, MESSAGE_LIMIT)] {
+        if !needle.is_empty() && message.ends_with(&needle) {
+            return format!("{}{mapped}", &message[..message.len() - needle.len()]);
+        }
+    }
+    if own.is_empty() && !message.is_empty() { format!("{message}: {mapped}") } else { message }
+}
+
+const QUOTA_EXCEEDED_CODES: [&str; 5] = [
+    "insufficient_quota",
+    "credit_balance_exhausted",
+    "organization_spend_limit_exceeded",
+    "project_spend_limit_exceeded",
+    "organization_usage_limit_exceeded",
+];
+
+/// `typedWireErrorMessage`: the user copy of a typed wire error, empty when none applies.
+fn typed_wire_message(code: &str, kind_type: &str, error: Option<&Value>, headers: &[(String, String)], reset_ms: Option<f64>, now_ms: u64) -> String {
+    let named = |name: &str| header(headers, name).map(str::trim).unwrap_or_default().to_owned();
+    if kind_type == "usage_limit_reached" || code == "usage_limit_reached" {
+        let limit_id = named("x-codex-active-limit").to_lowercase().replace('_', "-");
+        let limit_name = if limit_id.is_empty() { String::new() } else { named(&format!("x-{limit_id}-limit-name")) };
+        let plan = error.and_then(|e| e.get("plan_type")).and_then(Value::as_str).unwrap_or_default();
+        return usage_limit_message(plan, reset_ms, &named("x-codex-promo-message"), &named("x-codex-rate-limit-reached-type"), &limit_name, now_ms);
+    }
+    if kind_type == "usage_not_included" || code == "usage_not_included" {
+        return "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.".into();
+    }
+    if QUOTA_EXCEEDED_CODES.contains(&code) || kind_type == "insufficient_quota" {
+        return "Quota exceeded. Check your plan and billing details.".into();
+    }
+    if code == "server_is_overloaded" {
+        return "Selected model is at capacity. Please try a different model.".into();
+    }
+    let fallback = match code {
+        "websocket_connection_limit_reached" => {
+            "Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue."
+        }
+        "previous_response_not_found" => "Previous response was not found. Retrying the full request.",
+        _ => return String::new(),
+    };
+    let own = error.and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or_default();
+    if own.trim().is_empty() { fallback.into() } else { String::new() }
+}
+
+/// `usageLimitMessage`: per-limit name first, then workspace credits / spend cap, then the promo, then the plan's copy.
+fn usage_limit_message(plan: &str, reset_ms: Option<f64>, promo: &str, reached_type: &str, limit_name: &str, now_ms: u64) -> String {
+    let at = reset_ms.filter(|ms| *ms != 0.0).map(|ms| retry_timestamp(ms, now_ms as f64)).unwrap_or_default();
+    let suffix = if at.is_empty() { " Try again later.".to_owned() } else { format!(" Try again at {at}.") };
+    let suffix_or = if at.is_empty() { " or try again later.".to_owned() } else { format!(" or try again at {at}.") };
+    let name = limit_name.trim();
+    if !name.is_empty() && !name.eq_ignore_ascii_case("codex") && !name.eq_ignore_ascii_case("gpt-reserve") {
+        return format!("You’ve hit your usage limit for {name}. Switch to another model now,{suffix_or}");
+    }
+    let workspace = match reached_type.to_lowercase().as_str() {
+        "workspace_owner_credits_depleted" => Some("Your workspace is out of credits. Add credits to continue."),
+        "workspace_member_credits_depleted" => {
+            Some("Your workspace is out of credits. Ask your workspace owner to refill in order to continue.")
+        }
+        "workspace_owner_usage_limit_reached" => {
+            Some("You hit your spend cap set in your workspace. Increase your spend cap to continue.")
+        }
+        "workspace_member_usage_limit_reached" => Some(
+            "You hit your spend cap set by the owner of your workspace. Ask an owner to increase your spend cap to continue.",
+        ),
+        _ => None,
+    };
+    if let Some(workspace) = workspace {
+        return workspace.into();
+    }
+    if !promo.is_empty() {
+        return format!("You’ve hit your usage limit. {promo},{suffix_or}");
+    }
+    match plan.to_lowercase().as_str() {
+        "plus" => format!(
+            "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits{suffix_or}"
+        ),
+        "team" | "self_serve_business_prolite" | "self_serve_business_usage_based" | "business" | "ent26"
+        | "enterprise_cbp_automation" | "enterprise_cbp_usage_based" => {
+            format!("You’ve hit your usage limit. To get more access now, send a request to your admin{suffix_or}")
+        }
+        "free" | "go" => format!(
+            "You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus),{suffix_or}"
+        ),
+        "pro" | "prolite" | "promax" => {
+            format!("You’ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits{suffix_or}")
+        }
+        _ => format!("You’ve hit your usage limit.{suffix}"),
+    }
+}
+
+/// `formatRetryTimestamp`: "3:04 PM" on the local day of `now_ms`, else "Mar 5th, 2026 3:04 PM" (local time).
+fn retry_timestamp(reset_ms: f64, now_ms: f64) -> String {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let Some(reset) = mixdog_js::time::local_fields(reset_ms) else { return "Invalid Date".into() };
+    let hour = match reset.hour % 12 {
+        0 => 12,
+        h => h,
+    };
+    let time = format!("{hour}:{:02} {}", reset.minute, if reset.hour < 12 { "AM" } else { "PM" });
+    let today = mixdog_js::time::local_fields(now_ms).is_some_and(|now| (now.year, now.month, now.day) == (reset.year, reset.month, reset.day));
+    if today {
+        return time;
+    }
+    let ordinal = match reset.day {
+        11..=13 => "th",
+        d if d % 10 == 1 => "st",
+        d if d % 10 == 2 => "nd",
+        d if d % 10 == 3 => "rd",
+        _ => "th",
+    };
+    format!("{} {}{ordinal}, {} {time}", MONTHS[reset.month as usize - 1], reset.day, reset.year)
+}
+
 /// `_httpStatusFromWsClose` (`openai-ws-events.mjs`): the status a close's code, or the words of its reason, stand for.
 fn status_of_close(code: u16, reason: &str) -> Option<u16> {
     static WORDS: std::sync::LazyLock<[regex::Regex; 3]> = std::sync::LazyLock::new(|| {
