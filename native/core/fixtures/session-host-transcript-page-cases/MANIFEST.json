@@ -2,6 +2,7 @@
   "cases": 3,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-host-transcript-page-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "hops": "No wire in the Node test: the daemon client is the real session service called in process; replies are recorded as the objects returned (and their JSON byte size, a measure). A replay over the real daemon wire records the same reply objects.",
     "notRun": "no real store or runtime; the viewer is one local client token",
     "runs": "createSessionService (subscribeSession, readSession) with a scripted readStoredSession over 300 rows, SessionHostTransport.readSession, SessionHostPublication (projections, applySessionResult, applyTranscriptPage, heldTranscript), SessionTranscriptWindows"
   },
@@ -63,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-host-transcript-page-cases.mjs",
-  "recorderSha256": "194daba59fcb297a0e33386a9756e1077dd0dca9ce6b6e03a965b12702e48e3b",
+  "recorderSha256": "feb487051a9acb65ae7707d3b52552b24f9130c9a1f86c82a1e0c24f07debf7d",
   "replay": {
     "compare": "mixdog-app-server thread/items/list: replay the open and the next-page read; compare the read args the host sent, each reply whole (page/full, items, byte size) and the held snapshot whole",
     "entry": "Drive these public items on o1: thread/items/list (mixdog-app-protocol/src/methods.rs:185).",

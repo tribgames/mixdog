@@ -92,7 +92,7 @@ await set.run('held rows that move while the page is in flight fall back to a fu
 });
 
 await set.finish({
-  entry: { runs: 'createSessionService (subscribeSession, readSession) with a scripted readStoredSession over 300 rows, SessionHostTransport.readSession, SessionHostPublication (projections, applySessionResult, applyTranscriptPage, heldTranscript), SessionTranscriptWindows', notRun: 'no real store or runtime; the viewer is one local client token' },
+  entry: { hops: "No wire in the Node test: the daemon client is the real session service called in process; replies are recorded as the objects returned (and their JSON byte size, a measure). A replay over the real daemon wire records the same reply objects.", runs: 'createSessionService (subscribeSession, readSession) with a scripted readStoredSession over 300 rows, SessionHostTransport.readSession, SessionHostPublication (projections, applySessionResult, applyTranscriptPage, heldTranscript), SessionTranscriptWindows', notRun: 'no real store or runtime; the viewer is one local client token' },
   replay: { entry: 'mixdog-app-server thread/items/list: replay the open and the next-page read; compare the read args the host sent, each reply whole (page/full, items, byte size) and the held snapshot whole', normalised: {} },
 });
 process.exit(0);
