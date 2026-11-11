@@ -34,6 +34,7 @@ use crate::control::api::ErrorReply;
 use crate::control::api::HOLD_PATH;
 use crate::control::api::HoldRequest;
 use crate::control::api::ReplacementBuild;
+use crate::control::api::STATUS_PATH;
 use crate::control::api::STOP_PATH;
 use crate::control::api::StatusReply;
 use crate::control::api::StopRequest;
@@ -146,18 +147,22 @@ impl OsAccess {
     }
 
     fn call(core: &ServerCore, path: &str, body: &impl serde::Serialize) -> Result<StatusReply, EnsureError> {
+        let body = serde_json::to_vec(body).map_err(|e| EnsureError::Core(format!("encoding the request: {e}")))?;
+        Self::request(core, "POST", path, &body)
+    }
+
+    fn request(core: &ServerCore, method: &str, path: &str, body: &[u8]) -> Result<StatusReply, EnsureError> {
         let failed = |what: &str, e: &dyn std::fmt::Display| EnsureError::Core(format!("{what}: {e}"));
-        let body = serde_json::to_vec(body).map_err(|e| failed("encoding the request", &e))?;
         let mut stream = TcpStream::connect(("127.0.0.1", core.control_port))
             .map_err(|e| failed("connecting to the core's control listener", &e))?;
         let head = format!(
-            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             core.token,
             body.len()
         );
         stream
             .write_all(head.as_bytes())
-            .and_then(|()| stream.write_all(&body))
+            .and_then(|()| stream.write_all(body))
             .map_err(|e| failed("sending the request", &e))?;
         let mut raw = Vec::new();
         stream.read_to_end(&mut raw).map_err(|e| failed("reading the reply", &e))?;
@@ -229,6 +234,10 @@ impl CoreAccess for OsAccess {
             token,
             raw,
         }))
+    }
+
+    fn answers(&self, core: &ServerCore) -> bool {
+        Self::request(core, "GET", STATUS_PATH, &[]).is_ok_and(|reply| reply.status.instance_id == core.instance_id)
     }
 
     fn hold(&self, core: &ServerCore, on: bool) -> Result<(), EnsureError> {

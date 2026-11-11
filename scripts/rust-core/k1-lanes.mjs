@@ -15,14 +15,20 @@ import { runTree } from './lib/process-tree.mjs';
 const SHELL = process.platform === 'win32';
 const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '../../native/core');
 
-// package.json scripts and workflow steps each lane stands in for.
+// package.json scripts and workflow steps each lane stands in for; `unproven` names what of the old step no selected test
+// proves, and why. k1-lanes-walk.md holds each old step's assertions against the Rust tests.
 export const LANES = {
   'shell-direct-exe': { replaces: 'scripts/suite-shell-direct-exe-test.mjs', pkg: 'mixdog-tools', filters: ['exec::direct::tests'] },
   'advisory-lock': { replaces: 'advisory-lock.slow.test.mjs (release-gate runtime-slow)', pkg: 'mixdog-tools', filters: ['the_advisory_lock_waits_for_a_live_holder', 'edit_and_apply_patch_wait_for_the_advisory_lock'] },
   'patch-bytes': { replaces: 'scripts/native-edit-wire-test.mjs, scripts/patch-replay.mjs', pkg: 'mixdog-tools', filters: ['fs::tests'] },
   'provider-contract': { replaces: 'scripts/provider-contract-test.mjs, provider-stream-outcome-test.mjs, cursor-provider-test.mjs, openai-codex-identity.test.mjs, openai-ws-delta-parity.test.mjs', pkg: 'mixdog-ai', filters: [] },
-  'daemon-bootstrap': { replaces: 'scripts/daemon-bootstrap-test.mjs, src/standalone/session-runtime-inline-host.test.mjs', pkg: 'mixdog-app-server-daemon', filters: ['boot_coordinator', 'server_ensure::tests::a_run_that_meets_a_live_install_before_its_core_is_published'] },
-  'native-assets': { replaces: 'scripts/prepare-native-assets.mjs, scripts/prepare-native-assets-test.mjs (fetch + verify of the native tool binaries)', pkg: 'mixdog-services', filters: ['native_asset::tests'] },
+  'daemon-bootstrap': { replaces: 'scripts/daemon-bootstrap-test.mjs, src/standalone/session-runtime-inline-host.test.mjs', pkg: 'mixdog-app-server-daemon', filters: ['boot_coordinator', 'server_ensure::tests::a_run_that_meets_a_live_install_before_its_core_is_published', 'server_ensure::tests::a_published_core_that_does_not_answer'] },
+  'native-assets': {
+    replaces: 'scripts/prepare-native-assets.mjs, scripts/prepare-native-assets-test.mjs (fetch + verify of the native tool binaries)',
+    pkg: 'mixdog-services',
+    filters: ['native_asset::tests'],
+    unproven: "the npm postinstall's all-or-nothing staging of graph, patch, spawn and supervisor into the package's tools directory: the Rust product has no such step (the desktop stages mixdogd; the graph binary is fetched on first use, and a failed fetch leaves no file: download-fails, bad-checksum)",
+  },
   'compact': { replaces: 'scripts/compact-smoke.mjs', pkg: 'mixdog-agent', filters: ['compact_fresh', 'compact_handoff', 'compact_summary', 'compact_commit'] },
   'turn-contract': { replaces: 'scripts/run-advisory-spec.mjs (runtime-turn-contract-test.mjs)', pkg: 'mixdog-agent', filters: ['run_loop', 'turns::'] },
   'request-snapshot': { replaces: 'benchmarks/terminal-bench-2.1/analysis/contract-hash.mjs', pkg: 'mixdog-core', filters: ['run_host::request_snapshot'] },
@@ -179,7 +185,7 @@ async function main(argv) {
   const { runner, list, dryRun, names } = parseArgs(argv);
   for (const name of names) if (!Object.hasOwn(LANES, name)) throw new Error(`unknown lane ${name}; known: ${Object.keys(LANES).join(', ')}`);
   if (list) {
-    for (const [name, lane] of Object.entries(LANES)) console.log(`${name}\t${lane.replaces}`);
+    for (const [name, lane] of Object.entries(LANES)) console.log(`${name}\t${lane.replaces}${lane.unproven ? `\tunproven: ${lane.unproven}` : ''}`);
     return 0;
   }
   const selected = names.length ? names : Object.keys(LANES);
