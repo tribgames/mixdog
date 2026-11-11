@@ -3,7 +3,7 @@
   "entry": "Ran src/tui/session/oauth-flows.mjs, src/standalone/session-service.mjs createSessionService().handleCall (scripted runtime factory / readStoredSession / listSessions / log), the real HTTP session transport + session-client attachSession and createSession (callId cache, client registry, remote runtime proxy) with the stub runtimes of scripts/session-transport/_shared.mjs, and src/standalone/session-proxy/transitions.mjs createTransitions. A TCP tap in front of the transport records every HTTP exchange (status line, headers in order, body). Did not run the log-summary and call-cache-metric cases (see notRecorded).",
   "exclusions": [
     "cases 48 and 451 are listed in notRecorded with their reasons",
-    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine's roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads \"<CWD> (JSON-escaped)\"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
     "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
@@ -42,7 +42,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "5a1bc2a993be16a1919a82639f5f10144f4a9fd529227651dcc68eaa51a9e9c4"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -63,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-call-contract.mjs",
-  "recorderSha256": "7c64089e6e21e11c5bf05c7e68c4a8dd1029c14b5a098fe6115a4a2662204350",
+  "recorderSha256": "8aa11291a98c12f3dc792a7d5a8dba90a5f1c5d2deedb6b71749fa9261b2c6bd",
   "replay": "App-server protocol methods of the Rust core (native/core/crates/mixdog-app-protocol methods.rs, served by mixdog-app-server): session.create -> thread/start, session.read -> thread/read, session.submit -> turn/start, session.abort -> turn/interrupt, session.subscribe/unsubscribe -> thread/resume + thread/unsubscribe, session.configure (setRoute, renameSessionTitle) -> thread/setEffort / thread/name/set and the other thread/set* methods, session.list -> thread/list; OAuth flows -> account/beginOAuthProviderLogin, account/completeOAuthProviderLogin, account/cancelOAuthProviderLogin, account/getOAuthProviderLoginStatus. Drive the same ordered calls with the same arguments and callIds (op-id replay and payload conflict: mixdog-core-base ops) and compare each outcome (value, or error name/message/code), the service call list (name, args, context), the scripted-endpoint counters and the log lines whole. The Node HTTP exchange log (wire) documents the Node transport only: the Rust transport is the app-server WebSocket, so compare the calls and results, not the HTTP bytes. The remote-runtime proxy (transitions.applyResult, createSession projection) has no Rust counterpart: Rust-side work, recorded here as the client-visible contract.",
   "set": "session-transport-call-contract",
   "testFile": "scripts/session-transport/call-contract.test.mjs",
