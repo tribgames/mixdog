@@ -417,6 +417,29 @@ async fn an_heirs_fork_keeps_the_sources_sidecars_it_names() {
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
 }
 
+/// Node's `owner-let-go`: the session is opened, and let go (its directory shut down, its actor ended) while the
+/// open's reconcile lists its directory: the decision is the actor's, so nothing is deleted. The next owner's open
+/// reconciles it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_let_go_while_its_reconcile_lists_is_left_to_its_next_owner() {
+    let world = world("owner-let-go").await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let mut listed = world.rig.compaction.listed.subscribe();
+    let before = *listed.borrow();
+    let (arrived, go) = world.hold_listing();
+    let owner = SessionDirectory::new(world.rig.deps());
+    within("the session opens", owner.open_handle(&world.handle.id, &CallContext::internal("test"))).await.expect("open");
+    within("the reconcile lists", arrived.notified()).await;
+    within("the owner lets the session go", owner.shutdown_for("test close")).await;
+    go.notify_one();
+    within("the listing answers", listed.wait_for(|count| *count > before)).await.expect("listed");
+    let after_close = world.point("after-close", false).await;
+    assert!(lock(&world.rig.compaction.pruned).is_empty(), "a session let go is not pruned by its old owner");
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_close, after_resume]), world.case);
+}
+
 /// Node's `thrown` (the save's fsync failed after its records were written): the barrier fails after its write.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_compaction_whose_barrier_failed_after_its_write_prunes_nothing() {
