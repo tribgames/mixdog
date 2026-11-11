@@ -12,28 +12,43 @@
           {
             "step": "file: no policy, auto false",
             "read": {
-              "policy": "manual",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": false,
-              "accounts": 1,
-              "selected": true
+              "policy": "manual"
             }
           },
           {
             "step": "file: no policy, auto true",
             "read": {
-              "policy": "limit",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": true,
-              "accounts": 1,
-              "selected": true
+              "policy": "limit"
             }
           },
           {
             "step": "file: policy headroom, auto false (an older build turned switching off)",
             "read": {
-              "policy": "manual",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": false,
-              "accounts": 1,
-              "selected": true
+              "policy": "manual"
             }
           }
         ]
@@ -49,113 +64,95 @@
               "policy": "headroom"
             },
             "pool": {
-              "policy": "headroom",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": true,
-              "accounts": 1,
-              "selected": true
+              "policy": "headroom"
             },
-            "file": {
-              "policy": "headroom",
-              "auto": true,
-              "keys": [
-                "accounts",
-                "auto",
-                "policy",
-                "selectedId"
-              ]
-            }
+            "file": "{\n  \"version\": 1,\n  \"providers\": {\n    \"openai-oauth\": {\n      \"accounts\": [\n        {\n          \"id\": \"<account-1>\",\n          \"label\": \"Account 1\"\n        }\n      ],\n      \"selectedId\": \"<account-1>\",\n      \"auto\": true,\n      \"policy\": \"headroom\"\n    }\n  }\n}\n"
           },
           {
             "change": {
               "auto": true
             },
             "pool": {
-              "policy": "headroom",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": true,
-              "accounts": 1,
-              "selected": true
+              "policy": "headroom"
             },
-            "file": {
-              "policy": "headroom",
-              "auto": true,
-              "keys": [
-                "accounts",
-                "auto",
-                "policy",
-                "selectedId"
-              ]
-            }
+            "file": "{\n  \"version\": 1,\n  \"providers\": {\n    \"openai-oauth\": {\n      \"accounts\": [\n        {\n          \"id\": \"<account-1>\",\n          \"label\": \"Account 1\"\n        }\n      ],\n      \"selectedId\": \"<account-1>\",\n      \"auto\": true,\n      \"policy\": \"headroom\"\n    }\n  }\n}\n"
           },
           {
             "change": {
               "auto": false
             },
             "pool": {
-              "policy": "manual",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": false,
-              "accounts": 1,
-              "selected": true
+              "policy": "manual"
             },
-            "file": {
-              "policy": "manual",
-              "auto": false,
-              "keys": [
-                "accounts",
-                "auto",
-                "policy",
-                "selectedId"
-              ]
-            }
+            "file": "{\n  \"version\": 1,\n  \"providers\": {\n    \"openai-oauth\": {\n      \"accounts\": [\n        {\n          \"id\": \"<account-1>\",\n          \"label\": \"Account 1\"\n        }\n      ],\n      \"selectedId\": \"<account-1>\",\n      \"auto\": false,\n      \"policy\": \"manual\"\n    }\n  }\n}\n"
           },
           {
             "change": {
               "auto": true
             },
             "pool": {
-              "policy": "limit",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": true,
-              "accounts": 1,
-              "selected": true
+              "policy": "limit"
             },
-            "file": {
-              "policy": "limit",
-              "auto": true,
-              "keys": [
-                "accounts",
-                "auto",
-                "policy",
-                "selectedId"
-              ]
-            }
+            "file": "{\n  \"version\": 1,\n  \"providers\": {\n    \"openai-oauth\": {\n      \"accounts\": [\n        {\n          \"id\": \"<account-1>\",\n          \"label\": \"Account 1\"\n        }\n      ],\n      \"selectedId\": \"<account-1>\",\n      \"auto\": true,\n      \"policy\": \"limit\"\n    }\n  }\n}\n"
           },
           {
             "change": {
               "policy": "manual"
             },
             "pool": {
-              "policy": "manual",
+              "accounts": [
+                {
+                  "id": "<account-1>",
+                  "label": "Account 1"
+                }
+              ],
+              "selectedId": "<account-1>",
               "auto": false,
-              "accounts": 1,
-              "selected": true
+              "policy": "manual"
             },
-            "file": {
-              "policy": "manual",
-              "auto": false,
-              "keys": [
-                "accounts",
-                "auto",
-                "policy",
-                "selectedId"
-              ]
-            }
+            "file": "{\n  \"version\": 1,\n  \"providers\": {\n    \"openai-oauth\": {\n      \"accounts\": [\n        {\n          \"id\": \"<account-1>\",\n          \"label\": \"Account 1\"\n        }\n      ],\n      \"selectedId\": \"<account-1>\",\n      \"auto\": false,\n      \"policy\": \"manual\"\n    }\n  }\n}\n"
           },
           {
             "change": {
               "policy": "fastest"
             },
             "rejected": {
+              "$exact": "error",
               "name": "TypeError",
-              "message": "Unknown account switching policy."
+              "message": "Unknown account switching policy.",
+              "props": {}
             }
           }
         ]
@@ -212,9 +209,22 @@
               "auto": false
             },
             "usedUp": [],
-            "options": null,
+            "options": {
+              "$exact": "undefined"
+            },
             "now": 5000000,
-            "picked": "a"
+            "picked": {
+              "id": "a",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 60
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            }
           },
           {
             "label": "manual, selected account used up",
@@ -263,7 +273,9 @@
             "usedUp": [
               "a"
             ],
-            "options": null,
+            "options": {
+              "$exact": "undefined"
+            },
             "now": 5000000,
             "picked": null
           },
@@ -312,9 +324,22 @@
               "auto": true
             },
             "usedUp": [],
-            "options": null,
+            "options": {
+              "$exact": "undefined"
+            },
             "now": 5000000,
-            "picked": "a"
+            "picked": {
+              "id": "a",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 60
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            }
           },
           {
             "label": "headroom, first request",
@@ -362,9 +387,22 @@
               "policy": "headroom"
             },
             "usedUp": [],
-            "options": null,
+            "options": {
+              "$exact": "undefined"
+            },
             "now": 5000000,
-            "picked": "b"
+            "picked": {
+              "id": "b",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 10
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            }
           },
           {
             "label": "headroom, session keeps its usable account",
@@ -416,7 +454,18 @@
               "sessionAccountId": "c"
             },
             "now": 5000000,
-            "picked": "c"
+            "picked": {
+              "id": "c",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 30
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            }
           },
           {
             "label": "headroom, session account hit a limit",
@@ -470,7 +519,18 @@
               "sessionAccountId": "c"
             },
             "now": 5000000,
-            "picked": "b"
+            "picked": {
+              "id": "b",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 10
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            }
           },
           {
             "label": "headroom, unknown usage keeps roster order",
@@ -509,9 +569,22 @@
               "policy": "headroom"
             },
             "usedUp": [],
-            "options": null,
+            "options": {
+              "$exact": "undefined"
+            },
             "now": 5000000,
-            "picked": "a"
+            "picked": {
+              "id": "a",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 60
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            }
           }
         ]
       }

@@ -9,26 +9,64 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16575,
+      "bytes": 20030,
       "path": "golden.json",
-      "sha256": "79bd9adc7714c22f3d67dcd0b27b4ffecbae0e506de8cff0cf41d9afb9651183"
+      "sha256": "13ef3cab07af2e80ad61bf6616ff0fd402b84b1322557fe0fc72738df3b8f89d"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.log[0].read.accounts[0].id",
+      "$.cases[0].observed.log[0].read.selectedId",
+      "$.cases[0].observed.log[1].read.accounts[0].id",
+      "$.cases[0].observed.log[1].read.selectedId",
+      "$.cases[0].observed.log[2].read.accounts[0].id",
+      "$.cases[0].observed.log[2].read.selectedId",
+      "$.cases[1].observed.log[0].pool.accounts[0].id",
+      "$.cases[1].observed.log[0].pool.selectedId",
+      "$.cases[1].observed.log[0].file",
+      "$.cases[1].observed.log[1].pool.accounts[0].id",
+      "$.cases[1].observed.log[1].pool.selectedId",
+      "$.cases[1].observed.log[1].file",
+      "$.cases[1].observed.log[2].pool.accounts[0].id",
+      "$.cases[1].observed.log[2].pool.selectedId",
+      "$.cases[1].observed.log[2].file",
+      "$.cases[1].observed.log[3].pool.accounts[0].id",
+      "$.cases[1].observed.log[3].pool.selectedId",
+      "$.cases[1].observed.log[3].file",
+      "$.cases[1].observed.log[4].pool.accounts[0].id",
+      "$.cases[1].observed.log[4].pool.selectedId",
+      "$.cases[1].observed.log[4].file"
+    ],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,14 +85,38 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-accounts-policy-cases.mjs",
-  "recorderSha256": "4d2450088e788ebe53b71d83591111a7953b16b6270a5fe4af25a34321d1b383",
+  "recorderSha256": "c7e94b8e0682a12efe178a7bed13e85310eb28b775b79e237021ce398ab468a4",
   "replay": {
-    "entry": "mixdog-ai accounts/policy.rs (and the roster file reader/writer): replay the file edits and policy/auto writes (compare the pool view and the file keys), and the pure picks/limits on the recorded pools",
+    "compare": "mixdog-ai accounts/policy.rs (and the roster file reader/writer): replay the file edits and policy/auto writes (compare the pool view and the file keys), and the pure picks/limits on the recorded pools",
+    "entry": "Drive these public items on o1: mixdog-ai/src/accounts/policy.rs:337 choose_account; mixdog-ai/src/accounts/policy.rs:270 account_limit; mixdog-ai/src/accounts/policy.rs:308 account_exhausted_for_model_only.",
+    "missingOnO1": [
+      "the roster file reader and writer (registerProviderAccount, changeProviderAccounts, readProviderAccountPool; policy / auto mapping): no counterpart found"
+    ],
     "normalised": {
-      "accountIds": "the registered account id is random: not recorded",
-      "dataDir": "temp, not in the recording"
-    }
+      "accountIds": "the registered account id is random: written <account-1> wherever it occurs (paths listed in normalised.paths)",
+      "dataDir": "<data> wherever it occurs"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 337,
+        "name": "choose_account",
+        "path": "native/core/crates/mixdog-ai/src/accounts/policy.rs"
+      },
+      {
+        "line": 270,
+        "name": "account_limit",
+        "path": "native/core/crates/mixdog-ai/src/accounts/policy.rs"
+      },
+      {
+        "line": 308,
+        "name": "account_exhausted_for_model_only",
+        "path": "native/core/crates/mixdog-ai/src/accounts/policy.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "provider-accounts-policy-cases",
-  "totalBytes": 16575
+  "totalBytes": 20030,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
