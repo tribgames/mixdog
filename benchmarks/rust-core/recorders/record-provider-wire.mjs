@@ -18,12 +18,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { recorderProvenance } from './lib/provenance.mjs';
 import {
   FIXTURES_ROOT,
   commitStage,
   exactProductIdentity,
   parseArgs,
-  recordingProvenance,
   resolveTree,
   stageSet,
   writeJson,
@@ -673,15 +673,7 @@ writeSetManifest(stage, {
       'served-model/muse-code-oauth on the core: sent through the Responses engine (as Node, which sends Muse Code over Responses only), not the builder this branch has, which still routes it to Chat; that route is the gateway registry\'s (branch provider-gateways)',
       'HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude groups) states it; records keep the body served',
     ],
-    ...recordingProvenance(RECORDER, [
-    'benchmarks/rust-core/recorders/lib/common.mjs',
-    'benchmarks/rust-core/recorders/lib/intercept.mjs',
-    'benchmarks/rust-core/recorders/lib/intercept-hooks.mjs',
-    'benchmarks/rust-core/recorders/lib/intercept-ws.mjs',
-    'benchmarks/rust-core/recorders/lib/intercept-http2.mjs',
-    'benchmarks/rust-core/recorders/lib/determinism.mjs',
-    'benchmarks/rust-core/recorders/lib/headers.mjs',
-    ]),
+    ...recorderProvenance(import.meta.url),
   },
 });
 await hub.close();
