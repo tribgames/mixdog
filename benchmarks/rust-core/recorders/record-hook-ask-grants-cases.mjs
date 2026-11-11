@@ -83,8 +83,8 @@ await run('a coding Lead hook ask offers once / this session / always, keyed by 
   const presented = { kind: 'approval', ...humanRequestFields(card.request) };
   return {
     presented,
-    normalized: ['once', 'session', 'always', 'agent'].map((remember) => ({ remember, result: normalizeHumanResponse(presented, true, { remember }).remember })),
-    requestNamingNoKey: humanRequestFields({ kind: 'approval', remember: ['once', 'session', 'always'] }).remember,
+    normalized: ['once', 'session', 'always', 'agent'].map((remember) => ({ remember, response: normalizeHumanResponse(presented, true, { remember }) })),
+    requestNamingNoKey: humanRequestFields({ kind: 'approval', remember: ['once', 'session', 'always'] }),
   };
 });
 await run('"always" saves one every-agent grant: no card for that tool in this or any other conversation', async (h) => {
@@ -176,7 +176,7 @@ await run('a timeout or a denial stores no decision', async (h) => {
   await h.grants('after');
   await h.decide(SHELL('a'), LEAD);
   await h.audit('lead', { agentId: 'lead' });
-  return { deniedRemember: denied.remember };
+  return { denied };
 });
 await run('a bot hook ask on a classified send offers once / session / always and is answered by those only', async (h) => {
   const card = await h.decide(EMAIL, MAILER);
@@ -227,8 +227,8 @@ await run('a damaged or hand-edited grants file never yields a tool grant for an
 await run('the card is told what the choice covers: the action kind of a classified call, else the tool', async (h) => {
   const kind = await h.decide(COMMENT, LEAD);
   const presented = { kind: 'approval', ...humanRequestFields(kind.request) };
-  const grantActions = { comment: presented.grantAction, shell: humanRequestFields((await h.decide(SHELL('a'), LEAD)).request).grantAction, merge: humanRequestFields((await h.decide(MERGE, LEAD)).request).grantAction };
-  for (const call of [PAYMENT, { name: 'setup', args: {} }]) grantActions[call.name] = humanRequestFields((await h.decide(call, LEAD)).request).grantAction;
+  const grantActions = { comment: presented, shell: humanRequestFields((await h.decide(SHELL('a'), LEAD)).request), merge: humanRequestFields((await h.decide(MERGE, LEAD)).request) };
+  for (const call of [PAYMENT, { name: 'setup', args: {} }]) grantActions[call.name] = humanRequestFields((await h.decide(call, LEAD)).request);
   return { grantActions };
 });
 
