@@ -3,14 +3,14 @@
 //! the codec's [`antigravity_function_calling_mode`], `toGeminiRequestTools(tools, nativeTools, opts)` the Gemini API
 //! codec's `tools`, `actionInputUnionFor(schema)` the core's [`mixdog_ai::providers::action_input::action_input_union_for`].
 //!
-//! Every recorded envelope (`result.built`, one per build call, in order) is compared whole against the bytes the
-//! core encodes, with the random request and session ids Node drew scripted into the core's draws. The test's own
-//! view (`result.value`) is checked against the core's answers: each object, array, string or number of it must be
-//! one of the core's built envelopes or parts of them, the exclusion reports the build made (`{name, index,
-//! pointer, reason, message}` objects, their lists and their messages), another entry's answer, or an argument the
-//! test passed (an input it shows beside the answers); an object or
-//! array that is none of these is checked part by part. A boolean is the test's own predicate over those values
-//! (`sourceUnchanged`, `equal`, ...), not a product output: the values it is computed from are the ones compared.
+//! Every recorded envelope (`result.built`, one per build call, in order) is compared whole against the JSON the core
+//! sends (`JSON.stringify` of Node's object writes no `undefined` key), with the random request and session ids drawn
+//! from the recording process's uuids as the recorder drew them ([`RecorderDraws`]). The test's own view
+//! (`result.value`) is rebuilt per case from the core's answers exactly as `record-antigravity-request.mjs` builds it
+//! from Node's (the request pieces, the exclusion reports, the warned lines, and the test's predicates computed over the
+//! core's answers: equality of two answers, `hasUnion`, schema validity by a JSON Schema 2020-12 validator in Ajv's
+//! place), and compared whole; the only inputs it shows are the values the test passed (`variants[].providerReplay`,
+//! `validates[].value`).
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -35,10 +35,10 @@ use mixdog_testkit::Exact;
 use serde_json::Value;
 use serde_json::json;
 
-use crate::provider_case::Call;
 use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
-use crate::provider_case::first_difference;
+use crate::provider_case::RecorderDraws;
+use crate::provider_case::assert_exact;
 use crate::provider_case::plain;
 use crate::provider_cases;
 use crate::replay_world;
@@ -178,158 +178,335 @@ fn options(opts: &Exact, sink: &Arc<Mutex<Vec<ToolExclusionReport>>>) -> Request
     options
 }
 
-/// The uuid bytes of `-<uuid>` / `agent-<uuid>`.
-fn uuid_bytes(text: &str) -> Option<Vec<u8>> {
-    let uuid = text.strip_prefix("agent-").or_else(|| text.strip_prefix('-'))?;
-    if uuid.len() != 36 || uuid.matches('-').count() != 4 {
-        return None;
-    }
-    let hex: String = uuid.chars().filter(|c| *c != '-').collect();
-    Some((0..32).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex")).collect())
+/// One build the case made: the request the core took, the JSON it sends, and the exclusion reports it made.
+struct Build {
+    request: ModelRequest,
+    sent: Exact,
+    reports: Vec<ToolExclusionReport>,
 }
 
-/// The draws Node made for the case's builds: a session uuid when the first user turn had no text, then the
-/// request uuid, per build in order.
-fn draws(case: &Case) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    for built in case.result().get("built").as_array() {
-        if let Some(bytes) = uuid_bytes(built.get("request").get("sessionId").as_str()) {
-            out.push(bytes);
+impl Build {
+    fn request_json(&self) -> &Exact {
+        self.sent.get("request")
+    }
+
+    /// `request.tools?.at(-1)?.functionDeclarations`.
+    fn declarations(&self) -> Exact {
+        match self.request_json().try_get("tools") {
+            Some(Exact::Array(tools)) => tools.last().and_then(|t| t.try_get("functionDeclarations")).cloned().unwrap_or(Exact::Undefined),
+            _ => Exact::Undefined,
         }
-        out.push(uuid_bytes(built.get("requestId").as_str()).expect("a request uuid"));
     }
-    out
-}
 
-/// What the core answers one recorded call with, and the exclusion reports it made.
-fn answer(call: &Call, env: Arc<dyn Environment>) -> (Exact, Vec<ToolExclusionReport>) {
-    let args = &call.args;
-    let sink = Arc::new(Mutex::new(Vec::new()));
-    let out = match call.entry.rsplit('.').next().expect("an entry") {
-        "buildAntigravityRequest" => {
-            let request = ModelRequest {
-                model: args[1].as_str().to_owned(),
-                messages: args[0].as_array().iter().map(message).collect(),
-                tools: tools(&args[2]),
-                options: options(&args[3], &sink),
-            };
-            // No project argument: the account has none (the codec's empty project).
-            let project = args.get(4).map_or("", Exact::as_str);
-            let codec = GoogleCodec::antigravity(ANTIGRAVITY_ORIGIN, project, "1.0.0", traits()).with_env(env);
-            let wire = codec.encode(&request).unwrap_or_else(|e| panic!("{}: {}", request.model, e.message));
-            plain(&serde_json::from_slice::<Value>(&wire.body).expect("a JSON body"))
-        }
-        "antigravityFunctionCallingMode" => Exact::String(antigravity_function_calling_mode(&vars(&args[0])).to_owned()),
-        "toGeminiRequestTools" => {
-            let opts = args.get(2).cloned().unwrap_or(Exact::Object(Vec::new()));
-            let mut options = options(&opts, &sink);
-            if let Some(native) = args.get(1).filter(|n| **n != Exact::Undefined) {
-                options.hosted_tools = self::options(&Exact::Object(vec![("nativeTools".into(), native.clone())]), &sink).hosted_tools;
-            }
-            let request = ModelRequest {
-                model: "gemini-3-pro".into(),
-                messages: vec![Message::new(mixdog_core_api::domain::provider::Role::User, mixdog_core_api::domain::provider::Content::Text("x".into()))],
-                tools: tools(&args[0]),
-                options,
-            };
-            let inner = GoogleCodec::gemini(GEMINI_ORIGIN, traits()).build_inner(&request).expect("the Gemini request");
-            inner.get("tools").map_or(Exact::Array(Vec::new()), plain)
-        }
-        "actionInputUnionFor" => {
-            plain(&mixdog_ai::providers::action_input::action_input_union_for(&provider_cases::plain(&args[0])))
-        }
-        other => panic!("entry {other}: no core counterpart named in this replay"),
-    };
-    let reports = sink.lock().unwrap().clone();
-    (out, reports)
-}
+    fn field(&self, key: &str) -> Exact {
+        self.request_json().try_get(key).cloned().unwrap_or(Exact::Undefined)
+    }
 
-/// Every subtree of `node`.
-fn subtrees<'a>(node: &'a Exact, out: &mut Vec<&'a Exact>) {
-    out.push(node);
-    match node {
-        Exact::Object(entries) => entries.iter().for_each(|(_, v)| subtrees(v, out)),
-        Exact::Array(items) => items.iter().for_each(|v| subtrees(v, out)),
-        _ => {}
+    fn warnings(&self) -> Exact {
+        Exact::Array(self.reports.iter().map(report).collect())
+    }
+
+    /// The tools the build was handed are as the test passed them (`JSON.stringify(source) === JSON.stringify(before)`).
+    fn tools_unchanged(&self, passed: &Exact) -> bool {
+        let now: Vec<Value> = self.request.tools.iter().map(|t| t.input_schema.clone()).collect();
+        let before: Vec<Value> = tools(passed).iter().map(|t| t.input_schema.clone()).collect();
+        now == before
     }
 }
 
-/// The parts of `value` that are none of the core's answers (see the module header).
-fn unanswered(value: &Exact, answers: &[&Exact], path: &str, out: &mut Vec<String>) {
-    if answers.contains(&value) {
-        return;
-    }
-    match value {
-        Exact::Object(entries) => entries.iter().for_each(|(k, v)| {
-            // `validates[i].value`: the data the test's Ajv validator checked against the built schema, the test's own
-            // input; its verdict (`valid`) is the test's predicate.
-            if !(k == "value" && path.contains(".validates[")) {
-                unanswered(v, answers, &format!("{path}.{k}"), out);
-            }
-        }),
-        Exact::Array(items) => items.iter().enumerate().for_each(|(i, v)| unanswered(v, answers, &format!("{path}[{i}]"), out)),
-        // A predicate of the test, or a field the built request does not hold (compared whole above).
-        Exact::Bool(_) | Exact::Undefined => {}
-        other => out.push(format!("{path} = {other:?}")),
-    }
+/// The core's answers to a case's calls, in call order per entry.
+#[derive(Default)]
+struct Answers {
+    builds: Vec<Build>,
+    modes: Vec<Exact>,
+    unions: std::collections::VecDeque<Exact>,
+    gemini_tools: Vec<Exact>,
+    /// `console.warn` lines (the core's console-warn channel).
+    warned: Vec<Exact>,
 }
 
-
-fn panic_text(panic: &Box<dyn std::any::Any + Send>) -> String {
-    panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned())).unwrap_or_default()
-}
-
-/// How many builds the case made before `call`.
-fn builds_before(case: &Case, call: &Call) -> usize {
-    case.calls.iter().take_while(|c| !std::ptr::eq(*c, call)).filter(|c| c.entry.ends_with("buildAntigravityRequest")).count()
-}
-
-/// The differences of one case from Node's recording.
-fn check(case: &Case) -> Vec<String> {
-    let mut failures = Vec::new();
-    // Node's default warning channel (`console.warn`) is the core's console-warn line.
+fn answer(case: &Case) -> Answers {
+    let mut answers = Answers::default();
     let (lines, guard) = mixdog_rt::node_log::capture();
-    mixdog_ai::random::script(draws(case));
-    let answers: Vec<(String, Exact, Vec<ToolExclusionReport>)> = case
-        .calls
-        .iter()
-        .map(|call| {
-            let (out, reports) = answer(call, build_env(case, builds_before(case, call)));
-            (call.entry.rsplit('.').next().unwrap().to_owned(), out, reports)
-        })
-        .collect();
-    mixdog_ai::random::script(Vec::new());
-    drop(guard);
-    let warned: Vec<Exact> = lines.lock().unwrap().iter().map(|(_, _, line)| Exact::String(line.clone())).collect();
-    let built: Vec<Exact> = answers.iter().filter(|(e, _, _)| e == "buildAntigravityRequest").map(|(_, out, _)| out.clone()).collect();
-    if let Some(difference) = first_difference(&json_form(case.result().get("built")), &Exact::Array(built), "built") {
-        failures.push(format!("{}: {difference}", case.id));
-    }
-    let mut extra = vec![Exact::Array(warned)];
-    for (_, _, reports) in &answers {
-        let list: Vec<Exact> = reports.iter().map(report).collect();
-        extra.extend(reports.iter().map(|r| Exact::String(r.message.clone())));
-        extra.push(Exact::Array(list));
-    }
-    let mut pool = Vec::new();
-    for (_, out, _) in &answers {
-        subtrees(out, &mut pool);
-    }
-    for e in &extra {
-        subtrees(e, &mut pool);
-    }
-    // The test's own inputs it shows beside the answers (`variants[i].providerReplay`): the calls' arguments.
     for call in &case.calls {
-        for arg in &call.args {
-            subtrees(arg, &mut pool);
+        let args = &call.args;
+        let env = build_env(case, answers.builds.len());
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        match call.entry.rsplit('.').next().expect("an entry") {
+            "buildAntigravityRequest" => {
+                let request = ModelRequest {
+                    model: args[1].as_str().to_owned(),
+                    messages: args[0].as_array().iter().map(message).collect(),
+                    tools: tools(&args[2]),
+                    options: options(&args[3], &sink),
+                };
+                // No project argument: the account has none (the codec's empty project).
+                let project = args.get(4).map_or("", Exact::as_str);
+                let codec = GoogleCodec::antigravity(ANTIGRAVITY_ORIGIN, project, "1.0.0", traits()).with_env(env);
+                let wire = codec.encode(&request).unwrap_or_else(|e| panic!("{}: {}", request.model, e.message));
+                let sent = plain(&serde_json::from_slice::<Value>(&wire.body).expect("a JSON body"));
+                let reports = sink.lock().unwrap().clone();
+                answers.builds.push(Build { request, sent, reports });
+            }
+            "antigravityFunctionCallingMode" => answers.modes.push(Exact::String(antigravity_function_calling_mode(&vars(&args[0])).to_owned())),
+            "toGeminiRequestTools" => {
+                let opts = args.get(2).cloned().unwrap_or(Exact::Object(Vec::new()));
+                let mut options = options(&opts, &sink);
+                if let Some(native) = args.get(1).filter(|n| **n != Exact::Undefined) {
+                    options.hosted_tools = self::options(&Exact::Object(vec![("nativeTools".into(), native.clone())]), &sink).hosted_tools;
+                }
+                let request = ModelRequest {
+                    model: "gemini-3-pro".into(),
+                    messages: vec![Message::new(mixdog_core_api::domain::provider::Role::User, mixdog_core_api::domain::provider::Content::Text("x".into()))],
+                    tools: tools(&args[0]),
+                    options,
+                };
+                let inner = GoogleCodec::gemini(GEMINI_ORIGIN, traits()).build_inner(&request).expect("the Gemini request");
+                answers.gemini_tools.push(inner.get("tools").map_or(Exact::Array(Vec::new()), plain));
+            }
+            "actionInputUnionFor" => {
+                answers.unions.push_back(plain(&mixdog_ai::providers::action_input::action_input_union_for(&provider_cases::plain(&args[0]))));
+            }
+            other => panic!("{}: entry {other}: no core counterpart named in this replay", case.id),
         }
     }
-    let mut missing = Vec::new();
-    unanswered(case.result().get("value"), &pool, "value", &mut missing);
-    if !missing.is_empty() {
-        failures.push(format!("{}: {missing:#?}", case.id));
+    drop(guard);
+    answers.warned = lines.lock().unwrap().iter().map(|(_, _, line)| Exact::String(line.clone())).collect();
+    answers
+}
+
+fn obj(entries: Vec<(&str, Exact)>) -> Exact {
+    Exact::Object(entries.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+}
+
+/// `JSON.stringify(a) === JSON.stringify(b)`.
+fn json_equal(a: &Exact, b: &Exact) -> bool {
+    json_form(a) == json_form(b)
+}
+
+/// The recorder's `hasUnion`: an `anyOf` or `oneOf` key anywhere.
+fn has_union(value: &Exact) -> bool {
+    match value {
+        Exact::Array(items) => items.iter().any(has_union),
+        Exact::Object(entries) => entries.iter().any(|(k, v)| k == "anyOf" || k == "oneOf" || has_union(v)),
+        _ => false,
     }
-    failures
+}
+
+/// `['anyOf', 'oneOf', 'allOf', 'not'].filter((key) => schema[key] !== undefined)`.
+fn root_combinators(schema: &Exact) -> Exact {
+    Exact::Array(["anyOf", "oneOf", "allOf", "not"].iter().filter(|k| schema.try_get(k).is_some_and(|v| *v != Exact::Undefined)).map(|k| Exact::String((*k).into())).collect())
+}
+
+/// Ajv2020's `validateSchema(schema) === true`: the schema is a valid 2020-12 schema.
+fn valid_schema(schema: &Exact) -> Exact {
+    Exact::Bool(jsonschema::meta::is_valid(&provider_cases::plain(schema)))
+}
+
+/// `validates: values.map((value) => ({ value, valid: validate(value) }))` with the schema compiled by a 2020-12 validator.
+fn validates(schema: &Exact, recorded: &Exact) -> Exact {
+    let validator = jsonschema::draft202012::new(&provider_cases::plain(schema)).expect("the core's schema compiles");
+    Exact::Array(
+        recorded
+            .as_array()
+            .iter()
+            .map(|row| {
+                // The value the test validates is its own input; the verdict is the validator's over the core's schema.
+                let value = row.get("value").clone();
+                let valid = validator.is_valid(&provider_cases::plain(&value));
+                obj(vec![("value", value), ("valid", Exact::Bool(valid))])
+            })
+            .collect(),
+    )
+}
+
+fn schema_of(declaration: &Exact) -> Exact {
+    declaration.try_get("parametersJsonSchema").cloned().unwrap_or(Exact::Undefined)
+}
+
+fn first_schema(build: &Build) -> Exact {
+    match build.declarations() {
+        Exact::Array(list) if !list.is_empty() => schema_of(&list[0]),
+        _ => Exact::Undefined,
+    }
+}
+
+/// The arguments of the case's `i`-th build.
+fn build_args(case: &Case, i: usize) -> &[Exact] {
+    &case.calls.iter().filter(|c| c.entry.ends_with("buildAntigravityRequest")).nth(i).expect("a build").args
+}
+
+/// The case's `value`, built from the core's answers as the recorder builds it from Node's (`record-antigravity-request.mjs`).
+fn value(case: &Case, a: &mut Answers) -> Exact {
+    let recorded = case.result().get("value");
+    let b = &a.builds;
+    let contents = |i: usize| b[i].field("contents");
+    let args = |i: usize| build_args(case, i);
+    let excluded = |i: usize| obj(vec![("declarations", b[i].declarations()), ("warnings", b[i].warnings())]);
+    let schema_case = |extra: Vec<(&str, Exact)>| {
+        let mut out = vec![("schema", first_schema(&b[0]))];
+        out.extend(extra);
+        out.push(("sourceUnchanged", Exact::Bool(b.iter().all(|build| build.tools_unchanged(&args(0)[2])))));
+        obj(out)
+    };
+    match case.id.as_str() {
+        "hosted-google-search-ahead-of-declarations" => obj(vec![
+            ("searchOnly", b[0].request_json().clone()),
+            ("both", b[1].request_json().clone()),
+            ("noNative", b[2].field("tools")),
+        ]),
+        "function-calling-mode-default-env-and-tool-choice" => {
+            let fc: Vec<&crate::provider_case::Call> = case.calls.iter().filter(|c| c.entry.ends_with("antigravityFunctionCallingMode")).collect();
+            let modes = fc
+                .iter()
+                .zip(&a.modes)
+                .map(|(call, mode)| (serde_json::to_string(&provider_cases::plain(&call.args[0])).expect("JSON"), mode.clone()))
+                .collect();
+            obj(vec![
+                ("modes", Exact::Object(modes)),
+                ("defaultConfig", b[0].field("toolConfig")),
+                ("autoConfig", b[1].field("toolConfig")),
+                ("noneConfig", b[2].field("toolConfig")),
+            ])
+        }
+        "full-builtin-bridge-surface-sent-as-authored" => {
+            let surface = &args(0)[2];
+            let rows = b[0]
+                .declarations()
+                .as_array()
+                .iter()
+                .map(|declaration| {
+                    let schema = schema_of(declaration);
+                    let authored = a.unions.pop_front().expect("actionInputUnionFor (authoredSchemaUnion)");
+                    let again = a.unions.pop_front().expect("actionInputUnionFor (equalsActionInputUnion)");
+                    obj(vec![
+                        ("declaration", declaration.clone()),
+                        ("authoredSchemaUnion", authored),
+                        ("hasParameters", Exact::Bool(declaration.try_get("parameters").is_some_and(|p| *p != Exact::Undefined))),
+                        ("equalsActionInputUnion", Exact::Bool(json_equal(&schema, &again))),
+                        ("valid2020", valid_schema(&schema)),
+                        ("rootType", schema.try_get("type").cloned().unwrap_or(Exact::Undefined)),
+                        ("rootCombinators", root_combinators(&schema)),
+                    ])
+                })
+                .collect();
+            let inputs: Vec<Exact> = surface.as_array().iter().map(|t| t.try_get("inputSchema").cloned().unwrap_or(Exact::Undefined)).collect();
+            obj(vec![
+                ("surfaceHasUnion", Exact::Bool(has_union(&Exact::Array(inputs)))),
+                ("sonnetWarnings", b[0].warnings()),
+                ("sonnetEqualsOpus", Exact::Bool(json_equal(&b[0].declarations(), &b[1].declarations()))),
+                ("opusDeclarations", b[1].declarations()),
+                ("opusWarnings", b[1].warnings()),
+                ("rows", Exact::Array(rows)),
+                ("surfaceUnchanged", Exact::Bool(b.iter().all(|build| build.tools_unchanged(surface)))),
+            ])
+        }
+        "standard-2020-12-forms-sent-as-written"
+        | "boolean-schemas-recursive-defs-keyword-like-names"
+        | "draft-07-standard-keyword-mapping"
+        | "draft-07-definitions-follow-own-id-scope"
+        | "draft-07-definitions-reachable-from-ref-node" => schema_case(Vec::new()),
+        "draft-07-keywords-beside-ref-ignored" => schema_case(vec![("validates", validates(&first_schema(&b[1]), recorded.get("validates")))]),
+        "invalid-tool-left-out-with-warning-request-proceeds-in-order" => obj(vec![
+            ("declarations", b[0].declarations()),
+            ("firstTool", match b[0].field("tools") {
+                Exact::Array(tools) => tools.first().cloned().unwrap_or(Exact::Undefined),
+                _ => Exact::Undefined,
+            }),
+            ("toolConfig", b[0].field("toolConfig")),
+            ("warnings", b[0].warnings()),
+        ]),
+        // One exclusion per named schema, in the recorder's order (the names are its own keys).
+        "provider-forbidden-roots-exclude-the-tool" | "schemas-invalid-under-their-dialect-excluded" => {
+            Exact::Object(recorded.entries().iter().enumerate().map(|(i, (name, _))| (name.clone(), excluded(i))).collect())
+        }
+        "every-tool-invalid-request-carries-no-tools" => obj(vec![("warnings", b[0].warnings()), ("tools", b[0].field("tools")), ("toolConfig", b[0].field("toolConfig"))]),
+        "default-warning-channel-console-warn-once-per-problem" => obj(vec![("warned", Exact::Array(a.warned.clone()))]),
+        "missing-schema-excludes-tool-order-kept" => obj(vec![("declarations", b[0].declarations())]),
+        "gemini-declarations-unchanged-by-claude-normalization" => {
+            let expected = match &a.gemini_tools[0] {
+                Exact::Array(tools) => tools.last().and_then(|t| t.try_get("functionDeclarations")).cloned().unwrap_or(Exact::Undefined),
+                _ => Exact::Undefined,
+            };
+            let actual = b[0].declarations();
+            obj(vec![
+                ("equal", Exact::Bool(json_equal(&actual, &expected))),
+                ("hasUnion", Exact::Bool(has_union(&actual))),
+                ("declarations", actual),
+                ("geminiProjection", expected),
+            ])
+        }
+        "computer-per-action-alternatives-claude-flat-for-gemini" => {
+            let claude = b[0].declarations().as_array()[0].clone();
+            let schema = schema_of(&claude);
+            let actions = args(0)[2].as_array()[0].get("inputSchema").get("properties").get("action").get("enum").clone();
+            let sorted = |list: Vec<Exact>| {
+                let mut texts: Vec<String> = list.iter().map(|t| t.as_str().to_owned()).collect();
+                texts.sort();
+                texts
+            };
+            let titles = schema.get("properties").get("input").get("anyOf").as_array().iter().map(|alt| alt.get("title").clone()).collect();
+            let flat = schema_of(&b[1].declarations().as_array()[0]).get("properties").get("input").clone();
+            let present = |v: Option<&Exact>| v.is_some_and(|v| *v != Exact::Undefined && *v != Exact::Null);
+            let properties = flat.get("properties");
+            obj(vec![
+                (
+                    "claude",
+                    obj(vec![
+                        ("declaration", claude.clone()),
+                        ("valid2020", valid_schema(&schema)),
+                        ("rootCombinators", root_combinators(&schema)),
+                        ("alternativeTitlesEqualActions", Exact::Bool(sorted(titles) == sorted(actions.as_array().to_vec()))),
+                        ("validates", validates(&schema, recorded.get("claude").get("validates"))),
+                    ]),
+                ),
+                (
+                    "gemini",
+                    obj(vec![
+                        ("flatHasAnyOf", Exact::Bool(present(flat.try_get("anyOf")))),
+                        (
+                            "flatHasKindActionsOperation",
+                            Exact::Bool(present(properties.try_get("kind")) && present(properties.try_get("actions")) && present(properties.try_get("operation"))),
+                        ),
+                    ]),
+                ),
+            ])
+        }
+        // `both(history)`: the contents per model, keyed by the model.
+        "plain-history-without-provider-replay-drops-thinking-for-claude" => {
+            Exact::Object((0..b.len()).map(|i| (args(i)[1].as_str().to_owned(), contents(i))).collect())
+        }
+        "replay-from-another-family-or-provider-drops-thinking-and-signatures" => {
+            obj(vec![(
+                "variants",
+                Exact::Array(
+                    (0..b.len())
+                        .map(|i| {
+                            // The replay envelope the test handed the build (its assistant turn's), as it passed it.
+                            let replay = args(i)[0].as_array().iter().find_map(|m| m.try_get("providerReplay")).expect("the turn's replay").clone();
+                            obj(vec![("providerReplay", replay), ("claude", contents(i))])
+                        })
+                        .collect(),
+                ),
+            )])
+        }
+        "open-loop-without-thinking-closed-with-fresh-turn-wire-only" => Exact::Object(
+            recorded
+                .entries()
+                .iter()
+                .enumerate()
+                .map(|(i, (name, _))| {
+                    let unchanged = b[i].request.messages == args(i)[0].as_array().iter().map(message).collect::<Vec<_>>();
+                    (name.clone(), obj(vec![("contents", contents(i)), ("historyUnchanged", Exact::Bool(unchanged))]))
+                })
+                .collect(),
+        ),
+        // Every other case shows the contents of its builds under the recorder's names, one per build in order.
+        _ => {
+            assert_eq!(recorded.entries().len(), b.len(), "{}: one recorded view per build", case.id);
+            Exact::Object(recorded.entries().iter().enumerate().map(|(i, (name, _))| (name.clone(), contents(i))).collect())
+        }
+    }
 }
 
 #[test]
@@ -342,12 +519,27 @@ fn every_case_builds_as_nodes() {
     // (`advertiseActionInputUnion`); the core's computer tool registers the same union file.
     let union = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../mixdog-tools/src/desktop/defs/computer.union.json")).expect("the computer union");
     mixdog_ai::providers::action_input::advertise_action_input_union(&serde_json::from_str(&union).expect("a JSON union"));
+    // Each build drew its request (and session) uuid from the recording process's `crypto.randomUUID()`, in order over the
+    // whole recording: the core's draws are those uuids, computed as the recorder's world drew them.
+    let mut draws = RecorderDraws::default();
+    mixdog_ai::random::script((0..512).map(|_| draws.uuid_bytes()));
     let mut failures = Vec::new();
     for case in &set.cases {
-        match std::panic::catch_unwind(|| check(case)) {
-            Ok(found) => failures.extend(found),
-            Err(panic) => failures.push(format!("{}: {}", case.id, panic_text(&panic))),
+        let checked = std::panic::catch_unwind(|| {
+            let mut answers = answer(case);
+            let built = Exact::Array(answers.builds.iter().map(|b| b.sent.clone()).collect());
+            let got = obj(vec![("value", value(case, &mut answers)), ("built", built)]);
+            assert!(answers.unions.is_empty(), "every actionInputUnionFor answer is shown");
+            assert_exact(&format!("{}: result", case.id), &json_form(case.result()), &json_form(&got));
+        });
+        if let Err(panic) = checked {
+            failures.push(format!("{}: {}", case.id, panic_text(&panic)));
         }
     }
+    mixdog_ai::random::script(Vec::new());
     assert!(failures.is_empty(), "cases that differ from Node:\n{}", failures.join("\n"));
+}
+
+fn panic_text(panic: &Box<dyn std::any::Any + Send>) -> String {
+    panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned())).unwrap_or_default()
 }
