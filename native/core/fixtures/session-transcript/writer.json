@@ -196,6 +196,80 @@
       "path": "projects/<slug>/sess_rotate.jsonl"
     },
     {
+      "name": "split-across-deltas",
+      "session": {
+        "id": "sess_split",
+        "owner": null,
+        "messages": []
+      },
+      "steps": [
+        [
+          "ensure"
+        ],
+        [
+          "mark",
+          "swordfish42"
+        ],
+        [
+          "appendAssistantText",
+          "typing sword"
+        ],
+        [
+          "appendAssistantText",
+          "fish42 done"
+        ],
+        [
+          "final",
+          "typed swordfish42"
+        ]
+      ],
+      "file": {
+        "size": 771,
+        "text": "{\"type\":\"assistant\",\"sessionId\":\"sess_split\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"typing sword\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_split\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"fish42 done\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_split\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"typed [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
+      },
+      "rotated": null,
+      "path": "projects/<slug>/sess_split.jsonl"
+    },
+    {
+      "name": "marked-after-stored",
+      "session": {
+        "id": "sess_marked_later",
+        "owner": null,
+        "messages": []
+      },
+      "steps": [
+        [
+          "ensure"
+        ],
+        [
+          "appendUser",
+          "my pin is 4711"
+        ],
+        [
+          "final",
+          "noted 4711"
+        ],
+        [
+          "appendUser",
+          "what now"
+        ],
+        [
+          "mark",
+          "4711"
+        ],
+        [
+          "final",
+          "pin 4711 used"
+        ]
+      ],
+      "file": {
+        "size": 1057,
+        "text": "{\"type\":\"user\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"my pin is [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"noted [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"user\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"what now\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"pin [redacted] used\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
+      },
+      "rotated": null,
+      "path": "projects/<slug>/sess_marked_later.jsonl"
+    },
+    {
       "name": "restart-source",
       "session": {
         "id": "sess_restart",

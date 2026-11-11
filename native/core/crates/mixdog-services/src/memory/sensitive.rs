@@ -480,20 +480,34 @@ impl SensitiveStore {
         }
     }
 
-    /// An attachment's or media part's file name (`name`, `filename`, `title`) redacted as text: the name a person
-    /// gave the file can spell the value (`benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-attachment-names.patch` makes Node's the same).
+    /// An attachment's or media part's file name (`name`, `filename`, `title`, and a `path` that ends in it) redacted
+    /// as text: the name a person gave the file can spell the value. The attached-files note's record of each file
+    /// (`attachmentReference.files[]`, `name` and `path`, rendered into the note's already redacted text) is stored
+    /// with the row and published to its clients, so it is redacted the same way
+    /// (`benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-attachment-names.patch` makes Node's the same).
     fn redact_part_names(&self, session: &str, part: Value) -> Value {
         let Value::Object(mut map) = part else { return part };
         let kind = map.get("type").and_then(Value::as_str).unwrap_or("");
         if kind == "attachment" || MEDIA_TYPES.contains(&kind) || is_truthy(map.get("attachmentRef")) {
-            for key in ["name", "filename", "title"] {
-                if let Some(Value::String(name)) = map.get(key) {
-                    let next = self.redact_text(session, name);
-                    map.insert(key.to_owned(), Value::String(next));
+            self.redact_name_keys(session, &mut map);
+        }
+        if let Some(Value::Array(files)) = map.get_mut("attachmentReference").and_then(|r| r.get_mut("files")) {
+            for file in files.iter_mut() {
+                if let Value::Object(file) = file {
+                    self.redact_name_keys(session, file);
                 }
             }
         }
         Value::Object(map)
+    }
+
+    fn redact_name_keys(&self, session: &str, map: &mut Map<String, Value>) {
+        for key in ["name", "filename", "title", "path"] {
+            if let Some(Value::String(name)) = map.get(key) {
+                let next = self.redact_text(session, name);
+                map.insert(key.to_owned(), Value::String(next));
+            }
+        }
     }
 
     /// A message as it is stored for `session`.

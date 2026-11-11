@@ -1,4 +1,146 @@
+diff --git a/src/runtime/shared/transcript-writer-sensitive.test.mjs b/src/runtime/shared/transcript-writer-sensitive.test.mjs
+new file mode 100644
+index 0000000..c195900
+--- /dev/null
++++ b/src/runtime/shared/transcript-writer-sensitive.test.mjs
+@@ -0,0 +1,60 @@
++import assert from 'node:assert/strict';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { drainPathSync } from './buffered-appender.mjs';
++import { createTranscriptWriter } from './transcript-writer.mjs';
++import { rememberSensitiveValues } from '../agent/orchestrator/session/sensitive-values.mjs';
++import { createMemoryIngest } from '../../session-runtime/lifecycle/memory-ingest.mjs';
++
++const mark = (session, value) =>
++  rememberSensitiveValues(session, [{ name: 'browser', arguments: { action: 'fill', input: { text: value, sensitive: true } } }]);
++
++function withWriter(session, run) {
++  const home = mkdtempSync(join(tmpdir(), 'mixdog-transcript-sensitive-'));
++  try {
++    const writer = createTranscriptWriter({ mixdogHome: home, sessionId: session, cwd: join(home, 'work'), pid: 42 });
++    const texts = () => {
++      drainPathSync(writer.transcriptPath);
++      return readFileSync(writer.transcriptPath, 'utf8')
++        .split('\n')
++        .filter(Boolean)
++        .map((line) => JSON.parse(line).message.content[0].text);
++    };
++    return run(writer, texts);
++  } finally {
++    rmSync(home, { recursive: true, force: true });
++  }
++}
++
++test('a marked value is redacted in an appended line and in the conversation backfill', () => {
++  withWriter('sess_sensitive_lines', (writer, texts) => {
++    mark('sess_sensitive_lines', 'hunter2');
++    writer.ensureConversationBackfill([{ role: 'user', content: 'earlier hunter2' }]);
++    writer.appendUser('the password is hunter2');
++    writer.appendAssistant('typed hunter2');
++    assert.deepEqual(texts(), ['earlier [redacted]', 'the password is [redacted]', 'typed [redacted]']);
++  });
++});
++
++test('a value marked after its lines were written is redacted in those lines, the rest kept', () => {
++  withWriter('sess_sensitive_later', (writer, texts) => {
++    writer.appendUser('my pin is 4711');
++    writer.appendAssistant('noted');
++    mark('sess_sensitive_later', '4711');
++    assert.deepEqual(texts(), ['my pin is [redacted]', 'noted']);
++  });
++});
++
++test("a closing session's conversation reaches memory with its marked values redacted", async () => {
++  mark('sess_sensitive_ingest', 's3cret');
++  const calls = [];
++  const ingest = createMemoryIngest({
++    getMemoryModPromise: () => Promise.resolve({ handleToolCall: async (_tool, args) => calls.push(args) }),
++    getCurrentCwd: () => '/work',
++    withTeardownDeadline: (promise) => promise,
++  });
++  await ingest({ id: 'sess_sensitive_ingest', cwd: '/work', messages: [{ role: 'user', content: 'use s3cret' }] });
++  assert.deepEqual(calls[0].messages, [{ role: 'user', content: 'use [redacted]' }]);
++});
+diff --git a/src/runtime/shared/transcript-writer.mjs b/src/runtime/shared/transcript-writer.mjs
+index 57a8a76..6034711 100644
+--- a/src/runtime/shared/transcript-writer.mjs
++++ b/src/runtime/shared/transcript-writer.mjs
+@@ -15,13 +15,16 @@
+  * transcript-writer/: rotation (size-based generations), transcript-file
+  * (directory, exclusive create, conversation backfill), session-record.
+  */
++import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+ import { join, resolve } from 'node:path';
+-import { appendBuffered } from './buffered-appender.mjs';
++import { appendBuffered, drainPathSync } from './buffered-appender.mjs';
+ import { formatUtcTimestamp } from './time-format.mjs';
+ import { createRotationTracker } from './transcript-writer/rotation.mjs';
+ import { conversationText, createTranscriptFile, cwdToProjectSlug } from './transcript-writer/transcript-file.mjs';
+ import { createFailureLog, createSessionRecord } from './transcript-writer/session-record.mjs';
+ import { isSessionTranscriptPurged, noteSessionTranscript } from './transcript-writer/purge.mjs';
++import { redactSensitiveContent, redactSensitiveMessage } from '../agent/orchestrator/session/sensitive-projection.mjs';
++import { onSensitiveValuesMarked } from '../agent/orchestrator/session/sensitive-values.mjs';
+ 
+ // A user prompt with pasted images arrives as a content block array; only its
+ // text reaches the transcript (String(array) would store "[object Object]").
+@@ -55,6 +58,42 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid, memory
+ 
+   noteSessionTranscript(sessionId, transcriptPath);
+ 
++  // A value marked after lines holding it were written: the transcript (and its rotated
++  // generation) is rewritten with each line's message redacted, every other line as it was.
++  onSensitiveValuesMarked(sessionId, () => {
++    if (isSessionTranscriptPurged(sessionId)) return;
++    drainPathSync(transcriptPath);
++    for (const path of [transcriptPath, `${transcriptPath}.1`]) {
++      let text;
++      try {
++        text = readFileSync(path, 'utf8');
++      } catch {
++        continue;
++      }
++      const next = text
++        .split('\n')
++        .map((line) => {
++          let entry;
++          try {
++            entry = JSON.parse(line);
++          } catch {
++            return line;
++          }
++          if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !('message' in entry)) return line;
++          const message = redactSensitiveMessage(sessionId, entry.message);
++          return message === entry.message ? line : JSON.stringify({ ...entry, message });
++        })
++        .join('\n');
++      if (next === text) continue;
++      try {
++        writeFileSync(`${path}.redact`, next);
++        renameSync(`${path}.redact`, path);
++      } catch (err) {
++        logOnce(err);
++      }
++    }
++  });
++
+   function appendLine(entry) {
+     // A deleted session's own writer must not bring its transcript back.
+     if (isSessionTranscriptPurged(sessionId)) return;
+@@ -77,7 +116,8 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid, memory
+   }
+ 
+   function appendText(type, text) {
+-    const value = textOrEmpty(text);
++    // The session's sensitive values never reach the transcript (and so memory) in plain text.
++    const value = redactSensitiveContent(sessionId, textOrEmpty(text));
+     if (!value.trim()) return;
+     appendLine({ type, sessionId, message: { content: [{ type: 'text', text: value }] } });
+   }
 diff --git a/src/runtime/shared/transcript-writer/transcript-file.mjs b/src/runtime/shared/transcript-writer/transcript-file.mjs
+index 1d51186..1ecd7a1 100644
 --- a/src/runtime/shared/transcript-writer/transcript-file.mjs
 +++ b/src/runtime/shared/transcript-writer/transcript-file.mjs
 @@ -5,6 +5,7 @@
@@ -6,7 +148,7 @@ diff --git a/src/runtime/shared/transcript-writer/transcript-file.mjs b/src/runt
  import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
  import { resolve } from 'node:path';
 +import { redactSensitiveContent } from '../../agent/orchestrator/session/sensitive-projection.mjs';
-
+ 
  // Canonical project-slug mapping for `<mixdogHome>/projects/<slug>` transcript dirs.
  export function cwdToProjectSlug(cwd) {
 @@ -86,7 +87,8 @@ export function createTranscriptFile({
@@ -19,28 +161,6 @@ diff --git a/src/runtime/shared/transcript-writer/transcript-file.mjs b/src/runt
          if (!text.trim()) continue;
          const entry = { type: role, sessionId, cwd: resolvedCwd };
          if (!memoryEligible) entry.memoryEligible = false;
-diff --git a/src/runtime/shared/transcript-writer.mjs b/src/runtime/shared/transcript-writer.mjs
-index 57a8a76..cecfcda 100644
---- a/src/runtime/shared/transcript-writer.mjs
-+++ b/src/runtime/shared/transcript-writer.mjs
-@@ -22,6 +22,7 @@ import { createRotationTracker } from './transcript-writer/rotation.mjs';
- import { conversationText, createTranscriptFile, cwdToProjectSlug } from './transcript-writer/transcript-file.mjs';
- import { createFailureLog, createSessionRecord } from './transcript-writer/session-record.mjs';
- import { isSessionTranscriptPurged, noteSessionTranscript } from './transcript-writer/purge.mjs';
-+import { redactSensitiveContent } from '../agent/orchestrator/session/sensitive-projection.mjs';
- 
- // A user prompt with pasted images arrives as a content block array; only its
- // text reaches the transcript (String(array) would store "[object Object]").
-@@ -77,7 +78,8 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid, memory
-   }
- 
-   function appendText(type, text) {
--    const value = textOrEmpty(text);
-+    // The session's sensitive values never reach the transcript (and so memory) in plain text.
-+    const value = redactSensitiveContent(sessionId, textOrEmpty(text));
-     if (!value.trim()) return;
-     appendLine({ type, sessionId, message: { content: [{ type: 'text', text: value }] } });
-   }
 diff --git a/src/session-runtime/lifecycle/memory-ingest.mjs b/src/session-runtime/lifecycle/memory-ingest.mjs
 index 7ff8432..1e06a96 100644
 --- a/src/session-runtime/lifecycle/memory-ingest.mjs

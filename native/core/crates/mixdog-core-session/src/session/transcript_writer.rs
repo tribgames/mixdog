@@ -583,7 +583,7 @@ mod tests {
             if case["file"]["text"].as_str().is_some_and(|text| text.contains("[redacted]")) {
                 sensitive.remember(session, std::slice::from_ref(&recorded["sensitiveCall"]));
             }
-            let files = TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(Now), sensitive);
+            let files = TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(Now), sensitive.clone());
             let mut header = Header::new();
             header.insert("cwd".into(), json!(cwd));
             if let Some(owner) = case["session"]["owner"].as_str() {
@@ -603,6 +603,12 @@ mod tests {
                     "appendUser" => turn.as_ref().unwrap().user(&json!(text)),
                     "appendAssistantText" => turn.as_ref().unwrap().assistant_text(text),
                     "final" => turn.as_ref().unwrap().final_text(text),
+                    // `rememberSensitiveValues` with the recorded fill carrying this value.
+                    "mark" => {
+                        let mut call = recorded["sensitiveCall"].clone();
+                        call["arguments"]["input"]["text"] = json!(text);
+                        sensitive.remember(session, &[call]);
+                    }
                     other => panic!("{name}: unknown step {other}"),
                 }
             }
