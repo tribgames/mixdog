@@ -205,9 +205,10 @@ async fn explicit_selection_adds_what_node_adds_to_the_transcript() {
         let label = format!("{}", case["prompt"]);
         let (selector, tool) = selector(&golden, None, false);
         let mut transcript = Vec::new();
-        selector.select(&content_of(&case["prompt"]), &mut transcript).await;
+        let applied = selector.select(&content_of(&case["prompt"]), true, &mut transcript).await;
         let calls: Vec<&str> = case["calls"].as_array().unwrap().iter().map(|c| c["args"]["name"].as_str().unwrap()).collect();
         assert_eq!(*tool.calls.lock().unwrap(), calls, "{label}: skills loaded");
+        assert_eq!(json!(applied), case["applied"], "{label}: skills applied");
         let got: Vec<(String, Value)> = transcript.iter().map(shown).collect();
         let expected: Vec<(String, Value)> =
             case["messages"].as_array().unwrap().iter().map(|m| (m["content"].as_str().unwrap().to_owned(), m["meta"].clone())).collect();
@@ -222,13 +223,13 @@ async fn a_trusted_selection_replaces_the_prompt_even_when_empty() {
     let (selector, tool) = selector(&golden, None, false);
     let selector = selector.with_selection(Some("$alpha".to_owned()));
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("no mention here".to_owned()), &mut transcript).await;
+    selector.select(&Content::Text("no mention here".to_owned()), true, &mut transcript).await;
     assert_eq!(*tool.calls.lock().unwrap(), ["alpha"]);
 
     let (selector, tool) = self::selector(&golden, None, false);
     let selector = selector.with_selection(Some(String::new()));
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), &mut transcript).await;
+    selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
     assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
 }
 
@@ -237,7 +238,7 @@ async fn a_session_that_cannot_call_skill_selects_nothing() {
     let golden = golden();
     let (selector, tool) = selector(&golden, Some("Skill is not available here"), false);
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), &mut transcript).await;
+    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
     assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
 }
 
@@ -246,7 +247,7 @@ async fn an_unreadable_catalog_selects_nothing() {
     let golden = golden();
     let (selector, tool) = selector(&golden, None, true);
     let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), &mut transcript).await;
+    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
     assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
 }
 

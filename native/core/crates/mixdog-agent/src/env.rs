@@ -105,11 +105,11 @@ pub trait SteerSource: Send + Sync {
     async fn drain(&self, request: DrainRequest) -> Vec<SteerEntry>;
 }
 
-/// Explicit skill selection for typed steering input, run before the next
-/// provider snapshot.
+/// Explicit skill selection (`prepareExplicitSkills`) for the turn's own prompt (`initial`) and for typed
+/// steering input, run before the next provider snapshot. Answers the skills that loaded, in selection order.
 #[async_trait]
 pub trait SkillSelector: Send + Sync {
-    async fn select(&self, content: &Content, transcript: &mut Vec<AgentMessage>);
+    async fn select(&self, content: &Content, initial: bool, transcript: &mut Vec<AgentMessage>) -> Vec<String>;
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +463,11 @@ pub trait TranscriptSink: Send + Sync {
 
     /// Cancel-safe.
     async fn durable(&self, ticket: Ticket);
+
+    /// `recordAppliedSkills`: the skills a durable user message's turn loaded are stamped on its stored row
+    /// (`meta.transcript.appliedSkills`), where the live row, the persisted transcript and restore read them. A sink
+    /// with no stored rows has nothing to stamp.
+    async fn skills_applied(&self, _message: &AgentMessage, _names: &[String]) {}
 }
 
 // ---------------------------------------------------------------------------

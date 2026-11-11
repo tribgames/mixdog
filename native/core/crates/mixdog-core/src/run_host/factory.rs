@@ -213,6 +213,12 @@ pub trait RunParts: Send + Sync + 'static {
 
     /// `resetTurnShellReap`: a new turn owns the thread; nothing earlier is reported for it.
     fn reset_turn_shells(&self, _thread: &ThreadId) {}
+
+    /// `recordAppliedSkills`: the skills a turn's prompt loaded, stamped on the thread's durable row `item`. A host
+    /// with no session store has nothing to stamp.
+    async fn record_applied_skills(&self, _thread: &ThreadId, _item: &ItemId, _names: &[String]) -> Result<(), TurnError> {
+        Ok(())
+    }
 }
 
 pub struct RunHostFactory {
@@ -280,6 +286,15 @@ struct PortSink {
     /// The loop's counters, set by the host just before the turn's terminal reply commits
     /// (`appendAssistantTurnMessage` writes them on that message).
     terminal: Mutex<Option<(u32, u64)>>,
+    applied: AppliedSkills,
+}
+
+/// Where the skills a prompt loaded are stamped: the thread's row of that prompt.
+struct AppliedSkills {
+    parts: Arc<dyn RunParts>,
+    thread: ThreadId,
+    /// The turn's input row, which the actor committed, and the message id it carries.
+    input: (Option<String>, ItemId),
 }
 
 /// What `beginTurn` (`tui/session/turn.mjs`) gave the turn, as its assistant rows and its completion take it.
@@ -327,6 +342,7 @@ impl PortSink {
         blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
         on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
         stamp: Option<TurnStamp>,
+        applied: AppliedSkills,
     ) -> Arc<Self> {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
@@ -351,7 +367,7 @@ impl PortSink {
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None) })
+        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), applied })
     }
 
     /// What Node's loop and turn commit write on an assistant row besides its content: its id, time and
@@ -496,6 +512,15 @@ impl TranscriptSink for PortSink {
 
     fn message_id(&self) -> String {
         format!("msg_{}", uuid::Uuid::new_v4().simple())
+    }
+
+    async fn skills_applied(&self, message: &AgentMessage, names: &[String]) {
+        let applied = &self.applied;
+        let item = if message.message_id == applied.input.0 { applied.input.1.clone() } else { self.iid_of(message) };
+        // Node schedules the save and goes on; a stamp that cannot be stored never fails the turn.
+        if let Err(error) = applied.parts.record_applied_skills(&applied.thread, &item, names).await {
+            tracing::warn!("[session] applied skills save failed: {}", error.message);
+        }
     }
 
     async fn durable(&self, ticket: Ticket) {
@@ -995,7 +1020,8 @@ async fn drive(
     };
     // A retried failed turn resends its own message as it is (`retainedUserTurn`, `ask-turn-execute.mjs:38-69`): it
     // keeps the reminders it was built with, learns the agents changed since, and acknowledges its settings notice only.
-    let (carried, revisions) = if super::turn_reminders::is_retained(&input_body) {
+    let retried = super::turn_reminders::is_retained(&input_body);
+    let (carried, revisions) = if retried {
         match super::turn_reminders::resubmit(&input_body, &header, &prior, current_agents.as_deref()) {
             Ok(resent) => resent,
             Err(text) => return failed(text, input_body),
@@ -1052,7 +1078,8 @@ async fn drive(
     let streaming = Arc::new(Mutex::new(None));
     let stamp = TurnStamp::of(&input_body, verb, clock.now_ms());
     let observed = Arc::new(Mutex::new(Observed::default()));
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), streaming.clone(), observed.clone(), clock.clone(), blobs, on_tool_result, stamp);
+    let applied = AppliedSkills { parts: parts.clone(), thread: thread.clone(), input: (input.message_id.clone(), input_item.clone()) };
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), streaming.clone(), observed.clone(), clock.clone(), blobs, on_tool_result, stamp, applied);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);
     // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with.
@@ -1150,6 +1177,7 @@ async fn drive(
     config.turn_id = turn.clone();
     config.signal = Some(signal.clone());
     config.first_request_after = Some(Ticket(0));
+    config.select_input_skills = !injected && !retried;
     let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) })));
     let skills = skills.map(|build| build(SkillContext { gate: gate.clone(), env: tool_env.clone(), cancel: cancel.clone() }));
     let guard_state = guards.clone();
@@ -3059,5 +3087,223 @@ mod tests {
         let status = snapshot_call(&tools_status(&world), &id, "go").await;
         assert_eq!(status["requestSnapshot"], Value::Null, "Node's nextMainRequest is null without a user conversation");
         assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
+    }
+
+    // ---- `$skill` chips: the skills a prompt loaded, stamped on its row (`fixtures/applied-skills`) ----
+
+    struct SkillSet(std::collections::HashSet<String>);
+
+    #[async_trait]
+    impl mixdog_mcp::skill_select::SkillNames for SkillSet {
+        async fn names(&self, _: &std::path::Path) -> Result<std::collections::HashSet<String>, String> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// The `Skill` tool as the product answers a skill it loads: the loaded line, the body as its follow-up.
+    struct LoadsSkills(ToolSpec);
+
+    #[async_trait]
+    impl Tool for LoadsSkills {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+            let name = args["name"].as_str().unwrap_or_default();
+            Ok(ToolOutput {
+                parts: vec![ToolPart::Text(format!("Loaded skill: {name}"))],
+                follow_up_messages: vec![mixdog_core_api::domain::tool::FollowUpMessage { text: format!("# {name}\nFollow it."), meta: Some("skill".to_owned()) }],
+                ..ToolOutput::default()
+            })
+        }
+    }
+
+    /// A tool that holds its call until the test lets it go, so a prompt can be queued into the running turn.
+    struct Hold {
+        spec: ToolSpec,
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl Tool for Hold {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+            self.started.notify_one();
+            self.release.notified().await;
+            Ok(ToolOutput { parts: vec![ToolPart::Text("held".into())], ..ToolOutput::default() })
+        }
+    }
+
+    fn named_spec(name: &str) -> ToolSpec {
+        ToolSpec {
+            name: name.into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: name.into(),
+            input_schema: json!({ "type": "object" }),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        }
+    }
+
+    /// [`Parts`] whose turns select skills and stamp what loaded on the thread of the late-bound directory.
+    struct Skilled {
+        inner: Parts,
+        skills: super::super::assemble::SkillParts,
+        directory: Arc<std::sync::OnceLock<std::sync::Weak<SessionDirectory>>>,
+    }
+
+    #[async_trait]
+    impl RunParts for Skilled {
+        async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+            self.inner.reconcile_turn(thread, header, conversation).await
+        }
+
+        async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+            let mut assembled = self.inner.assemble(input).await?;
+            let parts = self.skills.clone();
+            assembled.skills = Some(Box::new(move |run: SkillContext| {
+                Arc::new(super::super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel)) as Arc<dyn SkillSelector>
+            }));
+            Ok(assembled)
+        }
+
+        async fn record_applied_skills(&self, thread: &ThreadId, item: &ItemId, names: &[String]) -> Result<(), TurnError> {
+            let Some(directory) = self.directory.get().and_then(std::sync::Weak::upgrade) else {
+                return Err(TurnError { message: "the session directory is closed".into(), data: json!({}), provider_error: None });
+            };
+            mixdog_core_session::session::thread_switches::record_applied_skills(&directory, thread, item, names)
+                .await
+                .map_err(|error| TurnError { message: error.to_string(), data: json!({}), provider_error: None })
+        }
+    }
+
+    fn says(text: &str) -> Vec<StreamEvent> {
+        vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]
+    }
+
+    /// The user lines of a thread's view, each by its text with the chips it shows.
+    async fn user_lines(handle: &dyn ThreadHandle, id: &ThreadId) -> Vec<(String, Value)> {
+        let read = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
+        let Reply::Value(read) = handle.request(read).await.expect("thread/read") else { panic!("thread/read answers a value") };
+        read["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .filter(|item| item["type"] == "userMessage")
+            .map(|item| (item["displayText"].as_str().unwrap_or_default().to_owned(), item.get("appliedSkills").cloned().unwrap_or(Value::Null)))
+            .collect()
+    }
+
+    /// Each recorded case as a real turn (the session actor starts it, the loop prepares the prompt's skills through the
+    /// `Skill` tool, a prompt queued into the running turn is prepared at its drain): the chips each user line shows, live and
+    /// after the thread is opened again over the same store, are the ones Node's restored rows show (`fixtures/applied-skills`,
+    /// recorded by `record-applied-skills.mjs`; Node's seeded earlier turn is not part of the replayed thread).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_prompts_loaded_skills_are_its_rows_chips_as_node_restores_them() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/applied-skills/golden.json")).expect("golden");
+        let skills: std::collections::HashSet<String> = golden["skills"].as_array().expect("skills").iter().map(|s| s.as_str().expect("name").to_owned()).collect();
+        let mut compared = 0;
+        for case in golden["cases"].as_array().expect("cases") {
+            let label = case["name"].as_str().expect("name");
+            let queued = case["queued"].as_str();
+            let (started, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+            let script = if queued.is_some() {
+                vec![
+                    vec![
+                        StreamEvent::ToolCallDone(ToolCall { id: "h1".into(), name: "hold".into(), arguments: json!({}), native_type: None }),
+                        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                    ],
+                    // The terminal drain after this reply takes the queued prompt, as Node's drain after its first reply.
+                    says("Done."),
+                    says("Done."),
+                ]
+            } else {
+                vec![says("Done.")]
+            };
+            let provider = Arc::new(Scripted {
+                id: ProviderId::from("scripted"),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(script.into()),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            });
+            let workspace = tempfile::tempdir().unwrap();
+            let hold: Arc<dyn Tool> = Arc::new(Hold { spec: named_spec("hold"), started: started.clone(), release: release.clone() });
+            let late = Arc::new(std::sync::OnceLock::new());
+            let skill_parts = super::super::assemble::SkillParts { names: Arc::new(SkillSet(skills.clone())), tool: Arc::new(LoadsSkills(named_spec("Skill"))) };
+            let factory = |more: Vec<Arc<dyn Tool>>| {
+                let parts = Skilled { inner: Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more, settle: None }, skills: skill_parts.clone(), directory: late.clone() };
+                Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)))
+            };
+            let rig = Rig::new();
+            // The product's projection of the stored rows, which shows a row's chips.
+            let projection = || Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.runs = factory(vec![hold]);
+            deps.transcript = projection();
+            let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+            late.set(Arc::downgrade(&directory)).expect("bound once");
+            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+            let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+            let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+            let handle = directory.handle(&id).expect("loaded");
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": case["prompt"] } }), "op-1")).await.expect("turn/start");
+            if let Some(queued) = queued {
+                started.notified().await;
+                handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": queued } }), "op-2")).await.expect("the queued prompt");
+                // The drain hands over durable entries only: the tool is let go once the queued row is shown.
+                let shown = || {
+                    let read = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
+                    let handle = handle.clone();
+                    async move {
+                        let Ok(Reply::Value(read)) = handle.request(read).await else { return false };
+                        read["state"]["queued"].as_array().is_some_and(|queued| !queued.is_empty())
+                    }
+                };
+                let mut waited = 0;
+                while !shown().await {
+                    waited += 1;
+                    assert!(waited < 2_000, "{label}: the queued prompt is never shown");
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+                release.notify_one();
+            }
+            // Node's restored user rows of the replayed turn, in order: the chips each shows.
+            let expected: Vec<Value> = case["restoredUserRows"].as_array().expect("rows").iter().filter(|row| row["messageId"] != "msg_earlier").map(|row| row["appliedSkills"].clone()).collect();
+            let chips = |lines: Vec<(String, Value)>| lines.into_iter().map(|(_, chips)| chips).collect::<Vec<_>>();
+            // The skills are prepared (and stamped) before the request the reply answers.
+            let replies = if queued.is_some() { 2 } else { 1 };
+            let replied = || {
+                rig.store
+                    .records(&id)
+                    .into_iter()
+                    .filter(|(_, record)| match record {
+                        Record::Item(item) => matches!(item.body, Slot::Inline(ref body) if body["role"] == "assistant" && body["content"] == "Done."),
+                        _ => false,
+                    })
+                    .count()
+                    == replies
+            };
+            eventually_on_awaiting(|| format!("{label}: the turn's reply in the store"), &[handle.stepped()], || replied().then_some(())).await;
+            assert_eq!(chips(user_lines(&*handle, &id).await), expected, "{label}: the live lines");
+            // The thread opened again over the same store reads the stamps back from the stored rows.
+            let mut reopened = rig.deps_parts(rig.store.clone());
+            reopened.runs = factory(Vec::new());
+            reopened.transcript = projection();
+            let again = SessionDirectory::new(Arc::new(reopened));
+            let handle = again.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
+            assert_eq!(chips(user_lines(&*handle, &id).await), expected, "{label}: the restored lines");
+            compared += 1;
+        }
+        assert_eq!(compared, 4);
     }
 }

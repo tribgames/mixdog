@@ -493,6 +493,11 @@ impl RunParts for HostRunParts {
         self.services.seams.first_response_timeout_ms(agent).await
     }
 
+    async fn record_applied_skills(&self, thread: &ThreadId, item: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), TurnError> {
+        let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        mixdog_core_session::session::thread_switches::record_applied_skills(&directory, thread, item, names).await.map_err(|error| refuse(error.to_string()))
+    }
+
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
