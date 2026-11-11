@@ -557,9 +557,13 @@ const STATUS_MARKER = 'rec-status-clock';
 const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
 
 /** The snapshot fields Node fills on its status pass (manifest `settledStatus`). */
-/** The snapshot fields Node moves after a call's answer on its config watch (manifest `settledSetup`). */
-const AFTER_CALL_FIELDS = ['setupChanged'];
-const SETTLED_FIELDS = ['contextWindow','rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd', 'workspace'];
+const SETTLED_FIELDS = ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd', 'workspace'];
+/** The snapshot fields a call moves that Node shows only after its answer, which the core may show in the answer already (manifest
+ *  `fasterInCore`): the status fields above and `setupChanged`, which Node moves on its config watch. */
+const FASTER_FIELDS = [...SETTLED_FIELDS, 'setupChanged'];
+
+/** The read after a case's after-call order: the snapshot of the session the case named (the control session's for none). */
+const settledRead = (sent) => ({ capability: STATUS_SETTLE.read, args: [], ...(sent.sessionId ? { sessionId: sent.sessionId } : {}) });
 
 async function settleStatus(pid) {
   statusClock.sent += 1;
@@ -603,6 +607,29 @@ async function settleStatus(pid) {
   return reply;
 }
 
+/** Who waits for a session's route publication on the host's streams (routeShown). */
+const routeWaiters = new Set();
+
+/** The desktop's setRoute of `session`, ordered: its answer can come before the daemon publishes the session's new route to the host
+ *  (set-route.mjs:393-395 runs followSession after adoptRoute), so the next case waits for the host to have received that publication. */
+async function routeShown(attachment, session, route) {
+  let resolveShown;
+  let rejectShown;
+  const shown = new Promise((resolve, reject) => ((resolveShown = resolve), (rejectShown = reject)));
+  const waiter = (frame) => {
+    if (frame?.type === 'session-state' && frame.sessionId === session && frame.patch?.set?.model === route.model) resolveShown();
+  };
+  routeWaiters.add(waiter);
+  const deadline = setTimeout(() => rejectShown(new RecorderError(`the host did not receive session ${session}'s route ${route.model} in 30 s`)), 30_000);
+  try {
+    await attachment.call('session.configure', { sessionId: session, action: 'setRoute', args: [{ ...route, applyToCurrentSession: true, keepMainModel: false }] });
+    await shown;
+  } finally {
+    clearTimeout(deadline);
+    routeWaiters.delete(waiter);
+  }
+}
+
 async function recordGroup(group) {
   makeWorld(group);
   rmSync(statusClock.dir, { recursive: true, force: true });
@@ -623,7 +650,11 @@ async function recordGroup(group) {
         // The status clock's marker frames end each order on this stream (settleStatus); the host never sees them.
         const index = statusClock.markers.push(0) - 1;
         const frames = (frame) => {
-          if (frame?.type !== STATUS_MARKER) return onFrame(frame);
+          if (frame?.type !== STATUS_MARKER) {
+            onFrame(frame);
+            for (const waiter of [...routeWaiters]) waiter(frame);
+            return;
+          }
           statusClock.markers[index] = frame.order;
           for (const waiter of [...statusClock.waiters]) waiter();
         };
@@ -646,7 +677,7 @@ async function recordGroup(group) {
       const created = await attachments[0].call('session.create', { cwd: PATHS.project, desktopSession: { classification: 'project', projectPath: PATHS.project } });
       ctx.session = String(created.sessionId);
       // ... and its draft's route (configureDraft), the fixture's model.
-      await attachments[0].call('session.configure', { sessionId: ctx.session, action: 'setRoute', args: [{ ...ROUTE, applyToCurrentSession: true, keepMainModel: false }] });
+      await routeShown(attachments[0], ctx.session, ROUTE);
     }
     const methods = createRemoteMethods({ host, userDataPath: PATHS.userData });
     const cases = [];
@@ -654,7 +685,7 @@ async function recordGroup(group) {
     for (const request of GROUPS[group]) {
       if (request.switchRoute) {
         // The desktop's model switch of the session (configureDraft's setRoute on the current session), an ordered input.
-        await attachments[0].call('session.configure', { sessionId: ctx.session, action: 'setRoute', args: [{ ...request.switchRoute, applyToCurrentSession: true, keepMainModel: false }] });
+        await routeShown(attachments[0], ctx.session, request.switchRoute);
         cases.push({ group, switchRoute: request.switchRoute });
         continue;
       }
@@ -672,22 +703,17 @@ async function recordGroup(group) {
         throw new Error(`${group}: the host lost its daemon connection (${frame.error}) on ${JSON.stringify(request)}; record again`);
       }
       noteRevision(frame, ctx);
-      // The status fields the call itself moved (a transition's cwd, its window) Node republishes on its next pass: the answer keeps
-      // them as they settle after it (manifest `settledStatus`), the value the answer carried under `unsettled`.
-      let unsettled;
+      // The answer is kept as Node gave it. What the call moved after its answer (a settings write's setupChanged, a transition's
+      // cwd and window: manifest `fasterInCore`) Node shows once the after-call order has run its config watch and status passes:
+      // the read after that order is the case's `settled`, compared whole as well.
+      let settled;
       if (frame.ok && frame.value?.snapshot && typeof frame.value.snapshot === 'object') {
         await settleStatus(daemonPid);
-        const params = [{ capability: STATUS_SETTLE.read, args: [], ...(sent.sessionId ? { sessionId: sent.sessionId } : {}) }];
-        const after = await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params }));
-        if (!after.ok) throw new Error(`${group}: the settled read failed: ${after.error}`);
-        for (const field of [...SETTLED_FIELDS, ...AFTER_CALL_FIELDS]) {
-          if (isDeepStrictEqual(frame.value.snapshot[field], after.value.snapshot[field])) continue;
-          unsettled ??= {};
-          unsettled[field] = frame.value.snapshot[field] ?? null;
-          frame.value.snapshot[field] = after.value.snapshot[field];
-        }
+        const { id: _after, ...after } = clone(await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params: [settledRead(sent)] })));
+        if (!after.ok) throw new RecorderError(`${group}: the settled read failed: ${after.error}`);
+        settled = kept(after, ctx);
       }
-      cases.push({ group, request: clone([request])[0] ?? null, frame: kept(frame, ctx), ...(unsettled ? { unsettled: kept({ ok: true, value: unsettled }, ctx).value } : {}), repository: kept(repository(), ctx) });
+      cases.push({ group, request: clone([request])[0] ?? null, frame: kept(frame, ctx), ...(settled ? { settled } : {}), repository: kept(repository(), ctx) });
       // repository() blocks this process on git; one turn of the loop (its overdue timers, then pending socket closes) lets the
       // client's pool drop idle sockets the daemon's keep-alive ended, or the next call goes out on one and reads ECONNRESET.
       await new Promise((resolve) => setImmediate(resolve));
@@ -774,16 +800,21 @@ writeSetManifest(stage, {
     },
     settledStatus: {
       fields: SETTLED_FIELDS,
-      afterCall: "a field among these the call itself moved (a workspace transition's cwd) Node republishes on the pass after the call: the case's answer holds it as the pass leaves it (the recorder settles and reads once more), the value Node's answer carried is kept under the case's `unsettled`",
       node: "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
       recording: "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s, the order ending with a marker frame each host stream delivers after the passes' publications), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)",
       core: 'has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case',
     },
-    settledSetup: {
-      fields: AFTER_CALL_FIELDS,
-      node: "a settings write reaches setupChanged after the call's answer: the runtime's config save is debounced (config-writers.mjs createDebouncedWriter), the daemon's config watch sees the file (config.mjs watchConfigDir) and runs its listeners after a 100 ms debounce (config.mjs notifyConfigChanged), the change effects announce settings_changed (config-change-effects.mjs), the router counts it (notification-router.mjs:33-36) and the store publishes on its 16 ms frame (frame-batched-store.mjs) and the projection's publish timer (projection/frames.mjs schedulePublish)",
-      recording: "the after-call order (status-clock-preload.mjs) lands the saves accepted before it (drainSessionConfigWrites), waits for the watch event that saw the files on disk, moves the clock past the debounce and waits for the store's frame and the projection's publication before its marker; the case's answer holds setupChanged as it then is, the value the answer carried under `unsettled`",
-      core: 'announces the write it applies before it answers: the same count, only faster (rule U-SV1)',
+    fasterInCore: {
+      fields: FASTER_FIELDS,
+      node: {
+        setupChanged:
+          "a settings write reaches setupChanged after the call's answer: the runtime's config save is debounced (src/session-runtime/config-lifecycle/config-writers.mjs:67-75), the daemon's config watch sees the file (config.mjs watchConfigDir) and runs its listeners after a 100 ms debounce (config.mjs notifyConfigChanged), the change effects announce settings_changed (config-change-effects.mjs), the router counts it (notification-router.mjs:33-36) and the store publishes on its 16 ms frame (frame-batched-store.mjs)",
+        status: "a field of settledStatus the call itself moved (a transition's cwd and workspace, the window of a route) Node publishes on its next status pass (src/tui/session/context-state.mjs:45-113,137-155; session-status-scheduler.mjs)",
+      },
+      recording:
+        "deterministic: the daemon's timers run on the recorder's virtual clock (status-clock-preload.mjs), so no debounce, watch listener or status pass runs between the call and its answer; each answer is kept as Node gave it. After a call whose answer carries a snapshot the after-call order lands the saves accepted before it (drainSessionConfigWrites), waits for the watch event that saw the files on disk, moves the clock past the debounces and the status passes, and waits for the store's frame and each host stream's marker; the read after it (getWorktreeSettings of the session the case named) is the case's `settled`, kept whole",
+      replay:
+        "the core's answer is compared whole with Node's; in a field listed here it may instead hold the value Node's `settled` read holds (the core applies the change before it answers: the same content, only faster, rule U-SV1). The same read after the case is compared whole with `settled`",
     },
     notRecorded: {
       notProducible: "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself",
@@ -793,6 +824,35 @@ writeSetManifest(stage, {
 commitStage(stage, FIXTURES);
 console.log(`phone-worktree: ${cases.length} cases`);
 process.exit(0);
+
+/** The core's answer as compared with Node's: a `fasterInCore` field of its snapshot that holds the value Node's `settled` read holds
+ *  where Node's answer held its earlier one counts as Node's answer (the same content, only faster); every other field stays as the
+ *  core answered. */
+function fasterAs(frame, expected, fields) {
+  const core = frame.value?.snapshot;
+  const node = expected.frame?.value?.snapshot;
+  const later = expected.settled?.value?.snapshot;
+  if (!core || !node || !later) return frame;
+  const snapshot = { ...core };
+  for (const field of fields) {
+    if (!isDeepStrictEqual(snapshot[field], node[field]) && isDeepStrictEqual(snapshot[field], later[field])) snapshot[field] = node[field];
+  }
+  return { ...frame, value: { ...frame.value, snapshot } };
+}
+
+/** A call's frame as the relay answers it: `{ ok, value }`, or `{ ok: false, error, errorCode?, errorParams? }`. */
+async function answered(call) {
+  try {
+    return { ok: true, value: clone(await call()) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error.message,
+      ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}),
+      ...(error.details !== undefined ? { errorParams: clone(error.details) } : {}),
+    };
+  }
+}
 
 /** Where two answers part: [path, node, core] down to the first field that is not an object on both sides. */
 function divergences(node, core, path) {
@@ -906,8 +966,9 @@ async function replay(exe) {
         }
         noteRevision(frame, ctx);
         compared += 1;
-        const got = { frame: kept(frame, ctx), repository: kept(repository(), ctx) };
-        for (const field of ['frame', 'repository']) {
+        const got = { frame: fasterAs(kept(frame, ctx), expected, manifest.fasterInCore.fields), repository: kept(repository(), ctx) };
+        if (expected.settled) got.settled = kept(await answered(() => router.call('invokeCapability', [settledRead(sent)])), ctx);
+        for (const field of ['frame', 'repository', 'settled']) {
           if (!isDeepStrictEqual(expected[field], got[field])) differences.push({ label, field, node: expected[field], core: got[field] });
         }
       }
