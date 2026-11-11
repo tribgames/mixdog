@@ -411,12 +411,8 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
-        // A replay's clock, once frozen, is the wall clock: it moves with the timers (mixdog_rt::virtual_clock).
-        #[cfg(feature = "virtual-clock")]
-        if let Some(now) = mixdog_rt::virtual_clock::now_ms() {
-            return now;
-        }
-        let since = std::time::SystemTime::now()
+        // On a replay's clock, the replay's wall clock (mixdog_rt::virtual_clock).
+        let since = mixdog_rt::wall_clock!()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
@@ -485,7 +481,7 @@ fn new_session_id(now_ms: i64) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: std::sync::OnceLock<AtomicU64> = std::sync::OnceLock::new();
     let counter = NEXT
-        .get_or_init(|| AtomicU64::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
+        .get_or_init(|| AtomicU64::new(mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
         .fetch_add(1, Ordering::Relaxed);
     format!("sess_{}_{counter}_{now_ms}_{}", std::process::id(), uuid::Uuid::new_v4().simple())
 }

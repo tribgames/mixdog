@@ -318,7 +318,7 @@ impl StagedOriginals {
             tokio::select! {
                 () = cancel.cancelled() => return,
                 () = self.rearmed.notified() => {}
-                () = tokio::time::sleep(Duration::from_millis(wait_ms as u64)) => {
+                () = mixdog_rt::time::sleep(Duration::from_millis(wait_ms as u64)) => {
                     // The timer is spent; the pass re-arms it from the entries it keeps.
                     self.deadline().earliest_at = None;
                     let (pruner, now) = (self.clone(), clock.now_ms());

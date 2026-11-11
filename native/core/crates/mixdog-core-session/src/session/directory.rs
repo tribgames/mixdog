@@ -728,7 +728,7 @@ impl SessionDirectory {
             && let Some(hook) = self.inner.owner_teardown.get()
         {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "agent teardown overran its deadline");
                 }
             }
@@ -737,7 +737,7 @@ impl SessionDirectory {
         // own session is closed with the stop's reason before the runtime stops.
         if let Some(hook) = self.inner.exit_close.get() {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "the session close at exit overran its deadline");
                 }
             }
@@ -773,7 +773,7 @@ impl SessionDirectory {
                 ingest.await;
             }
         }));
-        let _ = tokio::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
+        let _ = mixdog_rt::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
         // cleanup runs on, and what is left is the prune's and the startup reconcile's.
         self.inner.deps.snapshots.dispose();

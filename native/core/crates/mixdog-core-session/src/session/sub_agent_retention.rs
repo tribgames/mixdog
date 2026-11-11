@@ -301,7 +301,7 @@ pub async fn sweep(host: &dyn RetentionHost, now: f64, cancel: &CancellationToke
 
 /// The wall clock in epoch milliseconds (`Date.now()`).
 pub fn now_ms() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
+    mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0.0,|d| d.as_millis() as f64)
 }
 
 /// Runs a pass every [`SWEEP_INTERVAL`], the first one an interval after the start, until
@@ -316,7 +316,7 @@ pub fn start(
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     mixdog_rt::spawn("sub-agent.retention", TaskClass::Work, async move {
-        let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + SWEEP_INTERVAL, SWEEP_INTERVAL);
+        let mut timer = mixdog_rt::time::interval_at(tokio::time::Instant::now() + SWEEP_INTERVAL, SWEEP_INTERVAL);
         loop {
             tokio::select! {
                 () = cancel.cancelled() => return,

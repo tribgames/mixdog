@@ -25,7 +25,6 @@ use std::sync::Weak;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
@@ -709,7 +708,7 @@ impl HostEnv for LiveEnv {
     }
 
     fn now(&self) -> f64 {
-        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
+        mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
     }
 
     fn set_timer(&self, ms: u64, run: Arc<dyn Fn(u64) + Send + Sync>) -> u64 {
