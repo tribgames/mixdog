@@ -296,29 +296,60 @@ async fn the_inheritance_carry_answers_what_node_recorded() {
         header
     };
     let heir_small = untouched(pre.get("emptyCompaction").get("target"));
-    let heir_roomy = untouched(pre.get("accepted").get("target"));
+    // The heir as it was before any carry: a failed carry leaves it so, which is what Node's `372 failing` target shows (the target of an
+    // accepted carry already names its source).
+    let heir_roomy = untouched(asked.get("failing").get("target"));
     let compacted = |target: &Exact| Compactor::Rows(vec![json!({ "role": "user", "content": target.get("messages").as_array()[0].get("content").as_str() })]);
     let preflight = plain(asked.get("preflight"));
     let mut scenarios = vec![
-        ("306 compacting", &heir_small, 20_000, compacted(pre.get("compacting").get("target")), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target"), pre.get("compacting").try_get("calls")),
-        ("306 emptyCompaction", &heir_small, 20_000, Compactor::Nothing, vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target"), pre.get("emptyCompaction").try_get("calls")),
-        ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target"), None),
-        ("372 compact", &heir_roomy, 500_000, compacted(asked.get("compact").get("target")), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target"), asked.get("compact").try_get("calls")),
-        ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target"), None),
-        ("372 empty", &heir_roomy, 500_000, Compactor::Nothing, vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target"), None),
+        ("306 compacting", &heir_small, 20_000, compacted(pre.get("compacting").get("target")), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target"), pre.get("compacting").try_get("calls"), pre.get("compacting").try_get("saves")),
+        ("306 emptyCompaction", &heir_small, 20_000, Compactor::Nothing, vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target"), pre.get("emptyCompaction").try_get("calls"), pre.get("emptyCompaction").try_get("saves")),
+        ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target"), None, pre.get("accepted").try_get("saves")),
+        ("372 compact", &heir_roomy, 500_000, compacted(asked.get("compact").get("target")), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target"), asked.get("compact").try_get("calls"), asked.get("compact").try_get("saves")),
+        ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target"), None, asked.get("failing").try_get("saves")),
+        ("372 empty", &heir_roomy, 500_000, Compactor::Nothing, vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target"), None, asked.get("empty").try_get("saves")),
     ];
     for default in asked.get("default").as_array() {
         let args = default.get("args").as_array();
         let compact = args.first().map(|options| options.get("compact").as_bool());
-        scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target"), None));
+        scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target"), None, default.try_get("saves")));
     }
-    for (label, heir, window, compactor, calls, fit, answers, target, recorded_calls) in scenarios {
+    for (label, heir, window, compactor, calls, fit, answers, target, recorded_calls, recorded_saves) in scenarios {
         let carry = Carry::open(&conversation, heir, window, compactor, dir.path()).await;
         assert_eq!(Exact::plain(&carry.preflight().await), Exact::plain(&fit), "{label}: the preflight");
         for (compact, want) in calls.into_iter().zip(answers) {
             assert_eq!(Exact::plain(&carry.inherit(compact).await), Exact::plain(&want), "{label}: the answer");
         }
         assert_eq!(Exact::plain(&carry.messages().await), *target.get("messages"), "{label}: the heir's conversation");
+        // What the heir holds on disk: the recorded target's header fields whole (`selectedContextWindow` is the core's name of the
+        // picked window Node's route carried, seeded above), and the saves Node made — each one the target, written at once
+        // (`{ immediate: true }`) — are the store batches that landed during the carry. The core's header also holds its own `id`
+        // (Node's target has it beside the header) and, once a carry was tried (the set stays after a refusal: a superset is safe),
+        // the source's offload bookkeeping (`offloadSources`: the sessions whose offloaded tool results the heir may read, rules
+        // version 2), which Node's session does not have.
+        let heir_id = ThreadId::from("heir");
+        let mut want_header = obj(target);
+        want_header.remove("messages");
+        want_header.insert("selectedContextWindow".into(), json!(window));
+        want_header.insert("offloadSources".into(), json!(["source"]));
+        want_header.insert("offloadSourcesRules".into(), json!(2));
+        let stored = carry._rig.store.stored_header(&heir_id).expect("the heir's stored header");
+        // A header is a map: its keys are compared by name, not by the order the core stored them in.
+        let by_name = |header: serde_json::Map<String, Value>| Exact::plain(&Value::Object(header.into_iter().collect::<std::collections::BTreeMap<_, _>>().into_iter().collect()));
+        assert_eq!(by_name(stored), by_name(want_header), "{label}: the heir's header");
+        if let Some(saves) = recorded_saves {
+            for save in saves.as_array() {
+                assert_eq!(save.as_array()[0], *target, "{label}: Node saved the target");
+                assert_eq!(Exact::plain(&plain(&save.as_array()[1])), Exact::plain(&json!({ "immediate": true })), "{label}: Node saved at once");
+            }
+            // The core's own header writes around the carry (the reference-set mark taken before it and lifted when it fails, `inheritance.rs`
+            // `carry_into`) have no Node counterpart; the save of the rows is the one that holds them, so the saves are the batches that landed
+            // holding the carried rows — the rows are written once, all of them, or not at all.
+            use mixdog_store::schema::record::Record;
+            let rows = carry._rig.store.records(&heir_id).iter().filter(|(_, record)| matches!(record, Record::Item(_))).count();
+            assert_eq!(rows, target.get("messages").as_array().len(), "{label}: the rows the heir's log holds are the saved target's");
+            assert_eq!(saves.as_array().len(), usize::from(rows > 0), "{label}: how many times the heir was saved");
+        }
         // The compactor's calls: Node's mock counted them, and the ones that carry a budget carry the one it was asked for
         // (`calls[n].budgetTokens`; an empty answer is asked again, as the recording's two calls show).
         if let Some(calls) = recorded_calls {
