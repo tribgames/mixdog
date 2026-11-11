@@ -1,0 +1,80 @@
+{
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-attachments.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "comparison": {
+    "fileMtime": "a file call's answer (readProjectFile, statProjectFile, previewProjectFileRange) carries the file's mtimeMs, which the OS stamps when a staged attachment or a restore writes it: each side proves the answer equals its own file's mtime on disk right after the call (lib/phone-attachments-script.mjs `play` fails the run otherwise) and the answer holds { $fileMtime: true } in its place",
+    "heldWhole": "a string over 64 KiB in an answer (limit.bin read whole, the 2 MiB thumbnail) is held as its length and sha256, on both sides",
+    "placeholders": "values one world names by a value of its own are compared by their place (lib/phone-attachments-script.mjs `play`): a grant's random token as $grant<n> in the order first answered, a recovery record's random id as $record<n> in seeding order, an inspected record's revision (a digest over its manifest, which holds that id and the world's file identities) as $revision<n> in the order first answered. Params that reuse them are resolved to the world's own value before the call.",
+    "recoveryStore": "each recovery folder's store after the script (the project, each worktree, the ready worktree's subfolder) is compared by entry name (record ids as $record<n>) and each payload's size and sha256; manifest.json and state.json by name only (they hold the record id and the world's file identities)",
+    "worktreeRegistry": "the worktree registry after the script, every record whole but `updatedAt` (Node's putRecord stamps it, the core's registry write does not) and with baseCommit, ownerSessionId, mergeTarget left out when null and sharedSessionIds when empty (the core writes them, Node's records omit them, and Node's readers take the absent field as that value: contract.mjs normalizeWorktreeEntry, registry.mjs entryView, maintenance.mjs), with each editorRecoveryStores directory as $journal/<digest of its root>: Node keeps the stores in <userData>/editor-recovery, the core in <data>/recovery"
+  },
+  "entry": {
+    "notRun": "the relay transport (encryption, admission) and the session service process: the host's transcript reads are the service's own stored-session reads (store-summary-reader.mjs readStoredSessionTranscript, the cold read and the attachmentHistory read session-views.mjs makes), since no window holds these conversations",
+    "runs": "executeRemoteFrame over createRemoteMethods (remote-methods.ts) with a real SessionHost (project registry, readAttachmentImage over the attachment store, projectRecoveryDirectory with the worktree runtime src/runtime/shared/worktrees/manager.mjs as loadWorktrees), createDesktopOperations (readLocalFileAbs, statLocalEntryAbs, projectRecoveryIn, under manager.mjs withWorktreeRecoveryStore as desktop-service.ts worktreeRecoveryStore hands it) and createSelectedFileGrants"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 79935,
+      "path": "golden.json",
+      "sha256": "da945c8b85a18332e87db4f801ea4c0b7f2ff755b05f367d6012d5b09e501ecb"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-attachments-script.mjs",
+      "sha256": "cedbd6b33b621e9e1f7c4ab108d2a762ee4e75919454c91cf0cfc535b8fe9ede"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+      "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+      "sha256": "07bec252644efbc5645c2e15ebf3aa3302b405deb7313637b712a26e719a9177"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "notRecorded": {
+    "pathDeadline": "resolveLocalPaths's 15 s per-path deadline (remote-methods.ts:646-660) needs a path whose stat does not answer (a stalled network share), which this world cannot make; the adapter keeps the deadline and its sentence"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-attachments.mjs",
+  "recorderSha256": "f6206cbb44cf2d597c4e8cdf8d2ee567f2c18b0de7e1ee972b78f1b075bee68c",
+  "set": "phone-attachments",
+  "steps": 104,
+  "totalBytes": 79935,
+  "worldSetup": {
+    "attachments": "blobs written at <data>/prompt-attachments/sha256/<2>/<ref> (the layout both stores read)",
+    "conversations": "two conversations saved with Node's saveSessionAsync (session/store.mjs); the files it wrote are the golden's sessionFiles, which the replay puts in the core's data dir before it starts",
+    "recovery": "two interrupted workspace edits in the project and in each managed worktree: beginProjectRecovery then releaseRecoveryDirectory of project-recovery-store.ts (b6f10295a's here, the identical file of this repository in the replay), on Date.now = FIXED_NOW_MS",
+    "worktrees": "a git repository (git init) and four checkout folders, one per registry state (ready, deleting, recovery, creating), written as records of <data>/worktrees-v1/registry.json (one format for Node's registry.mjs and the core's): before the host is made here; in the replay once the core serves, so its startup reconcile (Node's daemon ran one at its start, this recording runs no daemon) meets an empty registry. The replay fails if the core's daemon.log reports a reconcile"
+  }
+}
