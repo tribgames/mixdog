@@ -1,6 +1,7 @@
 {
   "set": "provider-mimo-oauth-wire",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "replays-stored-reasoning-never-invents",
@@ -46,6 +47,9 @@
         "first": {
           "content": "done",
           "model": "m",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "stop",
           "reasoningContent": "thinking",
           "usage": {
@@ -65,6 +69,9 @@
         "second": {
           "content": "done",
           "model": "m",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "stop",
           "reasoningContent": "thinking",
           "usage": {
@@ -88,7 +95,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47831"
               ],
               [
                 "connection",
@@ -159,6 +166,7 @@
                 "543"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"go\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}}],\"reasoning_content\":\"plan the read\"},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"file text\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -214,7 +222,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47831"
               ],
               [
                 "connection",
@@ -285,6 +293,7 @@
                 "507"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"go\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"file text\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -334,7 +343,100 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "go"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_1",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ],
+                "reasoningContent": "plan the read"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_1",
+                "content": "file text"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "go"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_1",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_1",
+                "content": "file text"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "effort-maps-to-thinking-and-levels",
@@ -375,6 +477,9 @@
           "pricingSource": "models.dev",
           "supportsVision": true,
           "supportsFunctionCalling": true,
+          "supportsWebSearch": {
+            "$exact": "undefined"
+          },
           "supportsPromptCaching": true,
           "supportsReasoning": true,
           "reasoningOptions": [],
@@ -406,7 +511,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47832"
               ],
               [
                 "connection",
@@ -477,6 +582,7 @@
                 "229"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"thinking\":{\"type\":\"enabled\"},\"reasoning_effort\":\"minimal\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -503,7 +609,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47832"
               ],
               [
                 "connection",
@@ -574,6 +680,7 @@
                 "226"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"thinking\":{\"type\":\"enabled\"},\"reasoning_effort\":\"high\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -600,7 +707,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47832"
               ],
               [
                 "connection",
@@ -671,6 +778,7 @@
                 "201"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"thinking\":{\"type\":\"disabled\"},\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -696,7 +804,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47832"
               ],
               [
                 "connection",
@@ -767,6 +875,7 @@
                 "201"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"thinking\":{\"type\":\"disabled\"},\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -792,7 +901,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47832"
               ],
               [
                 "connection",
@@ -863,6 +972,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -885,22 +995,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47832"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -920,10 +1030,148 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "effort": "minimal"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "effort": "xhigh"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "effort": "none"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "thinking": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/runtime-core/effort.mjs.effortOptionsFor",
+          "args": [
+            "mimo-oauth",
+            {
+              "id": "mimo-v2.6-pro",
+              "name": "mimo-v2.6-pro",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Pro",
+              "inputCostPerM": 0.435,
+              "outputCostPerM": 0.87,
+              "cacheReadCostPerM": 0.0036,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-pro",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "sampling-defaults-output-clamp-tool-choice",
@@ -937,7 +1185,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47833"
               ],
               [
                 "connection",
@@ -1008,6 +1256,7 @@
                 "302"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -1043,7 +1292,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47833"
               ],
               [
                 "connection",
@@ -1114,6 +1363,7 @@
                 "301"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"temperature\":0.2,\"max_completion_tokens\":500,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -1149,7 +1399,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47833"
               ],
               [
                 "connection",
@@ -1220,6 +1470,7 @@
                 "302"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -1255,7 +1506,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47833"
               ],
               [
                 "connection",
@@ -1326,6 +1577,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -1348,7 +1600,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47833"
               ],
               [
                 "connection",
@@ -1419,6 +1671,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -1441,22 +1694,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47833"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -1476,6 +1729,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -1484,7 +1738,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47833"
               ],
               [
                 "connection",
@@ -1555,6 +1809,7 @@
                 "166"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-small\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":64000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-small",
               "messages": [
@@ -1572,7 +1827,153 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "temperature": 0.2,
+              "maxOutputTokens": 500,
+              "toolChoice": "required"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "toolChoice": {
+                "name": "read"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "toolChoice": "none"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "toolChoice": "required"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-small",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "default-model-from-discovered-roster",
@@ -1595,22 +1996,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47834"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -1630,6 +2031,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -1638,7 +2040,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47834"
               ],
               [
                 "connection",
@@ -1709,6 +2111,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -1731,22 +2134,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47834"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-other"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -1766,6 +2169,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -1774,7 +2178,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47834"
               ],
               [
                 "connection",
@@ -1845,6 +2249,7 @@
                 "163"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-x\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-x",
               "messages": [
@@ -1867,22 +2272,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47834"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-third"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -1902,6 +2307,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -1910,7 +2316,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47834"
               ],
               [
                 "connection",
@@ -1981,6 +2387,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -1998,7 +2405,96 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            {
+              "$exact": "undefined"
+            },
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            {
+              "$exact": "undefined"
+            },
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            {
+              "$exact": "undefined"
+            },
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-profile.mjs.chooseDefaultModel",
+          "args": [
+            [
+              "a-asr",
+              "mimo-z"
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-profile.mjs.chooseDefaultModel",
+          "args": [
+            []
+          ]
+        }
+      ]
     },
     {
       "id": "discovery-drops-speech-keeps-names-seed-fallback",
@@ -2024,6 +2520,9 @@
             "pricingSource": "models.dev",
             "supportsVision": true,
             "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
             "supportsPromptCaching": true,
             "supportsReasoning": true,
             "reasoningOptions": [],
@@ -2060,6 +2559,9 @@
             "pricingSource": "models.dev",
             "supportsVision": true,
             "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
             "supportsPromptCaching": true,
             "supportsReasoning": true,
             "reasoningOptions": [],
@@ -2116,6 +2618,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2152,6 +2657,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2188,6 +2696,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2224,6 +2735,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2260,6 +2774,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2286,9 +2803,36 @@
               "outputTokens": 131072,
               "created": null,
               "display": "mimo-v2-pro",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2-pro",
               "pricingProvider": "xiaomi",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2314,9 +2858,36 @@
               "outputTokens": 131072,
               "created": null,
               "display": "mimo-v2-omni",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2-omni",
               "pricingProvider": "xiaomi",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2354,6 +2925,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2390,6 +2964,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2426,6 +3003,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2462,6 +3042,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2498,6 +3081,9 @@
               "pricingSource": "models.dev",
               "supportsVision": true,
               "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
               "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
@@ -2524,9 +3110,36 @@
               "outputTokens": 131072,
               "created": null,
               "display": "mimo-v2-pro",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2-pro",
               "pricingProvider": "xiaomi",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2552,9 +3165,36 @@
               "outputTokens": 131072,
               "created": null,
               "display": "mimo-v2-omni",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2-omni",
               "pricingProvider": "xiaomi",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2581,22 +3221,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47835"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -2616,6 +3256,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -2624,22 +3265,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47835"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -2659,6 +3300,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -2667,22 +3309,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47835"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -2702,17 +3344,76 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs.providerCachedModelsSync",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog.mjs.getModelMetadataSync",
+          "args": [
+            "mimo-v2.6-flash",
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog.mjs.getModelMetadataSync",
+          "args": [
+            "mimo-v2.6-pro",
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        }
+      ]
     },
     {
       "id": "stale-or-other-credential-discovery-not-published",
       "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:239",
       "input": {},
       "result": {
-        "order": "request 2 answered first, then request 1; then the key switches while request 3 is in flight",
+        "order": "request 2 answered first, then request 1; then the key switches while request 3 is in flight; then supersession during enrichment",
         "newerRows": [
           {
             "id": "mimo-v2.6-flash",
@@ -2732,6 +3433,9 @@
             "pricingSource": "models.dev",
             "supportsVision": true,
             "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
             "supportsPromptCaching": true,
             "supportsReasoning": true,
             "reasoningOptions": [],
@@ -2770,6 +3474,9 @@
             "pricingSource": "models.dev",
             "supportsVision": true,
             "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
             "supportsPromptCaching": true,
             "supportsReasoning": true,
             "reasoningOptions": [],
@@ -2790,14 +3497,59 @@
           }
         ],
         "afterOlder": {
-          "cachedIds": [
-            "mimo-v2.6-flash"
+          "cachedModels": [
+            {
+              "id": "mimo-v2.6-flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 7000
+            }
           ],
-          "liveIds": [
-            "mimo-v2.6-flash"
+          "liveModels": [
+            {
+              "id": "mimo-v2.6-flash",
+              "name": "mimo-v2.6-flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 7000,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Flash",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-flash",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
           ],
-          "rosterIds": [
-            "mimo-v2.6-flash"
+          "rosterItems": [
+            {
+              "id": "mimo-v2.6-flash",
+              "context_window": 7000
+            }
           ]
         },
         "switchedRows": [
@@ -2819,6 +3571,9 @@
             "pricingSource": "models.dev",
             "supportsVision": true,
             "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
             "supportsPromptCaching": true,
             "supportsReasoning": true,
             "reasoningOptions": [],
@@ -2839,14 +3594,288 @@
           }
         ],
         "afterSwitch": {
-          "cachedIds": [
-            "mimo-v2.6-flash"
+          "cachedModels": [
+            {
+              "id": "mimo-v2.6-flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 7000
+            }
           ],
-          "liveIds": [
-            "mimo-v2.6-flash"
+          "liveModels": [
+            {
+              "id": "mimo-v2.6-flash",
+              "name": "mimo-v2.6-flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 7000,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Flash",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-flash",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
           ],
-          "rosterIds": [
-            "mimo-v2.6-flash"
+          "rosterItems": [
+            {
+              "id": "mimo-v2.6-flash",
+              "context_window": 7000
+            }
+          ]
+        },
+        "afterBase": {
+          "innerModels": [
+            {
+              "id": "mimo-v2.6-flash",
+              "name": "mimo-v2.6-flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 7000,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Flash",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-flash",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ],
+          "rosterItems": [
+            {
+              "id": "mimo-v2.6-flash",
+              "context_window": 7000
+            }
+          ]
+        },
+        "gotOlder": [
+          {
+            "id": "mimo-v2.6-pro",
+            "name": "mimo-v2.6-pro",
+            "provider": "mimo-oauth",
+            "contextWindow": 7000,
+            "outputTokens": 131072,
+            "created": null,
+            "display": "MiMo-V2.6-Pro",
+            "inputCostPerM": 0.435,
+            "outputCostPerM": 0.87,
+            "cacheReadCostPerM": 0.0036,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-pro",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "afterNewerClaimed": {
+          "innerModels": [
+            {
+              "id": "mimo-v2.6-flash",
+              "name": "mimo-v2.6-flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 7000,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Flash",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-flash",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ],
+          "rosterItems": [
+            {
+              "id": "mimo-v2.6-flash",
+              "context_window": 7000
+            }
+          ]
+        },
+        "gotSwitched": [
+          {
+            "id": "mimo-v2.6-pro",
+            "name": "mimo-v2.6-pro",
+            "provider": "mimo-oauth",
+            "contextWindow": 7000,
+            "outputTokens": 131072,
+            "created": null,
+            "display": "MiMo-V2.6-Pro",
+            "inputCostPerM": 0.435,
+            "outputCostPerM": 0.87,
+            "cacheReadCostPerM": 0.0036,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-pro",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "afterKeySwitchedDuringEnrichment": {
+          "innerModels": [
+            {
+              "id": "mimo-v2.6-flash",
+              "name": "mimo-v2.6-flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 7000,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Flash",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-flash",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": {
+                "$exact": "undefined"
+              },
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ],
+          "rosterItems": [
+            {
+              "id": "mimo-v2.6-flash",
+              "context_window": 7000
+            }
           ]
         },
         "requests": [
@@ -2856,22 +3885,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47836"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -2891,6 +3920,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -2899,22 +3929,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47836"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -2934,6 +3964,7 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           },
           {
@@ -2942,22 +3973,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47836"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -2977,10 +4008,233 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "127.0.0.1:47836"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "Authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "X-Mimo-Source",
+                "mimocode-cli"
+              ],
+              [
+                "Accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "bodyText": "",
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "127.0.0.1:47836"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "Authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "X-Mimo-Source",
+                "mimocode-cli"
+              ],
+              [
+                "Accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "bodyText": "",
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "127.0.0.1:47836"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "Authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "X-Mimo-Source",
+                "mimocode-cli"
+              ],
+              [
+                "Accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "bodyText": "",
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "127.0.0.1:47836"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "Authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "X-Mimo-Source",
+                "mimocode-cli"
+              ],
+              [
+                "Accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "bodyText": "",
             "body": null
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs.providerCachedModelsSync",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs.providerCachedModelsSync",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        }
+      ]
     },
     {
       "id": "token-plan-probe-sgp-ams-cn-persists",
@@ -3007,7 +4261,7 @@
           "uid": "u",
           "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
           "source": "own",
-          "mtimeMs": "<token file mtime (real clock)>"
+          "mtimeMs": 1700000012000
         },
         "persisted": {
           "apiKey": "tp-abc",
@@ -3019,14 +4273,96 @@
         "probesForNonTokenPlanOrKnownUrl": 0,
         "nonAuth": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "[mimo-oauth] Token Plan check failed (500): nope",
-            "status": 500,
-            "httpStatus": 500,
-            "detail": "nope"
+            "props": {
+              "status": 500,
+              "httpStatus": 500,
+              "detail": "nope"
+            }
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
+          "args": [
+            "tp-abc",
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.loadTokens",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.ensureTokenPlanBaseUrl",
+          "args": [
+            {
+              "apiKey": "tp-abc",
+              "uid": "u",
+              "baseUrl": "https://api.xiaomimimo.com/v1",
+              "source": "own",
+              "mtimeMs": 1700000012000
+            },
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.loadTokens",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.ensureTokenPlanBaseUrl",
+          "args": [
+            {
+              "apiKey": "sk-1",
+              "uid": "",
+              "baseUrl": ""
+            },
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.ensureTokenPlanBaseUrl",
+          "args": [
+            {
+              "apiKey": "tp-1",
+              "uid": "",
+              "baseUrl": "https://x.test/v1"
+            },
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
+          "args": [
+            "tp-abc",
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "caller-cannot-move-mimo-to-responses",
@@ -3045,7 +4381,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47837"
               ],
               [
                 "connection",
@@ -3116,6 +4452,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -3133,7 +4470,34 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "compatWireApi": "responses",
+              "responsesTransport": "ws"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "session-affinity-and-user-agent-headers",
@@ -3147,7 +4511,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47838"
               ],
               [
                 "connection",
@@ -3226,6 +4590,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -3248,7 +4613,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47838"
               ],
               [
                 "connection",
@@ -3319,6 +4684,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -3336,7 +4702,51 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "sessionId": "sess-1",
+              "parentSessionId": "sess-0"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "sessionId": "sess-2",
+              "ephemeral": true
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "gateway-failures-keep-detail-relabel-quota-not-retried",
@@ -3345,112 +4755,246 @@
       "result": {
         "risk441": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "Request blocked by risk control: prompt flagged",
-            "status": 400,
-            "headers": {},
-            "requestID": null,
-            "error": {
-              "code": 441,
-              "message": "generic",
-              "param": "prompt flagged"
-            },
             "code": 441,
-            "param": "prompt flagged",
-            "mimoGatewayCode": "441",
-            "mimoGatewayParam": "prompt flagged"
+            "props": {
+              "status": 400,
+              "headers": {
+                "headers": [
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "date",
+                    "Thu, 01 Jan 2026 00:00:00 GMT"
+                  ],
+                  [
+                    "keep-alive",
+                    "timeout=5"
+                  ],
+                  [
+                    "transfer-encoding",
+                    "chunked"
+                  ]
+                ]
+              },
+              "requestID": null,
+              "error": {
+                "code": 441,
+                "message": "generic",
+                "param": "prompt flagged"
+              },
+              "param": "prompt flagged",
+              "type": {
+                "$exact": "undefined"
+              },
+              "mimoGatewayCode": "441",
+              "mimoGatewayParam": "prompt flagged"
+            }
           }
         },
         "moderation421": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "Request blocked by content moderation",
-            "status": 400,
-            "headers": {},
-            "requestID": null,
-            "error": {
-              "code": "421",
-              "message": "x"
-            },
             "code": "421",
-            "mimoGatewayCode": "421"
+            "props": {
+              "status": 400,
+              "headers": {
+                "headers": [
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "date",
+                    "Thu, 01 Jan 2026 00:00:00 GMT"
+                  ],
+                  [
+                    "keep-alive",
+                    "timeout=5"
+                  ],
+                  [
+                    "transfer-encoding",
+                    "chunked"
+                  ]
+                ]
+              },
+              "requestID": null,
+              "error": {
+                "code": "421",
+                "message": "x"
+              },
+              "param": {
+                "$exact": "undefined"
+              },
+              "type": {
+                "$exact": "undefined"
+              },
+              "mimoGatewayCode": "421"
+            }
           }
         },
         "plain400": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "plain text: temperature",
-            "status": 400,
-            "headers": {},
-            "requestID": null,
-            "error": {
-              "code": "bad",
-              "message": "plain text",
-              "param": "temperature"
-            },
             "code": "bad",
-            "param": "temperature",
-            "mimoGatewayCode": "bad",
-            "mimoGatewayParam": "temperature"
+            "props": {
+              "status": 400,
+              "headers": {
+                "headers": [
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "date",
+                    "Thu, 01 Jan 2026 00:00:00 GMT"
+                  ],
+                  [
+                    "keep-alive",
+                    "timeout=5"
+                  ],
+                  [
+                    "transfer-encoding",
+                    "chunked"
+                  ]
+                ]
+              },
+              "requestID": null,
+              "error": {
+                "code": "bad",
+                "message": "plain text",
+                "param": "temperature"
+              },
+              "param": "temperature",
+              "type": {
+                "$exact": "undefined"
+              },
+              "mimoGatewayCode": "bad",
+              "mimoGatewayParam": "temperature"
+            }
           }
         },
         "unauthorized401": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: key [REDACTED] is revoked",
-            "httpStatus": 401,
-            "status": 401,
-            "reauthRequired": true
+            "props": {
+              "httpStatus": 401,
+              "status": 401,
+              "reauthRequired": true
+            }
           }
         },
         "keyInMessage": false,
         "quota": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "out of quota",
-            "headers": {},
-            "requestID": null,
-            "error": {
-              "code": "insufficient_quota",
-              "message": "out of quota"
-            },
             "code": "insufficient_quota",
-            "providerWireError": true,
-            "providerError": {
-              "code": "insufficient_quota",
-              "message": "out of quota"
-            },
-            "providerErrorCode": "insufficient_quota",
-            "partialContent": "",
-            "pendingToolUse": false,
-            "streamOutcome": {
-              "version": 1,
-              "provider": "openai-compat",
-              "transport": "sse",
-              "terminalObserved": false,
-              "continuation": true,
-              "declaredContinuation": false,
-              "textEmitted": false,
-              "textObservedChars": 0,
-              "reasoningEmitted": false,
-              "toolCallsStarted": false,
-              "toolCallsComplete": 0,
-              "toolCallsDispatched": 0,
-              "dispatchAmbiguous": false,
-              "pendingToolInput": false,
-              "userAbort": false,
-              "stallObserved": false,
-              "truncatedStream": false,
-              "visibleOutput": false,
-              "observedOutput": false,
-              "sideEffectDispatched": false,
-              "replayUnsafe": false,
-              "replaySafe": true,
-              "successEligible": false
-            },
-            "mimoGatewayCode": "insufficient_quota",
-            "providerRecoveryExhausted": true,
-            "providerRecoveryOwner": "mimo-oauth"
+            "props": {
+              "status": {
+                "$exact": "undefined"
+              },
+              "headers": {
+                "headers": [
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "content-type",
+                    "text/event-stream"
+                  ],
+                  [
+                    "date",
+                    "Thu, 01 Jan 2026 00:00:00 GMT"
+                  ],
+                  [
+                    "keep-alive",
+                    "timeout=5"
+                  ],
+                  [
+                    "transfer-encoding",
+                    "chunked"
+                  ]
+                ]
+              },
+              "requestID": null,
+              "error": {
+                "code": "insufficient_quota",
+                "message": "out of quota"
+              },
+              "param": {
+                "$exact": "undefined"
+              },
+              "type": {
+                "$exact": "undefined"
+              },
+              "providerWireError": true,
+              "providerError": {
+                "code": "insufficient_quota",
+                "message": "out of quota"
+              },
+              "providerErrorCode": "insufficient_quota",
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": {
+                "$exact": "undefined"
+              },
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-compat",
+                "transport": "sse",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              },
+              "mimoGatewayCode": "insufficient_quota",
+              "providerRecoveryExhausted": true,
+              "providerRecoveryOwner": "mimo-oauth"
+            }
           }
         },
         "quotaRequests": 1,
@@ -3461,7 +5005,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47839"
               ],
               [
                 "connection",
@@ -3532,6 +5076,7 @@
                 "158"
               ]
             ],
+            "bodyText": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "m",
               "messages": [
@@ -3554,7 +5099,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47839"
               ],
               [
                 "connection",
@@ -3625,6 +5170,7 @@
                 "158"
               ]
             ],
+            "bodyText": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "m",
               "messages": [
@@ -3647,7 +5193,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47839"
               ],
               [
                 "connection",
@@ -3718,6 +5264,7 @@
                 "158"
               ]
             ],
+            "bodyText": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "m",
               "messages": [
@@ -3740,7 +5287,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47839"
               ],
               [
                 "connection",
@@ -3811,6 +5358,7 @@
                 "158"
               ]
             ],
+            "bodyText": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "m",
               "messages": [
@@ -3833,7 +5381,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47839"
               ],
               [
                 "connection",
@@ -3904,6 +5452,7 @@
                 "158"
               ]
             ],
+            "bodyText": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "m",
               "messages": [
@@ -3921,7 +5470,87 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "plain-compat-provider-no-mimo-sampling-defaults",
@@ -3935,7 +5564,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47840"
               ],
               [
                 "connection",
@@ -4002,6 +5631,7 @@
                 "123"
               ]
             ],
+            "bodyText": "{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "deepseek-chat",
               "messages": [
@@ -4017,7 +5647,34 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "deepseek",
+            {
+              "baseURL": "http://127.0.0.1:47840/v1",
+              "apiKey": "k",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "deepseek-chat",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "regional-probe-continues-past-failure",
@@ -4031,20 +5688,71 @@
         ],
         "down": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "[mimo-oauth] Token Plan check failed (503): gone",
-            "status": 503,
-            "httpStatus": 503,
-            "detail": "gone"
+            "props": {
+              "status": 503,
+              "httpStatus": 503,
+              "detail": "gone"
+            }
           }
         },
         "aborted": {
           "error": {
+            "$exact": "error",
             "name": "AbortError",
-            "message": "This operation was aborted"
+            "message": "This operation was aborted",
+            "code": 20,
+            "props": {}
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
+          "args": [
+            "tp-abc",
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
+          "args": [
+            "tp-abc",
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
+          "args": [
+            "tp-abc",
+            {
+              "signal": {
+                "aborted": true,
+                "reason": {
+                  "$exact": "error",
+                  "name": "AbortError",
+                  "message": "This operation was aborted",
+                  "code": 20,
+                  "props": {}
+                }
+              },
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "topP-topK-forwarded",
@@ -4058,7 +5766,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47841"
               ],
               [
                 "connection",
@@ -4129,6 +5837,7 @@
                 "193"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"top_p\":0.9,\"top_k\":40,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -4153,7 +5862,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47841"
               ],
               [
                 "connection",
@@ -4224,6 +5933,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -4241,7 +5951,48 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {
+              "topP": 0.9,
+              "topK": 40
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "seeds-ultraspeed-lineage-limits",
@@ -4273,6 +6024,9 @@
             "pricingSource": "models.dev",
             "supportsVision": true,
             "supportsFunctionCalling": true,
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
             "supportsPromptCaching": true,
             "supportsReasoning": true,
             "reasoningOptions": [],
@@ -4298,10 +6052,34 @@
             "contextWindow": 1048576,
             "outputTokens": 131072,
             "created": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-flash-20260101",
             "pricingProvider": "xiaomi",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -4326,9 +6104,39 @@
             "contextWindow": 0,
             "outputTokens": null,
             "created": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "other",
             "pricingProvider": "xiaomi",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
+            "supportsVision": {
+              "$exact": "undefined"
+            },
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
+            "supportsReasoning": {
+              "$exact": "undefined"
+            },
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
             "mode": null,
@@ -4347,22 +6155,22 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47842"
               ],
               [
                 "connection",
                 "keep-alive"
               ],
               [
-                "authorization",
+                "Authorization",
                 "Bearer sk-wire"
               ],
               [
-                "x-mimo-source",
+                "X-Mimo-Source",
                 "mimocode-cli"
               ],
               [
-                "accept",
+                "Accept",
                 "application/json"
               ],
               [
@@ -4382,10 +6190,25 @@
                 "gzip, deflate"
               ]
             ],
+            "bodyText": "",
             "body": null
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        }
+      ]
     },
     {
       "id": "org-project-env-never-sent",
@@ -4404,7 +6227,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47843"
               ],
               [
                 "connection",
@@ -4475,6 +6298,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -4492,7 +6316,31 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "three-regional-401s-typed-reauth",
@@ -4501,41 +6349,106 @@
       "result": {
         "three401": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":{\"message\":\"bad key [REDACTED]\"}}",
-            "httpStatus": 401,
-            "status": 401,
-            "reauthRequired": true
+            "props": {
+              "httpStatus": 401,
+              "status": 401,
+              "reauthRequired": true
+            }
           }
         },
         "busy": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "[mimo-oauth] Token Plan check failed (503): x",
-            "status": 503,
-            "httpStatus": 503,
-            "detail": "x"
+            "props": {
+              "status": 503,
+              "httpStatus": 503,
+              "detail": "x"
+            }
           }
         },
         "send": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":{\"message\":\"bad key [REDACTED]\"}}",
-            "httpStatus": 401,
-            "status": 401,
-            "reauthRequired": true
+            "props": {
+              "httpStatus": 401,
+              "status": 401,
+              "reauthRequired": true
+            }
           }
         },
         "list": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":{\"message\":\"bad key [REDACTED]\"}}",
-            "httpStatus": 401,
-            "status": 401,
-            "reauthRequired": true
+            "props": {
+              "httpStatus": 401,
+              "status": 401,
+              "reauthRequired": true
+            }
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
+          "args": [
+            "tp-secret",
+            {
+              "fetchImpl": {
+                "callback": "rejected"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
+          "args": [
+            "tp-secret",
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false,
+              "fetchImpl": {
+                "callback": "rejected"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        }
+      ]
     },
     {
       "id": "stored-key-redacted-in-logs-and-400",
@@ -4547,6 +6460,9 @@
         "first": {
           "content": "done",
           "model": "m",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "stop",
           "reasoningContent": "thinking",
           "usage": {
@@ -4571,17 +6487,49 @@
           2609
         ],
         "err": {
+          "$exact": "error",
           "name": "Error",
           "message": "bad request for [REDACTED]: key [REDACTED]",
-          "status": 400,
-          "headers": {},
-          "requestID": null,
-          "error": {
-            "message": "bad request for [REDACTED]",
-            "param": "key [REDACTED]"
+          "code": {
+            "$exact": "undefined"
           },
-          "param": "key sk-very-secret-key-123",
-          "mimoGatewayParam": "key [REDACTED]"
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "error": {
+              "message": "bad request for [REDACTED]",
+              "param": "key [REDACTED]"
+            },
+            "param": "key sk-very-secret-key-123",
+            "type": {
+              "$exact": "undefined"
+            },
+            "mimoGatewayParam": "key [REDACTED]"
+          }
         },
         "keyInError": false,
         "requests": [
@@ -4591,7 +6539,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47844"
               ],
               [
                 "connection",
@@ -4662,6 +6610,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -4684,7 +6633,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47844"
               ],
               [
                 "connection",
@@ -4755,6 +6704,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -4777,7 +6727,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47844"
               ],
               [
                 "connection",
@@ -4848,6 +6798,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -4865,7 +6816,45 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "probe-finishing-after-newer-sign-in-does-not-overwrite",
@@ -4877,9 +6866,36 @@
           "uid": "u",
           "baseUrl": "https://new.example/v1",
           "source": "own",
-          "mtimeMs": "<token file mtime (real clock)>"
+          "mtimeMs": 1700000022000
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.loadTokens",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.ensureTokenPlanBaseUrl",
+          "args": [
+            {
+              "apiKey": "tp-old",
+              "uid": "u",
+              "baseUrl": "https://api.xiaomimimo.com/v1",
+              "source": "own",
+              "mtimeMs": 1700000021000
+            },
+            {
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.loadTokens",
+          "args": []
+        }
+      ]
     },
     {
       "id": "deleted-token-file-signs-out",
@@ -4888,8 +6904,10 @@
       "result": {
         "after": {
           "error": {
+            "$exact": "error",
             "name": "Error",
-            "message": "[mimo-oauth] credentials not found — open /providers in mixdog to sign in first"
+            "message": "[mimo-oauth] credentials not found — open /providers in mixdog to sign in first",
+            "props": {}
           }
         },
         "tokens": null,
@@ -4901,7 +6919,7 @@
             "headers": [
               [
                 "host",
-                "<gw>"
+                "127.0.0.1:47845"
               ],
               [
                 "connection",
@@ -4972,6 +6990,7 @@
                 "170"
               ]
             ],
+            "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
             "body": {
               "model": "mimo-v2.6-pro",
               "messages": [
@@ -4989,7 +7008,49 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#isAvailable",
+          "args": []
+        }
+      ]
     },
     {
       "id": "abort-during-regional-probe-is-cancellation",
@@ -4997,15 +7058,270 @@
       "input": {},
       "result": {
         "error": {
+          "$exact": "error",
           "name": "CallerCancel",
-          "message": "caller cancelled"
+          "message": "caller cancelled",
+          "props": {
+            "name": "CallerCancel"
+          }
         },
         "isTheCallersReason": true,
         "urls": [
           "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
           "https://token-plan-ams.xiaomimimo.com/v1/chat/completions"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false,
+              "fetchImpl": {
+                "callback": "fetchImpl"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m",
+            [],
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "widened-stream-waits-and-explicit-first-byte-allowance",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:466",
+      "input": {
+        "firstByteTimeoutMs": 30,
+        "label": "x",
+        "providerName": "x",
+        "stream": "an async iterable whose next() never settles",
+        "advanceMs": [
+          30
+        ],
+        "plainSend": {
+          "provider": "deepseek",
+          "model": "deepseek-chat"
+        }
+      },
+      "result": {
+        "policy": {
+          "shared": {
+            "PROVIDER_FIRST_BYTE_TIMEOUT_MS": 60000,
+            "PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+          },
+          "mimo": {
+            "MIMO_FIRST_BYTE_TIMEOUT_MS": 285000,
+            "MIMO_SEMANTIC_IDLE_TIMEOUT_MS": 480000,
+            "MIMO_CHAT_PROFILE": {
+              "replaysReasoningContent": true,
+              "developerRole": true,
+              "firstByteTimeoutMs": 285000,
+              "semanticIdleTimeoutMs": 480000,
+              "resolveModelInfo": {
+                "callback": "resolveModelInfo"
+              },
+              "applyParams": {
+                "callback": "applyMimoParams"
+              },
+              "refineError": {
+                "callback": "refineMimoError"
+              }
+            }
+          }
+        },
+        "stalled": {
+          "error": {
+            "$exact": "error",
+            "name": "ProviderTimeoutError",
+            "message": "x first byte timed out after 30ms",
+            "code": "EPROVIDERTIMEOUT",
+            "props": {
+              "name": "ProviderTimeoutError",
+              "timeoutPhase": "first-chunk",
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": {
+                "$exact": "undefined"
+              },
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-compat",
+                "transport": "sse",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          }
+        },
+        "plainSendRequests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "127.0.0.1:47846"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer k"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "123"
+              ]
+            ],
+            "bodyText": "{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+            "body": {
+              "model": "deepseek-chat",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "x",
+              "providerName": "x",
+              "firstByteTimeoutMs": 30
+            }
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "deepseek",
+            {
+              "baseURL": "http://127.0.0.1:47846/v1",
+              "apiKey": "k",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "deepseek-chat",
+            [],
+            {}
+          ]
+        }
+      ]
     }
   ],
   "clockStartMs": 1794225600000
