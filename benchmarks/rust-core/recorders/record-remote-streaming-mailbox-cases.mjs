@@ -139,7 +139,7 @@ await set.run('batching reduces real compact packet bytes while preserving decod
 });
 
 await set.finish({
-  entry: { runs: 'createRemoteStreamingMailbox (remote-streaming-mailbox.ts) with an injected timer pair on a virtual clock (the test\'s own: advance() runs due callbacks), createSnapshotDeltaEncoder/Decoder (state-delta.ts), streamingPartialSuffix of desktop shared/streaming-partial.ts and the daemon session-state-patch.mjs', notRun: 'the relay transport; the sender callback is a local array' },
+  entry: { hops: "No wire in the Node test: the mailbox sender is a local callback; frames are recorded as values. The packet byte count is the length of the JSON text of the frame the relay would send (declared, not a hop).", runs: 'createRemoteStreamingMailbox (remote-streaming-mailbox.ts) with an injected timer pair on a virtual clock (the test\'s own: advance() runs due callbacks), createSnapshotDeltaEncoder/Decoder (state-delta.ts), streamingPartialSuffix of desktop shared/streaming-partial.ts and the daemon session-state-patch.mjs', notRun: 'the relay transport; the sender callback is a local array' },
   replay: { entry: 'mixdog-app-server thread feed batching: replay the steps against the Rust mailbox on a virtual clock; compare the frames (sequence, value, critical) and pending-timer counts after every step, and for the encoder cases the wires', normalised: {} },
 });
 process.exit(0);

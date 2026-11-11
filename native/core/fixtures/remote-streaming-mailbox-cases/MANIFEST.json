@@ -2,6 +2,7 @@
   "cases": 7,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-remote-streaming-mailbox-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "hops": "No wire in the Node test: the mailbox sender is a local callback; frames are recorded as values. The packet byte count is the length of the JSON text of the frame the relay would send (declared, not a hop).",
     "notRun": "the relay transport; the sender callback is a local array",
     "runs": "createRemoteStreamingMailbox (remote-streaming-mailbox.ts) with an injected timer pair on a virtual clock (the test's own: advance() runs due callbacks), createSnapshotDeltaEncoder/Decoder (state-delta.ts), streamingPartialSuffix of desktop shared/streaming-partial.ts and the daemon session-state-patch.mjs"
   },
@@ -63,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-remote-streaming-mailbox-cases.mjs",
-  "recorderSha256": "b6b3ea859e9d40afb100fffad6281dc713fe706c789ebe204a74ca48c8865386",
+  "recorderSha256": "8d48e158578c9f053d9f6f155dc12423357ec7b4577cddcd35a439806310b5a1",
   "replay": {
     "compare": "mixdog-app-server thread feed batching: replay the steps against the Rust mailbox on a virtual clock; compare the frames (sequence, value, critical) and pending-timer counts after every step, and for the encoder cases the wires",
     "entry": "NO RUST ENTRY ON o1: the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates.",
