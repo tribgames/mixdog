@@ -287,6 +287,8 @@ impl SessionHandle {
         });
         let view = self.cell.view.load_full();
         let feed: Arc<dyn FeedSource> = self.feed.clone();
+        // A full control lane drops the kick: the queue then drains at the next boundary or submit, as it would without one.
+        let _ = self.cell.ctl_tx.try_send(super::control::Ctl::Resumed);
         Ok(Reply::Subscribe(Subscribe {
             result: json!({ "thread": view.summary }),
             feed,

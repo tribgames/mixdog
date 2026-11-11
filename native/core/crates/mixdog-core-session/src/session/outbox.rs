@@ -67,6 +67,9 @@ pub(crate) enum Effect {
     /// The run's input rows are durable.
     InputDurable,
     ItemAck(oneshot::Sender<Result<(), RunError>>),
+    /// A close's or delete's mark is durable: told as [`Effect::ItemAck`] is, but a failed save fails it rather than
+    /// holding it (`closeSession` answers `false` when its tombstone does not land).
+    MarkAck(oneshot::Sender<Result<(), RunError>>),
     /// Publish the server request (its `requested` record is durable).
     PublishApproval(PendingServerRequest),
     /// The resolution record is durable.
@@ -155,6 +158,15 @@ impl Outbox {
     /// Some held entry waits for a retry (none of them is handed).
     pub fn awaits_retry(&self) -> bool {
         self.entries.iter().any(|entry| matches!(entry.durable, Some(Durable { stage: Stage::Held(_), .. })))
+    }
+
+    /// The ids of the unreleased entries not handed to a barrier whose effects match `waits`, in order.
+    pub fn waiting(&self, waits: impl Fn(&Effect) -> bool) -> Vec<u64> {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.held && !matches!(entry.durable, Some(Durable { stage: Stage::Handed(_), .. })) && entry.effects.iter().any(&waits))
+            .map(|entry| entry.id)
+            .collect()
     }
 
     /// The ids of the entries handed to the barrier that failed, in order.
