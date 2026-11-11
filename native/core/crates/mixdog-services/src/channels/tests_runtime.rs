@@ -681,7 +681,7 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
 /// dispatch answers it as Node's `handleToolCall` does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_channel_call_naming_an_mcp_tool_reaches_no_server() {
-    let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
+    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
     let recorded = &golden["channelCall"];
     assert_eq!(recorded["ran"], json!([]), "Node's dispatch reached no server");
     let e = env().await;

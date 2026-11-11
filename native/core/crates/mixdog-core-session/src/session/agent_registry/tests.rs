@@ -799,7 +799,7 @@ async fn a_leads_clients_are_told_of_rows_reaped_at_their_deadline_what_nodes_we
         }
     }
 
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent-row-deadline/golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-row-deadline/golden.json")).unwrap();
     let t0 = golden["t0"].as_i64().unwrap();
     let srig = crate::session::testing::Rig::new();
     let late = Arc::new(LateStatus::default());
