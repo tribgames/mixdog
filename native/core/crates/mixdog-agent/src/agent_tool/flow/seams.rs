@@ -131,6 +131,9 @@ pub trait TurnSessions: Send + Sync {
     async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError>;
     /// `mgr.unloadSessionRuntime`: releases the process-local state of a session whose turn is over.
     fn unload_runtime(&self, session_id: &str, reason: &str);
+    /// What the worker `session_id` reports reaches `owner_session_id`: a value the worker marks sensitive, now or
+    /// later, is the owner's to redact too (`carrySensitiveValues`). Nothing by default.
+    fn carry_marks(&self, _session_id: &str, _owner_session_id: &str) {}
 }
 
 /// `emitSubagentEvent`.

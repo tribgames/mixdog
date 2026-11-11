@@ -32,6 +32,9 @@ pub(crate) enum ToDurability {
     },
     /// "Retry storage".
     Retry,
+    /// A mark reached the thread with no record to commit (a mark carried from a session whose text it holds): the log
+    /// is rewritten now, as a commit would rewrite it first ([`SessionLog::redact`]).
+    Redact,
 }
 
 pub(crate) enum FromDurability {
@@ -48,6 +51,8 @@ pub(crate) enum FromDurability {
     Pending(bool),
     /// Outcome of a retry; `Ok` means the writer is `Clean`.
     Retried(Result<(), BarrierError>),
+    /// A [`ToDurability::Redact`] job ended (what it rewrote is on disk; a failure is tried again at the next barrier).
+    Redacted,
 }
 
 /// How the log is reached at the first write.
@@ -78,6 +83,7 @@ enum InFlight {
         ids: Vec<u64>,
     },
     Retry(JobHandle<RetryDone>),
+    Redact(JobHandle<()>),
 }
 
 pub(crate) struct DurabilityTask {
@@ -91,6 +97,7 @@ pub(crate) struct DurabilityTask {
     queue: VecDeque<(u64, u64, CommitRecord, usize)>,
     dropped_generation: Option<u64>,
     retry: bool,
+    redact: bool,
     pending: bool,
 }
 
@@ -121,6 +128,7 @@ impl DurabilityTask {
             queue: VecDeque::new(),
             dropped_generation: None,
             retry: false,
+            redact: false,
             pending: false,
         }
     }
@@ -152,6 +160,7 @@ impl DurabilityTask {
                         }
                     }
                     Some(ToDurability::Retry) => self.retry = true,
+                    Some(ToDurability::Redact) => self.redact = true,
                 },
             }
         }
@@ -175,6 +184,15 @@ impl DurabilityTask {
             if let Ok(handle) = submitted {
                 self.retry = false;
                 *in_flight = Some(InFlight::Retry(handle));
+            }
+            return;
+        }
+        // A queued batch rewrites the log before it appends (`SessionLog::commit`); only an idle log needs a job of its own.
+        if std::mem::take(&mut self.redact) && self.queue.is_empty() {
+            let (store, thread, slot) = (self.store.clone(), self.thread.clone(), self.log.clone());
+            match self.lane.submit(&CancellationToken::new(), move |lane| redact(lane, &*store, &thread, &mut lock(&slot))) {
+                Ok(handle) => *in_flight = Some(InFlight::Redact(handle)),
+                Err(_) => self.redact = true,
             }
             return;
         }
@@ -251,6 +269,12 @@ impl DurabilityTask {
                 });
                 FromDurability::Retried(result)
             }
+            Done::Redact(result) => {
+                if result.is_err() {
+                    *lock(&self.log) = Log::Lost;
+                }
+                FromDurability::Redacted
+            }
         };
         self.tx.send(msg).await.is_ok()
     }
@@ -263,6 +287,7 @@ enum Done {
         ids: Vec<u64>,
     },
     Retry(Result<RetryDone, mixdog_rt::JobDropped>),
+    Redact(Result<(), mixdog_rt::JobDropped>),
 }
 
 async fn wait(in_flight: &mut Option<InFlight>) -> Done {
@@ -280,6 +305,27 @@ async fn wait(in_flight: &mut Option<InFlight>) -> Done {
             }
         }
         InFlight::Retry(handle) => Done::Retry(handle.await),
+        InFlight::Redact(handle) => Done::Redact(handle.await),
+    }
+}
+
+/// One io-durability job: the log's owed rewrite with nothing to append; a log not opened yet is opened for it (as at a
+/// first write), one never created holds nothing.
+fn redact(lane: &mixdog_rt::InLane<DurabilityIo>, store: &dyn ThreadStore, thread: &ThreadId, log: &mut Log) {
+    match std::mem::replace(log, Log::Lost) {
+        Log::Ready(mut writer) => {
+            writer.redact(lane);
+            *log = Log::Ready(writer);
+        }
+        Log::Init(LogInit::Open(at)) => match store.open_log(lane, thread, at) {
+            Ok(mut writer) => {
+                writer.redact(lane);
+                *log = Log::Ready(writer);
+            }
+            // As a failed open at a first write: the writer is lost and the next batch fails indeterminate.
+            Err(error) => tracing::warn!(%thread, "the log could not be opened for its sensitive rewrite: {error:?}"),
+        },
+        other => *log = other,
     }
 }
 
