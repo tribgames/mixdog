@@ -937,7 +937,9 @@ mod tests {
             .filter(|frame| frame["params"]["thread"]["id"] == id)
             .map(|frame| frame["method"].as_str().expect("method").to_owned())
             .collect();
-        assert_eq!(frames, ["thread/started", SUMMARY_UPDATED], "the late row's frames");
+        // The listing's row repeats the one `thread/started` carried and is not announced again (`ThreadListService::announce`); sent
+        // ahead of the held `thread/started`, it would show here as a `thread/summary/updated` before it.
+        assert_eq!(frames, ["thread/started"], "the late row's frames");
     }
 
     /// The index holds the log of `room01` and not that of `gone01`.
