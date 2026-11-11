@@ -1,0 +1,2107 @@
+{
+  "domain": "session-warmup-schedulers",
+  "recorder": "benchmarks/rust-core/recorders/record-session-warmup-schedulers.mjs",
+  "testFile": "src/session-runtime/warmup-schedulers.test.mjs",
+  "cases": [
+    {
+      "name": "scheduleProviderWarmup-cannot-start-provider-work-after-closing-during-keychain-readiness",
+      "testLine": 85,
+      "input": {
+        "world": {
+          "keychainGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleProviderWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "closeRuntime"
+          },
+          {
+            "op": "resolveGate",
+            "gate": "keychain"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "closeRuntime"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "resolveGate",
+              "gate": "keychain"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "scheduleStatuslineUsageWarmup-cannot-start-provider-work-after-closing-during-keychain-readiness",
+      "testLine": 85,
+      "input": {
+        "world": {
+          "keychainGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleStatuslineUsageWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "closeRuntime"
+          },
+          {
+            "op": "resolveGate",
+            "gate": "keychain"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleStatuslineUsageWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "closeRuntime"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "resolveGate",
+              "gate": "keychain"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "refreshStatuslineUsageAfterTurn-cannot-start-provider-work-after-closing-during-keychain-readiness",
+      "testLine": 85,
+      "input": {
+        "world": {
+          "keychainGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "refreshStatuslineUsageAfterTurn",
+            "args": []
+          },
+          {
+            "op": "closeRuntime"
+          },
+          {
+            "op": "resolveGate",
+            "gate": "keychain"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "refreshStatuslineUsageAfterTurn",
+              "args": []
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "closeRuntime"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "resolveGate",
+              "gate": "keychain"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "provider-warmup-does-not-continue-after-a-keychain-failure-during-close",
+      "testLine": 97,
+      "input": {
+        "world": {
+          "keychainGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleProviderWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "closeRuntime"
+          },
+          {
+            "op": "rejectGate",
+            "gate": "keychain",
+            "message": "keychain unavailable"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "closeRuntime"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "rejectGate",
+              "gate": "keychain",
+              "message": "keychain unavailable"
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              [
+                "config:full-failed",
+                {
+                  "error": "keychain unavailable"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "scheduleStatuslineUsageWarmup-stops-before-usage-refresh-if-provider-readiness-outlives-the-runtime",
+      "testLine": 109,
+      "input": {
+        "world": {
+          "providerGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleStatuslineUsageWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "closeRuntime"
+          },
+          {
+            "op": "resolveGate",
+            "gate": "provider"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleStatuslineUsageWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "closeRuntime"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "resolveGate",
+              "gate": "provider"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "scheduleStatuslineUsageWarmup-refreshes-the-prepared-route-if-selection-changes-while-waiting-and-arms-no-idle-loop",
+      "testLine": 121,
+      "input": {
+        "world": {
+          "providerGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleStatuslineUsageWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "setRoute",
+            "route": {
+              "provider": "anthropic-oauth",
+              "model": "replacement"
+            }
+          },
+          {
+            "op": "resolveGate",
+            "gate": "provider"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleStatuslineUsageWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "setRoute",
+              "route": {
+                "provider": "anthropic-oauth",
+                "model": "replacement"
+              }
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "resolveGate",
+              "gate": "provider"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config",
+              [
+                "usage",
+                {
+                  "provider": "openai-oauth",
+                  "model": "first"
+                }
+              ]
+            ],
+            "events": [
+              [
+                "statusline-usage:warm-ready",
+                {
+                  "provider": "openai-oauth"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "statuslineUsageWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "refreshStatuslineUsageAfterTurn-stops-before-usage-refresh-if-provider-readiness-outlives-the-runtime",
+      "testLine": 109,
+      "input": {
+        "world": {
+          "providerGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "refreshStatuslineUsageAfterTurn",
+            "args": []
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "closeRuntime"
+          },
+          {
+            "op": "resolveGate",
+            "gate": "provider"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "refreshStatuslineUsageAfterTurn",
+              "args": []
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "closeRuntime"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "resolveGate",
+              "gate": "provider"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "refreshStatuslineUsageAfterTurn-refreshes-the-prepared-route-if-selection-changes-while-waiting-and-arms-no-idle-loop",
+      "testLine": 121,
+      "input": {
+        "world": {
+          "providerGate": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "refreshStatuslineUsageAfterTurn",
+            "args": []
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "setRoute",
+            "route": {
+              "provider": "anthropic-oauth",
+              "model": "replacement"
+            }
+          },
+          {
+            "op": "resolveGate",
+            "gate": "provider"
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "refreshStatuslineUsageAfterTurn",
+              "args": []
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "setRoute",
+              "route": {
+                "provider": "anthropic-oauth",
+                "model": "replacement"
+              }
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "resolveGate",
+              "gate": "provider"
+            },
+            "calls": [
+              "config"
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "config",
+              [
+                "usage",
+                {
+                  "provider": "openai-oauth",
+                  "model": "first"
+                }
+              ]
+            ],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "normal-provider-warmup-still-reloads-configuration-before-provider-initialization",
+      "testLine": 134,
+      "input": {
+        "world": {},
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleProviderWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "reload",
+              "providers"
+            ],
+            "events": [
+              [
+                "providers:init:ready",
+                {
+                  "ms": "<elapsed ms>"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "busy-runtime-parks-provider-warmup-with-no-timer-until-the-runtime-reports-idle",
+      "testLine": 148,
+      "input": {
+        "world": {
+          "active": 1
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleProviderWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "tick",
+            "ms": 60000
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "setActiveTurnCount",
+            "count": 0
+          },
+          {
+            "op": "call",
+            "method": "wakeDeferredWarmups",
+            "args": []
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 60000
+            },
+            "calls": [],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "setActiveTurnCount",
+              "count": 0
+            },
+            "calls": [],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "call",
+              "method": "wakeDeferredWarmups",
+              "args": []
+            },
+            "calls": [],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [
+              "reload",
+              "providers"
+            ],
+            "events": [
+              [
+                "providers:warm-deferred",
+                {
+                  "reason": "turn-active"
+                }
+              ],
+              [
+                "providers:init:ready",
+                {
+                  "ms": "<elapsed ms>"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "provider-model-warmup-parks-behind-the-catalog-refresh-and-runs-when-it-settles",
+      "testLine": 166,
+      "input": {
+        "world": {
+          "catalogPending": true
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleProviderModelWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "setCatalogRefreshPending",
+            "pending": false
+          },
+          {
+            "op": "call",
+            "method": "wakeDeferredWarmups",
+            "args": []
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderModelWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [
+              [
+                "provider-models:warm-deferred",
+                {
+                  "reason": "catalog-refresh-pending"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "setCatalogRefreshPending",
+              "pending": false
+            },
+            "calls": [],
+            "events": [
+              [
+                "provider-models:warm-deferred",
+                {
+                  "reason": "catalog-refresh-pending"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "call",
+              "method": "wakeDeferredWarmups",
+              "args": []
+            },
+            "calls": [],
+            "events": [
+              [
+                "provider-models:warm-deferred",
+                {
+                  "reason": "catalog-refresh-pending"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [
+              [
+                "provider-models:warm-deferred",
+                {
+                  "reason": "catalog-refresh-pending"
+                }
+              ]
+            ],
+            "warms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "idle-session-before-its-first-turn-warms-the-model-cache-once-and-arms-nothing-after",
+      "testLine": 184,
+      "input": {
+        "world": {
+          "firstTurnCompleted": false
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleProviderModelWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "tick",
+            "ms": 60000
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderModelWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [
+              [
+                "provider-models:warm-deferred",
+                {
+                  "reason": "first-turn-pending"
+                }
+              ]
+            ],
+            "warms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 60000
+            },
+            "calls": [],
+            "events": [
+              [
+                "provider-models:warm-deferred",
+                {
+                  "reason": "first-turn-pending"
+                }
+              ]
+            ],
+            "warms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "catalogRuns": [],
+            "timers": {
+              "providerModelWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "model-catalog-warmup-runs-every-6h-a-failure-waits-for-the-next-regular-cycle",
+      "testLine": 199,
+      "input": {
+        "world": {
+          "catalogOutcome": {
+            "retryAfterMs": 60000
+          }
+        },
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleModelCatalogWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "tick",
+            "ms": 60000
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "setCatalogOutcome",
+            "error": "offline"
+          },
+          {
+            "op": "tick",
+            "ms": 21540000
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "tick",
+            "ms": 21599999
+          },
+          {
+            "op": "yield"
+          },
+          {
+            "op": "tick",
+            "ms": 1
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleModelCatalogWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              }
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready"
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              }
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              21600000
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 60000
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready"
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              }
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready"
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              }
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "setCatalogOutcome",
+              "error": "offline"
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready"
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              }
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 21540000
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready"
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              },
+              "throws"
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready",
+              [
+                "model-catalog:warm-failed",
+                {
+                  "error": "offline"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              },
+              "throws"
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              21600000
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 21599999
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready",
+              [
+                "model-catalog:warm-failed",
+                {
+                  "error": "offline"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              },
+              "throws"
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready",
+              [
+                "model-catalog:warm-failed",
+                {
+                  "error": "offline"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              },
+              "throws"
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 1
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready",
+              [
+                "model-catalog:warm-failed",
+                {
+                  "error": "offline"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              },
+              "throws",
+              "throws"
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              "model-catalog:warm-ready",
+              [
+                "model-catalog:warm-failed",
+                {
+                  "error": "offline"
+                }
+              ],
+              [
+                "model-catalog:warm-failed",
+                {
+                  "error": "offline"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [
+              {
+                "retryAfterMs": 60000
+              },
+              "throws",
+              "throws"
+            ],
+            "timers": {
+              "modelCatalogWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              21600000
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "disabled-or-inapplicable-warmups-report-the-skip-instead-of-arming-a-timer",
+      "testLine": 232,
+      "input": {
+        "world": {
+          "flags": {
+            "providerWarmupEnabled": false,
+            "modelPrefetchEnabled": false,
+            "modelCatalogWarmupEnabled": false
+          }
+        },
+        "steps": [
+          {
+            "op": "setRoute",
+            "route": {
+              "provider": "openai",
+              "model": "m"
+            }
+          },
+          {
+            "op": "call",
+            "method": "scheduleProviderWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "call",
+            "method": "scheduleProviderModelWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "call",
+            "method": "scheduleModelCatalogWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "call",
+            "method": "scheduleStatuslineUsageWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "call",
+            "method": "refreshStatuslineUsageAfterTurn",
+            "args": []
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "setRoute",
+              "route": {
+                "provider": "openai",
+                "model": "m"
+              }
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [
+              "providers:warm-skipped"
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderModelWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [
+              "providers:warm-skipped"
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleModelCatalogWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [
+              "providers:warm-skipped",
+              [
+                "model-catalog:warm-skipped",
+                {
+                  "reason": "disabled"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleStatuslineUsageWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [
+              "providers:warm-skipped",
+              [
+                "model-catalog:warm-skipped",
+                {
+                  "reason": "disabled"
+                }
+              ],
+              [
+                "statusline-usage:warm-skipped",
+                {
+                  "provider": "openai"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "call",
+              "method": "refreshStatuslineUsageAfterTurn",
+              "args": []
+            },
+            "calls": [],
+            "events": [
+              "providers:warm-skipped",
+              [
+                "model-catalog:warm-skipped",
+                {
+                  "reason": "disabled"
+                }
+              ],
+              [
+                "statusline-usage:warm-skipped",
+                {
+                  "provider": "openai"
+                }
+              ]
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {},
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "provider-setup-warmup-reports-readiness",
+      "testLine": 250,
+      "input": {
+        "world": {},
+        "steps": [
+          {
+            "op": "call",
+            "method": "scheduleProviderSetupWarmup",
+            "args": [
+              0
+            ]
+          },
+          {
+            "op": "tick",
+            "ms": 0
+          },
+          {
+            "op": "yield"
+          }
+        ]
+      },
+      "result": {
+        "rows": [
+          {
+            "step": {
+              "op": "call",
+              "method": "scheduleProviderSetupWarmup",
+              "args": [
+                0
+              ]
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerSetupWarmupTimer": "armed"
+            },
+            "timersArmedThisStep": [
+              0
+            ]
+          },
+          {
+            "step": {
+              "op": "tick",
+              "ms": 0
+            },
+            "calls": [],
+            "events": [],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerSetupWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          },
+          {
+            "step": {
+              "op": "yield"
+            },
+            "calls": [],
+            "events": [
+              "provider-setup:warm-ready"
+            ],
+            "warms": [],
+            "catalogRuns": [],
+            "timers": {
+              "providerSetupWarmupTimer": null
+            },
+            "timersArmedThisStep": []
+          }
+        ]
+      }
+    }
+  ]
+}

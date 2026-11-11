@@ -33,6 +33,8 @@ native/core/** text=auto eol=lf
 
 # Node fixes a recording is made with (lib/common.mjs exactPatchedIdentity): applied with git apply and named by sha256.
 benchmarks/rust-core/recorders/node-patches/*.patch text eol=lf
+# cargo's output as recorded; k1-lanes.slow.test.mjs compares a fresh run with it byte for byte.
+scripts/rust-core/recorded/** text eol=lf
 
 # Recorded evidence hashed by a fixture MANIFEST in the exact bytes it was recorded
 # with (CRLF / mixed line endings): keep verbatim, no end-of-line conversion.
