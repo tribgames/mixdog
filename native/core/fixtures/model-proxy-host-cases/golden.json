@@ -73,6 +73,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000001\",\"provider\":\"openai-oauth\",\"method\":\"quotaUsable\",\"model\":\"gpt-usable\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000001\"]"
@@ -101,6 +105,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -133,6 +145,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000003\"]"
@@ -163,6 +183,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000004\",\"provider\":\"anthropic-oauth\",\"method\":\"quotaUsable\",\"model\":\"test\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000004\"]"
@@ -186,6 +214,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -304,13 +336,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -401,6 +427,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000005\",\"provider\":\"openai-oauth\",\"method\":\"quotaUsable\",\"model\":\"gpt-a\"},{\"id\":\"mp_00000000000040008000000000000008\",\"provider\":\"openai-oauth\",\"method\":\"quotaUsable\",\"model\":\"junk-2\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000005\"]"
@@ -426,6 +456,10 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000006\"]"
@@ -449,6 +483,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -484,6 +522,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -526,6 +568,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000009\",\"provider\":\"openai-oauth\",\"method\":\"quotaUsable\",\"model\":\"junk-0\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000008\"]"
@@ -536,6 +582,10 @@
             "text": "null"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000007\"]"
@@ -544,6 +594,18 @@
             "direction": "daemon->pc",
             "operation": "modelProxyClaim",
             "text": "null"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -576,6 +638,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000010\"]"
@@ -604,6 +674,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -636,6 +714,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000012\"]"
@@ -664,6 +750,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -696,6 +790,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000014\"]"
@@ -724,6 +826,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -756,6 +866,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000016\"]"
@@ -784,6 +902,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -816,6 +942,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000018\"]"
@@ -844,6 +978,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -876,6 +1018,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000020\"]"
@@ -904,6 +1054,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -936,6 +1094,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000022\"]"
@@ -964,6 +1130,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -996,6 +1170,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000024\"]"
@@ -1024,6 +1206,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1056,6 +1246,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000026\"]"
@@ -1084,6 +1282,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1116,6 +1322,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000028\"]"
@@ -1144,6 +1358,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1176,6 +1398,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000030\"]"
@@ -1204,6 +1434,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1236,6 +1474,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000032\"]"
@@ -1264,6 +1510,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1296,6 +1550,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000034\"]"
@@ -1324,6 +1586,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1356,6 +1626,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000036\"]"
@@ -1384,6 +1662,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1416,6 +1702,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000038\"]"
@@ -1444,6 +1738,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1476,6 +1778,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000040\"]"
@@ -1504,6 +1814,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1536,6 +1854,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000042\"]"
@@ -1564,6 +1890,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1596,6 +1930,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000044\"]"
@@ -1624,6 +1966,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1656,6 +2006,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000046\"]"
@@ -1684,6 +2042,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1716,6 +2082,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000048\"]"
@@ -1744,6 +2118,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1776,6 +2158,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000050\"]"
@@ -1804,6 +2194,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1836,6 +2234,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000052\"]"
@@ -1864,6 +2270,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1896,6 +2310,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000054\"]"
@@ -1924,6 +2346,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -1956,6 +2386,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000056\"]"
@@ -1984,6 +2422,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -2016,6 +2462,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000058\"]"
@@ -2044,6 +2498,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -2076,6 +2538,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000060\"]"
@@ -2104,6 +2574,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -2136,6 +2614,14 @@
             "text": "true"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000062\"]"
@@ -2164,6 +2650,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -2196,6 +2690,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000064\",\"provider\":\"openai-oauth\",\"method\":\"quotaUsable\",\"model\":\"gpt-a\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000064\"]"
@@ -2226,6 +2728,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000065\",\"provider\":\"openai-oauth\",\"method\":\"quotaUsable\",\"model\":\"gpt-a\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000065\"]"
@@ -2249,6 +2759,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -3983,13 +4497,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -4040,14 +4548,25 @@
                 "input_schema": {}
               }
             ],
-            "options": [
-              "sessionId",
-              "onStageChange",
-              "onTextDelta",
-              "onTextReset",
-              "signal",
-              "toolExecutionSessionId"
-            ]
+            "options": {
+              "sessionId": "pc-session",
+              "onStageChange": {
+                "function": ""
+              },
+              "onTextDelta": {
+                "function": ""
+              },
+              "onTextReset": {
+                "function": ""
+              },
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "toolExecutionSessionId": ""
+            }
           }
         ],
         "hostRunningAfter": 0,
@@ -4062,6 +4581,10 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000066\",\"provider\":\"anthropic-oauth\",\"method\":\"send\",\"model\":\"claude-test\"}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -4117,6 +4640,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -4224,6 +4751,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000067\",\"provider\":\"anthropic-oauth\",\"method\":\"send\",\"model\":\"claude-test\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000067\"]"
@@ -4247,6 +4778,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -4281,13 +4816,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -4346,6 +4875,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000068\",\"provider\":\"gemini\",\"method\":\"send\",\"model\":\"g\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000068\"]"
@@ -4374,6 +4907,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000069\",\"provider\":\"openai\",\"method\":\"forgetCredentials\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -4406,6 +4947,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000070\",\"provider\":\"openai\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000070\"]"
@@ -4436,6 +4985,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000071\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000071\"]"
@@ -4459,6 +5016,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -4577,13 +5138,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -4634,6 +5189,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000072\",\"provider\":\"antigravity-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000072\"]"
@@ -4664,6 +5223,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000073\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000073\"]"
@@ -4687,6 +5254,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -4749,13 +5320,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -4809,6 +5374,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000074\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000074\"]"
@@ -4829,6 +5398,14 @@
             "text": "{\"requests\":[],\"cancelled\":[\"mp_00000000000040008000000000000074\"]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyResolve",
             "text": "[\"mp_00000000000040008000000000000074\",false,null,\"{\\\"name\\\":\\\"AbortError\\\",\\\"message\\\":\\\"The remote session cancelled the model call.\\\",\\\"props\\\":{}}\"]"
@@ -4842,6 +5419,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -4965,6 +5546,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000075\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000075\"]"
@@ -4988,6 +5573,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -5077,6 +5666,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000076\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000076\"]"
@@ -5100,6 +5693,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -5163,6 +5760,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000077\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000077\"]"
@@ -5186,6 +5787,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -5251,6 +5856,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000078\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000078\"]"
@@ -5281,6 +5890,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000079\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000079\"]"
@@ -5304,6 +5921,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -5408,6 +6029,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000080\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000080\"]"
@@ -5431,6 +6056,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -5493,6 +6122,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000081\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000081\"]"
@@ -5516,6 +6149,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -5550,13 +6187,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -5577,24 +6208,26 @@
           "toolExecutionSessionId": "daemon-session",
           "_providerSeam": true
         },
-        "seenKeys": [
-          "sessionId",
-          "temperature",
-          "signal",
-          "toolExecutionSessionId"
-        ],
-        "signal": {
-          "class": "AbortSignal",
-          "aborted": false
+        "seen": {
+          "sessionId": "s1",
+          "temperature": 0.2,
+          "signal": {
+            "aborted": false,
+            "reason": {
+              "$exact": "undefined"
+            }
+          },
+          "toolExecutionSessionId": ""
         },
-        "toolExecutionSessionId": "",
-        "sessionId": "s1",
-        "temperature": 0.2,
         "wire": [
           {
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000082\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -5620,6 +6253,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -5654,13 +6291,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -5799,6 +6430,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000083\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000083\"]"
@@ -5827,6 +6462,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000085\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -5859,6 +6502,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000087\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000087\"]"
@@ -5879,6 +6530,14 @@
             "text": "{\"requests\":[],\"cancelled\":[\"mp_00000000000040008000000000000087\"]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyResolve",
             "text": "[\"mp_00000000000040008000000000000087\",false,null,\"{\\\"name\\\":\\\"AbortError\\\",\\\"message\\\":\\\"The remote session cancelled the model call.\\\",\\\"props\\\":{}}\"]"
@@ -5897,6 +6556,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000089\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -5922,6 +6589,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -6053,13 +6724,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -6086,6 +6751,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000090\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000090\"]"
@@ -6109,6 +6778,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -6143,13 +6816,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -6197,6 +6864,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000091\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000091\"]"
@@ -6225,6 +6896,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -6257,6 +6936,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000093\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"m\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000093\"]"
@@ -6280,6 +6967,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -6370,13 +7061,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -6460,6 +7145,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000094\",\"provider\":\"openrouter\",\"method\":\"resolveWireRoute\",\"model\":\"anthropic/claude-opus-4.8\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000094\"]"
@@ -6488,6 +7177,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000095\",\"provider\":\"openrouter\",\"method\":\"send\",\"model\":\"anthropic/claude-opus-4.8\"}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -6520,6 +7217,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000096\",\"provider\":\"openai\",\"method\":\"resolveWireRoute\",\"model\":\"gpt-x\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000096\"]"
@@ -6543,6 +7248,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -6646,6 +7355,7 @@
         "operations": [
           "modelProxyClaim",
           "modelProxyClaim",
+          "modelProxyResolve",
           "modelProxyResolve"
         ],
         "runningAfterSecond": 2,
@@ -6654,6 +7364,10 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000097\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -6674,6 +7388,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000098\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -6704,6 +7426,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[],\"cancelled\":[\"mp_00000000000040008000000000000097\"]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -6810,14 +7540,8 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000099\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"gpt\"}],\"cancelled\":[]}"
           },
           {
-            "direction": "pc->daemon",
-            "operation": "modelProxyResolve",
-            "text": "[\"mp_00000000000040008000000000000097\",false,null,\"{\\\"name\\\":\\\"AbortError\\\",\\\"message\\\":\\\"The desktop app is closing.\\\",\\\"props\\\":{}}\"]"
-          },
-          {
-            "direction": "daemon->pc",
-            "operation": "modelProxyResolve",
-            "text": "false"
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -6843,6 +7567,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -7672,6 +8400,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000102\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000102\"]"
@@ -7700,6 +8432,14 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -7732,6 +8472,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000104\",\"provider\":\"openai\",\"method\":\"send\",\"model\":\"openai-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000104\"]"
@@ -7760,6 +8508,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000105\",\"provider\":\"anthropic\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -7792,6 +8548,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000106\",\"provider\":\"anthropic\",\"method\":\"send\",\"model\":\"anthropic-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000106\"]"
@@ -7820,6 +8584,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000107\",\"provider\":\"gemini\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -7852,6 +8624,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000108\",\"provider\":\"gemini\",\"method\":\"send\",\"model\":\"gemini-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000108\"]"
@@ -7880,6 +8660,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000109\",\"provider\":\"deepseek\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -7912,6 +8700,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000110\",\"provider\":\"deepseek\",\"method\":\"send\",\"model\":\"deepseek-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000110\"]"
@@ -7940,6 +8736,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000111\",\"provider\":\"xai\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -7972,6 +8776,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000112\",\"provider\":\"xai\",\"method\":\"send\",\"model\":\"xai-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000112\"]"
@@ -8000,6 +8812,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000113\",\"provider\":\"opencode-go\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8032,6 +8852,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000114\",\"provider\":\"opencode-go\",\"method\":\"send\",\"model\":\"opencode-go-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000114\"]"
@@ -8060,6 +8888,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000115\",\"provider\":\"openrouter\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8092,6 +8928,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000116\",\"provider\":\"openrouter\",\"method\":\"send\",\"model\":\"openrouter-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000116\"]"
@@ -8120,6 +8964,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000117\",\"provider\":\"openai-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8152,6 +9004,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000118\",\"provider\":\"openai-oauth\",\"method\":\"send\",\"model\":\"openai-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000118\"]"
@@ -8180,6 +9040,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000119\",\"provider\":\"anthropic-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8212,6 +9080,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000120\",\"provider\":\"anthropic-oauth\",\"method\":\"send\",\"model\":\"anthropic-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000120\"]"
@@ -8240,6 +9116,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000121\",\"provider\":\"grok-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8272,6 +9156,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000122\",\"provider\":\"grok-oauth\",\"method\":\"send\",\"model\":\"grok-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000122\"]"
@@ -8300,6 +9192,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000123\",\"provider\":\"muse-code-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8332,6 +9232,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000124\",\"provider\":\"muse-code-oauth\",\"method\":\"send\",\"model\":\"muse-code-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000124\"]"
@@ -8360,6 +9268,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000125\",\"provider\":\"command-code-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8392,6 +9308,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000126\",\"provider\":\"command-code-oauth\",\"method\":\"send\",\"model\":\"command-code-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000126\"]"
@@ -8420,6 +9344,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000127\",\"provider\":\"mimo-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8452,6 +9384,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000128\",\"provider\":\"mimo-oauth\",\"method\":\"send\",\"model\":\"mimo-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000128\"]"
@@ -8480,6 +9420,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000129\",\"provider\":\"cursor-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8512,6 +9460,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000130\",\"provider\":\"cursor-oauth\",\"method\":\"send\",\"model\":\"cursor-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000130\"]"
@@ -8540,6 +9496,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000131\",\"provider\":\"antigravity-oauth\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8572,6 +9536,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000132\",\"provider\":\"antigravity-oauth\",\"method\":\"send\",\"model\":\"antigravity-oauth-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000132\"]"
@@ -8600,6 +9572,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000133\",\"provider\":\"mixdog-local\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8632,6 +9612,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000134\",\"provider\":\"mixdog-local\",\"method\":\"send\",\"model\":\"mixdog-local-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000134\"]"
@@ -8660,6 +9648,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000135\",\"provider\":\"custom-00000000-0000-4000-8000-000000000000\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8692,6 +9688,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000136\",\"provider\":\"custom-00000000-0000-4000-8000-000000000000\",\"method\":\"send\",\"model\":\"custom-00000000-0000-4000-8000-000000000000-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000136\"]"
@@ -8720,6 +9724,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000137\",\"provider\":\"custom-00000000-0000-4000-8000-000000000001\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8752,6 +9764,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000138\",\"provider\":\"custom-00000000-0000-4000-8000-000000000001\",\"method\":\"send\",\"model\":\"custom-00000000-0000-4000-8000-000000000001-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000138\"]"
@@ -8780,6 +9800,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000139\",\"provider\":\"custom-00000000-0000-4000-8000-000000000010\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8812,6 +9840,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000140\",\"provider\":\"custom-00000000-0000-4000-8000-000000000010\",\"method\":\"send\",\"model\":\"custom-00000000-0000-4000-8000-000000000010-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000140\"]"
@@ -8840,6 +9876,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000141\",\"provider\":\"custom-00000000-0000-4000-8000-000000000011\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8872,6 +9916,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000142\",\"provider\":\"custom-00000000-0000-4000-8000-000000000011\",\"method\":\"send\",\"model\":\"custom-00000000-0000-4000-8000-000000000011-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000142\"]"
@@ -8900,6 +9952,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000143\",\"provider\":\"custom-00000000-0000-4000-8000-000000000020\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8932,6 +9992,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000144\",\"provider\":\"custom-00000000-0000-4000-8000-000000000020\",\"method\":\"send\",\"model\":\"custom-00000000-0000-4000-8000-000000000020-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000144\"]"
@@ -8960,6 +10028,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000145\",\"provider\":\"custom-00000000-0000-4000-8000-000000000021\",\"method\":\"listModels\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -8992,6 +10068,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000146\",\"provider\":\"custom-00000000-0000-4000-8000-000000000021\",\"method\":\"send\",\"model\":\"custom-00000000-0000-4000-8000-000000000021-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000146\"]"
@@ -9015,6 +10099,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -10281,13 +11369,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -10338,6 +11420,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000147\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000147\"]"
@@ -10366,6 +11452,14 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000148\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -10398,6 +11492,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000149\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000149\"]"
@@ -10428,6 +11530,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000150\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000150\"]"
@@ -10451,6 +11561,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -10610,6 +11724,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000151\",\"provider\":\"custom-proxy-env\",\"method\":\"send\",\"model\":\"test-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000151\"]"
@@ -10640,6 +11758,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000152\",\"provider\":\"custom-proxy-env\",\"method\":\"send\",\"model\":\"test-model\"}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000152\"]"
@@ -10663,6 +11789,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -10749,6 +11879,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000153\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000153\"]"
@@ -10779,6 +11913,14 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000154\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000154\"]"
@@ -10802,6 +11944,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -10864,13 +12010,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -10887,6 +12027,10 @@
             "direction": "daemon->pc event",
             "operation": "model-proxy-request",
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000155\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           },
           {
             "direction": "pc->daemon",
@@ -10912,6 +12056,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -10946,13 +12094,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -11003,6 +12145,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000156\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000156\"]"
@@ -11026,6 +12172,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -11060,13 +12210,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
@@ -11167,6 +12311,10 @@
             "text": "{\"requests\":[{\"id\":\"mp_00000000000040008000000000000157\",\"provider\":\"\",\"method\":\"providerConfig\",\"model\":null}],\"cancelled\":[]}"
           },
           {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
+          },
+          {
             "direction": "pc->daemon",
             "operation": "modelProxyClaim",
             "text": "[\"mp_00000000000040008000000000000157\"]"
@@ -11190,6 +12338,10 @@
             "direction": "daemon->pc",
             "operation": "modelProxyResolve",
             "text": "true"
+          },
+          {
+            "direction": "host handled event",
+            "operation": "model-proxy-request"
           }
         ],
         "timers": {
@@ -11224,13 +12376,7 @@
             }
           ],
           "fired": [],
-          "pending": [
-            {
-              "api": "setInterval",
-              "ms": 5000,
-              "dueMs": 5000
-            }
-          ]
+          "pending": []
         }
       }
     },
