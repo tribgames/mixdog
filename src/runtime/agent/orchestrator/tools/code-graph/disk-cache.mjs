@@ -19,6 +19,7 @@ import {
 } from 'node:fs';
 import { getPluginData } from '../../config.mjs';
 import { writeJsonAtomicSync, withFileLockSync } from '../../../../shared/atomic-file.mjs';
+import { readJsonFilePiecesSync } from '../../../../shared/json-pieces-read.mjs';
 import {
   canonicalGraphCwd as _canonicalGraphCwd,
   registerCodeGraphDrain,
@@ -361,11 +362,12 @@ function _ensureCwdLoaded(cwd) {
   try {
     const file = join(_codeGraphDiskDir(), `${meta.hash}.json`);
     if (!existsSync(file)) return;
-    const raw = readFileSync(file, 'utf8');
-    const entry = JSON.parse(raw);
+    // In pieces, as it was written (pieceDepth 2): the entry is never one
+    // string as large as itself.
+    const { value: entry, chars } = readJsonFilePiecesSync(file, { pieceDepth: 2 });
     if (entry && typeof entry === 'object') {
       _diskCodeGraphCache.set(key, entry);
-      _noteDiskEntryBytes(key, raw.length);
+      _noteDiskEntryBytes(key, chars);
       _pruneDiskCodeGraphEntries();
     }
   } catch {
