@@ -88,13 +88,27 @@ pub(crate) fn apply_launch(spec: &mut ExecSpec, launch: git_launch::Launch) {
 /// resolved binary is gone (an uninstalled or moved Git, where bare `git` would find whatever PATH
 /// holds now).
 pub async fn start_git(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
-    match launch_once(exec, lane, spec.clone(), cancel).await {
-        Err(ScmFailure::Unavailable { capability }) if git_launch::forget_missing(&capability) => launch_once(exec, lane, spec, cancel).await,
-        other => other,
+    let (outcome, program) = launch_once(exec, lane, spec.clone(), cancel).await;
+    // `forgetMissingGit`: only an ENOENT start, and only when the program it named is gone (a missing cwd reports ENOENT too).
+    let missing = matches!(&outcome, Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT" }));
+    if missing && git_launch::forget_missing(&program) {
+        return launch_once(exec, lane, spec, cancel).await.0;
+    }
+    outcome
+}
+
+/// The outcome of one start, and the program it started.
+async fn launch_once(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel: &CancellationToken) -> (Result<ExecOutput, ScmFailure>, String) {
+    match launch_spec(lane, spec, cancel).await {
+        Ok(spec) => {
+            let program = spec.program.clone();
+            (exec.run(spec, cancel).await, program)
+        }
+        Err(failure) => (Err(failure), "git".to_owned()),
     }
 }
 
-async fn launch_once(exec: &Exec, lane: MaintenanceIo, mut spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
+async fn launch_spec(lane: MaintenanceIo, mut spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecSpec, ScmFailure> {
     if cfg!(windows) {
         let base = child_base(&spec, git_launch::process_env());
         // Git children started side by side are started in the order they were asked for (git-status.ts starts its reads in code order):
@@ -115,7 +129,7 @@ async fn launch_once(exec: &Exec, lane: MaintenanceIo, mut spec: ExecSpec, cance
         };
         apply_launch(&mut spec, launch);
     }
-    exec.run(spec, cancel).await
+    Ok(spec)
 }
 
 #[derive(Clone)]
