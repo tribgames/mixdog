@@ -18,6 +18,7 @@ mod project_id;
 mod query_handlers;
 mod query_ranking;
 mod recall_fusion;
+mod recall_readiness;
 mod recall_source;
 mod scope_filter;
 mod score;
