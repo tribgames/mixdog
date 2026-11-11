@@ -23,11 +23,12 @@
 //! names `stray` again is the core's store taking that row (`MemStore::seed`, as another writer commits it).
 //!
 //! Node's save outcomes and the core's: Node's save resolves dropped (a delete's fence) where the core's store refuses
-//! the batch (nothing stored, the commit fails); another writer appends a record after the session's last one before
-//! the save on both sides, and Node's save is refused where the core's barrier fails its ownership check (nothing of
-//! the batch applied); Node's fsync fails after the records were written where the core's barrier fails after its
-//! write. Either way nothing is pruned. The ask markers drive the cases where Node's recorder itself only marks the
-//! session busy (`turn-before-save`, `closed-before-turn-end`, `process-stopped`, `re-referenced`).
+//! the batch (nothing stored, the commit fails); another writer appends a record to the session's log after its last
+//! one before the save on both sides (the core's over its real thread store), and Node's save is refused where the
+//! core's log writer finds its file grown past what it wrote (nothing of the batch applied); Node's fsync fails after
+//! the records were written where the core's barrier fails after its write. Either way nothing is pruned. The ask
+//! markers drive the cases where Node's recorder itself only marks the session busy (`turn-before-save`,
+//! `closed-before-turn-end`, `process-stopped`, `re-referenced`).
 //!
 //! `clear-fork`, `heir-fork` and `owner-let-go` are sessions Node's recorder does not compact: the copies of a
 //! conversation in other sessions keep the sidecars they name, and a session let go while its reconcile runs is left
@@ -365,14 +366,23 @@ async fn a_compaction_the_store_refused_prunes_nothing() {
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![point]), world.case);
 }
 
-/// Node's `superseded`: another writer appends a record (a header patch setting `status`) after the session's last one
-/// before the compaction's save; the save's first barrier fails its ownership check and nothing of it is applied.
+/// Node's `superseded`: another writer appends a record (a header patch setting `status`) to the session's log after
+/// its last frame, once the compaction is adopted and before its save. Over the real thread store: the save's
+/// barrier finds the log grown past what its writer wrote (`LogWriter::alone`) and writes nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "the foreign writer appends to the session's log file")]
 async fn a_compaction_another_writer_overtook_prunes_nothing() {
-    let world = world("superseded").await;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = super::tests::real_store(data.path()).await;
+    let fixture = mixdog_testkit::fixture!("../../fixtures/offload-prune-order/golden.json");
+    let world = World::through_session("superseded", fixture, Rig::new(), move |rig| rig.deps_on(store.clone()), data).await;
+    let log = world.data.path().join("sessions").join(world.handle.id.as_str()).join(mixdog_store::log::log_name(0));
+    let bytes = std::fs::read(&log).expect("the session's log");
+    let last = mixdog_store::framing::scan(&bytes, 0, 0, 0).frames.last().map(|frame| frame.ordinal).expect("a frame");
     let foreign: Record = serde_json::from_value(json!({ "k": "meta", "change": { "inline": { "set": { "status": "error" }, "unset": [] } } })).expect("meta record");
-    world.rig.store.seed(&world.handle.id, vec![foreign]);
-    world.rig.store.ownership_lost.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut frame = Vec::new();
+    mixdog_store::framing::encode_into(&mut frame, last + 1, &serde_json::to_vec(&foreign).expect("payload"));
+    std::fs::OpenOptions::new().append(true).open(&log).and_then(|mut file| std::io::Write::write_all(&mut file, &frame)).expect("the foreign record is appended");
     let answer = world.commit().await;
     assert!(answer.is_err(), "{answer:?}");
     assert!(lock(&world.rig.compaction.pruned).is_empty());

@@ -10,8 +10,11 @@ use std::time::Duration;
 
 use mixdog_agent::offload::ArtifactStore;
 use mixdog_core_api::CoreError;
+use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
+use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ItemId;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_store::schema::record::HeaderChange;
 use mixdog_store::schema::record::Record;
@@ -125,6 +128,17 @@ impl World {
     /// over `deps()` (the rig's, or the rig's with the host's run factory). The opens (the creator's and the
     /// session's) list nothing: the sidecars are written once both listed.
     pub async fn new(name: &str, golden: &str, rig: Rig, deps: impl Fn(&Rig) -> Arc<SessionDeps>) -> World {
+        Self::seeded(name, golden, rig, deps, tempfile::tempdir().expect("data dir"), false).await
+    }
+
+    /// `new` over a store with one writer per log (the real one, over the data dir `data`): the recorded transcript
+    /// is committed through the session by its creator (`thread/inheritedRows/append`, rows of no turn as an
+    /// inheritance's or an import's), which then lets the session go before it is opened.
+    pub async fn through_session(name: &str, golden: &str, rig: Rig, deps: impl Fn(&Rig) -> Arc<SessionDeps>, data: tempfile::TempDir) -> World {
+        Self::seeded(name, golden, rig, deps, data, true).await
+    }
+
+    async fn seeded(name: &str, golden: &str, rig: Rig, deps: impl Fn(&Rig) -> Arc<SessionDeps>, data: tempfile::TempDir, through_session: bool) -> World {
         let golden = self::golden(golden);
         let case = node_case(&golden, name);
         let release: Arc<Notify> = Arc::default();
@@ -137,7 +151,6 @@ impl World {
                 RunOutcome::Completed(Default::default())
             })
         }));
-        let data = tempfile::tempdir().expect("data dir");
         let id = ThreadId::from(case["seed"]["sessionId"].as_str().expect("session id"));
         let clock = golden["clockMs"].as_u64().expect("clock");
         rig.clock.0.store(clock, std::sync::atomic::Ordering::SeqCst);
@@ -145,7 +158,14 @@ impl World {
         let creator = SessionDirectory::new(deps(&rig));
         within("the session is created", creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({}))).await.expect("create");
         let transcript = unmask(data.path(), &case["seed"]["transcript"]);
-        rig.store.seed(&id, transcript.as_array().expect("transcript").iter().enumerate().map(|(index, body)| item(format!("seed{index}"), body)).collect());
+        if through_session {
+            let created = within("the session opens", creator.open_handle(&id, &CallContext::internal("test"))).await.expect("open");
+            let request = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "threadId": id, "messages": transcript }), op: None, ctx: CallContext::internal("test") };
+            within("the transcript is committed", created.request(request)).await.expect("rows appended");
+            within("the creator lets the session go", creator.shutdown_for("seeded")).await;
+        } else {
+            rig.store.seed(&id, transcript.as_array().expect("transcript").iter().enumerate().map(|(index, body)| item(format!("seed{index}"), body)).collect());
+        }
         let directory = Arc::new(SessionDirectory::new(deps(&rig)));
         let handle = within("the session opens", directory.open_handle(&id, &CallContext::internal("test"))).await.expect("open");
         within("both opens have listed", listings.wait_for(|count| *count >= 2)).await.expect("listings");

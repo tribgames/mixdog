@@ -90,6 +90,9 @@ impl LogFile for FaultFile {
         take(&mut self.1.lock().unwrap().truncate)?;
         self.0.truncate(len)
     }
+    fn size(&mut self) -> io::Result<u64> {
+        self.0.size()
+    }
 }
 
 impl WriterIo for FaultIo {
