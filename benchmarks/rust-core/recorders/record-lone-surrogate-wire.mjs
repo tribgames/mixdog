@@ -213,16 +213,40 @@ const WORLD_FILES_SKIP = [
     path: 'core/data/daemon-owner.lock',
     reason: "the core's ownership of its data folder: an OS-held exclusive lock for its whole life (Node's daemon-owner.lock likewise), so its bytes cannot be read while it runs; written once at the start",
   },
+  {
+    path: 'core/home/backups/user-data',
+    reason:
+      "the barrier's own config write (worldFiles.barrier) adds a pre- and a post-config-write copy of the config here each time, as every config write does (Node's user-data-backup likewise); a config write by the refused call would change the config file itself (mixdog-config.json), which is compared",
+  },
+  {
+    path: 'core/data/daemon.log',
+    reason: "the core's diagnostic log: lines from its own timers and events (a language server it stops when idle, for one), not stored state; a refused call is answered before any service runs, so it logs nothing a service would",
+  },
+  {
+    path: 'core/data/modelsdev-catalog.json',
+    prefix: true,
+    reason:
+      "the models.dev catalog cache with its lock and temporary file: refreshed by the core on its own schedule from models.dev (not a stand-in server), as Node's catalog refresh does; no client call writes it",
+  },
+  {
+    path: 'core/data/client-versions.json',
+    prefix: true,
+    reason:
+      "the last answer of each provider CLI's live version lookup (mixdog-ai client_versions.rs, Node's live CLI versions): written when a lookup the core started on its own answers, from the providers' sites (not a stand-in server); no client call writes it",
+  },
 ];
-// The methods of the inventory's refused request fields that a desktop may not call (the method table's origins): the sweep's call
-// of them is refused for its origin before the lone unit is looked at.
+// The language server's closing handshake: the core shuts down an idle language server on its own timer (Node's manager likewise),
+// so its `shutdown` and `exit` may reach the stub during any call of the sweep; any other message is a call's.
+const LANGUAGE_SERVER_LIFECYCLE = ['shutdown', 'exit'];
+// The methods of the inventory's refused request fields that a desktop may not call (the method table's origins): the sweep sends
+// them from a paired phone.
 const METHOD_TABLE = 'native/core/crates/mixdog-app-protocol/schema/method_table.json';
 const desktopMethods = new Set(
   JSON.parse(readFileSync(join(REPO_ROOT, METHOD_TABLE), 'utf8'))
     .clientMethods.filter((row) => row.origins.includes('local'))
     .map((row) => row.method),
 );
-const relayOnly = [
+const phoneOnly = [
   ...new Set(
     JSON.parse(readFileSync(join(REPO_ROOT, INVENTORY), 'utf8'))
       .classes.filter((entry) => entry.class === 'refused')
@@ -283,20 +307,27 @@ writeSetManifest(stage, {
     // added, removed or changed fails it. Not read, with the reason:
     worldFiles: {
       skip: WORLD_FILES_SKIP,
+      barrier:
+        "before each look at the files (before and after the call): on the desktop connection, config/setTheme with the theme config/getTheme answered at the first look, which mixdog-core-config writes through the config's one writer (Config::update on its write lane, written even when unchanged, as Node's updateConfig) and answers once written; a config write the refused call queued is written before it, and frames of one connection are read in order. Its answer must name the theme",
     },
-    // After the cases: every field the inventory refuses in a request or a notification, sent by the desktop client with a lone
-    // unit there and nothing else (a frame is refused before its params are read). An answer's fields are not here: an answer
-    // only exists to a request the core sent, and inventory_rule.rs fails each such request as classed.
+    // After the cases: every field the inventory refuses in a request or a notification, sent with a lone unit there and nothing
+    // else (a frame is refused before its params are read). An answer's fields are not here: an answer only exists to a request
+    // the core sent, and inventory_rule.rs fails each such request as classed.
     inventorySweep: {
       inventory: INVENTORY,
       methodTable: METHOD_TABLE,
-      relayOnly: {
-        methods: relayOnly,
+      phoneOnly: {
+        methods: phoneOnly,
         reason:
-          'only a paired phone may call these (the method table: origins without local): a desktop call is refused for its origin before the lone unit is read (lone-surrogate-wire-cases.mjs permissionRefusal); the refusal naming the field for a phone is mixdog-app-server tests::inventory_rule every_request_field_of_the_inventory_reaches_the_core_or_is_refused_as_classed',
+          'only a paired phone may call these (the method table: origins without local): they are sent by a phone paired through the replay\'s relay (lib/phone-relay-core.mjs openRawPhone), so the lone unit is what is refused; the answer is the JSON-RPC error frame of loneRefusal (code, message, data)',
+      },
+      languageServerLifecycle: {
+        methods: LANGUAGE_SERVER_LIFECYCLE,
+        reason:
+          "the language server's closing handshake: the core shuts down a language server idle for 30 s on its own timer (Node: apps/desktop/src/main/language-server-process.ts LANGUAGE_SERVER_IDLE_MS), so it may reach the stub during any call of the sweep; these reports, and only these, are left out of the sweep's requests",
       },
       check:
-        "a request's client failure detail equals loneRefusal of `<method>.params<pointer>` whole (permissionRefusal for relayOnly); a notification is followed by a request of a method no table has, answered only after the notification was read; for each, no request reached the local server (nor the language server, which reports there) and worldFiles are unchanged",
+        "a desktop request's client failure detail equals loneRefusal of `<method>.params<pointer>` whole; a phone-only request's answer frame is that refusal's JSON-RPC error with the phone's id; a notification is followed by the barrier, read after it; for each, no request reached the local server, the language server reported no message (it reports every request and notification it receives but the handshake), and worldFiles are unchanged across the barrier",
     },
   },
 });
