@@ -1,0 +1,57 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-antigravity-request.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "entry": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test's asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is recorded per tool as the declaration's sha256 (the declarations are the product's own schemas), `computer` and the Gemini projection in full. Ajv (the tree's own dependency) answers the validity / validate() checks.",
+  "exclusions": [
+    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
+    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 147143,
+      "path": "cases.json",
+      "sha256": "e27572ef482d819f38ba95f70dd1f72bb0d36d859e781b0f5ac70150ddb43f32"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-antigravity-request.mjs",
+  "recorderSha256": "777402c67bb76d8788f2b704dd97d450814cb5e9fc0e518b089624c0991a04c9",
+  "replay": "mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.",
+  "set": "provider-antigravity-request",
+  "totalBytes": 147143
+}

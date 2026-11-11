@@ -1,0 +1,4347 @@
+{
+  "set": "provider-antigravity-request",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "hosted-google-search-ahead-of-declarations",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:31",
+      "input": {
+        "nativeTools": [
+          {
+            "type": "google_search"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "file_path"
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "searchOnly": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "hello"
+                }
+              ]
+            }
+          ],
+          "systemInstruction": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "rules"
+              }
+            ]
+          },
+          "tools": [
+            {
+              "googleSearch": {}
+            }
+          ],
+          "generationConfig": {
+            "thinkingConfig": {
+              "includeThoughts": true
+            }
+          },
+          "sessionId": "-3238736544897475342"
+        },
+        "both": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "hello"
+                }
+              ]
+            }
+          ],
+          "systemInstruction": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "rules"
+              }
+            ]
+          },
+          "tools": [
+            {
+              "googleSearch": {}
+            },
+            {
+              "functionDeclarations": [
+                {
+                  "name": "read",
+                  "description": "Read a file.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "file_path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "file_path"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "toolConfig": {
+            "functionCallingConfig": {
+              "mode": "VALIDATED"
+            }
+          },
+          "generationConfig": {
+            "thinkingConfig": {
+              "includeThoughts": true
+            }
+          },
+          "sessionId": "-3238736544897475342"
+        },
+        "noNative": "<absent>"
+      }
+    },
+    {
+      "id": "function-calling-mode-default-env-and-tool-choice",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:42",
+      "input": {},
+      "result": {
+        "modes": {
+          "{}": "VALIDATED",
+          "{\"MIXDOG_ANTIGRAVITY_FC_MODE\":\"auto\"}": "AUTO",
+          "{\"MIXDOG_ANTIGRAVITY_FC_MODE\":\"ANY\"}": "ANY",
+          "{\"MIXDOG_ANTIGRAVITY_FC_MODE\":\"bogus\"}": "VALIDATED"
+        },
+        "defaultConfig": {
+          "functionCallingConfig": {
+            "mode": "VALIDATED"
+          }
+        },
+        "autoConfig": {
+          "functionCallingConfig": {
+            "mode": "AUTO"
+          }
+        },
+        "noneConfig": {
+          "functionCallingConfig": {
+            "mode": "NONE"
+          }
+        }
+      }
+    },
+    {
+      "id": "full-builtin-bridge-surface-sent-as-authored",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:84",
+      "input": {
+        "surface": "BUILTIN_TOOLS + CODE_GRAPH_TOOL_DEFS + COMPUTER_TOOL_DEFS + TOOL_BRIDGE_TOOLS + SKILL_TOOL + SESSION_TOOL",
+        "models": [
+          "claude-sonnet-4-6",
+          "claude-opus-4-6-thinking"
+        ]
+      },
+      "result": {
+        "surfaceHasUnion": true,
+        "sonnetWarnings": [],
+        "sonnetEqualsOpus": true,
+        "names": [
+          "read",
+          "edit",
+          "shell",
+          "git",
+          "github",
+          "task",
+          "grep",
+          "glob",
+          "find",
+          "list",
+          "code_graph",
+          "computer",
+          "load_tool",
+          "call_tool",
+          "Skill",
+          "session"
+        ],
+        "surfaceNames": [
+          "read",
+          "edit",
+          "shell",
+          "git",
+          "github",
+          "task",
+          "grep",
+          "glob",
+          "find",
+          "list",
+          "code_graph",
+          "computer",
+          "load_tool",
+          "call_tool",
+          "Skill",
+          "session"
+        ],
+        "rows": [
+          {
+            "name": "read",
+            "sha256": "49994d76d432822825daa2a39a003835a1533b1ead355d2ae0604edb199e660e",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "edit",
+            "sha256": "d54316ec31ceebfc6240741fbd785093bda4f57c115096ba1dbd1983353b26d6",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "shell",
+            "sha256": "24f64bae1129fa5ca9ef6c1114280e75e1577d64a09f616dfd4f51c133bd9cdc",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "git",
+            "sha256": "375aa41262b766cd65367f136655d9695d28143d0017221bf6514f762dcf7668",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "github",
+            "sha256": "0506140b76f2275799867d5a5ee28a520b78af007b2d337b405c463943de1d45",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "task",
+            "sha256": "50457c4b7524f06d53a8c100130ad583cc43d5ad23dcd0e380c9e0c25c13f99a",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "grep",
+            "sha256": "f7c0f4ebe0db25b5f8badeb14ccf841b83a7d6eda98ba98261e67630745cc880",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "glob",
+            "sha256": "1208473dad8096b464107b7b0c4146364d85d4858b0c358ad412f3c6dcd1bca4",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "find",
+            "sha256": "56cce9ba71a285c11479356ff9441e8d6577eb692d2efa908baae9a3b9fbcac6",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "list",
+            "sha256": "4158615adba10ef1893a84c6276d362ceec6b3150c63dda73ee82fa2e03a9082",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "code_graph",
+            "sha256": "0bd9cf18ff6d8c40f488990ea3981d5a15486db6852e9d94ef8371afed0656b9",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "computer",
+            "sha256": "46822de2d6c92ad0839df68c6da69f849d5bd2bc1fa761f90a902bf95b3d7342",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "load_tool",
+            "sha256": "f9bc5fb741ba7b37f1dd2b9caced54e61d7eac15d85ecb26fd8d6c3fbf98e76e",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "call_tool",
+            "sha256": "36250f7d43034b8b16f3898c908a5ffd4b5b0429a6dbc3956b0a25dbf97edc06",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "Skill",
+            "sha256": "1674bbabb23299804777050932edf832c6f16ad8d867907ba176cae0fb37f5e7",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          },
+          {
+            "name": "session",
+            "sha256": "a5a81a55c1e3ab03e844d336b497513be265925cd90ac1b07d62d1432049bd87",
+            "hasParameters": false,
+            "equalsActionInputUnion": true,
+            "valid2020": true,
+            "rootType": "object",
+            "rootCombinators": []
+          }
+        ],
+        "surfaceUnchanged": true
+      }
+    },
+    {
+      "id": "standard-2020-12-forms-sent-as-written",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:115",
+      "input": {
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:example:tool",
+          "type": "object",
+          "properties": {
+            "maybe": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "nullable": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "multi": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "level": {
+              "type": "integer",
+              "enum": [
+                1,
+                2,
+                3
+              ]
+            },
+            "flag": {
+              "const": null
+            },
+            "open": {
+              "nullable": true,
+              "type": "string"
+            },
+            "deep": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {}
+                  }
+                ]
+              }
+            }
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "schema": {
+          "$id": "urn:example:tool",
+          "type": "object",
+          "properties": {
+            "maybe": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "nullable": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "multi": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "level": {
+              "type": "integer",
+              "enum": [
+                1,
+                2,
+                3
+              ]
+            },
+            "flag": {
+              "const": null
+            },
+            "open": {
+              "nullable": true,
+              "type": "string"
+            },
+            "deep": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {}
+                  }
+                ]
+              }
+            }
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "sourceUnchanged": true
+      }
+    },
+    {
+      "id": "boolean-schemas-recursive-defs-keyword-like-names",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:138",
+      "input": {
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "examples": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "a",
+                "b"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "definitions": {
+              "type": "string"
+            },
+            "$ref": {
+              "type": "string"
+            },
+            "anyOf": {
+              "type": "string",
+              "default": {
+                "anyOf": 1
+              }
+            },
+            "anything": true,
+            "never": false,
+            "node": {
+              "$ref": "#/$defs/Node"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "$defs": {
+            "Node": {
+              "type": "object",
+              "properties": {
+                "child": {
+                  "$ref": "#/$defs/Node"
+                }
+              }
+            }
+          }
+        }
+      },
+      "result": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "examples": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "a",
+                "b"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "definitions": {
+              "type": "string"
+            },
+            "$ref": {
+              "type": "string"
+            },
+            "anyOf": {
+              "type": "string",
+              "default": {
+                "anyOf": 1
+              }
+            },
+            "anything": true,
+            "never": false,
+            "node": {
+              "$ref": "#/$defs/Node"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "$defs": {
+            "Node": {
+              "type": "object",
+              "properties": {
+                "child": {
+                  "$ref": "#/$defs/Node"
+                }
+              }
+            }
+          }
+        },
+        "sourceUnchanged": true
+      }
+    },
+    {
+      "id": "draft-07-standard-keyword-mapping",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:160",
+      "input": {
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "$id": "urn:example:tool",
+          "type": "object",
+          "properties": {
+            "closed": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "additionalItems": false
+            },
+            "typed": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "string"
+                }
+              ],
+              "additionalItems": {
+                "type": "number"
+              }
+            },
+            "open": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "plain": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ref": {
+              "$ref": "#/definitions/Name"
+            },
+            "definitions": {
+              "type": "string"
+            }
+          },
+          "definitions": {
+            "Name": {
+              "type": "string"
+            }
+          },
+          "dependencies": {
+            "closed": [
+              "open"
+            ],
+            "open": {
+              "required": [
+                "typed"
+              ]
+            },
+            "plain": true
+          }
+        }
+      },
+      "result": {
+        "schema": {
+          "$id": "urn:example:tool",
+          "type": "object",
+          "properties": {
+            "closed": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "items": false
+            },
+            "typed": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string"
+                }
+              ],
+              "items": {
+                "type": "number"
+              }
+            },
+            "open": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "plain": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ref": {
+              "$ref": "#/$defs/Name"
+            },
+            "definitions": {
+              "type": "string"
+            }
+          },
+          "dependentRequired": {
+            "closed": [
+              "open"
+            ]
+          },
+          "dependentSchemas": {
+            "open": {
+              "required": [
+                "typed"
+              ]
+            },
+            "plain": true
+          },
+          "$defs": {
+            "Name": {
+              "type": "string"
+            }
+          }
+        },
+        "sourceUnchanged": true
+      }
+    },
+    {
+      "id": "draft-07-definitions-follow-own-id-scope",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:187",
+      "input": {
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "embedded": {
+              "$id": "urn:example:inner",
+              "type": "object",
+              "definitions": {
+                "Leaf": {
+                  "type": "string"
+                }
+              },
+              "properties": {
+                "leaf": {
+                  "$ref": "#/definitions/Leaf"
+                }
+              }
+            }
+          }
+        }
+      },
+      "result": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "embedded": {
+              "$id": "urn:example:inner",
+              "type": "object",
+              "properties": {
+                "leaf": {
+                  "$ref": "#/$defs/Leaf"
+                }
+              },
+              "$defs": {
+                "Leaf": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "sourceUnchanged": true
+      }
+    },
+    {
+      "id": "draft-07-keywords-beside-ref-ignored",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:207",
+      "input": {
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "sibling": {
+              "$ref": "#/definitions/s",
+              "maxLength": 1,
+              "description": "ignored",
+              "type": "integer"
+            },
+            "nested": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/s",
+                    "minLength": 5
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "deep": {
+              "type": "object",
+              "properties": {
+                "inner": {
+                  "$ref": "#/definitions/s",
+                  "pattern": "^z$"
+                }
+              }
+            },
+            "$ref": {
+              "type": "string",
+              "maxLength": 1
+            },
+            "holder": {
+              "type": "object",
+              "properties": {
+                "$ref": {
+                  "type": "string",
+                  "minLength": 2
+                }
+              },
+              "required": [
+                "$ref"
+              ]
+            }
+          },
+          "definitions": {
+            "s": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "result": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sibling": {
+              "$ref": "#/$defs/s"
+            },
+            "nested": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/s"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "deep": {
+              "type": "object",
+              "properties": {
+                "inner": {
+                  "$ref": "#/$defs/s"
+                }
+              }
+            },
+            "$ref": {
+              "type": "string",
+              "maxLength": 1
+            },
+            "holder": {
+              "type": "object",
+              "properties": {
+                "$ref": {
+                  "type": "string",
+                  "minLength": 2
+                }
+              },
+              "required": [
+                "$ref"
+              ]
+            }
+          },
+          "$defs": {
+            "s": {
+              "type": "string"
+            }
+          }
+        },
+        "validates": [
+          {
+            "value": {
+              "sibling": "long string",
+              "nested": [
+                "abc",
+                null
+              ],
+              "deep": {
+                "inner": "abc"
+              }
+            },
+            "valid": true
+          },
+          {
+            "value": {
+              "sibling": 5
+            },
+            "valid": false
+          },
+          {
+            "value": {
+              "$ref": "xx"
+            },
+            "valid": false
+          }
+        ],
+        "sourceUnchanged": true
+      }
+    },
+    {
+      "id": "draft-07-definitions-reachable-from-ref-node",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:236",
+      "input": {
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "x": {
+              "$ref": "#/properties/x/definitions/t",
+              "definitions": {
+                "t": {
+                  "type": "string"
+                }
+              },
+              "maxLength": 1
+            }
+          }
+        }
+      },
+      "result": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "$ref": "#/properties/x/definitions/t",
+              "definitions": {
+                "t": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "sourceUnchanged": true
+      }
+    },
+    {
+      "id": "invalid-tool-left-out-with-warning-request-proceeds-in-order",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:248",
+      "input": {},
+      "result": {
+        "declarationNames": [
+          "first",
+          "second",
+          "third"
+        ],
+        "firstTool": {
+          "googleSearch": {}
+        },
+        "toolConfig": {
+          "functionCallingConfig": {
+            "mode": "VALIDATED"
+          }
+        },
+        "warnings": [
+          "[antigravity] Claude tool \"badtype\" (tools[1]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+          "[antigravity] Claude tool \"missing\" (tools[3]) excluded: invalid input schema at \"/properties/value/$ref\": unresolvable $ref \"#/$defs/Absent\""
+        ]
+      }
+    },
+    {
+      "id": "provider-forbidden-roots-exclude-the-tool",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:279",
+      "input": {},
+      "result": {
+        "allOf": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/allOf\": Anthropic input_schema does not allow a root \"allOf\""
+          ]
+        },
+        "anyOf": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/anyOf\": Anthropic input_schema does not allow a root \"anyOf\""
+          ]
+        },
+        "oneOf": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/oneOf\": Anthropic input_schema does not allow a root \"oneOf\""
+          ]
+        },
+        "not": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/not\": Anthropic input_schema does not allow a root \"not\""
+          ]
+        },
+        "rootAnyOfNoType": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+          ]
+        },
+        "stringRoot": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+          ]
+        },
+        "refRoot": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+          ]
+        },
+        "undefinedSchema": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+          ]
+        },
+        "trueSchema": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+          ]
+        }
+      }
+    },
+    {
+      "id": "schemas-invalid-under-their-dialect-excluded",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:292",
+      "input": {},
+      "result": {
+        "duplicateRequired": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/required\": not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)"
+          ]
+        },
+        "bogusType": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+          ]
+        },
+        "remoteRef": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/$ref\": unresolvable $ref \"https://example.invalid/a.json\""
+          ]
+        },
+        "draft07TupleBoth": {
+          "declarations": [],
+          "warnings": [
+            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/items\": tuple \"items\" array conflicts with \"prefixItems\""
+          ]
+        }
+      }
+    },
+    {
+      "id": "every-tool-invalid-request-carries-no-tools",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:312",
+      "input": {},
+      "result": {
+        "warnings": [
+          "[antigravity] Claude tool \"bad\" (tools[0]) excluded: invalid input schema at \"/anyOf\": not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+        ],
+        "tools": "<absent>",
+        "toolConfig": "<absent>"
+      }
+    },
+    {
+      "id": "default-warning-channel-console-warn-once-per-problem",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:319",
+      "input": {},
+      "result": {
+        "warned": [
+          "[antigravity] Claude tool \"warn_once_tool\" (tools[0]) excluded: invalid input schema at \"/allOf\": Anthropic input_schema does not allow a root \"allOf\""
+        ]
+      }
+    },
+    {
+      "id": "missing-schema-excludes-tool-order-kept",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:329",
+      "input": {},
+      "result": {
+        "names": [
+          "b",
+          "a"
+        ]
+      }
+    },
+    {
+      "id": "gemini-declarations-unchanged-by-claude-normalization",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:340",
+      "input": {
+        "tools": [
+          "find",
+          "glob",
+          "grep",
+          "read",
+          "code_graph",
+          "git",
+          "load_tool",
+          "computer"
+        ]
+      },
+      "result": {
+        "equal": true,
+        "hasUnion": true,
+        "declarations": [
+          {
+            "name": "find",
+            "description": "Fuzzy filename/directory path lookup; returns paths only. Only when the target path is unknown and cannot be directly resolved but a fragment is known; general discovery: glob.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Base directory; omit for the current Project."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Max paths; default 25; 0 unlimited."
+                },
+                "include_noise": {
+                  "type": "boolean",
+                  "description": "Also search gitignored trees."
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "glob",
+            "description": "Wildcard file-path lookup under a known directory; directories never match. No preliminary listing. Unknown base: find first with a known path fragment.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 10
+                    }
+                  ],
+                  "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Known existing base directory; omit for the current Project."
+                },
+                "sort": {
+                  "type": "string",
+                  "enum": [
+                    "natural",
+                    "mtime"
+                  ],
+                  "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Max entries; default 100; 0 unlimited."
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "include_noise": {
+                  "type": "boolean",
+                  "description": "Also search gitignored trees."
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "grep",
+            "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 10
+                    }
+                  ],
+                  "description": "Ripgrep regex(es); escape literal metacharacters."
+                },
+                "path": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 10,
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ],
+                  "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+                },
+                "glob": {
+                  "type": "string",
+                  "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "content",
+                    "files",
+                    "count"
+                  ],
+                  "description": "content default; files lists matching paths; count totals all patterns together per file."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "context": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 200,
+                  "description": "Omit for automatic context; 0 for matches only."
+                },
+                "include_noise": {
+                  "type": "boolean",
+                  "description": "Also search gitignored trees."
+                },
+                "text": {
+                  "type": "boolean",
+                  "description": "Search binary data as text (archives/Git objects not decoded)."
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "read",
+            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 10,
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "file_path": {
+                                "type": "string"
+                              },
+                              "offset": {
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              "limit": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 100000
+                              }
+                            },
+                            "required": [
+                              "file_path"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "1-based start line; default 1; batch default."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100000,
+                  "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                },
+                "pages": {
+                  "type": "string",
+                  "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                }
+              },
+              "required": [
+                "file_path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "code_graph",
+            "description": "Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages; callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations. symbols already outlines a file: never pair it with overview for one need.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "overview",
+                    "imports",
+                    "dependents",
+                    "related",
+                    "impact",
+                    "symbols",
+                    "find_symbol",
+                    "symbol_search",
+                    "search",
+                    "references",
+                    "callers",
+                    "callees"
+                  ],
+                  "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+                },
+                "files": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ],
+                  "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+                },
+                "symbols": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ],
+                  "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+                },
+                "body": {
+                  "type": "boolean",
+                  "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 500,
+                  "description": "Max results; modes may cap lower."
+                },
+                "depth": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5,
+                  "description": "Overview hierarchy or caller traversal depth; default 1."
+                },
+                "cwd": {
+                  "type": "string",
+                  "description": "Explicit root outside the project; omit for project root."
+                }
+              },
+              "required": [
+                "mode"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "git",
+            "description": "Run Git here, never through shell. An array runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends, and is the one add a delegated worker may run; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "command",
+                    "stage",
+                    "worktree"
+                  ],
+                  "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+                },
+                "command": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 10
+                    }
+                  ],
+                  "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+                },
+                "output_limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000,
+                  "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+                },
+                "include_stage_ids": {
+                  "type": "boolean",
+                  "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+                },
+                "diff_id": {
+                  "type": "string",
+                  "description": "stage: exact diff_id from git diff."
+                },
+                "change_ids": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 50
+                    }
+                  ],
+                  "description": "stage: exact change ID or IDs to stage, including new files."
+                },
+                "worktree_action": {
+                  "type": "string",
+                  "enum": [
+                    "enter",
+                    "return",
+                    "merge",
+                    "remove",
+                    "list",
+                    "prune"
+                  ],
+                  "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+                },
+                "session_id": {
+                  "type": "string",
+                  "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "enter: the new worktree name (branch <prefix><name>)."
+                },
+                "branch": {
+                  "type": "string",
+                  "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+                },
+                "create": {
+                  "type": "boolean",
+                  "description": "enter with branch: create that branch."
+                },
+                "carry": {
+                  "type": "string",
+                  "enum": [
+                    "leave",
+                    "carry"
+                  ],
+                  "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+                },
+                "confirm_large": {
+                  "type": "boolean",
+                  "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+                },
+                "force": {
+                  "type": "boolean",
+                  "description": "remove: discard dirty/unmerged work; only on explicit user request."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "load_tool",
+            "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "names": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1
+                    }
+                  ],
+                  "description": "Exact name(s)/aliases."
+                }
+              },
+              "required": [
+                "names"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "computer",
+            "description": "Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over browser tabs (no Browser Use trial). Only for steps no built-in, mcp__* (deferred too), shell/CLI, or Browser Use tool covers; never a stand-in for a page action browser refused. Load the computer-use skill before first use. At most one computer call per model turn; other tools may run in the same turn. Chain same-window steps inside one act. Every window action names one exact target (window_id, or app resolving to one window); zoom instead inherits its target from frame_id. Input requires a fresh observation from capture or the previous result. Refs, marks, and frames come only from the latest observation of that window (refs 5 min, frames/marks 60 s; invalidated by UI mutation); an automatic post-action observation replaces the old state. Never guess ids. Observation-only actions, safe to repeat: list, diagnose, capture, verify, wait_for_user. Every other action can move the desktop.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "description": "One compact Computer Use operation. Use act.actions to execute 1-6 simple actions and receive one fresh observation.",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "list",
+                    "diagnose",
+                    "capture",
+                    "verify",
+                    "wait_for_user",
+                    "act",
+                    "window",
+                    "menu",
+                    "clipboard",
+                    "launch",
+                    "saved_login"
+                  ],
+                  "description": "Use capture to observe, act for simple input actions, and the remaining operations only for their named advanced capability."
+                },
+                "input": {
+                  "type": "object",
+                  "properties": {
+                    "timeout_ms": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 120000,
+                      "description": "Wait for manual or host-configured idle resume; default 60000."
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "windows",
+                        "apps",
+                        "history"
+                      ],
+                      "description": "history returns this session's own executed commands with their verdicts, for reviewing what a run already did."
+                    },
+                    "query": {
+                      "type": "string",
+                      "maxLength": 4096,
+                      "description": "With kind=\"apps\", also lists installed apps whose name or id matches, including apps that are not running.",
+                      "minLength": 1
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 60,
+                      "description": "kind=\"history\" only: how many of the most recent records to return; default 60."
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096,
+                      "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                    },
+                    "ocr_language": {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 64,
+                      "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+                      "description": "Optional OS OCR language tag to verify, e.g. ko or en-US."
+                    },
+                    "app": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096,
+                      "description": "App name used only when it resolves to one exact window."
+                    },
+                    "screen": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Display index for a plain vision capture."
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "state",
+                        "som",
+                        "vision",
+                        "ax",
+                        "zoom"
+                      ],
+                      "description": "state (default) is structured UI plus image; som adds marks; vision is image only; ax is accessibility only. zoom uses frame_id and region only; omit window_id, app and screen. Each element is one line: #mark [ref] Role \"name\", then value=, state=, source= (non-UIA), disabled and focused only when they apply, @x,y,width,height and its actions. OCR text reads \"text\" @x,y,width,height line=N."
+                    },
+                    "frame_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096,
+                      "description": "Latest unexpired frame id; required with mode=\"zoom\" and supplies its exact target window."
+                    },
+                    "region": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "minItems": 4,
+                      "maxItems": 4,
+                      "description": "mode=\"zoom\": [x0,y0,x1,y1] in frame coordinates."
+                    },
+                    "include_ocr": {
+                      "type": "boolean",
+                      "description": "State/SOM automatically use offline OS OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements. Zoom recognizes the crop itself, which is how enlarged text becomes readable."
+                    },
+                    "image_output": {
+                      "type": "string",
+                      "enum": [
+                        "inline",
+                        "file"
+                      ],
+                      "description": "inline (default) returns the frame here; file writes it beside the run and returns its path."
+                    },
+                    "role": {
+                      "type": "string",
+                      "maxLength": 4096,
+                      "description": "Control type filter, e.g. Button, Edit."
+                    },
+                    "visible_only": {
+                      "type": "boolean",
+                      "description": "On-screen elements only; default true."
+                    },
+                    "include_noninteractive": {
+                      "type": "boolean",
+                      "description": "Also static text, panes, groups; default false."
+                    },
+                    "max_elements": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000,
+                      "description": "Total returned accessibility + OCR element budget. state defaults to 80."
+                    },
+                    "continuation": {
+                      "type": "string",
+                      "maxLength": 4096,
+                      "description": "Next-page token from a capture cut at max_elements."
+                    },
+                    "actions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "One action; act.actions defines ordering and target reuse.",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "click",
+                              "double_click",
+                              "triple_click",
+                              "mouse_down",
+                              "mouse_up",
+                              "move",
+                              "drag",
+                              "scroll",
+                              "type",
+                              "set_value",
+                              "key",
+                              "key_down",
+                              "key_up",
+                              "wait"
+                            ]
+                          },
+                          "ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096,
+                            "description": "Fresh semantic ref from capture."
+                          },
+                          "element": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Fresh SOM/OCR mark from capture."
+                          },
+                          "x": {
+                            "type": "integer",
+                            "description": "Frame-relative X; act.input.frame_id owns the frame."
+                          },
+                          "y": {
+                            "type": "integer",
+                            "description": "Frame-relative Y; act.input.frame_id owns the frame."
+                          },
+                          "to": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096,
+                            "description": "Drag destination semantic ref."
+                          },
+                          "to_element": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "to_x": {
+                            "type": "integer"
+                          },
+                          "to_y": {
+                            "type": "integer"
+                          },
+                          "waypoints": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 32,
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "type": "integer"
+                                },
+                                "y": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "description": "Drag points in act.input.frame_id for a gesture that is not a straight line; replaces x/y and to_x/to_y."
+                          },
+                          "button": {
+                            "type": "string",
+                            "enum": [
+                              "left",
+                              "right",
+                              "middle"
+                            ]
+                          },
+                          "modifiers": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32,
+                            "pattern": "^(?:ctrl|shift|alt)(?:\\+(?:ctrl|shift|alt))*$",
+                            "description": "Optional pointer modifiers joined by +. Background supports ctrl/shift; alt requires foreground delivery."
+                          },
+                          "direction": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "down",
+                              "left",
+                              "right"
+                            ]
+                          },
+                          "amount": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                          },
+                          "text": {
+                            "type": "string",
+                            "maxLength": 30000,
+                            "description": "Literal text; foreground cap 4000 UTF-16 code units per action. Never a password, or a code from SMS, an authenticator app or a passkey, even one shown on screen: saved_login or handoff_user. The one exception is a one-time code e-mailed for a sign-up or sign-in you started, read from a connected mailbox: type it yourself, never echo it."
+                          },
+                          "value": {
+                            "type": "string",
+                            "maxLength": 30000,
+                            "description": "set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes. Never a password or a code; an e-mailed code is typed with text and delivery foreground (set_value fills only one box of a segmented code input)."
+                          },
+                          "keys": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512,
+                            "description": "Key name or chord. Keyboard chords with ctrl/shift/alt require explicit foreground delivery; background supports plain keys.",
+                            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "duration": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 5,
+                            "description": "wait: cap in seconds. act already settles after every action; use wait only for a known async delay."
+                          },
+                          "quiet": {
+                            "type": "boolean",
+                            "description": "wait: opt-in (default false, a fixed pause). true ends before duration once the window set, foreground, focused window, title and bounds stop changing (3 equal samples 200 ms apart); use it when waiting for a window or dialog to open, close or move. Content changes inside a window (canvas, text) are not seen: use verify for those."
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 6,
+                      "description": "First: an input action. Then type/key/wait reusing focus, or click/double_click/triple_click/scroll/set_value/type/key on a ref from the same observation (no marks or coordinates). act already settles after each action; wait is a fixed pause for a known async delay (quiet:true ends it early once windows stop changing; see wait.quiet) and totals ≤10s; use verify for a real condition. Transition/failure or a changed, disabled, or off-screen ref stops the rest."
+                    },
+                    "observe": {
+                      "type": "string",
+                      "enum": [
+                        "state",
+                        "ax"
+                      ],
+                      "description": "Returned observation. Default: ax when the first action targets a ref (full state if the tree is unusable), otherwise state. state includes the frame for coordinates or visual checks; ax skips the screenshot. A repeat observation of the same window may send elements_delta instead of elements: unchanged lists \"old ref=live ref\" ranges for rows that look identical to the list you hold (s1:e0..e4=s9:e0..e4), added has every other row in full, removed the old refs that are gone. Every ref from an earlier observation is retired: act only with the live ref on the right of \"=\" or on an added row. A new window, a dialog or a large change returns the full elements list, and capture always does."
+                    },
+                    "delivery": {
+                      "type": "string",
+                      "enum": [
+                        "background",
+                        "foreground"
+                      ],
+                      "description": "Background by default for supported semantic/message input. Use explicit foreground for unsupported routes, real pointer/focus requirements, or demonstrations. Never replay uncertain input in another mode."
+                    },
+                    "operation": {
+                      "type": "string",
+                      "enum": [
+                        "focus",
+                        "move",
+                        "minimize",
+                        "maximize",
+                        "restore",
+                        "close",
+                        "terminate",
+                        "read",
+                        "write"
+                      ]
+                    },
+                    "confirm": {
+                      "type": "string",
+                      "enum": [
+                        "terminate"
+                      ],
+                      "description": "terminate only, and required for it: kills the process behind the window, losing unsaved work. Ask the user first."
+                    },
+                    "x": {
+                      "type": "integer",
+                      "description": "move only: new left edge; y the top; width/height an optional new size."
+                    },
+                    "y": {
+                      "type": "integer"
+                    },
+                    "width": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "height": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "description": "Exact labels from the bar down, e.g. [\"File\",\"Save As\"]. Missing, ambiguous, or disabled entries fail closed."
+                    },
+                    "expect": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "description": "AND-combined predicates. Reads state only: no pixels, and prior refs stay valid.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "present": {
+                            "type": "string",
+                            "maxLength": 4096,
+                            "description": "Text an element name or value must contain."
+                          },
+                          "absent": {
+                            "type": "string",
+                            "maxLength": 4096
+                          },
+                          "title_contains": {
+                            "type": "string",
+                            "maxLength": 4096
+                          },
+                          "window_exists": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "stable_samples": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 5,
+                      "description": "Consecutive satisfied samples required. Default 2."
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 50000,
+                      "description": "Required for operation=\"write\"."
+                    },
+                    "savedAccount": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Fallback sign-in in the user's own browser; prefer its existing session/SSO or Browser Use's saved sign-in. Saved login (username or masked label; a miss lists the site's labels) written after host checks into the focused field of a Chrome/Edge HTTPS page. The site receives it. A password is kept from you and its browser's pixels are withheld this turn, but a page that redisplays it can expose it, and other programs of the same Windows user are outside this protection; a username is not hidden. On refusal hand the secret to the user (handoff_user secret, surface computer)."
+                    },
+                    "field": {
+                      "type": "string",
+                      "enum": [
+                        "username",
+                        "password"
+                      ],
+                      "description": "username (text field) or password (password field). Codes from SMS or an authenticator app, passkeys, security keys and app approvals are the user's step: handoff_user takeover. An e-mailed code you can read from a connected mailbox is yours: type it."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Fields for the selected action. Allowed input by action (* required): wait_for_user(timeout_ms>=0<=120000); list(kind*,query,limit); diagnose(window_id,ocr_language); capture(window_id,app,screen,mode,frame_id,region,include_ocr,ocr_language,image_output,query,role,visible_only,include_noninteractive,max_elements,continuation); act(window_id,app,frame_id,actions*,observe,delivery); window(window_id,app,operation*=focus|move|minimize|maximize|restore|close|terminate,confirm,x,y,width,height); menu(window_id,app,path*); verify(window_id,app,expect*,timeout_ms>=0<=30000,stable_samples); clipboard(operation*=read|write,text); launch(app*); saved_login(window_id,app,savedAccount*,field*)."
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "computer-per-action-alternatives-claude-flat-for-gemini",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:355",
+      "input": {},
+      "result": {
+        "claude": {
+          "declaration": {
+            "name": "computer",
+            "description": "Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over browser tabs (no Browser Use trial). Only for steps no built-in, mcp__* (deferred too), shell/CLI, or Browser Use tool covers; never a stand-in for a page action browser refused. Load the computer-use skill before first use. At most one computer call per model turn; other tools may run in the same turn. Chain same-window steps inside one act. Every window action names one exact target (window_id, or app resolving to one window); zoom instead inherits its target from frame_id. Input requires a fresh observation from capture or the previous result. Refs, marks, and frames come only from the latest observation of that window (refs 5 min, frames/marks 60 s; invalidated by UI mutation); an automatic post-action observation replaces the old state. Never guess ids. Observation-only actions, safe to repeat: list, diagnose, capture, verify, wait_for_user. Every other action can move the desktop.",
+            "parametersJsonSchema": {
+              "type": "object",
+              "description": "One compact Computer Use operation. Use act.actions to execute 1-6 simple actions and receive one fresh observation.",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "list",
+                    "diagnose",
+                    "capture",
+                    "verify",
+                    "wait_for_user",
+                    "act",
+                    "window",
+                    "menu",
+                    "clipboard",
+                    "launch",
+                    "saved_login"
+                  ],
+                  "description": "Use capture to observe, act for simple input actions, and the remaining operations only for their named advanced capability."
+                },
+                "input": {
+                  "type": "object",
+                  "description": "Fields for the selected action.",
+                  "anyOf": [
+                    {
+                      "title": "wait_for_user",
+                      "description": "Input when action=\"wait_for_user\".",
+                      "type": "object",
+                      "properties": {
+                        "timeout_ms": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 120000,
+                          "description": "Wait for manual or host-configured idle resume; default 60000."
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "list",
+                      "description": "Input when action=\"list\".",
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "windows",
+                            "apps",
+                            "history"
+                          ],
+                          "description": "history returns this session's own executed commands with their verdicts, for reviewing what a run already did."
+                        },
+                        "query": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "With kind=\"apps\", also lists installed apps whose name or id matches, including apps that are not running."
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 60,
+                          "description": "kind=\"history\" only: how many of the most recent records to return; default 60."
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "diagnose",
+                      "description": "Input when action=\"diagnose\".",
+                      "type": "object",
+                      "properties": {
+                        "window_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                        },
+                        "ocr_language": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+                          "description": "Optional OS OCR language tag to verify, e.g. ko or en-US."
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "capture",
+                      "description": "Input when action=\"capture\".",
+                      "type": "object",
+                      "properties": {
+                        "window_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                        },
+                        "app": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "App name used only when it resolves to one exact window."
+                        },
+                        "screen": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Display index for a plain vision capture."
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "state",
+                            "som",
+                            "vision",
+                            "ax",
+                            "zoom"
+                          ],
+                          "description": "state (default) is structured UI plus image; som adds marks; vision is image only; ax is accessibility only. zoom uses frame_id and region only; omit window_id, app and screen. Each element is one line: #mark [ref] Role \"name\", then value=, state=, source= (non-UIA), disabled and focused only when they apply, @x,y,width,height and its actions. OCR text reads \"text\" @x,y,width,height line=N."
+                        },
+                        "frame_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Latest unexpired frame id; required with mode=\"zoom\" and supplies its exact target window."
+                        },
+                        "region": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          },
+                          "minItems": 4,
+                          "maxItems": 4,
+                          "description": "mode=\"zoom\": [x0,y0,x1,y1] in frame coordinates."
+                        },
+                        "include_ocr": {
+                          "type": "boolean",
+                          "description": "State/SOM automatically use offline OS OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements. Zoom recognizes the crop itself, which is how enlarged text becomes readable."
+                        },
+                        "ocr_language": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+                          "description": "Installed OS OCR language tag, e.g. ko or en-US."
+                        },
+                        "image_output": {
+                          "type": "string",
+                          "enum": [
+                            "inline",
+                            "file"
+                          ],
+                          "description": "inline (default) returns the frame here; file writes it beside the run and returns its path."
+                        },
+                        "query": {
+                          "type": "string",
+                          "maxLength": 4096,
+                          "description": "Element name/value substring filter."
+                        },
+                        "role": {
+                          "type": "string",
+                          "maxLength": 4096,
+                          "description": "Control type filter, e.g. Button, Edit."
+                        },
+                        "visible_only": {
+                          "type": "boolean",
+                          "description": "On-screen elements only; default true."
+                        },
+                        "include_noninteractive": {
+                          "type": "boolean",
+                          "description": "Also static text, panes, groups; default false."
+                        },
+                        "max_elements": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 1000,
+                          "description": "Total returned accessibility + OCR element budget. state defaults to 80."
+                        },
+                        "continuation": {
+                          "type": "string",
+                          "maxLength": 4096,
+                          "description": "Next-page token from a capture cut at max_elements."
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "act",
+                      "description": "Input when action=\"act\".",
+                      "type": "object",
+                      "properties": {
+                        "window_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                        },
+                        "app": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Resolves to one exact window; ambiguous matches are refused."
+                        },
+                        "frame_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Latest unexpired frame id shared by coordinate actions in this act call."
+                        },
+                        "actions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "description": "One action; act.actions defines ordering and target reuse.",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "click",
+                                  "double_click",
+                                  "triple_click",
+                                  "mouse_down",
+                                  "mouse_up",
+                                  "move",
+                                  "drag",
+                                  "scroll",
+                                  "type",
+                                  "set_value",
+                                  "key",
+                                  "key_down",
+                                  "key_up",
+                                  "wait"
+                                ]
+                              },
+                              "ref": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4096,
+                                "description": "Fresh semantic ref from capture."
+                              },
+                              "element": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "Fresh SOM/OCR mark from capture."
+                              },
+                              "x": {
+                                "type": "integer",
+                                "description": "Frame-relative X; act.input.frame_id owns the frame."
+                              },
+                              "y": {
+                                "type": "integer",
+                                "description": "Frame-relative Y; act.input.frame_id owns the frame."
+                              },
+                              "to": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4096,
+                                "description": "Drag destination semantic ref."
+                              },
+                              "to_element": {
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              "to_x": {
+                                "type": "integer"
+                              },
+                              "to_y": {
+                                "type": "integer"
+                              },
+                              "waypoints": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 32,
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "x": {
+                                      "type": "integer"
+                                    },
+                                    "y": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "required": [
+                                    "x",
+                                    "y"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "description": "Drag points in act.input.frame_id for a gesture that is not a straight line; replaces x/y and to_x/to_y."
+                              },
+                              "button": {
+                                "type": "string",
+                                "enum": [
+                                  "left",
+                                  "right",
+                                  "middle"
+                                ]
+                              },
+                              "modifiers": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 32,
+                                "pattern": "^(?:ctrl|shift|alt)(?:\\+(?:ctrl|shift|alt))*$",
+                                "description": "Optional pointer modifiers joined by +. Background supports ctrl/shift; alt requires foreground delivery."
+                              },
+                              "direction": {
+                                "type": "string",
+                                "enum": [
+                                  "up",
+                                  "down",
+                                  "left",
+                                  "right"
+                                ]
+                              },
+                              "amount": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 100
+                              },
+                              "text": {
+                                "type": "string",
+                                "maxLength": 30000,
+                                "description": "Literal text; foreground cap 4000 UTF-16 code units per action. Never a password, or a code from SMS, an authenticator app or a passkey, even one shown on screen: saved_login or handoff_user. The one exception is a one-time code e-mailed for a sign-up or sign-in you started, read from a connected mailbox: type it yourself, never echo it."
+                              },
+                              "value": {
+                                "type": "string",
+                                "maxLength": 30000,
+                                "description": "set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes. Never a password or a code; an e-mailed code is typed with text and delivery foreground (set_value fills only one box of a segmented code input)."
+                              },
+                              "keys": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 512,
+                                "description": "Key name or chord. Keyboard chords with ctrl/shift/alt require explicit foreground delivery; background supports plain keys.",
+                                "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "duration": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 5,
+                                "description": "wait: cap in seconds. act already settles after every action; use wait only for a known async delay."
+                              },
+                              "quiet": {
+                                "type": "boolean",
+                                "description": "wait: opt-in (default false, a fixed pause). true ends before duration once the window set, foreground, focused window, title and bounds stop changing (3 equal samples 200 ms apart); use it when waiting for a window or dialog to open, close or move. Content changes inside a window (canvas, text) are not seen: use verify for those."
+                              }
+                            },
+                            "required": [
+                              "type"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "minItems": 1,
+                          "maxItems": 6,
+                          "description": "First: an input action. Then type/key/wait reusing focus, or click/double_click/triple_click/scroll/set_value/type/key on a ref from the same observation (no marks or coordinates). act already settles after each action; wait is a fixed pause for a known async delay (quiet:true ends it early once windows stop changing; see wait.quiet) and totals ≤10s; use verify for a real condition. Transition/failure or a changed, disabled, or off-screen ref stops the rest."
+                        },
+                        "observe": {
+                          "type": "string",
+                          "enum": [
+                            "state",
+                            "ax"
+                          ],
+                          "description": "Returned observation. Default: ax when the first action targets a ref (full state if the tree is unusable), otherwise state. state includes the frame for coordinates or visual checks; ax skips the screenshot. A repeat observation of the same window may send elements_delta instead of elements: unchanged lists \"old ref=live ref\" ranges for rows that look identical to the list you hold (s1:e0..e4=s9:e0..e4), added has every other row in full, removed the old refs that are gone. Every ref from an earlier observation is retired: act only with the live ref on the right of \"=\" or on an added row. A new window, a dialog or a large change returns the full elements list, and capture always does."
+                        },
+                        "delivery": {
+                          "type": "string",
+                          "enum": [
+                            "background",
+                            "foreground"
+                          ],
+                          "description": "Background by default for supported semantic/message input. Use explicit foreground for unsupported routes, real pointer/focus requirements, or demonstrations. Never replay uncertain input in another mode."
+                        }
+                      },
+                      "required": [
+                        "actions"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "window",
+                      "description": "Input when action=\"window\".",
+                      "type": "object",
+                      "properties": {
+                        "window_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                        },
+                        "app": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Resolves to one exact window; ambiguous matches are refused."
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "focus",
+                            "move",
+                            "minimize",
+                            "maximize",
+                            "restore",
+                            "close",
+                            "terminate"
+                          ]
+                        },
+                        "confirm": {
+                          "type": "string",
+                          "enum": [
+                            "terminate"
+                          ],
+                          "description": "terminate only, and required for it: kills the process behind the window, losing unsaved work. Ask the user first."
+                        },
+                        "x": {
+                          "type": "integer",
+                          "description": "move only: new left edge; y the top; width/height an optional new size."
+                        },
+                        "y": {
+                          "type": "integer"
+                        },
+                        "width": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      },
+                      "required": [
+                        "operation"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "menu",
+                      "description": "Input when action=\"menu\".",
+                      "type": "object",
+                      "properties": {
+                        "window_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                        },
+                        "app": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Resolves to one exact window; ambiguous matches are refused."
+                        },
+                        "path": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512
+                          },
+                          "minItems": 1,
+                          "maxItems": 8,
+                          "description": "Exact labels from the bar down, e.g. [\"File\",\"Save As\"]. Missing, ambiguous, or disabled entries fail closed."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "verify",
+                      "description": "Input when action=\"verify\".",
+                      "type": "object",
+                      "properties": {
+                        "window_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                        },
+                        "app": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Resolves to one exact window; ambiguous matches are refused."
+                        },
+                        "expect": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 8,
+                          "description": "AND-combined predicates. Reads state only: no pixels, and prior refs stay valid.",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "present": {
+                                "type": "string",
+                                "maxLength": 4096,
+                                "description": "Text an element name or value must contain."
+                              },
+                              "absent": {
+                                "type": "string",
+                                "maxLength": 4096
+                              },
+                              "title_contains": {
+                                "type": "string",
+                                "maxLength": 4096
+                              },
+                              "window_exists": {
+                                "type": "boolean"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "timeout_ms": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 30000
+                        },
+                        "stable_samples": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 5,
+                          "description": "Consecutive satisfied samples required. Default 2."
+                        }
+                      },
+                      "required": [
+                        "expect"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "clipboard",
+                      "description": "Input when action=\"clipboard\".",
+                      "type": "object",
+                      "properties": {
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "read",
+                            "write"
+                          ]
+                        },
+                        "text": {
+                          "type": "string",
+                          "maxLength": 50000,
+                          "description": "Required for operation=\"write\"."
+                        }
+                      },
+                      "required": [
+                        "operation"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "launch",
+                      "description": "Input when action=\"launch\".",
+                      "type": "object",
+                      "properties": {
+                        "app": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Executable name, exact path, file, or URL."
+                        }
+                      },
+                      "required": [
+                        "app"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "title": "saved_login",
+                      "description": "Input when action=\"saved_login\".",
+                      "type": "object",
+                      "properties": {
+                        "window_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Exact id from list(kind=\"windows\"), e.g. hwnd:0x123ABC."
+                        },
+                        "app": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4096,
+                          "description": "Resolves to one exact window; ambiguous matches are refused."
+                        },
+                        "savedAccount": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Fallback sign-in in the user's own browser; prefer its existing session/SSO or Browser Use's saved sign-in. Saved login (username or masked label; a miss lists the site's labels) written after host checks into the focused field of a Chrome/Edge HTTPS page. The site receives it. A password is kept from you and its browser's pixels are withheld this turn, but a page that redisplays it can expose it, and other programs of the same Windows user are outside this protection; a username is not hidden. On refusal hand the secret to the user (handoff_user secret, surface computer)."
+                        },
+                        "field": {
+                          "type": "string",
+                          "enum": [
+                            "username",
+                            "password"
+                          ],
+                          "description": "username (text field) or password (password field). Codes from SMS or an authenticator app, passkeys, security keys and app approvals are the user's step: handoff_user takeover. An e-mailed code you can read from a connected mailbox is yours: type it."
+                        }
+                      },
+                      "required": [
+                        "savedAccount",
+                        "field"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "valid2020": true,
+          "rootCombinators": [],
+          "alternativeTitlesEqualActions": true,
+          "validates": [
+            {
+              "value": {
+                "action": "list",
+                "input": {
+                  "kind": "windows"
+                }
+              },
+              "valid": true
+            },
+            {
+              "value": {
+                "action": "list",
+                "input": {
+                  "kind": "windows",
+                  "bogus": 1
+                }
+              },
+              "valid": false
+            }
+          ]
+        },
+        "gemini": {
+          "flatHasAnyOf": false,
+          "flatHasKindActionsOperation": true
+        }
+      }
+    },
+    {
+      "id": "claude-replay-drops-empty-text-parts-around-tool-call",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:395",
+      "input": {},
+      "result": {
+        "claude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "find markdown"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*.md"
+                  },
+                  "id": "toolu_1"
+                }
+              },
+              {
+                "text": "",
+                "thoughtSignature": "sig"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "README.md"
+                  },
+                  "id": "toolu_1"
+                }
+              }
+            ]
+          }
+        ],
+        "gemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "find markdown"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": ""
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*.md"
+                  },
+                  "id": "toolu_1"
+                },
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "text": ""
+              },
+              {
+                "text": "",
+                "thoughtSignature": "sig"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "README.md"
+                  },
+                  "id": "toolu_1"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-turn-of-only-empty-parts-omitted",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:424",
+      "input": {},
+      "result": {
+        "claude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "second"
+              }
+            ]
+          }
+        ],
+        "gemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": ""
+              },
+              {
+                "text": ""
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "second"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-replay-rejoins-streamed-thinking-deltas",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:452",
+      "input": {},
+      "result": {
+        "claude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "find markdown"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "first second",
+                "thoughtSignature": "sig-a"
+              },
+              {
+                "thought": true,
+                "text": "next block",
+                "thoughtSignature": "sig-b"
+              },
+              {
+                "text": "answer "
+              },
+              {
+                "text": "text"
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*.md"
+                  },
+                  "id": "toolu_2"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "README.md"
+                  },
+                  "id": "toolu_2"
+                }
+              }
+            ]
+          }
+        ],
+        "gemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "find markdown"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": ""
+              },
+              {
+                "thought": true,
+                "text": "first ",
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "thought": true,
+                "text": "second",
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "thought": true,
+                "text": "",
+                "thoughtSignature": "sig-a"
+              },
+              {
+                "thought": true,
+                "text": "next block",
+                "thoughtSignature": "sig-b"
+              },
+              {
+                "text": "answer "
+              },
+              {
+                "text": "text"
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*.md"
+                  },
+                  "id": "toolu_2"
+                },
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "text": ""
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "README.md"
+                  },
+                  "id": "toolu_2"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "plain-history-without-provider-replay-drops-thinking-for-claude",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:512",
+      "input": {},
+      "result": {
+        "claude-sonnet-4-6": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "answer"
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ],
+        "gemini-3.8-flash": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "because",
+                "thought": true,
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "text": "answer"
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "replay-from-another-family-or-provider-drops-thinking-and-signatures",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:526",
+      "input": {},
+      "result": {
+        "variants": [
+          {
+            "providerReplay": {
+              "version": 1,
+              "provider": "antigravity",
+              "items": [
+                {
+                  "thought": true,
+                  "text": "gemini thought",
+                  "thoughtSignature": "gemini-sig"
+                },
+                {
+                  "text": "answer",
+                  "thoughtSignature": "gemini-text-sig"
+                },
+                {
+                  "functionCall": {
+                    "name": "glob",
+                    "args": {
+                      "pattern": "*"
+                    },
+                    "id": "toolu_9"
+                  },
+                  "thoughtSignature": "gemini-call-sig"
+                }
+              ],
+              "requestContext": {
+                "model": "gemini-3.1-pro-high"
+              }
+            },
+            "claude": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "go"
+                  }
+                ]
+              },
+              {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "answer"
+                  },
+                  {
+                    "functionCall": {
+                      "name": "glob",
+                      "args": {
+                        "pattern": "*"
+                      },
+                      "id": "toolu_9"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "glob",
+                      "response": {
+                        "result": "ok"
+                      },
+                      "id": "toolu_9"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "next"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "providerReplay": {
+              "version": 1,
+              "provider": "gemini",
+              "items": [
+                {
+                  "thought": true,
+                  "text": "gemini thought",
+                  "thoughtSignature": "gemini-sig"
+                },
+                {
+                  "text": "answer",
+                  "thoughtSignature": "gemini-text-sig"
+                },
+                {
+                  "functionCall": {
+                    "name": "glob",
+                    "args": {
+                      "pattern": "*"
+                    },
+                    "id": "toolu_9"
+                  },
+                  "thoughtSignature": "gemini-call-sig"
+                }
+              ],
+              "requestContext": {
+                "model": "gemini-3.1-pro-high"
+              }
+            },
+            "claude": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "go"
+                  }
+                ]
+              },
+              {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "answer"
+                  },
+                  {
+                    "functionCall": {
+                      "name": "glob",
+                      "args": {
+                        "pattern": "*"
+                      },
+                      "id": "toolu_9"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "glob",
+                      "response": {
+                        "result": "ok"
+                      },
+                      "id": "toolu_9"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "next"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "providerReplay": {
+              "version": 1,
+              "provider": "gemini",
+              "items": [
+                {
+                  "thought": true,
+                  "text": "gemini thought",
+                  "thoughtSignature": "gemini-sig"
+                },
+                {
+                  "text": "answer",
+                  "thoughtSignature": "gemini-text-sig"
+                },
+                {
+                  "functionCall": {
+                    "name": "glob",
+                    "args": {
+                      "pattern": "*"
+                    },
+                    "id": "toolu_9"
+                  },
+                  "thoughtSignature": "gemini-call-sig"
+                }
+              ]
+            },
+            "claude": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "go"
+                  }
+                ]
+              },
+              {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "answer"
+                  },
+                  {
+                    "functionCall": {
+                      "name": "glob",
+                      "args": {
+                        "pattern": "*"
+                      },
+                      "id": "toolu_9"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "glob",
+                      "response": {
+                        "result": "ok"
+                      },
+                      "id": "toolu_9"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "next"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "interrupted-thought-run-dropped-for-claude-sentinel-for-gemini",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:548",
+      "input": {},
+      "result": {
+        "claude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ],
+        "gemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "cut ",
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "thought": true,
+                "text": "off",
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "text": ""
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "recorded-sentinel-or-empty-signature-is-not-own",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:568",
+      "input": {},
+      "result": {
+        "claude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "thinking-only-claude-turn-unsigned-omitted-signed-kept",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:582",
+      "input": {},
+      "result": {
+        "unsignedClaude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "second"
+              }
+            ]
+          }
+        ],
+        "signedClaude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "thinking",
+                "thoughtSignature": "sig"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "second"
+              }
+            ]
+          }
+        ],
+        "unsignedGemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "thinking",
+                "thoughtSignature": "skip_thought_signature_validator"
+              },
+              {
+                "text": ""
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "second"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "thinking-after-tool-call-keeps-signed-run-drops-unsigned",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:609",
+      "input": {},
+      "result": {
+        "claude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "before",
+                "thoughtSignature": "sig-1"
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              },
+              {
+                "thought": true,
+                "text": "after call",
+                "thoughtSignature": "sig-2"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "thought-runs-never-merge-across-messages-or-part-types",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:633",
+      "input": {},
+      "result": {
+        "claude": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_a"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_a"
+                }
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "interleaved"
+              },
+              {
+                "thought": true,
+                "text": "run",
+                "thoughtSignature": "sig-b"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "open-loop-without-thinking-closed-with-fresh-turn-wire-only",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:700",
+      "input": {},
+      "result": {
+        "interrupted": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "earlier"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "earlier answer"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "go"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "glob",
+                    "args": {
+                      "pattern": "*"
+                    },
+                    "id": "toolu_9"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "functionResponse": {
+                    "name": "glob",
+                    "response": {
+                      "result": "ok"
+                    },
+                    "id": "toolu_9"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "[Tool result received.]"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "[Continue.]"
+                }
+              ]
+            }
+          ],
+          "historyUnchanged": true
+        },
+        "foreign": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "earlier"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "earlier answer"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "go"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "glob",
+                    "args": {
+                      "pattern": "*"
+                    },
+                    "id": "toolu_9"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "functionResponse": {
+                    "name": "glob",
+                    "response": {
+                      "result": "ok"
+                    },
+                    "id": "toolu_9"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "[Tool result received.]"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "[Continue.]"
+                }
+              ]
+            }
+          ],
+          "historyUnchanged": true
+        },
+        "compacted": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "earlier"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "earlier answer"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "go"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "glob",
+                    "args": {
+                      "pattern": "*"
+                    },
+                    "id": "toolu_9"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "functionResponse": {
+                    "name": "glob",
+                    "response": {
+                      "result": "ok"
+                    },
+                    "id": "toolu_9"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "[Tool result received.]"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "[Continue.]"
+                }
+              ]
+            }
+          ],
+          "historyUnchanged": true
+        }
+      }
+    },
+    {
+      "id": "signed-loop-no-open-loop-thinking-off-and-gemini-left-as-built",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:738",
+      "input": {},
+      "result": {
+        "signed": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "earlier"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "old",
+                "thoughtSignature": "sig-old"
+              },
+              {
+                "text": "earlier answer"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "plan",
+                "thoughtSignature": "sig-plan"
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          }
+        ],
+        "answered": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "earlier"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "old",
+                "thoughtSignature": "sig-old"
+              },
+              {
+                "text": "earlier answer"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "done"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "next"
+              }
+            ]
+          }
+        ],
+        "sonnet": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "earlier"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "old",
+                "thoughtSignature": "sig-old"
+              },
+              {
+                "text": "earlier answer"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          }
+        ],
+        "sonnetEffortHigh": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "earlier"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "earlier answer"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "[Tool result received.]"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "[Continue.]"
+              }
+            ]
+          }
+        ],
+        "gemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "earlier"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "earlier answer"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                },
+                "thoughtSignature": "skip_thought_signature_validator"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "later-steps-keep-closure-and-fresh-turn-keeps-signed-thinking",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:782",
+      "input": {},
+      "result": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "earlier"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "earlier answer"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "go"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "ok"
+                  },
+                  "id": "toolu_9"
+                }
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "[Tool result received.]"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "[Continue.]"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "thought": true,
+                "text": "fresh",
+                "thoughtSignature": "sig-fresh"
+              },
+              {
+                "functionCall": {
+                  "name": "glob",
+                  "args": {
+                    "pattern": "*.md"
+                  },
+                  "id": "toolu_10"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "glob",
+                  "response": {
+                    "result": "README.md"
+                  },
+                  "id": "toolu_10"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
