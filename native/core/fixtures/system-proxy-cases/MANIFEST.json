@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,7 +67,10 @@
   "replay": {
     "compare": "mixdog-app-server-daemon system_proxy_claim.rs and mixdog-ai netproxy: replay the lookup requests, lease attach/release and the route answers; compare asked origins, settled args, attach/detach counts and routes whole",
     "entry": "Drive these public items on o1: mixdog-app-server-daemon/src/system_proxy_claim.rs:28 new; mixdog-ai/src/netproxy/system.rs:601 attach_resolver; mixdog-ai/src/netproxy/system.rs:354 route_from_chromium.",
-    "missingOnO1": [],
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [
+      "the desktop answer envelopes of attach and release (the lease the desktop holds and its release answer): system_proxy_claim.rs and netproxy/system.rs hold the resolver attach and the Chromium route only; no release answer function in either"
+    ],
     "normalised": {},
     "protocolMethods": [],
     "rustTargets": [
