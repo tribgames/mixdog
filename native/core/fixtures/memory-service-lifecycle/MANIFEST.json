@@ -63,7 +63,7 @@
     },
     {
       "case": 18,
-      "reason": "the core has no client-grace timer: it stops memory with the host at quit (decisions.md, idle stop: no grace timer), so a line naming the elapsed grace would be untrue; the failure line is compared",
+      "reason": "Node's grace timer is armed only by deregisterClient/the client sweep (memory-daemon-lifecycle.mjs:98-102,75-83), reached only from the HTTP lifecycle routes (http-router/lifecycle-routes.mjs:27,33), and runs only with MIXDOG_MEMORY_DAEMON=1 (index.mjs:159,162-163: clientShutdownEnabled, memory-daemon-lifecycle.mjs:44-46). The in-process memory serves no HTTP route (index.mjs:569) and runs no daemon mode, so no client ever registers, the grace never starts and no call can be waiting on it; the core stops with the host at quit. A line naming the elapsed grace would be untrue; the failure line is compared",
       "what": "logs: the `daemon client grace elapsed (…); shutting down` line"
     },
     {
