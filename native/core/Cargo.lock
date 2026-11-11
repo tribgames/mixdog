@@ -4060,12 +4060,17 @@ dependencies = [
  "mixdog-testkit",
  "mixdog-workspace",
  "mixdog-workspace-hack",
+ "rcgen",
+ "regex",
+ "rustls",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "tokio-rustls",
  "tracing-subscriber",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

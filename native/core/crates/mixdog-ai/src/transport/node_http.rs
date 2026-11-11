@@ -245,6 +245,33 @@ pub struct Pinned {
     pub tls: Arc<rustls::ClientConfig>,
 }
 
+/// The pin of a process a replay spawns: every connect goes to `REPLAY_PROVIDER_PIN` (the stand-in's address) and
+/// trusts the DER certificate at `REPLAY_PROVIDER_PIN_CERT` alone, so the real binary runs against a stand-in
+/// provider. Read once; neither set, nothing is pinned. Not `MIXDOG_*`: an exec's boundary removes those from the
+/// process before its core builds a client.
+#[cfg(any(test, feature = "test-support"))]
+#[allow(clippy::disallowed_methods, reason = "read once, when the first client is built; a test-only switch")]
+fn pin_from_env() -> Option<Pinned> {
+    static PIN: OnceLock<Option<(SocketAddr, Arc<rustls::ClientConfig>)>> = OnceLock::new();
+    PIN.get_or_init(|| {
+        let addr = std::env::var("REPLAY_PROVIDER_PIN").ok()?;
+        let addr: SocketAddr = addr.parse().expect("REPLAY_PROVIDER_PIN is a socket address");
+        let cert = std::env::var_os("REPLAY_PROVIDER_PIN_CERT").expect("REPLAY_PROVIDER_PIN_CERT names the stand-in's certificate");
+        let der = std::fs::read(cert).expect("the stand-in's certificate");
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(rustls::pki_types::CertificateDer::from(der)).expect("a DER certificate");
+        let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .expect("the default protocol versions")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        config.alpn_protocols = ALPN.iter().map(|p| p.to_vec()).collect();
+        Some((addr, Arc::new(config)))
+    })
+    .as_ref()
+    .map(|(addr, tls)| Pinned { addr: *addr, tls: tls.clone() })
+}
+
 pub struct NodeClient {
     tcp: TcpKeepalive,
     policy: Option<Arc<NetworkProxy>>,
@@ -378,7 +405,7 @@ impl NodeClient {
             tcp,
             policy,
             #[cfg(any(test, feature = "test-support"))]
-            pinned: None,
+            pinned: pin_from_env(),
             #[cfg(any(test, feature = "test-support"))]
             tap: std::sync::Mutex::new(None),
             pool,

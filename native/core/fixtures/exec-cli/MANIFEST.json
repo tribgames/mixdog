@@ -1,0 +1,73 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "exact": true,
+  "fileCount": 6,
+  "files": [
+    {
+      "bytes": 27224,
+      "path": "ctrl-c.json",
+      "sha256": "bc172115a97c7f559681e51001af60d831e08bbc849066eedf4ca7d2de795b49"
+    },
+    {
+      "bytes": 27590,
+      "path": "failed-turn.json",
+      "sha256": "34b35ad4e68b089b021718b4d0bf4865e2737dd3254cdf3bc580b2dfeae188b6"
+    },
+    {
+      "bytes": 32573,
+      "path": "json.json",
+      "sha256": "4685e8adcaa2cacc1fc5d0e6b9fb9b0ba9dd8bbe1e781be18b8adda029685570"
+    },
+    {
+      "bytes": 27096,
+      "path": "kill.json",
+      "sha256": "d843b6ee9561b503f0d250fb5e5c7b84ad71d64e2d749f886ea5a02ffcc0fe97"
+    },
+    {
+      "bytes": 50632,
+      "path": "provider-error.json",
+      "sha256": "ff7ebb50834d6d125892fb9c71b7e85c825d562909764eff116ef3b86963890f"
+    },
+    {
+      "bytes": 27948,
+      "path": "text.json",
+      "sha256": "8d4ade526b3ff8f2ea321857490b8fa16a401a9a6a6d0ce72e5df61239ce5634"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exec-cli-tap.mjs",
+      "sha256": "536f99eb99fa8f9f5abd42f3039e8d5b1dca48afdc6833fbcea428c71471e2c5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
+  "recorderSha256": "c52b427981757fe3aee45061f75ca383cd4040578bede7d386e5480beb3f0fd9",
+  "set": "exec-cli",
+  "totalBytes": 193063
+}
