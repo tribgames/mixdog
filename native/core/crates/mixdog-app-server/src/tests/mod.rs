@@ -14,6 +14,7 @@ mod phone_chat;
 mod queues;
 mod routing;
 mod sample;
+mod session_transport;
 mod storm;
 mod subscriptions;
 
