@@ -55,14 +55,14 @@ await rec.run('rejected-prefixed-token-retried-raw-once', `${SRC}:87`, { session
   const prefixedOut = await attempt(exchangeDevinUserJwt({ sessionToken: 'devin-session-token$x', fetchFn: prefixed.fetchFn }));
   return { retried, retryCalls: retry.calls, forbidden: forbiddenOut, forbiddenCalls: forbidden.calls, prefixed: prefixedOut, prefixedCalls: prefixed.calls };
 });
-await rec.run('failure-never-echoes-session-token', `${SRC}:126`, { secret: 'S3ssionSecretValue42' }, async () => {
+await rec.run('failure-never-echoes-session-token', `${SRC}:107`, { secret: 'S3ssionSecretValue42' }, async () => {
   const secret = 'S3ssionSecretValue42';
   const { fetchFn } = jwtServer((metadata) => new Response(JSON.stringify({ code: 'unauthenticated', message: `token ${metadata.apiKey} rejected (raw ${secret})` }), { status: 401 }));
   const out = await attempt(exchangeDevinUserJwt({ sessionToken: secret, fetchFn }));
   const e = out.error;
   return { ...out, detail: e.detail, secretInAnyOf: [e.message, e.detail, e.stack, JSON.stringify(e), String(e.cause)].map((t) => String(t).includes(secret)) };
 });
-await rec.run('empty-jwt-missing-token-unsafe-host', `${SRC}:142`, {}, async () => ({
+await rec.run('empty-jwt-missing-token-unsafe-host', `${SRC}:126`, {}, async () => ({
   emptyJwt: await attempt(exchangeDevinUserJwt({ sessionToken: 't', fetchFn: async () => jwtReply({}) })),
   missingToken: await attempt(exchangeDevinUserJwt({ sessionToken: '', fetchFn: async () => jwtReply({}) })),
   unsafeHost: await attempt(exchangeDevinUserJwt({ sessionToken: 't', fetchFn: async () => jwtReply({ userJwt: 'j', customApiServerUrl: 'http://evil.example' }) })),
