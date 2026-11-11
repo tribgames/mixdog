@@ -530,9 +530,6 @@
       },
       "result": {
         "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-resume\\asset.bin",
-        "ranges": [
-          "bytes=9-"
-        ],
         "progress": [
           {
             "stage": "downloading",
@@ -573,12 +570,63 @@
             {
               "onProgress": {
                 "callback": "onProgress"
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/asset.bin",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=9-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "bG9jYWwgcHJvdmlkZXIgYXNzZXQ="
+            },
+            "headers": {
+              "content-range": "bytes 9-28/29"
+            }
+          }
         }
       ]
     },
@@ -610,12 +658,56 @@
               "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             },
             "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-digest\\asset.bin",
-            {
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
-            }
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/asset.bin",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "dGFtcGVyZWQ="
+            },
+            "headers": {}
+          }
         }
       ]
     },
@@ -743,7 +835,8 @@
         "second": {
           "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin"
         },
-        "secondFetches": 0,
+        "requestsAfterFirst": 1,
+        "requestsAfterSecond": 1,
         "secondSpaceChecks": 0,
         "files": {
           "asset.bin": {
@@ -765,9 +858,6 @@
             {
               "checkDiskSpace": {
                 "callback": "checkDiskSpace"
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
@@ -785,12 +875,63 @@
             {
               "checkDiskSpace": {
                 "callback": "checkDiskSpace"
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=25-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "b3dubG9hZGVk"
+            },
+            "headers": {
+              "content-range": "bytes 25-33/34"
+            }
+          }
         }
       ]
     },
@@ -812,7 +953,7 @@
           8,
           13
         ],
-        "streamCancelled": true,
+        "clientClosedTheConnection": true,
         "destinationExists": false,
         "files": {}
       },
@@ -830,12 +971,58 @@
             {
               "checkDiskSpace": {
                 "callback": "checkDiskSpace"
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=5-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/octet-stream",
+            "chunks": [],
+            "hold": true
+          },
+          "clientClosedConnection": true
         }
       ]
     },
@@ -877,7 +1064,7 @@
           }
         ],
         "afterCancel": {
-          "streamCancelled": true,
+          "clientClosedTheConnection": true,
           "destinationExists": false,
           "partialBytes": 8,
           "files": {
@@ -889,9 +1076,6 @@
         "resumed": {
           "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin"
         },
-        "resumeRanges": [
-          "bytes=8-"
-        ],
         "files": {
           "asset.bin": {
             "$bytesHex": "63616e63656c20616e6420726573756d652074686973206d6f64656c"
@@ -916,9 +1100,6 @@
                   "$exact": "undefined"
                 }
               },
-              "fetchFn": {
-                "callback": "fetchFn"
-              },
               "onProgress": {
                 "callback": "onProgress"
               }
@@ -935,12 +1116,118 @@
               "sha256": "5f8a70e6d415e97e1eff28796ecfadc55fc0d6dd4341a7a4994a5ec88e46f8d5"
             },
             "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin",
-            {
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
-            }
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=8-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "headers": {
+              "content-range": "bytes 8-27/28"
+            },
+            "chunks": [
+              {
+                "$exact": "bytes",
+                "type": "Buffer",
+                "base64": "bmQgcg=="
+              }
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=8-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "bmQgcmVzdW1lIHRoaXMgbW9kZWw="
+            },
+            "headers": {
+              "content-range": "bytes 8-27/28"
+            }
+          }
         }
       ]
     }
