@@ -136,10 +136,28 @@ function upsert(items: readonly Obj[], row: Obj): Obj[] {
 
 // ───────────────────────────── the reducer ─────────────────────────────
 
-/** The queue as clients hold it: a queued entry is named by the submission it answers (Node's `makeQueueEntry` id), which the core
- * carries as `clientSubmissionId` beside its own queue id. */
+/** The queue as clients hold it, Node's projection of a queue entry (`session-state-projection.mjs:33-49`): `id`, `submittedAt`,
+ * `text` and `displayText` (the same shown text), `mode`, `priority`, the sender's source fields and the images. A queued entry is
+ * named by the submission it answers (Node's `makeQueueEntry` id), which the core carries as `clientSubmissionId` beside its own
+ * queue id; its `submittedAt` is the core's `enqueuedAt`. */
 function queueOf(queued: Json | undefined): Json[] {
-  return Array.isArray(queued) ? queued.map((row) => (isObj(row) && typeof row.clientSubmissionId === 'string' && row.clientSubmissionId ? { ...row, id: row.clientSubmissionId } : row)) : [];
+  if (!Array.isArray(queued)) return [];
+  return queued.map((row) => {
+    // Only the core's queue rows (they carry `enqueuedAt`) are projected; a row already in the projected shape stays as it is.
+    if (!isObj(row) || !('enqueuedAt' in row)) return row;
+    const { clientSubmissionId, enqueuedAt, id, text, mode, priority, images, ...source } = row;
+    const shown = typeof text === 'string' ? text : '';
+    return {
+      id: typeof clientSubmissionId === 'string' && clientSubmissionId ? clientSubmissionId : id,
+      submittedAt: enqueuedAt,
+      text: shown,
+      displayText: shown,
+      mode: mode || 'prompt',
+      priority: priority || 'next',
+      ...source,
+      ...(Array.isArray(images) && images.length ? { images } : {}),
+    };
+  });
 }
 
 function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
