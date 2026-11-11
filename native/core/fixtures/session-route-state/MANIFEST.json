@@ -49,7 +49,7 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-route-state.mjs",
   "recorderSha256": "68004988ad5b4b1ab709edd5d6de4a4b3c0d2bbb808b21ef6b2fb5c3aac4e514",
-  "replay": "mixdog-core-session route state (S/state.rs resolve of effort/fast/context percent against model metadata) and the thread inheritance preflight/carry: feed each case's inputs (CONVERSATION expanded from its repeat spec) and compare every output, thrown message and compactor call (budgetTokens, threshold, copy-not-source) whole and in order.",
+  "replay": "mixdog-core run_host/session_route_state_replay.rs: mixdog_ai::service::admin_route (resolve_route_effort_state, resolve_route_context_state, selection_fast_capable, save_model_settings, resolve_route) and mixdog_core_session::session::inheritance::inheritance_fit over run_host::inheritance_fit::HostInheritanceFit for cases 10, 27, 49, 74, 104, 229, 255, each result compared whole. Cases 149, 306, 372 not replayed: their results hold an exact() value encoded twice ({\"$exact\": ...} objects).",
   "set": "session-route-state",
   "testFile": "src/session-runtime/session-lifecycle.test.mjs",
   "totalBytes": 1934721,
