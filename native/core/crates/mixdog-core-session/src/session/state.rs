@@ -327,6 +327,8 @@ impl SessionState {
                 RunPhase::Started => {
                     let input = self.next_input.take().filter(|(rid, _)| rid == run.rid.as_str()).map(|(_, iid)| iid);
                     self.runs.insert(run.rid.as_str().to_owned(), super::turn_draft::RunDraft { input, ..Default::default() });
+                    // Node's `state.busy` is set when `runTurn` begins; the run's end clears the section below.
+                    self.sections.runtime.get_or_insert_with(ThreadRuntime::default).busy = true;
                 }
                 RunPhase::Attempt => {}
                 RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {

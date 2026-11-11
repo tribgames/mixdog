@@ -2853,6 +2853,8 @@ impl SessionActor {
         // The turn's terminal save writes the books still waiting, before its end.
         self.save_usage();
         self.cell.publish_run(None);
+        // askSession's `_evictTerminalSessionRuntime`, once the turn has unwound.
+        self.cell.progress.send_modify(|progress| progress.evict_terminal());
         // A stop that handed the prompt back (`reclaimInFlightPrompt`): it leaves the prompt history, another device's
         // composer is told, and the cancelled turn shows no end.
         let reclaimed = slot.prompt.take_reclaim().filter(|_| matches!(outcome, RunOutcome::Interrupted));
@@ -5662,6 +5664,12 @@ impl SessionActor {
             prompt: prompt_state,
         })));
         self.accept_record(started, Class::Control, Display::None, Vec::new(), effects);
+        // The draft file exists from the turn's start, as Node's checkpoint header is written before the provider runs.
+        if let Some(run) = self.run.as_mut() {
+            let body = run.journal.open();
+            let rid = run.turn.as_str().to_owned();
+            self.draft_push(super::turn_draft::DraftWrite::Append { rid, body }, None);
+        }
         // `onTurnStart`: the turn's id, start and the submissions it carries.
         let submission_ids: Vec<String> = input_body
             .pointer("/meta/transcript/submissionIds")

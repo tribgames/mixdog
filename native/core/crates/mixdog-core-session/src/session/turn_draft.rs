@@ -134,6 +134,13 @@ impl DraftJournal {
         self.written
     }
 
+    /// The draft's first body, written as the run starts (Node's checkpoint header, written before the provider runs): it holds
+    /// nothing of the response yet, and makes the file exist.
+    pub fn open(&mut self) -> Value {
+        self.written = true;
+        serde_json::json!({ "open": true })
+    }
+
     /// The draft's file was removed: the next write starts it again whole.
     pub fn lost(&mut self) {
         self.lost = true;
