@@ -1,5 +1,5 @@
 {
-  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --harness <real-turn-harness dir>",
+  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-fix-room-post-behind-detach.patch --harness <real-turn-harness dir>",
   "coreDifferences": {
     "differences": [
       {
@@ -344,21 +344,6 @@
         ],
         "scenario": "startup-interrupted-update-first",
         "step": "restart-and-update"
-      },
-      {
-        "compareWith": "startup-interrupted",
-        "node": [
-          "catalog [<room log 0>]",
-          "catalog [<room log 0>]"
-        ],
-        "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
-        "part": "before the answer",
-        "reason": "Detach race (MANIFEST startupRace.cases.startup-interrupted-post-behind-detach, forcedOrders.startupOrder): the earlier host's connection closes and the daemon detaches the room log (lifecycle-barriers.mjs:122: a generation bump, then the writer claim goes), a daemon operation in the log's order. The start-up recovery's post of the interrupted row (agent-rooms.ts:474 → agent-room-delivery.mjs:199 → saveSessionAsync with the copy's expectedGeneration) that is admitted behind the detach's queued record is dropped by its generation fence (store.mjs _dropsAgainst): the post answers, no row is written, both catalogs Node publishes carry messageCount 0. The core has no daemon and no second process: the room log is its own store's, the recovery posts into it in-process (live.rs recover → view.post) and nothing detaches it, so the row is always written. The core's part is compared whole with Node's startup-interrupted part (the same step and part), the order in which the post lands, which Node also produces when the detach has landed before the post (the claim let go, then taken again: startup-interrupted).",
-        "rust": [
-          "native/core/crates/mixdog-core-rooms/src/rooms/live.rs:336-351 (LiveRooms::recover: the interrupted row posted into the room log, in-process, with no detach ahead of it)"
-        ],
-        "scenario": "startup-interrupted-post-behind-detach",
-        "step": "restart-and-update"
       }
     ],
     "rowFields": [
@@ -372,118 +357,122 @@
       }
     ]
   },
+  "envFolder": {
+    "reason": "a machine path in a golden; the replay compares the task workspace and the rows' cwd with each other, not with a real folder",
+    "replaced": "the scenario's environment folder (room-catalog-<scenario> under the scratch root) in every string, by <env>, in the spelling the recorder names it and in its resolved spelling (the scratch root may be a link)"
+  },
   "exact": true,
   "fileCount": 22,
   "files": [
     {
-      "bytes": 4861,
+      "bytes": 4816,
       "path": "loaded-failing.json",
-      "sha256": "3ecf0016eb165b93b24c9c987832ea7d42adac17be9d984d4ea4f22abd1a19ad"
+      "sha256": "66ab20c95b09a91994e3e63c2e9b0638cede42342b6c7842425c52241c1e8107"
     },
     {
-      "bytes": 8758,
+      "bytes": 8428,
       "path": "loaded-read-after-answer.json",
-      "sha256": "de86b363e61fa91ca760ef0cd51de87ceb47694e29cc6d1011544d4564ca94b0"
+      "sha256": "9069cf571df132cd96d25e727a3398b26a7e6f9f9b318257e556cc016c23aa90"
     },
     {
-      "bytes": 2274,
+      "bytes": 2180,
       "path": "loaded-reconnect.json",
-      "sha256": "eabc1313d6f806200d3fe481fde4fe6c55a7748efeb28f385da1a5aeeb0ade62"
+      "sha256": "942db0199b80ac762d8fb13f8ea6da565f5b3b08215d14d25c4a7c4466b12157"
     },
     {
-      "bytes": 4108,
+      "bytes": 3931,
       "path": "loaded-refresh-before-answer.json",
-      "sha256": "70719b8b1b8549ab83617e7fbf944f4c58193b0d475919cc3b99f972f1cdd767"
+      "sha256": "f693c50ade92b33821492efebb74dc7e52e00445f065138891bccffb6d7a5878"
     },
     {
-      "bytes": 8643,
+      "bytes": 8301,
       "path": "loaded-reset-listing-first.json",
-      "sha256": "e2e9a91ad5fee81e1ac470064bc75639c841de117673ec4b6437dff51747d5c7"
+      "sha256": "7c2491faeb757a06cc6acfd7e791d5adc7cd1767d58134af6218ba0f361ca8b9"
     },
     {
-      "bytes": 8891,
+      "bytes": 8441,
       "path": "loaded-reset-refresh-in-io-read-after-answer.json",
-      "sha256": "bd50f12e03acf0502a287c3c5b25c5220f83ce89de9b87d1813431e54f3a7bef"
+      "sha256": "86314298cb6aaa0fe3faf309419d14cde2f298c5a6710677e1dde27399395c74"
     },
     {
-      "bytes": 7536,
+      "bytes": 7251,
       "path": "loaded-reset-refresh-in-io.json",
-      "sha256": "c37884d41984a9d4dabbaf8e62ad841cfad19f981277e69ca2940ac8e6f3008d"
+      "sha256": "b71c0ff04ce9d89c2a1b49a7123ee131c9226be3f86b64ac44460739c6841a7a"
     },
     {
-      "bytes": 7423,
+      "bytes": 7238,
       "path": "loaded.json",
-      "sha256": "11fd7a1cd09ebfb0fc15c1a38fcf2ab783e23c7e123cc5b58dd3c70115558b78"
+      "sha256": "973e80a217ce15ad082420c2f7dc7c12173d848cec73ed04cd16cb70f969691a"
     },
     {
-      "bytes": 1586,
+      "bytes": 1537,
       "path": "not-loaded-failing.json",
-      "sha256": "61c2fd95238d584de8306002a06d25a81867aac35b61b10ba99b7b7a684e843b"
+      "sha256": "01df28ce58f5e3e03b980238bbd4d9bc9601ef29ab9c26c966c93ed7ca47aed8"
     },
     {
-      "bytes": 78128,
+      "bytes": 75684,
       "path": "not-loaded-large.json",
-      "sha256": "3f0bf9c6edd65ed677fd8297356b8dedd2cee71195899835ef0e370af57da257"
+      "sha256": "026660089de0568276b1002304809c2a6049dd9534b4f7a9fafcd41f4725ad87"
     },
     {
-      "bytes": 3867,
+      "bytes": 3744,
       "path": "not-loaded.json",
-      "sha256": "f91ea8678d4227e8d566d4dbe54596413200d75c745c70639586e25b73a0d42c"
+      "sha256": "68cba8b45cab46e1c94334fa7a69ca0429a901dcb580d57e9055eb1afa449f92"
     },
     {
-      "bytes": 6183,
+      "bytes": 5963,
       "path": "prune-failed-then-update.json",
-      "sha256": "3ad3aed4897ff28e33cdf3f953bdb1f9c765dd6d29cb440198b61b3ad6efe0b4"
+      "sha256": "2d67765db17541e314f6fd2f3334d0efdfd62d5856e66d26b4e3dfa92158fe6e"
     },
     {
-      "bytes": 5460,
+      "bytes": 5288,
       "path": "prune-failed.json",
-      "sha256": "47882a8d172d822719f2ece070a8d4d1e9cf97418345969f41d82f994be8a236"
+      "sha256": "44d08980bed6d4f8f215fd14c594fd687e322f8a17e3930adc4101dfffd83c8a"
     },
     {
-      "bytes": 5620,
+      "bytes": 5456,
       "path": "prune-held.json",
-      "sha256": "05cb7903ff935dc6842127e6a455a1541eb66a70920f4b97d493f9df100aa6a4"
+      "sha256": "f240292dfb67250ff32703e2c20f04e07f7f3039844a0dc188a877d23e38088b"
     },
     {
-      "bytes": 6944,
+      "bytes": 6719,
       "path": "pruned-at-load.json",
-      "sha256": "7042109a45b4e6143f260d05f18ed209a3659f713a347785edd4a6dfc5796774"
+      "sha256": "86ab6c4f831a92220fa2d55079dcdac78d109a1ddc17769670d0feddb24efe08"
     },
     {
-      "bytes": 6058,
+      "bytes": 5994,
       "path": "startup-interrupted-post-behind-detach.json",
-      "sha256": "b51285547f96fd5d615bf78cbdaece2f86c2f5d2f8029b81c7efdf0cfdb1bd11"
+      "sha256": "0970997d33396a75de6b64755d04bacf42dd45ff27b9a72ca984c0736a9804d7"
     },
     {
-      "bytes": 6026,
+      "bytes": 5774,
       "path": "startup-interrupted-update-first.json",
-      "sha256": "d397c024a0661a015c7b5d078b490586a6f2ae2415727c046684b318a795f65a"
+      "sha256": "0177db242aaef90e62e13369a55c2aa1757e36ceef0d91d876805e1e660f3916"
     },
     {
-      "bytes": 5959,
+      "bytes": 5759,
       "path": "startup-interrupted.json",
-      "sha256": "bc48f0107117b8bf0ad9c7c7139d22b8e3fb4625044bfdad9af54900ee585eda"
+      "sha256": "e3d0a75f4bd8c89bba3cc1965a5a528febe909320a2fc441f82856be0e421ecb"
     },
     {
-      "bytes": 3170,
+      "bytes": 3038,
       "path": "startup-recovery-joins-update-first.json",
-      "sha256": "f32003329184197955150492d90aa05318d6654f7cb779f8dfc43e2ea26cbea1"
+      "sha256": "112d06447228a649882ca4124dc77c2aa7f9c9de139560272b91459406b52f18"
     },
     {
-      "bytes": 4356,
+      "bytes": 4197,
       "path": "startup-recovery-joins.json",
-      "sha256": "dbd7bf6ce53d9daa8a665943c664cb2d4f999ae722d893fbe0503bcf9c8fc846"
+      "sha256": "a5237d655265a6389e49129843f89aeba3827076755d9f286b85d665abf9d894"
     },
     {
-      "bytes": 3140,
+      "bytes": 2992,
       "path": "startup-update-before-recovery-update-first.json",
-      "sha256": "40b42c41824a0dbf7022b451b151620acaf5a7bcc34d08e5c35820dd98a2cf41"
+      "sha256": "00334578f20dda858ae749d1e20815a2ab9de15c0fadf5993e5dc9eb01aaf7fd"
     },
     {
-      "bytes": 4334,
+      "bytes": 4151,
       "path": "startup-update-before-recovery.json",
-      "sha256": "0518447f9f577acf35dcb3681e4f9ec3de208c41f0395e88c36411194f7b8bc0"
+      "sha256": "8da438999d193a6f91a536852a86ab71b2cac3dafbc691ba32b79590b12f495e"
     }
   ],
   "fixedAtSource": {
@@ -655,7 +644,7 @@
     },
     "startup-interrupted-post-behind-detach": {
       "startupOrder": {
-        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change; the earlier host's connection close is kept back (the disposal's close answers at once, the call made later); it is made before the first load's member check is released, and the daemon's detach of the room log (lifecycle-barriers.mjs:122: its record queued, the generation bumped) is held at its write's check of the log's json (fs/promises.stat on a stack through _jsonDiverged, session-log-writer.mjs:1198); the member check is then released and the post's save is admitted at the daemon behind the detach (store.mjs _admit publishes the room log live: observed through the daemon's subscribeLiveSessions); the detach goes on: the post's save is dropped by its generation fence (store.mjs _dropsAgainst), the post answers and writes nothing, the recovery logs nothing",
+        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change; the earlier host's connection close is kept back (the disposal's close answers at once, the call made later); it is made before the first load's member check is released, and the daemon's detach of the room log (lifecycle-barriers.mjs:122: its record queued, the generation bumped) is held at its write's check of the log's json (fs/promises.stat on a stack through _jsonDiverged, session-log-writer.mjs:1198); the member check is then released and the post's save is admitted at the daemon behind the detach (store.mjs _admit publishes the room log live: observed through the daemon's subscribeLiveSessions); the detach goes on: the post's save is dropped by its generation fence (store.mjs _dropsAgainst) and, with node-patches/node-fix-room-post-behind-detach.patch, the post fails with 'session <id> is not available' (agent-room-delivery.mjs saved): nothing is written, the recovery logs the failure (agent-rooms.ts:476)",
         "order": "recovery-first",
         "waiters": "interrupted"
       },
@@ -741,6 +730,10 @@
       "sha256": "cfabb25eb3d774187cdbb3cb546480dcb1e71d8bdaa2baee988d40b1350ed03a"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
@@ -750,7 +743,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/room-catalog-core-differences.json",
-      "sha256": "141c425267c70e347c076dbfde4ae2c445cdd5ba3e4874b7c974113a96520da8"
+      "sha256": "538b688e8c65a48583408733e5ecc94e4cd2f046a1ff48fae307636295417fb1"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -761,23 +754,42 @@
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-room-post-behind-detach.patch",
+      "paths": [
+        "src/session-runtime/agent-room-delivery.mjs",
+        "src/session-runtime/agent-room-delivery.test.mjs"
+      ],
+      "sha256": "e83d270c28946205eeb5fcab22a261a6a6dc105e9dad2d6f0acc42fb7ee43595"
+    },
+    "patches": [
+      {
+        "file": "node-fix-room-post-behind-detach.patch",
+        "paths": [
+          "src/session-runtime/agent-room-delivery.mjs",
+          "src/session-runtime/agent-room-delivery.test.mjs"
+        ],
+        "sha256": "e83d270c28946205eeb5fcab22a261a6a6dc105e9dad2d6f0acc42fb7ee43595"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "139d50abdaed6f97756dd26911bfea3098a4f97fb204bf03a94f0be1839d5b66",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
-  "recorderSha256": "c7b39c55ff4d074cff8cde9614f74f3f14e8fa576224c5fd83435af7ffffd7ad",
+  "recorderSha256": "3d834950f41b68185c7740108eac2eb40a4e5ffb5f6d72c79775dfaca22dd62f",
   "resetReadRace": {
     "cases": {
       "loaded": {
@@ -887,5 +899,5 @@
     "recovery": "agent-rooms.ts:465-480 (recover: loadRecords :466, ready :469, the interrupted rooms :470-478, deps.republishCatalog :479), started by session-host.ts:430-432; republishCatalog → session-host.ts:353-356 (not loaded: void publishCatalogs, session-host-catalog.ts:217-238, rows read at session-host.ts:806-809)",
     "update": "agent-rooms.ts:293-320 (update: ready :294, refreshNames :302, the change :308-309, persist :310, deps.republishCatalog :312)"
   },
-  "totalBytes": 193325
+  "totalBytes": 186882
 }
