@@ -177,7 +177,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "dcc4aa695bc3facaf9a809d4dbdc9a8227095296b2f2cdc8d443df4759c82134"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
@@ -206,7 +206,7 @@
     "files": 9141,
     "patches": [
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch",
+        "file": "node-fix-code-graph-self-federation.patch",
         "paths": [
           "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs",
           "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.test.mjs"
@@ -214,7 +214,7 @@
         "sha256": "b599facbf25935ee6ff8a8c0024d0fd46c4be118848c7da6ce4b731a814c94dd"
       },
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-glob-verbatim-path.patch",
+        "file": "node-fix-glob-verbatim-path.patch",
         "paths": [
           "src/runtime/agent/orchestrator/tools/builtin/search-glob-tool.mjs",
           "src/runtime/agent/orchestrator/tools/builtin/search-glob-verbatim-path.test.mjs"
