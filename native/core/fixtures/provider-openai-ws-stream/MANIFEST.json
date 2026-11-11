@@ -18,9 +18,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 292021,
+      "bytes": 293511,
       "path": "cases.json",
-      "sha256": "9dff6a4e6ca59c87f5f16018b936e32f0138412137070361deb1c823d469ae29"
+      "sha256": "10dfba8a57b104e2c7c2246c0671de5c32a8d38155043504f2ea99c2d2cf5760"
     }
   ],
   "inputs": [
@@ -42,11 +42,15 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
+      "sha256": "9c3bac7af557e26757ee81a258b4ed3ae3c18603f4f249a376ae9785f29c6835"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "ca2aba4fd278a0a7c9bce57b40c5470d7811acb5f895cba2524dc21c960f1ddc"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
     }
   ],
   "levels": [
@@ -142,12 +146,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
-  "recorderSha256": "ab3ad24410537f88e1c436253015a2c70ae1b25961cc5d59dd9bbbc6118121b1",
+  "recorderSha256": "df7e60d39c76a69164ed8f2487df29cbfa87eafbe623c80b7adcb988d750b897",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-ws-stream",
-  "totalBytes": 292021,
+  "totalBytes": 293511,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

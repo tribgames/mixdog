@@ -4,8 +4,9 @@
 // `_streamResponse` over a fake socket with shortened watchdog values; no public Rust function takes that input, so the cases go through the sender and the watchdogs run
 // with the product's real timeouts on the virtual clock. Each case records ONE ordered list: the dial, the upgrade request (every header in order), the upgrade response,
 // every frame in each direction, the callbacks the caller saw (progress / text / tool / stage, interleaved as they happened), the virtual-clock steps (a retry the sender
-// takes is followed step by step: its backoff timer, the redial) and the closes with their codes. 1006 cannot be sent on the wire: a scripted 1006 is the server dropping
-// the TCP connection (the client sees 1006 with an empty reason).
+// takes is followed step by step: its backoff timer, the redial) and the closes with their codes. A scripted close is a close frame carrying the test's code and reason
+// (1006 'gone' is written as raw frame bytes: the `ws` server refuses that code, and the product's `ws` client rejects it as a protocol error - what the product does
+// with the frame is the recorded outcome); the reopened-stream case's dying first attempt is the server dropping the TCP connection (the client sees 1006, empty reason).
 //   node benchmarks/rust-core/recorders/record-openai-ws-stream.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
@@ -42,14 +43,24 @@ function onTextDelta(chunk) { world.note({ event: 'text', chunk }); }
 
 // Server side of one connection: `plan` is consumed one entry per connection, when the request frame arrives (a connection past the plans
 // repeats the last plan: a failure the product retries is served again on every attempt, so the send ends with its own typed error once its budget is spent):
-// { frames, close: [code, reason] | null } (1006 = the server drops the connection).
+// { frames, close: [code, reason] | null }. A close is a close frame carrying the code and the reason, then the end of the connection; the
+// `ws` server refuses to send the codes a peer must not put in a frame (1006 among them), so such a frame is written as raw bytes on the
+// server's socket (FIN + opcode 8, unmasked, payload = the 2-byte code and the UTF-8 reason), after every frame already sent.
+const closeFrame = (code, reason) => {
+  const payload = Buffer.concat([Buffer.from([code >> 8, code & 0xff]), Buffer.from(reason, 'utf8')]);
+  return Buffer.concat([Buffer.from([0x88, payload.length]), payload]);
+};
 const serve = (plans) => {
   let n = 0;
   world.reset({
     onFrame: (conn) => {
       const plan = plans[Math.min(n++, plans.length - 1)];
       for (const frame of plan.frames) conn.send(frame);
-      if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
+      if (plan.close) {
+        const [code, reason] = plan.close;
+        world.note({ event: 'close-frame-sent', by: 'server', code, reason, bytesHex: closeFrame(code, reason).toString('hex') });
+        conn.ws._socket.end(closeFrame(code, reason));
+      }
     },
   });
 };
@@ -78,6 +89,9 @@ const followReconnect = async (handled) => {
   await rec.clock.advance(0, { what: 'retry backoff armed', until: () => done() || rec.clock.pendingFrom(SLEEP).length > 0 });
   if (world.count((e) => e.event === 'send-settled')) return false;
   if (requesting() > before) return true;
+  // The connection the failed attempt released is closed by the client; the server's `closed` event for it is waited for before the clock
+  // moves, so it comes before the next attempt's events in the trace whatever the machine's load.
+  await world.until((t) => t.filter((e) => e.event === 'closed').length >= t.filter((e) => e.event === 'open').length, 'the released connection closed at the server');
   // The clock moves to the backoff timer (a recorded step) and waits for the next attempt to start (the product's 'requesting' stage) or the send to end.
   const sleep = rec.clock.pendingFrom(SLEEP)[0];
   await step(sleep.due - (Date.now() - rec.T0), { what: 'retry backoff', until: done });
