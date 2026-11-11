@@ -281,7 +281,8 @@ async fn kill_ingest_at(pg: &TestPg, k: u64, file: &Path, work: &Path) {
     const DEADLINE: Duration = Duration::from_secs(180);
     let mut command = tokio::process::Command::new(std::env::current_exe().expect("the test binary"));
     command
-        .args(["--exact", "memory::tests::jobs::restart_kill_child", "--ignored", "--nocapture", "--test-threads=1"])
+        .args(["--exact", "memory::tests::jobs::restart_kill_child", "--nocapture", "--test-threads=1"])
+        .env("MIXDOG_KILL_CHILD", "1")
         .env("MIXDOG_KILL_AT", format!("memory-transcript-insert:{k}"))
         .env("MIXDOG_KILL_PG_PROFILE", pg.dir.path())
         .env("MIXDOG_KILL_PG_PORT", pg.cluster.port().to_string())
@@ -306,8 +307,11 @@ const RESTART_NOW: i64 = 1_772_600_767_890;
 /// ingest of the recorded file over the parent's database, which dies at the kill point the environment names
 /// (`MIXDOG_KILL_AT`, `mixdog_workspace::killpoint`). Run only by that test.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "spawned by the restart kill matrix with the point to die at"]
 async fn restart_kill_child() {
+    // A no-op in every run that is not the matrix's child: only the parent sets this.
+    if std::env::var_os("MIXDOG_KILL_CHILD").is_none() {
+        return;
+    }
     let var = |name: &str| std::env::var_os(name).unwrap_or_else(|| panic!("{name} is set by the parent"));
     let runtime = PathBuf::from(var("MIXDOG_PG_RUNTIME"));
     let port: u16 = var("MIXDOG_KILL_PG_PORT").to_string_lossy().parse().expect("a port");
