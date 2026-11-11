@@ -203,3 +203,15 @@ async fn a_name_without_an_adapter_says_why() {
     assert!(!b.available("gated") && b.available("openai"));
     assert!(!b.oauth_credentials_usable("openai-oauth").await.unwrap());
 }
+
+/// `MIXDOG_OAI_TRANSPORT` reaches the adapter's WebSocket mode as `resolveOpenAiTransportPolicy` resolves it: `ws-full`
+/// pins full frames (Node's `full_default`), `ws-delta` pins delta frames without the HTTP fallback.
+#[test]
+fn the_transport_setting_selects_the_websocket_mode() {
+    let pick = |v: Option<&str>| openai_transport(v.map(str::to_owned));
+    assert_eq!(pick(Some("WS_FULL")), (TransportKind::WebSocket, TransportMode::WsFull));
+    assert_eq!(pick(Some(" ws delta ")), (TransportKind::WebSocket, TransportMode::WsDelta));
+    assert_eq!(pick(Some("sse")).0, TransportKind::Http1);
+    assert_eq!(pick(None), (TransportKind::WebSocket, TransportMode::Auto));
+    assert_eq!(pick(Some("quantum")), (TransportKind::WebSocket, TransportMode::Auto));
+}
