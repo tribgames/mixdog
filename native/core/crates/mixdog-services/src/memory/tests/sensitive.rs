@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::memory::sensitive::SensitiveStore;
 
@@ -54,6 +54,65 @@ fn a_growing_stream_settles_prefix_by_prefix() {
         let text = step["text"].as_str().expect("text");
         assert_eq!(store.redact_settled_text("s-code", text), step["settled"].as_str().expect("settled"), "{text}");
     }
+}
+
+/// `fixtures/sensitive-feed` (`record-sensitive-feed.mjs`): a marked value in a tool call's arguments, a tool result, an
+/// attachment's name and a compaction summary. The messages as stored (and handed to the close and search ingests),
+/// what the close ingest feeds memory, and the session search rows, each whole as Node's.
+#[test]
+fn a_marked_value_in_tool_results_attachments_and_summaries_reaches_memory_as_in_node() {
+    use crate::memory::ingest_shape::{normalize_ingest_role, session_message_content_for_ingest, should_exclude_ingest_message};
+    let path = format!("{}/../../fixtures/sensitive-feed/sensitive-feed.json", env!("CARGO_MANIFEST_DIR"));
+    let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("recording")).expect("json");
+    let session = recorded["session"].as_str().expect("session");
+    let store = SensitiveStore::default();
+    assert!(store.remember(session, recorded["calls"].as_array().expect("calls")));
+    let stored = store.redact_messages(session, recorded["messages"].as_array().expect("messages"));
+    // Node b6f10295a keeps an attachment's name as given ("hunter2-notes.pdf"); with
+    // `node-patches/node-fix-sensitive-attachment-names.patch` it stores it redacted, as the core does.
+    let mut patched = recorded["stored"].clone();
+    let name = patched.pointer_mut("/3/content/1/name").expect("the attachment's name");
+    assert_eq!(*name, "hunter2-notes.pdf");
+    *name = json!("[redacted]-notes.pdf");
+    assert_eq!(Value::Array(stored.clone()), patched, "the messages as stored");
+
+    // `projectSessionMessagesForIngest`, from the core's own shaping functions.
+    let ingest: Vec<Value> = stored
+        .iter()
+        .filter_map(|message| {
+            let role = normalize_ingest_role(message.get("role"))?;
+            if should_exclude_ingest_message(message) {
+                return None;
+            }
+            let content = session_message_content_for_ingest(message);
+            if content.trim().is_empty() {
+                return None;
+            }
+            let mut next = serde_json::json!({ "role": role, "content": content });
+            for key in ["ts", "timestamp"] {
+                if let Some(value) = message.get(key) {
+                    next[key] = value.clone();
+                }
+            }
+            if let Some(id) = message.get("toolCallId").filter(|v| v.as_str().is_some_and(|s| !s.is_empty())) {
+                next["toolCallId"] = id.clone();
+            }
+            if let Some(calls) = message.get("toolCalls").and_then(Value::as_array) {
+                let ids: Vec<Value> = calls.iter().filter_map(|c| c.get("id").filter(|v| !v.is_null())).map(|id| serde_json::json!({ "id": id })).collect();
+                if !ids.is_empty() {
+                    next["toolCalls"] = Value::Array(ids);
+                }
+            }
+            Some(next)
+        })
+        .collect();
+    assert_eq!(Value::Array(ingest), recorded["ingest"], "what the close ingest feeds memory");
+
+    let rows: Vec<Value> = crate::memory::session_search::db::search_rows(session, &stored)
+        .into_iter()
+        .map(|row| serde_json::json!({ "sourceRef": row.source_ref, "sessionId": row.session_id, "ordinal": row.ordinal, "role": row.role, "ts": row.ts, "content": row.content }))
+        .collect();
+    assert_eq!(Value::Array(rows), recorded["search"], "the session search rows");
 }
 
 #[test]
