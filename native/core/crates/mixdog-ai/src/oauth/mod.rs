@@ -7,6 +7,7 @@ mod callback;
 pub mod device;
 mod flow;
 pub mod http;
+pub mod lease;
 pub mod loopback;
 pub mod pace;
 pub mod scrub;

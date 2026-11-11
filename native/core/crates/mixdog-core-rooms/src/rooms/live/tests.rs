@@ -105,6 +105,7 @@ fn decision(approval: &str) -> ApprovalAnswer {
         connection: mixdog_core_api::ids::ConnectionId(1),
         device: "desktop".into(),
         connection_kind: serde_json::from_value(json!("desktop")).unwrap(),
+        origin: serde_json::from_value(json!("local")).unwrap(),
         result: json!({ "approved": true }),
     }
 }

@@ -260,6 +260,9 @@ mod tests {
         async fn audience(&self, _thread_id: &str) -> Audience {
             self.0.lock().unwrap().clone()
         }
+        async fn settings(&self) -> serde_json::Value {
+            serde_json::Value::Null
+        }
     }
 
     #[derive(Default)]

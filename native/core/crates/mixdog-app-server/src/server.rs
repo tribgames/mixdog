@@ -113,7 +113,10 @@ const STORED_READS: [&str; 6] = [
 /// for a session that is not there as Node does (`deleted: false` / `not-archived`), not
 /// `threadNotFound`. `thread/fork` is served there for `inheritFrom`, which creates the heir's session before it looks the source up.
 /// `thread/inheritancePreflight` reads its own thread and the source the directory looks up; no session actor serves it.
-const DIRECTORY_SERVED: [&str; 3] = ["thread/delete", "thread/fork", "thread/inheritancePreflight"];
+/// `thread/approval/answerNotification` and `thread/approval/answer` answer only an approval a loaded thread shows: they never
+/// load one.
+const DIRECTORY_SERVED: [&str; 5] =
+    ["thread/delete", "thread/fork", "thread/inheritancePreflight", "thread/approval/answerNotification", "thread/approval/answer"];
 
 /// What a transport does after handing a message over.
 pub enum Inbound {
@@ -341,7 +344,9 @@ impl Shared {
             return Inbound::Continue;
         }
         let cap = self.config.limits.inflight.cap(spec.class);
-        let Ok(slot) = conn.admit(spec.class, cap, || self.core.request_started()) else {
+        let no_params = serde_json::Value::Null;
+        let params = request.params.as_ref().unwrap_or(&no_params);
+        let Ok(slot) = conn.admit(spec.class, cap, || self.core.request_started(&request.method, params)) else {
             let limit = ErrorData::InflightLimit {
                 class: spec.class,
                 limit: cap,
@@ -531,7 +536,11 @@ impl Shared {
             server_instance_id: config.server_instance_id.clone(),
             core_state,
             limits: config.limits.clone(),
-            capabilities: config.capabilities.clone(),
+            capabilities: {
+                let mut capabilities = config.capabilities.clone();
+                capabilities.remote = mixdog_app_protocol::remote_flags::remote_capabilities((config.native_push)());
+                capabilities
+            },
             connection: v1::ConnectionInfo {
                 origin,
                 device,
@@ -831,6 +840,7 @@ impl Shared {
             },
             epoch: attached.decision.epoch.clone(),
             start_seq: attached.decision.start_seq,
+            live_seq: attached.decision.live_seq,
         };
         result.insert(
             "subscription".to_owned(),
@@ -882,12 +892,17 @@ impl Shared {
         let Some(handle) = self.core.threads().get(&thread) else {
             return;
         };
+        // As for a request: no origin is no transport to judge the answer by, so it decides nothing.
+        let Some(origin) = (self.origin_of)(conn.id) else {
+            return;
+        };
         let client = &session.client;
         let decision = Decision {
             request,
             connection: conn.id,
             device: client.title.clone().unwrap_or_else(|| client.name.clone()),
             connection_kind: client.kind,
+            origin,
             result,
         };
         if let Err(error) = handle.decide(decision) {

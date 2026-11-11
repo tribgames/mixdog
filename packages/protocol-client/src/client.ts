@@ -119,6 +119,8 @@ class Store implements FoldStore<Json> {
   app: FeedStamp | undefined;
   /** Announcements the committed store still owes its listeners (a snapshot swapped in, its changes not all emitted yet); in order. */
   owed: Array<Iterator<SectionEntry | null>> | null = null;
+  /** The current app subscription's first live seq (its `liveSeq`; `startSeq` from a core that predates it). */
+  liveSeq: number | undefined;
   private readonly listeners = new Set<(c: StoreChange) => void>();
 
   thread(threadId: string): ThreadFold<Json> | undefined {
@@ -132,6 +134,9 @@ class Store implements FoldStore<Json> {
   }
   appFeed(): FeedStamp | undefined {
     return this.app;
+  }
+  appLive(): boolean {
+    return this.app !== undefined && this.liveSeq !== undefined && this.app.seq >= this.liveSeq;
   }
   subscribe(listener: (c: StoreChange) => void): () => void {
     this.listeners.add(listener);
@@ -761,6 +766,7 @@ class Engine implements ProtocolClient<Json> {
   private attached(feedId: string, r: Json): void {
     const s = (r as unknown as ThreadResumeResponse).subscription;
     this.recv.set(feedId, { epoch: s.epoch, seq: s.startSeq - 1 });
+    if (feedId === WIRE.appFeedId) this.store.liveSeq = s.liveSeq ?? s.startSeq;
     this.subToken.set(feedId, ++this.tokenSeq);
   }
 

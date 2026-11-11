@@ -109,6 +109,8 @@ pub struct McpServerConfig {
     pub connector: Option<String>,
     /// Set for an HTTP/SSE server with no configured authentication.
     pub oauth: Option<OAuthBinding>,
+    /// The plugin that declared the server (`_mixdogPlugin.id`, Node's `mcpPluginId`): its scope limits the server too.
+    pub plugin_id: Option<String>,
 }
 
 /// The wire name of an [`ActionKind`] in config.
@@ -553,6 +555,7 @@ impl McpServerConfig {
                 .collect(),
             connector,
             oauth,
+            plugin_id: entry.pointer("/_mixdogPlugin/id").and_then(Value::as_str).map(js_trim).filter(|id| !id.is_empty()).map(str::to_owned),
         })
     }
 

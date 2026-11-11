@@ -81,12 +81,26 @@ test('the lane gets the facts only this process knows', async () => {
     assert.equal(server.calls[0].method, 'host/state/set');
     assert.deepEqual(server.calls[0].params, { key: 'displayPreferences', value: { theme: 'dark', language: 'en' } });
     server.calls[0].resolve({});
+    await settle();
+    // The announcement goes to the core, which tells every client; the windows hear it from the core, not before.
+    assert.deepEqual([server.calls[1].method, server.calls[1].params], ['ui/settings/announce', { scope: 'desktop' }]);
+    server.calls[1].resolve({});
     assert.equal(await done, undefined);
+    assert.deepEqual(events, []);
+    server.emit({ type: 'notification', notification: { method: 'ui/settings/changed', params: { scope: 'desktop' } } });
     assert.deepEqual(events, [{ name: 'settings-changed', value: { scope: 'desktop' } }]);
-    await connection.client.invokeDesktopOperation('notifyProviderModelsChanged', ['win-1']);
+    const announced = connection.client.invokeDesktopOperation('notifyProviderModelsChanged', ['win-1']);
+    await settle();
+    assert.deepEqual([server.calls[2].method, server.calls[2].params], ['ui/providerModels/announce', { origin: 'win-1' }]);
+    server.calls[2].resolve({});
+    await announced;
+    server.emit({ type: 'notification', notification: { method: 'ui/providerModels/changed', params: { origin: 'win-1' } } });
     assert.deepEqual(events.at(-1), { name: 'provider-models-changed', value: { origin: 'win-1' } });
-    await connection.client.invokeDesktopOperation('notifySettingsChanged', ['git']);
-    assert.equal(server.calls.length, 1, 'only a desktop-scope change carries the display preferences');
+    const git = connection.client.invokeDesktopOperation('notifySettingsChanged', ['git']);
+    await settle();
+    assert.deepEqual([server.calls[3].method, server.calls[3].params], ['ui/settings/announce', { scope: 'git' }], 'only a desktop-scope change carries the display preferences');
+    server.calls[3].resolve({});
+    await git;
     await assert.rejects(connection.client.invokeDesktopOperation('notifySettingsChanged', ['nope']), /scope is invalid/);
   } finally {
     await connection.dispose();

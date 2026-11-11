@@ -26,6 +26,7 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Securit
 base64 = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
+sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

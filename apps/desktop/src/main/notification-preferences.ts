@@ -18,15 +18,20 @@ import {
   type ConversationNotificationOverride,
   type ConversationNotificationSetting,
   DEFAULT_NOTIFICATION_PREFERENCES,
-  NEW_PHONE_NOTIFICATION_PREFERENCES,
-  NOTIFICATION_EVENTS,
   NOTIFICATION_PC_DEVICE_ID,
-  type NotificationDeviceKind,
   type NotificationDevicePreferences,
   type NotificationPreferencesPatch,
   type NotificationTarget,
 } from '../shared/contract-notifications';
-import { activeOverrides, type NotificationPreferencesView } from './notification-decision';
+import {
+  activeOverrides,
+  devicePreferencesIn,
+  type NotificationDeviceInfo,
+  storedOverride,
+  storedPreferences,
+  TARGET_ID,
+} from '../shared/notification-state';
+import type { NotificationPreferencesView } from './notification-decision';
 
 export interface NotificationPreferencesDoc {
   version: 1;
@@ -36,12 +41,7 @@ export interface NotificationPreferencesDoc {
   overrides: ConversationNotificationOverride[];
 }
 
-/** What a device without stored preferences is: its kind, and when it was
- *  paired (or first registered for pushes) when that is known. */
-export interface NotificationDeviceInfo {
-  kind: NotificationDeviceKind;
-  pairedAt?: number;
-}
+export type { NotificationDeviceInfo };
 
 export function notificationPreferencesPath(userDataPath: string): string {
   return join(userDataPath, 'notification-preferences.json');
@@ -55,57 +55,7 @@ export function legacyAgentMutePath(userDataPath: string): string {
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/u;
-
-/** Stored preferences, each field falling back to the default when missing or invalid. */
-export function storedPreferences(value: unknown): NotificationDevicePreferences {
-  const stored = record(value);
-  const base = DEFAULT_NOTIFICATION_PREFERENCES;
-  const events = record(stored.events);
-  const quiet = record(stored.quietHours);
-  const flag = (raw: unknown, fallback: boolean) => (typeof raw === 'boolean' ? raw : fallback);
-  return {
-    scope: stored.scope === 'all' || stored.scope === 'bots' || stored.scope === 'off' ? stored.scope : base.scope,
-    events: Object.fromEntries(
-      NOTIFICATION_EVENTS.map((event) => [event, flag(events[event], base.events[event])])
-    ) as NotificationDevicePreferences['events'],
-    automaticRuns: flag(stored.automaticRuns, base.automaticRuns),
-    quietHours: {
-      enabled: flag(quiet.enabled, base.quietHours.enabled),
-      start: typeof quiet.start === 'string' && TIME.test(quiet.start) ? quiet.start : base.quietHours.start,
-      end: typeof quiet.end === 'string' && TIME.test(quiet.end) ? quiet.end : base.quietHours.end,
-      days:
-        quiet.days === 'every' || quiet.days === 'weekdays' || quiet.days === 'weekends'
-          ? quiet.days
-          : base.quietHours.days,
-      allowWaiting: flag(quiet.allowWaiting, base.quietHours.allowWaiting),
-    },
-    holdWhileDesktopActive: flag(stored.holdWhileDesktopActive, base.holdWhileDesktopActive),
-    taskbarFlash: flag(stored.taskbarFlash, base.taskbarFlash),
-  };
-}
-
-const TARGET_ID = /^[\w.:-]{1,200}$/u;
-
-function isNotificationTarget(value: unknown): value is NotificationTarget {
-  const target = record(value);
-  return (
-    (target.kind === 'session' || target.kind === 'agent' || target.kind === 'room') &&
-    typeof target.id === 'string' &&
-    TARGET_ID.test(target.id)
-  );
-}
-
-export function storedOverride(value: unknown): ConversationNotificationOverride | null {
-  const entry = record(value);
-  if (!isNotificationTarget(entry.target)) return null;
-  const setting = record(entry.setting);
-  const target = { kind: entry.target.kind, id: entry.target.id };
-  if (setting.mode === 'always') return { target, setting: { mode: 'always' } };
-  if (setting.mode !== 'muted') return null;
-  const until = setting.until === null || (Number.isSafeInteger(setting.until) && (setting.until as number) > 0);
-  return until ? { target, setting: { mode: 'muted', until: setting.until as number | null } } : null;
-}
+export { devicePreferencesIn, storedOverride, storedPreferences };
 
 function storedDoc(value: unknown): NotificationPreferencesDoc {
   const doc = record(value);
@@ -128,21 +78,6 @@ function storedDoc(value: unknown): NotificationPreferencesDoc {
 function readNotificationPreferencesFile(filePath: string): NotificationPreferencesDoc | null {
   // A damaged file is kept aside and its last good copy read.
   return readJsonStateSync(filePath, { validate: storedDoc, fallback: null });
-}
-
-/** A device's preferences: its stored entry, else the default its kind and
- *  pairing time give it. */
-export function devicePreferencesIn(
-  doc: Pick<NotificationPreferencesDoc, 'devices' | 'migratedAt'> | null,
-  deviceId: string,
-  info: NotificationDeviceInfo = { kind: deviceId === NOTIFICATION_PC_DEVICE_ID ? 'pc' : 'browser' }
-): NotificationDevicePreferences {
-  const stored = doc?.devices[deviceId];
-  if (stored) return stored;
-  const pairedAfter = doc && info.pairedAt !== undefined && info.pairedAt >= doc.migratedAt;
-  return info.kind === 'phone-app' && pairedAfter
-    ? NEW_PHONE_NOTIFICATION_PREFERENCES
-    : DEFAULT_NOTIFICATION_PREFERENCES;
 }
 
 /** This PC's view, read from disk (the window process). */

@@ -115,6 +115,7 @@ mod reads;
 mod routine_turn;
 pub mod room_member;
 pub mod room_approval;
+pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
@@ -153,6 +154,7 @@ pub mod user_facts;
 pub mod agent_route;
 pub mod route_cell;
 pub mod new_route;
+pub mod new_task;
 pub mod session_options;
 mod view;
 pub mod worktree;
@@ -186,6 +188,8 @@ mod assembly_tests;
 mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
+#[cfg(test)]
+mod new_task_tests;
 
 use std::sync::Arc;
 
@@ -220,6 +224,7 @@ pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
 pub use self::seams::EmptyToolSurface;
+pub use self::seams::DraftSettings;
 pub use self::seams::NewThreadRoute;
 pub use self::seams::NewThreadTools;
 pub use self::seams::NewThreadPlace;
@@ -269,12 +274,16 @@ pub struct SessionDeps {
     pub new_tools: Arc<dyn NewThreadTools>,
     /// The route a `thread/start` thread begins on (its draft's pick, else the config's default).
     pub new_route: Arc<dyn NewThreadRoute>,
+    /// The draft's workflow and orchestration mode a new task applies before its route.
+    pub draft_settings: Arc<dyn DraftSettings>,
     /// The tool surface and prompt an emptied thread (`thread/clear` with `rebuildPrompt`) are composed again with.
     pub empty_surface: Arc<dyn EmptyToolSurface>,
     /// The folder a `thread/start` of `kind: task` begins in.
     pub task_workspace: Arc<dyn TaskWorkspace>,
     /// The registered Projects and the draft's worktree step for the threads the desktop starts and forks.
     pub new_place: Arc<dyn NewThreadPlace>,
+    /// The receipts of the new tasks `thread/start` starts: a request that arrives again starts no second task.
+    pub new_tasks: Arc<new_task::NewTaskReceipts>,
     /// The tool surface a stored thread opened for use takes (`_refreshResumedTools`).
     pub resumed_tools: Arc<dyn ResumedTools>,
     /// A room member's handed-off questions moved or its approval resolved: its room follows.

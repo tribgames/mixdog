@@ -173,6 +173,7 @@ async fn a_decision_goes_to_the_owning_thread_and_only_from_a_connection_that_ha
             connection: ConnectionId(1),
             device: "test".to_owned(),
             connection_kind: ConnectionKind::Desktop,
+            origin: mixdog_protocol::Origin::Local,
             result: json!({ "approved": true }),
         })]
     );

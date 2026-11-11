@@ -179,7 +179,8 @@ if (process.argv[2] === '--child') {
   process.exit(0);
 }
 
-const { FIXTURES_ROOT, commitStage, parseArgs, patchedProductIdentity, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { recorderProvenance } = await import('./lib/provenance.mjs');
+const { FIXTURES_ROOT, commitStage, parseArgs, patchedProductIdentity, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
 const { normalizeTree, scanSecrets } = await import('./lib/sensitive-writes-files.mjs');
 const args = parseArgs();
@@ -273,7 +274,7 @@ try {
     command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <export of ${NODE_COMMIT} with the patches applied> --patch ${identity.patches.map((p) => `benchmarks/rust-core/recorders/node-patches/${p.file}`).join(',')}`,
     identity,
     extra: {
-      ...recordingProvenance(recorder, ['lib/sensitive-writes-scenario.mjs', 'lib/sensitive-writes-files.mjs', 'lib/common.mjs', 'lib/job-run.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`)),
+      ...recorderProvenance(import.meta.url, identity.patches.map((p) => `benchmarks/rust-core/recorders/node-patches/${p.file}`)),
       noCoreCounterpart: NO_CORE_COUNTERPART,
       notCompared: NOT_COMPARED,
       recorded: { tree: `export of ${NODE_COMMIT} with ${identity.patches.map((p) => `${p.file} (sha256 ${p.sha256})`).join(', then ')} applied`, scenario: 'lib/sensitive-writes-scenario.mjs' },

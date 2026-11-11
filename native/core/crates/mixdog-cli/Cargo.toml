@@ -17,6 +17,7 @@ terminal-lease-clock = ["mixdog-app-server-daemon/terminal-lease-clock"]
 # The controls a replay drives a spawned core with: the download recording's (mixdog-workspace, replay_controls.rs) and the tool-failure
 # recording's held flush timer (mixdog-core-run, failure_log.rs `replay_held`). Never in an ordinary build.
 replay-controls = ["mixdog-app-server-daemon/replay-controls"]
+crash-gates = ["mixdog-app-server-daemon/crash-gates"]
 
 [dependencies]
 mixdog-app-server-daemon = { workspace = true }
@@ -48,7 +49,7 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
-mixdog-core-session = { workspace = true, features = ["test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }

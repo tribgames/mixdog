@@ -35,6 +35,7 @@ impl CorePort for Quiet {
     fn drain_notice(&self, _: &DrainNotice) {}
     fn health(&self, _: u64) {}
     fn cancel_running(&self, _: &[Running]) {}
+    fn cut_new_tasks(&self) {}
     fn release_decision(&self, _: u32) {}
     fn final_barriers(&self) {}
     fn close_connections(&self) {}

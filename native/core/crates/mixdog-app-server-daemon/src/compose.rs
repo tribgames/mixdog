@@ -273,6 +273,13 @@ impl ComposedCore {
         self.real.defaults_separation.clone()
     }
 
+    /// Whether the relay this core's leg is on delivers native pushes now: Node offered `nativePush` to a phone connection
+    /// only then (`remote-relay.ts:525` `caps.relayNativePlatforms().length > 0`, `remote-relay-client-lifecycle.ts:150`).
+    pub fn native_push_offered(&self) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+        let runtime = self.real.remote.runtime.clone();
+        std::sync::Arc::new(move || !runtime.native_platforms().is_empty())
+    }
+
     /// The host media router: bind a stream's target here, then host/browser/viewFrames pictures reach it.
     pub fn host_media_router(&self) -> &Arc<HostMedia> {
         &self.host_media
@@ -342,6 +349,11 @@ impl ComposedCore {
         self.run_final_barriers();
         self.close_ext_host().await;
         self.run_stop_steps().await;
+    }
+
+    /// A stop was requested: the new-task attempts in flight end now (`SessionDirectory::cut_new_tasks`), before the drain.
+    pub fn cut_new_tasks(&self) {
+        self.real.directory.cut_new_tasks();
     }
 
     /// Records Node's text of this stop (`daemon.mjs:272` `shutdown(reason)`) for the stop steps; the first one wins, so the release and a
@@ -513,8 +525,12 @@ impl CoreHandle for ComposedCore {
         crate::domain_seams::remote::register_local(&self.real.remote.registry, connection, origin, device, kind);
     }
 
-    fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
         match self.real.late_lifecycle.get() {
+            // A new task is host logic in Node: a stop request cuts it instead of waiting for it (`Lifecycle::begin_new_task`).
+            Some(lifecycle) if method == "thread/start" && mixdog_core_session::session::new_task::starts_new_task(params) => {
+                Box::new(lifecycle.begin_new_task())
+            }
             Some(lifecycle) => Box::new(lifecycle.begin_call()),
             // A startup bug (the listener accepts only after the bind): said, not silently left out of the count.
             None => {
@@ -877,6 +893,9 @@ mod tests {
                 }
                 fn cancel_running(&self, running: &[Running]) {
                     self.inner.cancel_running(running);
+                }
+                fn cut_new_tasks(&self) {
+                    self.inner.cut_new_tasks();
                 }
                 fn release_decision(&self, pid: u32) {
                     self.inner.release_decision(pid);
