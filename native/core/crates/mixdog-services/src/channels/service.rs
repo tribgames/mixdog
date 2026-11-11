@@ -59,10 +59,11 @@ pub fn admin_error(error: AdminError) -> CoreError {
 
 fn call_error(error: CallError) -> CoreError {
     match error {
-        CallError::CallIdConflict(_) => CoreError::DomainError {
+        // Node answers the conflict with its text (`rpc-call-identity.mjs` `callIdConflict`): "callId '…' was reused with a different payload".
+        conflict @ CallError::CallIdConflict(_) => CoreError::DomainError {
             domain: DOMAIN.into(),
             code: Some("ECALLIDCONFLICT".into()),
-            message: None,
+            message: Some(conflict.to_string().into()),
             detail: None,
         },
         CallError::Failed(message) => failed(message),

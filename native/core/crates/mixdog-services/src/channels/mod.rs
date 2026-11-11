@@ -20,6 +20,8 @@ mod setup_tests;
 mod tests_runtime;
 #[cfg(test)]
 mod replays_owned_runtime;
+#[cfg(test)]
+mod replays_call_ids;
 
 pub use admin::{AdminDeps, AdminError, ChannelAdmin};
 pub use bridge::BridgeCalls;
