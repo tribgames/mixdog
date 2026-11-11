@@ -84,7 +84,7 @@ async fn an_old_unreferenced_blob_is_collected_once_per_spacing() {
 
 /// `what`, or a failure that names it: the bound is only how long a broken trigger may hang.
 async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{what} did not happen within 60 s"))
+    mixdog_rt::time::timeout(Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{what} did not happen within 60 s"))
 }
 
 /// A trigger arms one census after the start delay and stamps it; a shutdown before then runs

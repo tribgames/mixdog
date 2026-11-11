@@ -41,7 +41,7 @@ mixdog-testkit = { workspace = true }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 async-trait = { workspace = true }
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tempfile = { workspace = true }
 rusqlite = { workspace = true }

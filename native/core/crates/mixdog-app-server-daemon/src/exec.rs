@@ -14,7 +14,6 @@ use std::sync::OnceLock;
 use std::sync::Weak;
 use std::time::Duration;
 use std::time::Instant;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use crate::domain_seams::settings_effects::ConfiguredShell;
@@ -53,7 +52,7 @@ fn host_oem() -> Option<&'static str> {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Bound of the completion channel. A full channel is backpressure: the completing job's task

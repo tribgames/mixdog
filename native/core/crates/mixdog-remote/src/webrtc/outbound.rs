@@ -163,7 +163,7 @@ mod tests {
             outbound.push(frame(10)).expect("within the bound");
         }
         // Let the writer take its first frame and stall inside the write.
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
         assert!(outbound.push(frame(1)).is_err(), "past the bound is refused, not waited on");
         assert_eq!(outbound.buffered().await, 100);
     }
@@ -232,11 +232,11 @@ mod tests {
         };
         let outbound = Outbound::new("test-writer", Arc::new(outlet), 100, |_| {});
         outbound.push(frame(1)).unwrap();
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
         assert!(entered.load(Ordering::Relaxed));
         assert!(!released.load(Ordering::Relaxed));
         drop(outbound);
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
         assert!(released.load(Ordering::Relaxed), "the stuck write was dropped");
     }
 }

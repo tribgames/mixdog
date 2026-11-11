@@ -68,7 +68,7 @@ async fn cache_entry_expires_a_ttl_after_the_call_settles() {
     let (d, h, _) = dispatch(Echo::default());
     d.dispatch(client("t", None), req("reply", json!({"n":1}), Some("c"))).await.unwrap();
     assert_eq!(d.cached_calls(), 1);
-    tokio::time::sleep(Duration::from_secs(61)).await;
+    mixdog_rt::time::sleep(Duration::from_secs(61)).await;
     assert_eq!(d.cached_calls(), 0);
     d.dispatch(client("t", None), req("reply", json!({"n":1}), Some("c"))).await.unwrap();
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);

@@ -158,7 +158,7 @@ impl RoutineRuntime {
         let (settle, timed_out) = if heartbeat {
             // The heartbeat turn is cut off at its wall-clock cap: it is aborted and ends
             // cleanly with no reply.
-            let cap = tokio::time::sleep(Duration::from_millis(HEARTBEAT_WALL_CLOCK_MS));
+            let cap = mixdog_rt::time::sleep(Duration::from_millis(HEARTBEAT_WALL_CLOCK_MS));
             tokio::pin!(cap);
             let early = tokio::select! {
                 settle = &mut settle => Some(settle),

@@ -3639,7 +3639,7 @@ impl SessionActor {
         let jobs = self.jobs_tx.clone();
         let expiring = id.clone();
         let timer = tokio::spawn(async move {
-            tokio::time::sleep(TOAST_TTL).await;
+            mixdog_rt::time::sleep(TOAST_TTL).await;
             let _ = jobs.send(JobDone::ToastExpired(expiring));
         });
         self.toast_timers.insert(id, timer.abort_handle());
@@ -4727,7 +4727,7 @@ impl SessionActor {
         self.accept_view(Change::Section(Section::SetupUiRequest(Some(request))), Vec::new());
         let jobs = self.jobs_tx.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(window).await;
+            mixdog_rt::time::sleep(window).await;
             let _ = jobs.send(JobDone::SetupUiExpired(id));
         });
     }
@@ -4760,7 +4760,7 @@ impl SessionActor {
         let (jobs, status, thread) = (self.jobs_tx.clone(), self.deps.agent_status.clone(), self.id.clone());
         tokio::spawn(async move {
             if !listener {
-                tokio::time::sleep(STATUS_SETTLE).await;
+                mixdog_rt::time::sleep(STATUS_SETTLE).await;
             }
             let agents = status.status(&thread).await;
             let _ = jobs.send(JobDone::AgentStatus { agents, listener });
@@ -5363,7 +5363,7 @@ impl SessionActor {
                 self.cell.prompt_timers.fetch_add(1, SeqCst);
                 let jobs = self.jobs_tx.clone();
                 // The wait starts as it is armed, as Node's `setTimeout` does, not when the task first runs.
-                let due = tokio::time::sleep(delay);
+                let due = mixdog_rt::time::sleep(delay);
                 drop(tokio::spawn(async move {
                     due.await;
                     let _ = jobs.send(JobDone::PromptRetryDue(epoch));
@@ -5473,7 +5473,7 @@ fn goal_lane_status(goal: &Goal) -> &str {
 
 async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        Some(deadline) => mixdog_rt::time::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
 }

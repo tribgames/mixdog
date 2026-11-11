@@ -302,7 +302,7 @@ impl NewTaskReceipts {
     /// `Err` when a write outlived `bound`.
     pub async fn shutdown(&self, bound: std::time::Duration) -> Result<(), String> {
         self.cut();
-        match tokio::time::timeout(bound, self.alive.write()).await {
+        match mixdog_rt::time::timeout(bound, self.alive.write()).await {
             Ok(_) => Ok(()),
             Err(_) => Err(format!("a new-task receipt write did not end within {bound:?} of shutdown; its receipt holds the phase before or after it")),
         }

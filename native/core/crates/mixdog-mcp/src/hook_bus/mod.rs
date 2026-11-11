@@ -516,7 +516,7 @@ async fn run_prompt(runner: &dyn PromptRunner, handler: &HookHandler, payload: &
     if prompt.is_empty() {
         return HandlerRun::failed("prompt handler missing prompt", false);
     }
-    let call = tokio::time::timeout(timeout, runner.run(prompt, payload, timeout, cancel)).await;
+    let call = mixdog_rt::time::timeout(timeout, runner.run(prompt, payload, timeout, cancel)).await;
     let text = match call {
         Err(_) => {
             cancel.cancel();

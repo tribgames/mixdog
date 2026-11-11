@@ -1276,7 +1276,7 @@ impl ExecRuntime {
             // `false` only for an abort: this watch raises none, so whichever way the wait ends, the task ends.
             let never = CancellationToken::new();
             loop {
-                match tokio::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle, &never)).await {
+                match mixdog_rt::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle, &never)).await {
                     Ok(_) => break,
                     Err(_) if watched.termination_pending() && watch.kill(&watched.handle).await => break,
                     Err(_) => {}

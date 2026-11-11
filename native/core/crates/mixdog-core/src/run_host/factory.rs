@@ -1575,7 +1575,7 @@ mod tests {
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         // Woken by each step of the thread's actor; the frame is searched for before waiting.
-        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+        let shown = mixdog_rt::time::timeout(std::time::Duration::from_secs(30), async { loop {
             let stepped = handle.stepped().notified();
             tokio::pin!(stepped);
             stepped.as_mut().enable();
@@ -2701,7 +2701,7 @@ mod tests {
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "go" } }), op)).await.expect("turn/start");
         let Reply::Value(started) = started else { panic!("turn/start answers a value") };
         assert_eq!(started["kind"], "started", "{op}");
-        let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
+        let sent = mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv())
             .await
             .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request turn {op} hands the provider"))
             .expect("the provider is alive");
@@ -2734,7 +2734,7 @@ mod tests {
         let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
         settled_turns(&world, &id, &handle, 1, covered_before).await;
         let before = stored_state(&world, &id, &handle);
         let first = snapshot_call(&tools_status(&world), &id, "go").await;
@@ -2788,7 +2788,7 @@ mod tests {
         let covered_before = talked_handle.header_snapshot().get("turnCoverage").cloned();
         let started = talked_handle.request(request("turn/start", json!({ "threadId": talked, "opId": "op-1", "input": { "prompt": "hi" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
         settled_turns(&world, &talked, &talked_handle, 1, covered_before).await;
         let (directory, parts) = world.next.bound().expect("bound");
         let directory = directory.upgrade().expect("directory");
