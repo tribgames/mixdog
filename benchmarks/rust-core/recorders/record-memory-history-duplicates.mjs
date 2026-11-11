@@ -190,7 +190,7 @@ finish(ctx, {
   golden: { domain: 'memory-history-duplicates', source: 'src/runtime/memory/lib/history-duplicates.test.mjs', clock: { dateNowMs: CLOCK_MS, reason: 'verifiedAt of chunk_quality' }, cases },
   extra: {
     entry: { runs: 'retrieveEntries (memory-retrievers.mjs), searchRelevantHybrid and preferLatestConceptRows (memory-recall-store.mjs), collapseHistoryDuplicates, buildRecallScopeFilter, makeChunkQuality/assessChunkQuality', notRun: 'PostgreSQL: db.query is the test file\'s SQLite stand-in (it translates ANY($n::bigint[]) and casts, and answers the hybrid candidate CTE with every root row); candidate retrieval SQL is replayed by the recall goldens' },
-    replay: 'mixdog-services memory: mem/recall (retrieve_entries/browse, search_by_query + page_rows collapse, collapse_history_duplicates in ranking.rs) over a db seam holding the same entries rows; compares returned ids (or members), the ordered statements the handler sends (text and params) and the table after. Statement text is the Node SQL; a Rust replay maps it to its own statements and compares ids, order and params only',
+    replay: "mixdog-services memory/recall/ranking.rs: pub fn collapse_history_duplicates (:414); memory/recall/browse.rs: pub async fn recall_session_rows (:696) and recall_core_rows (:860); all reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay runs the same entries table through those calls and compares the returned rows whole, in order, with the statements sent",
     exclusions: 'the statements are those of Node\'s SQL; the golden records them for the replay author but the SQLite translation is the test\'s own',
     normalised: { verifiedAt: 'Date.now() fixed at clock.dateNowMs (virtual clock)' },
   },

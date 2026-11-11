@@ -1,6 +1,5 @@
 {
   "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
-  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "PostgreSQL: db.query is the test file's SQLite stand-in (it translates ANY($n::bigint[]) and casts, and answers the hybrid candidate CTE with every root row); candidate retrieval SQL is replayed by the recall goldens",
     "runs": "retrieveEntries (memory-retrievers.mjs), searchRelevantHybrid and preferLatestConceptRows (memory-recall-store.mjs), collapseHistoryDuplicates, buildRecallScopeFilter, makeChunkQuality/assessChunkQuality"
@@ -20,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -50,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs",
-  "recorderSha256": "dbf4ce63830cd02bd720286be1290339b94b061bbc820e6d98e82f3e33aa6e29",
-  "replay": "mixdog-services memory: mem/recall (retrieve_entries/browse, search_by_query + page_rows collapse, collapse_history_duplicates in ranking.rs) over a db seam holding the same entries rows; compares returned ids (or members), the ordered statements the handler sends (text and params) and the table after. Statement text is the Node SQL; a Rust replay maps it to its own statements and compares ids, order and params only",
+  "recorderSha256": "b3e957394a79f7fb552d3300d7339488ebbb0a28a035c999305f617f3d921a02",
+  "replay": "mixdog-services memory/recall/ranking.rs: pub fn collapse_history_duplicates (:414); memory/recall/browse.rs: pub async fn recall_session_rows (:696) and recall_core_rows (:860); all reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay runs the same entries table through those calls and compares the returned rows whole, in order, with the statements sent",
   "set": "memory-history-duplicates",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 76069,
-  "uuidsNormalised": "none"
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
