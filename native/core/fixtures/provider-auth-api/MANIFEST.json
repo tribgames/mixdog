@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 34145,
+      "bytes": 35591,
       "path": "cases.json",
-      "sha256": "2aa3d20ce5641eb27bcc8e1c1bd7cfb5069f1fee6ff5094fd4316628b73b8f18"
+      "sha256": "091f25177b8ea2c91aa1dc7516f1830116222dde54b7ed9c3c211929dfcc939d"
     }
   ],
   "inputs": [
@@ -119,9 +119,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-auth-api.mjs",
-  "recorderSha256": "54d8e26eb71cffc39cd5bd74e6a2bec643f5f04a4f004996bf51ab0de818e97a",
+  "recorderSha256": "aeb82537bb8a3e2d09ee8fe493ed84836eb59b900bd0cc2db0a6a4ba93d56cf7",
   "replay": "Rust entry (pub, on o1): mixdog_core_domains ai_admin AccountActions (account_actions.rs:61, constructors new/over :113/:117) and ai_account spawn_provider_changes (provider_changes.rs:96) with LiveProviderEffects (provider_changes.rs:71). The catalog refresh after a key save is OPEN (K1 G8, dec:828): work for the Rust side.",
   "set": "provider-auth-api",
-  "totalBytes": 34145,
+  "totalBytes": 35591,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

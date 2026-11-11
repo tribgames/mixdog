@@ -938,11 +938,82 @@
           "plain"
         ]
       },
-      "error": {
-        "$exact": "error",
-        "name": "Error",
-        "message": "recorder: the plain roster reached the keychain step did not happen within 5 s",
-        "props": {}
+      "result": {
+        "accountCount": 5,
+        "immediately": [
+          [
+            "keychain"
+          ]
+        ],
+        "usageCalls": [
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a1"
+            },
+            {
+              "account": "a1"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a2"
+            },
+            {
+              "account": "a2"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a3"
+            },
+            {
+              "account": "a3"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a4"
+            },
+            {
+              "account": "a4"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a5"
+            },
+            {
+              "account": "a5"
+            },
+            {
+              "force": false
+            }
+          ]
+        ],
+        "plainCalls": [],
+        "calls": []
       },
       "calls": [
         {
@@ -995,6 +1066,14 @@
               }
             }
           ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 1
         }
       ]
     },
