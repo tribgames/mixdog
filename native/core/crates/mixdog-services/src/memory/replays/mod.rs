@@ -3,6 +3,7 @@
 //! its MANIFEST.json names.
 
 mod light_ko_morph;
+mod model_config;
 mod project_id;
 mod query_ranking;
 mod recall_fusion;
