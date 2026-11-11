@@ -48199,9 +48199,10 @@
           "model": "BPE",
           "tokenizerFile": "tokenizer-bpe.json",
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "unsupported model BPE",
-            "code": null
+            "props": {}
           },
           "thrown": {
             "isUnsupportedTokenizerError": true,
@@ -48213,9 +48214,10 @@
           "model": "WordPiece",
           "tokenizerFile": "tokenizer-wordpiece.json",
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "unsupported model WordPiece",
-            "code": null
+            "props": {}
           },
           "thrown": {
             "isUnsupportedTokenizerError": true,

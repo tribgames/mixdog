@@ -8,9 +8,9 @@
   "fileCount": 5,
   "files": [
     {
-      "bytes": 769924,
+      "bytes": 769984,
       "path": "golden.json",
-      "sha256": "046621e61a65102875853ec09d4c3937f7d7c00f0fd5ab98aa74f7a98cd79009"
+      "sha256": "813af2a636aa0c65a9ad5f65d65228b1996eb90b54460395d1c76b67149d767b"
     },
     {
       "bytes": 1337,
@@ -39,8 +39,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -69,10 +73,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-tokenizer.mjs",
-  "recorderSha256": "1810b095c3239df2889cd3cbcc75f4f49ce8d4bf8291c9c166b90d54de27c05b",
-  "replay": "mixdog-services memory: mem/embed/tokenizer.rs load + encode over tokenizer-main.json / tokenizer-cut.json; compares ids for every sample, the window cut, and the unsupported-model refusal (Node message in `unsupported`).",
+  "recorderSha256": "1651541ca2f8dd61b7d2342b9ebad1ba5c4232d9205017a830c0dec64d8d1acb",
+  "replay": "mixdog-services memory/embed/tokenizer.rs: UnigramTokenizer::load (:106) and encode (:356) (pub). A replay loads the same compact tokenizer layouts and compares ids, window cut and the unsupported-layout errors",
   "set": "memory-embedding-tokenizer",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 804194,
-  "uuidsNormalised": "none"
+  "totalBytes": 804254,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
