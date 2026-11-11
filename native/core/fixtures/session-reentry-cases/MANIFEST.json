@@ -1,0 +1,60 @@
+{
+  "cases": 7,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-reentry-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no real runtime or store; the daemon client is the service called in-process",
+    "runs": "apps/desktop/src/main/session-host.ts SessionHost (setVisibleSessions, submitToSession, prefetchSession, subscribeSessionStates) over the real createSessionService (idle eviction sweep, handleCall session.*) with a scripted stored session and runtime, node:test mock timers, the read-diagnostics sink"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 14420,
+      "path": "golden.json",
+      "sha256": "ba91dd44b579be21ae0992ecf23c40df22433ed7210dbfae02092ca1973397f8"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-reentry-cases.mjs",
+  "recorderSha256": "77e5dbf8a0cc669fd66a4ae3fc76a10799df9bf2e1a89dab878bd5863efbe7b7",
+  "replay": {
+    "entry": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
+    "normalised": {
+      "clock": "mock timers, not the shared fixed Date.now",
+      "dataDir": "temp user-data dir not in the recording"
+    }
+  },
+  "set": "session-reentry-cases",
+  "totalBytes": 14420
+}
