@@ -239,6 +239,15 @@ impl Outbox {
         self.entries.binary_search_by_key(&id, |entry| entry.id).ok()
     }
 
+    /// The entry `id` is not released (durable or failed) yet.
+    pub fn contains(&self, id: u64) -> bool {
+        self.index(id).is_some()
+    }
+
+    pub fn get(&self, id: u64) -> Option<&Entry> {
+        self.entries.get(self.index(id)?)
+    }
+
     pub fn get_mut(&mut self, id: u64) -> Option<&mut Entry> {
         let index = self.index(id)?;
         self.entries.get_mut(index)

@@ -364,6 +364,7 @@ fn every_record_kind_parses_and_encodes_to_its_vector() {
         "op",
         "checkpoint",
         "model_switch",
+        "draft",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -517,6 +518,7 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
         json!({"k": "queue", "qid": id, "action": "enqueue", "reason": "cancelled", "op": op, "entry": slot}),
         json!({"k": "op", "op": op, "state": "externalPending", "at": neg, "detail": slot}),
         json!({"k": "model_switch", "anchor": {"iid": id, "ordinal": big}, "op": op, "entry": switch}),
+        json!({"k": "draft", "rid": id, "body": slot}),
     ];
     let mut largest = 0;
     for value in records {

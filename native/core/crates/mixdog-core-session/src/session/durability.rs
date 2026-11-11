@@ -97,6 +97,7 @@ pub(crate) struct DurabilityTask {
 fn lost() -> BarrierError {
     BarrierError::Indeterminate {
         io_kind: "writerLost".into(),
+        cause: "writerLost".into(),
     }
 }
 
@@ -252,9 +253,20 @@ impl DurabilityTask {
                 FromDurability::Retried(result)
             }
         };
-        self.tx.send(msg).await.is_ok()
+        #[cfg(test)]
+        let failed = matches!(msg, FromDurability::Failed { .. });
+        let sent = self.tx.send(msg).await.is_ok();
+        #[cfg(test)]
+        if failed && let Some(told) = lock(&FAILURE_SENT).take() {
+            let _ = told.send(());
+        }
+        sent
     }
 }
+
+/// Told once a failed barrier's outcome is in the actor's channel: a test holds the actor until then.
+#[cfg(test)]
+pub(crate) static FAILURE_SENT: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None);
 
 enum Done {
     Commit {

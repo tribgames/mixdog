@@ -78,10 +78,17 @@ pub trait RecordCodec: Send + Sync + 'static {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BarrierError {
     /// Rolled back to the acked end (`RollingBack → Clean`): nothing of the batch is applied.
-    Failed { io_kind: Arc<str> },
+    Failed { io_kind: Arc<str>, cause: Arc<str> },
     /// The rollback failed too (`PendingRollback`): the batch's outcome is unknown until a
     /// later commit or retry truncates it.
-    Indeterminate { io_kind: Arc<str> },
+    Indeterminate { io_kind: Arc<str>, cause: Arc<str> },
+}
+
+impl BarrierError {
+    /// A failure with no error of its own to tell: its cause is its kind.
+    pub fn failed(io_kind: &str) -> Self {
+        Self::Failed { io_kind: io_kind.into(), cause: io_kind.into() }
+    }
 }
 
 /// The SM §8 `LogWriter` of one session, owned by its `DurabilityTask` alone (I1, SPEC R26).
@@ -167,6 +174,10 @@ pub trait SensitiveMarks: Send + Sync + 'static {
     /// Calls `listener` whenever `thread` gains a sensitive value, until the returned guard
     /// drops.
     fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send>;
+    /// `redactSettledText`: what of streaming `text` can be journaled now, the thread's values redacted.
+    fn redact_settled(&self, thread: &ThreadId, text: &str) -> String;
+    /// `_messagesForDisk`'s redaction of message rows with the thread's values.
+    fn redact_messages(&self, thread: &ThreadId, rows: &[Value]) -> Vec<Value>;
 }
 
 /// Today's `ingestSessionIntoMemory` (`memory-ingest.mjs:15`) when a session closes.

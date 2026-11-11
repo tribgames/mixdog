@@ -852,7 +852,7 @@ impl LogWriter {
             WriterState::Clean { end } => Ok(end),
             WriterState::PendingRollback { target, .. } => {
                 let file = self.file_handle().map_err(AppendError::Refused)?;
-                match file.truncate(target).and_then(|()| file.sync()) {
+                match truncate_fault().and_then(|()| file.truncate(target)).and_then(|()| file.sync()) {
                     Ok(()) => {
                         self.state = WriterState::Clean { end: target };
                         Ok(target)
@@ -938,8 +938,13 @@ impl LogWriter {
         #[cfg(feature = "crash-hook")]
         let records: Vec<Record> = batch.iter().map(|e| e.record.clone()).collect();
         #[cfg(feature = "crash-hook")]
-        fsio::append_step(fsio::AppendStep::Write, &records);
+        let write_fault = fsio::append_step(fsio::AppendStep::Write, &records).err();
+        #[cfg(not(feature = "crash-hook"))]
+        let write_fault: Option<io::Error> = None;
         if rotate {
+            if let Some(fault) = write_fault {
+                return Err(AppendError::BarrierFailed(self.io_err(IoOp::Write, fault)));
+            }
             revalidate(&deps)?;
             let path = self.path(file_no);
             // A failed publish leaves the writer Clean on the old file (SM §8 rule 4).
@@ -953,7 +958,11 @@ impl LogWriter {
                 Ok(f) => f,
                 Err(e) => return Err(AppendError::BarrierFailed(e)),
             };
-            let write = file.write_at(end, &buf);
+            // An injected write fault stops the write half way, as a full disk does.
+            let write = match write_fault {
+                Some(fault) => file.write_at(end, &buf[..buf.len() / 2]).and(Err(fault)),
+                None => file.write_at(end, &buf),
+            };
             self.state = WriterState::Dirty { acked: end, written };
             if let Err(e) = write {
                 return Err(self.roll_back(end, IoOp::Write, e));
@@ -962,14 +971,18 @@ impl LogWriter {
                 self.state = WriterState::Fenced(reason);
                 return Err(AppendError::Fenced { reason, outcome: Outcome::Unknown });
             }
+            #[cfg(feature = "crash-hook")]
+            let sync_fault = fsio::append_step(fsio::AppendStep::Sync, &records);
+            #[cfg(not(feature = "crash-hook"))]
+            let sync_fault = Ok(());
             let file = self.file.as_mut().expect("opened");
-            if let Err(e) = file.sync() {
+            if let Err(e) = sync_fault.and_then(|()| file.sync()) {
                 return Err(self.roll_back(end, IoOp::SyncFile, e));
             }
             self.state = WriterState::Clean { end: written };
         }
         #[cfg(feature = "crash-hook")]
-        fsio::append_step(fsio::AppendStep::Synced, &records);
+        let _ = fsio::append_step(fsio::AppendStep::Synced, &records);
 
         // Durable: phase 2 of the fold, then the projection.
         let mut frames = Vec::with_capacity(positions.len());
@@ -1026,7 +1039,7 @@ impl LogWriter {
         let cause = self.io_err(op, cause);
         self.state = WriterState::RollingBack { target };
         let file = self.file.as_mut().expect("opened");
-        match file.truncate(target).and_then(|()| file.sync()) {
+        match truncate_fault().and_then(|()| file.truncate(target)).and_then(|()| file.sync()) {
             Ok(()) => {
                 self.state = WriterState::Clean { end: target };
                 AppendError::BarrierFailed(cause)
@@ -1041,6 +1054,14 @@ impl LogWriter {
             }
         }
     }
+}
+
+/// A rollback's truncate failed by the test hook ([`fsio::AppendStep::Truncate`]); always `Ok` in a build without it.
+fn truncate_fault() -> io::Result<()> {
+    #[cfg(feature = "crash-hook")]
+    return fsio::append_step(fsio::AppendStep::Truncate, &[]);
+    #[cfg(not(feature = "crash-hook"))]
+    Ok(())
 }
 
 fn revalidate(deps: &WriterDeps) -> Result<(), AppendError> {

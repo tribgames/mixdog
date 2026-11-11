@@ -304,12 +304,10 @@ impl SessionLog for MemLog {
             let _ = go.recv();
         }
         if self.fail_next.swap(false, Ordering::SeqCst) {
-            return Err(BarrierError::Failed {
-                io_kind: "test".into(),
-            });
+            return Err(BarrierError::failed("test"));
         }
         if let Some(cause) = lock(&self.failing).clone() {
-            return Err(BarrierError::Failed { io_kind: cause });
+            return Err(BarrierError::Failed { io_kind: cause.clone(), cause });
         }
         let sets_compaction = batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("compaction")));
         let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
@@ -833,6 +831,8 @@ pub type Script =
 /// Runs whose body the test sets.
 pub struct ScriptRuns {
     pub script: Mutex<Script>,
+    /// The input row each crashed run was recovered with.
+    pub crashed: Mutex<Vec<Option<mixdog_core_api::ids::ItemId>>>,
 }
 
 impl RunFactory for ScriptRuns {
@@ -843,7 +843,8 @@ impl RunFactory for ScriptRuns {
 
     /// A scripted run commits rows the script chose; its crash leaves none (the run host's own finalization is
     /// `RunHostFactory`'s).
-    fn crashed(&self, _run: super::seams::CrashedRun) -> super::seams::CrashedRows {
+    fn crashed(&self, run: super::seams::CrashedRun) -> super::seams::CrashedRows {
+        lock(&self.crashed).push(run.input);
         super::seams::CrashedRows::default()
     }
 }
@@ -1692,6 +1693,7 @@ impl Rig {
             _data: data,
             store,
             runs: Arc::new(ScriptRuns {
+                crashed: Mutex::default(),
                 script: Mutex::new(idle),
             }),
             feeds: Arc::new(RecFeeds::default()),

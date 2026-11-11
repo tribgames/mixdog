@@ -10,7 +10,7 @@ use mixdog_core_api::domain::provider::ToolCall;
 
 const INTERRUPT_MESSAGE: &str = "[Request interrupted by user]";
 const INTERRUPT_MESSAGE_FOR_TOOL_USE: &str = "[Request interrupted by user for tool use]";
-const PROCESS_RESTART_INTERRUPT_MESSAGE: &str = "[Request interrupted by process restart]";
+pub const PROCESS_RESTART_INTERRUPT_MESSAGE: &str = "[Request interrupted by process restart]";
 const SESSION_INTERRUPT_MESSAGE: &str = "[Request interrupted]";
 /// Short result body for any unfinished call closed by cancel or crash.
 const INTERRUPTED_TOOL_RESULT: &str = "Cancelled";

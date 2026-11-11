@@ -278,11 +278,23 @@ fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_se
     if sealed {
         return CrashedRows { sealed: true, ..CrashedRows::default() };
     }
+    // The turn was sealed (its final reply drafted) but the reply's row never landed: the reply is committed as that row
+    // and the turn ends finished, as Node brings a sealed checkpoint back (`turn-checkpoint-recovery.mjs`).
+    if let Some(row) = run.draft.sealed.clone() {
+        return CrashedRows { sealed: true, rows: vec![ItemCommit { iid: new_item_id(), role: Some("assistant".to_owned()), model: true, visible: true, body: row, prompt: None }], context: None };
+    }
+    // A recovery whose rows landed but whose end record did not (the process died again in between) left the restart line
+    // closing the turn: finalized again, the turn is rebuilt with that line at the same place, which is kept, not added again.
+    let restart = |message: &AgentMessage| message.role() == Role::User && message.text() == mixdog_agent::interrupt::PROCESS_RESTART_INTERRUPT_MESSAGE;
+    let mut transcript: Vec<AgentMessage> = known.iter().map(|(_, message)| message.clone()).collect();
+    if answered && transcript.last().is_some_and(restart) {
+        transcript.pop();
+    }
     let draft = run.draft;
     let calls = message_of(&json!({ "role": "assistant", "content": "", "toolCalls": draft.calls })).map(|message| message.tool_calls().to_vec()).unwrap_or_default();
     let results = draft.results.iter().filter_map(|row| message_of(row).ok()).collect();
     let finalized = finalize_interrupted_turn(Interrupted {
-        transcript: known.iter().map(|(_, message)| message.clone()).collect(),
+        transcript,
         current_user_text: input.map(|at| known[at].1.text()).unwrap_or_default(),
         response_started: draft.started || answered,
         partial_assistant: draft.text,
@@ -298,7 +310,7 @@ fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_se
     let mut rows = Vec::new();
     let mut replacement: Vec<(ItemId, Value)> = Vec::new();
     for (index, message) in finalized.transcript.iter().enumerate() {
-        let (iid, mut body) = match known.get(index).filter(|(_, was)| was == message) {
+        let (iid, mut body) = match known.get(index).filter(|(_, was)| was == message || (restart(was) && restart(message))) {
             Some((iid, _)) => (iid.clone(), run.context[index].1.clone()),
             None => {
                 let (iid, mut body) = (new_item_id(), row_of(message));
@@ -355,17 +367,14 @@ struct DraftClock {
 /// `TranscriptSink` over the run's port: commits go to the actor in order on one task, and
 /// `durable` waits for that task. `Ticket(0)` is the turn's input row, which the actor committed.
 struct PortSink {
-    jobs: mpsc::UnboundedSender<Job>,
+    jobs: Jobs,
     done: watch::Receiver<u64>,
-    seq: AtomicU64,
     port: RunPort,
     rows: Arc<StoredRows>,
     live: LiveTurnPublisher,
     turn: Mutex<Vec<AgentMessage>>,
     /// The item the shown assistant text belongs to, until its message commits.
     streaming: Arc<Mutex<Option<ItemId>>>,
-    /// `markAssistantMessageCommitted` empties it.
-    observed: Arc<Mutex<Observed>>,
     iids: Mutex<HashMap<String, ItemId>>,
     clock: Arc<dyn Clock>,
     blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
@@ -414,6 +423,51 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// The run's jobs in order, and the draft they take from: what a draft takes from `observed`, and an assistant commit
+/// empties of it, is numbered and queued while `observed` is held, so no draft of a message lands after the message's row.
+struct Jobs {
+    /// `markAssistantMessageCommitted` empties it.
+    observed: Arc<Mutex<Observed>>,
+    seq: AtomicU64,
+    tx: mpsc::UnboundedSender<Job>,
+    /// Called once a draft's body is taken, before it is queued.
+    #[cfg(test)]
+    taken: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl Jobs {
+    /// Queues what the draft gained since its last write.
+    fn draft(&self) {
+        let mut observed = lock(&self.observed);
+        if let Some(body) = observed.undrafted() {
+            #[cfg(test)]
+            if let Some(taken) = lock(&self.taken).take() {
+                taken();
+            }
+            self.queue(&mut observed, |n| Job::Draft(n, body));
+        }
+    }
+
+    /// Queues a row of the run (an assistant message's ends its draft), after the seal of the turn's reply if any.
+    fn row(&self, assistant: bool, sealed: Option<Value>, item: ItemCommit) -> u64 {
+        let mut observed = lock(&self.observed);
+        if assistant {
+            observed.message_committed();
+        }
+        if let Some(sealed) = sealed {
+            self.queue(&mut observed, |n| Job::Draft(n, sealed));
+        }
+        self.queue(&mut observed, |n| Job::Commit(n, item))
+    }
+
+    /// Numbers and queues one job; `_held` is the observed record, held by the caller.
+    fn queue(&self, _held: &mut Observed, job: impl FnOnce(u64) -> Job) -> u64 {
+        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let _ = self.tx.send(job(n));
+        n
+    }
+}
+
 impl PortSink {
     fn spawn(
         port: RunPort,
@@ -456,7 +510,14 @@ impl PortSink {
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), drafted: Mutex::new(DraftClock::default()) })
+        let jobs = Jobs {
+            observed,
+            seq: AtomicU64::new(0),
+            tx: jobs,
+            #[cfg(test)]
+            taken: Mutex::default(),
+        };
+        Arc::new(Self { jobs, done, port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None), drafted: Mutex::new(DraftClock::default()) })
     }
 
     /// The run's draft changed (`checkpoint.schedule`): written now when `now` (a boundary) or when the last write is
@@ -494,11 +555,7 @@ impl PortSink {
 
     /// Queues what the draft gained since its last write, in order with the run's rows.
     fn write_draft(&self) {
-        let body = lock(&self.observed).undrafted();
-        if let Some(body) = body {
-            let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
-            let _ = self.jobs.send(Job::Draft(n, body));
-        }
+        self.jobs.draft();
     }
 
     /// What Node's loop and turn commit write on an assistant row besides its content: its id, time and
@@ -555,7 +612,7 @@ impl PortSink {
 
     /// Every queued commit is durable (or failed).
     async fn flush(&self) {
-        let last = self.seq.load(Ordering::SeqCst);
+        let last = self.jobs.seq.load(Ordering::SeqCst);
         let mut done = self.done.clone();
         let _ = done.wait_for(|d| *d >= last).await;
     }
@@ -573,8 +630,9 @@ impl TranscriptSink for PortSink {
         // leaves what streamed of it.
         self.write_draft();
         let mut row = row_of(message);
+        let mut terminal = None;
         if message.role() == Role::Assistant {
-            let terminal = lock(&self.terminal).take();
+            terminal = lock(&self.terminal).take();
             self.stamp_assistant(&mut row, message, terminal);
         }
         // Node hides a row by what it is: a user row the transcript shows nothing for (a hook or
@@ -597,13 +655,12 @@ impl TranscriptSink for PortSink {
         } else {
             (row, true, None)
         };
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         self.rows.record(message, row.clone());
         if message.role() == Role::Tool {
             // The authoritative result is in the transcript now: an early notice of it is no longer pending
             // (`recordToolResult` deletes it).
             if let Some(id) = message.tool_call_id() {
-                lock(&self.observed).results.retain(|early| early.tool_call_id() != Some(id));
+                lock(&self.jobs.observed).results.retain(|early| early.tool_call_id() != Some(id));
             }
             if let Some(hook) = &self.on_tool_result {
                 hook(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff: message.ui_diff.clone() });
@@ -615,13 +672,9 @@ impl TranscriptSink for PortSink {
             self.live.publish(&turn, &*self.rows);
         }
         let shown = if message.role() == Role::Assistant { lock(&self.streaming).take() } else { None };
-        if message.role() == Role::Assistant {
-            let mut observed = lock(&self.observed);
-            observed.message_committed();
-            // The shown item is the message's item: a later rewrite of the context names it by this id.
-            if let (Some(id), Some(iid)) = (&message.message_id, &shown) {
-                lock(&self.iids).insert(id.clone(), iid.clone());
-            }
+        // The shown item is the message's item: a later rewrite of the context names it by this id.
+        if let (Some(id), Some(iid)) = (&message.message_id, &shown) {
+            lock(&self.iids).insert(id.clone(), iid.clone());
         }
         let role = match message.role() {
             Role::System => "system",
@@ -630,16 +683,17 @@ impl TranscriptSink for PortSink {
             Role::Tool => "tool",
             Role::Developer => "developer",
         };
+        // The turn's final reply seals its draft first (`sealed` checkpoint), durable before the row is sent: a turn whose
+        // reply row then fails to land is still recovered finished.
+        let sealed = terminal.is_some().then(|| json!({ "sealed": row.clone() }));
         let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible, body: row, prompt };
-        let _ = self.jobs.send(Job::Commit(n, item));
-        Ok(Ticket(n))
+        Ok(Ticket(self.jobs.row(message.role() == Role::Assistant, sealed, item)))
     }
 
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let replacement = messages.iter().map(|m| (self.iid_of(m), row_of(m))).collect();
         let compaction = mixdog_core_session::session::run::Compaction { replacement, at: self.clock.now_ms(), dropped_count: rewrite.dropped_count, dropped: rewrite.dropped.as_ref().map(dropped_of) };
-        let _ = self.jobs.send(Job::Compact(n, compaction));
+        self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
     }
 
     fn message_id(&self) -> String {
@@ -1497,6 +1551,65 @@ mod tests {
     use super::*;
     use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
     use mixdog_core_session::session::SessionDirectory;
+
+    /// The process died again after a recovery's rows landed and before its end record: the next recovery keeps the restart
+    /// line where it stands and adds no second one.
+    #[test]
+    fn a_recovery_whose_rows_landed_adds_no_second_restart_line() {
+        use mixdog_agent::interrupt::PROCESS_RESTART_INTERRUPT_MESSAGE;
+        let row = |role: &str, text: &str| json!({ "role": role, "content": text });
+        let context = vec![
+            (ItemId::from("in"), row("user", "do the task")),
+            (ItemId::from("partial"), row("assistant", "partial streamed answer")),
+            (ItemId::from("restart"), row("user", PROCESS_RESTART_INTERRUPT_MESSAGE)),
+        ];
+        let draft = mixdog_core_session::session::turn_draft::RunDraft { started: true, input: Some("in".into()), ..Default::default() };
+        let left = crashed_rows(mixdog_core_session::session::CrashedRun { context, input: Some(ItemId::from("in")), draft });
+        assert!(!left.sealed);
+        assert!(left.rows.is_empty(), "no row is added: {:?}", left.rows.iter().map(|row| row.body.clone()).collect::<Vec<_>>());
+        let kept: Vec<String> = left.context.expect("the context restarts on the turn").into_iter().map(|(iid, _)| iid.as_str().to_owned()).collect();
+        assert_eq!(kept, ["in", "partial", "restart"]);
+    }
+
+    /// A throttled draft takes the streamed text while the message's row commits on another thread: the draft is queued
+    /// before the row (a draft after it would recover the message a second time). The row's commit runs at the first moment
+    /// it can: at once if nothing holds the draft between taking and queuing it, else once the draft lets go.
+    #[test]
+    fn a_draft_taken_while_its_message_commits_is_queued_before_the_row() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let observed = Observed { started: true, text: "reading".into(), ..Observed::default() };
+        let jobs = Arc::new(Jobs { observed: Arc::new(Mutex::new(observed)), seq: AtomicU64::new(0), tx, taken: Mutex::default() });
+        let later: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
+        let (committer, pending) = (jobs.clone(), later.clone());
+        *lock(&jobs.taken) = Some(Box::new(move || {
+            let commit = move || {
+                let item = ItemCommit { iid: ItemId::from("row"), role: Some("assistant".into()), model: true, visible: true, body: json!({ "content": "reading" }), prompt: None };
+                committer.row(true, None, item);
+            };
+            if jobs_free(&committer) {
+                commit();
+            } else {
+                *lock(&pending) = Some(std::thread::spawn(commit));
+            }
+        }));
+        jobs.draft();
+        if let Some(thread) = lock(&later).take() {
+            thread.join().expect("the commit");
+        }
+        let mut order = Vec::new();
+        while let Ok(job) = rx.try_recv() {
+            order.push(match job {
+                Job::Draft(_, body) => format!("draft {}", body["text"].as_str().unwrap_or_default()),
+                Job::Commit(_, item) => format!("row {}", item.iid.as_str()),
+                Job::Compact(..) => "compact".to_owned(),
+            });
+        }
+        assert_eq!(order, ["draft reading", "row row"]);
+    }
+
+    fn jobs_free(jobs: &Jobs) -> bool {
+        jobs.observed.try_lock().is_ok()
+    }
 
     struct Steps(VecDeque<StreamEvent>);
 
