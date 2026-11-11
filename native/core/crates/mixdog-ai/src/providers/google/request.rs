@@ -4,6 +4,7 @@
 //! [`Dialect`] flags.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -15,6 +16,7 @@ use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::MessageSource;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::Temperature;
@@ -46,8 +48,6 @@ pub struct Dialect {
     /// The endpoint also serves other model families, which reject the
     /// Gemini-only fields (thought summaries, output cap, signatures).
     pub family_gated: bool,
-    /// A replay is bound to the model that produced it.
-    pub replay_same_model: bool,
     /// `functionCallingConfig.mode` when the request names no tool choice.
     pub default_tool_mode: Option<&'static str>,
     /// The direct Gemini API drops `temperature` for the models that ignore it (`omitIgnoredSampling`).
@@ -131,18 +131,30 @@ fn strip_ids(parts: &mut [Value]) {
     }
 }
 
-/// The recorded model parts of an assistant turn, unless another model
-/// family (or, where replays are model-bound, another model) produced them.
-fn replayed_parts(message: &Message, dialect: &Dialect, model: &str, traits: &dyn ModelTraits) -> Option<Vec<Value>> {
-    let replay = message.replay_for(&dialect.owner).next()?;
-    let parts = replay.items.get("parts")?.as_array()?.clone();
-    if let Some(recorded) = replay.items.get("model").and_then(Value::as_str)
-        && !recorded.is_empty()
-        && (traits.is_gemini_family(recorded) != traits.is_gemini_family(model)
-            || (dialect.replay_same_model && recorded != model))
-    {
+static GEMINI_OWNER: LazyLock<ProviderId> = LazyLock::new(|| ProviderId::from("gemini"));
+static ANTIGRAVITY_OWNER: LazyLock<ProviderId> = LazyLock::new(|| ProviderId::from("antigravity"));
+
+/// The Gemini-wire replay envelope of a turn, whichever Google route recorded it
+/// (`providerReplayItems(message, ['gemini', 'antigravity'])`, gemini-schema.mjs `toGeminiContent`).
+fn gemini_wire_replay(message: &Message) -> Option<&ProviderReplay> {
+    message.replay_for(&GEMINI_OWNER).chain(message.replay_for(&ANTIGRAVITY_OWNER)).next()
+}
+
+/// `hasForeignReplay`: the turn's envelope was recorded by a model outside the Gemini family, or, for a Gemini API
+/// envelope, by another model; neither it nor the signed metadata of the same response may reach the request.
+fn foreign_replay(message: &Message, model: &str, traits: &dyn ModelTraits) -> bool {
+    let Some(replay) = gemini_wire_replay(message) else { return false };
+    replay.items.get("model").and_then(Value::as_str).filter(|recorded| !recorded.is_empty()).is_some_and(|recorded| {
+        !traits.is_gemini_family(recorded) || (replay.owner == *GEMINI_OWNER && !model.is_empty() && recorded != model)
+    })
+}
+
+/// The recorded model parts of an assistant turn (`orderedReplay`), unless the envelope is foreign.
+fn replayed_parts(message: &Message, model: &str, traits: &dyn ModelTraits) -> Option<Vec<Value>> {
+    if foreign_replay(message, model, traits) {
         return None;
     }
+    let parts = gemini_wire_replay(message)?.items.get("parts")?.as_array()?.clone();
     (!parts.is_empty()).then_some(parts)
 }
 
@@ -224,18 +236,89 @@ fn claude_replay_parts(parts: Vec<Value>, own: bool) -> Vec<Value> {
     coalesce_claude_thoughts(kept).into_iter().filter(|part| !is_thought(part) || own_claude_signature(part)).collect()
 }
 
+/// `MAX_THOUGHT_SIGNATURE_CHARS`, `MAX_REPLAY_TEXT_CHARS`, `MAX_REPLAY_PARTS` (gemini-schema.mjs:34-36), in UTF-16 units.
+const MAX_THOUGHT_SIGNATURE_CHARS: usize = 16_384;
+const MAX_REPLAY_TEXT_CHARS: usize = 1_000_000;
+const MAX_REPLAY_PARTS: usize = 128;
+
+fn js_len(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// The stored `providerMetadata.gemini.<key>` list, when it holds 1 to [`MAX_REPLAY_PARTS`] parts.
+fn metadata_parts<'a>(message: &'a Message, key: &str) -> Option<&'a Vec<Value>> {
+    message.gemini_metadata.as_ref()?.get(key)?.as_array().filter(|parts| !parts.is_empty() && parts.len() <= MAX_REPLAY_PARTS)
+}
+
+/// A signature Gemini would accept back: a non-empty string within [`MAX_THOUGHT_SIGNATURE_CHARS`].
+fn valid_signature(value: &Value) -> Option<&str> {
+    value.as_str().filter(|s| !s.is_empty() && js_len(s) <= MAX_THOUGHT_SIGNATURE_CHARS)
+}
+
+/// `geminiThoughtPartsFromMetadata`: every stored thought part, signed and within the limits, or none at all.
+fn metadata_thought_parts(message: &Message) -> Vec<Value> {
+    let Some(parts) = metadata_parts(message, "thoughtParts") else { return Vec::new() };
+    let mut out = Vec::new();
+    for part in parts {
+        let text = part.get("text").and_then(Value::as_str).filter(|t| js_len(t) <= MAX_REPLAY_TEXT_CHARS);
+        let signature = part.get("thoughtSignature").and_then(valid_signature);
+        let (Some(text), Some(signature)) = (text, signature) else { return Vec::new() };
+        out.push(json!({ "text": text, "thought": true, "thoughtSignature": signature }));
+    }
+    out
+}
+
+/// `geminiTextPartsFromMetadata`: the stored text parts, when every one is valid and they spell the content.
+fn metadata_text_parts(message: &Message) -> Option<Vec<Value>> {
+    let parts = metadata_parts(message, "textParts")?;
+    let mut out = Vec::new();
+    let mut joined = String::new();
+    for part in parts {
+        let text = part.get("text").and_then(Value::as_str).filter(|t| js_len(t) <= MAX_REPLAY_TEXT_CHARS)?;
+        let mut next = json!({ "text": text });
+        if let Some(signature) = part.get("thoughtSignature") {
+            next["thoughtSignature"] = json!(valid_signature(signature)?);
+        }
+        joined.push_str(text);
+        out.push(next);
+    }
+    let expected = match &message.content {
+        Content::Text(text) => text.as_str(),
+        Content::Parts(_) => "",
+    };
+    (joined == expected).then_some(out)
+}
+
 fn model_content(
     message: &Message,
     dialect: &Dialect,
     model: &str,
     traits: &dyn ModelTraits,
 ) -> Result<Option<Value>, ProviderError> {
-    let own = if dialect.family_gated { antigravity_own_parts(message, dialect, model) } else { replayed_parts(message, dialect, model, traits) };
+    // Antigravity first takes the parts it recorded itself (`signatureSafeMessages`); every route then builds the turn
+    // as `toGeminiContent` does: a Gemini-wire envelope's parts, else the stored metadata and the message itself.
+    let own = if dialect.family_gated { antigravity_own_parts(message, dialect, model) } else { None };
     let recorded = own.is_some();
-    let mut parts = if let Some(parts) = own {
+    let mut parts = if let Some(parts) = own.or_else(|| replayed_parts(message, model, traits)) {
         parts
     } else {
-        let mut parts = content_parts(&message.content)?;
+        let metadata = !foreign_replay(message, model, traits);
+        let text_parts = || if metadata { metadata_text_parts(message) } else { None };
+        let mut parts = if message.tool_calls.is_empty() {
+            match text_parts() {
+                Some(parts) => parts,
+                None => content_parts(&message.content)?,
+            }
+        } else {
+            let mut parts = if metadata { metadata_thought_parts(message) } else { Vec::new() };
+            if !matches!(&message.content, Content::Text(text) if text.is_empty()) {
+                match text_parts() {
+                    Some(text) => parts.extend(text),
+                    None => parts.extend(content_parts(&message.content)?),
+                }
+            }
+            parts
+        };
         for call in &message.tool_calls {
             let mut function_call = json!({ "name": call.name, "args": call.arguments });
             if !call.id.is_empty() {
@@ -768,7 +851,6 @@ mod tests {
             system_role: Some("system"),
             function_ids: true,
             family_gated: false,
-            replay_same_model: true,
             default_tool_mode: None,
             omit_ignored_sampling: false,
         }

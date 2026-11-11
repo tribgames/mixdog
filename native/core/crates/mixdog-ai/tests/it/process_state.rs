@@ -27,6 +27,10 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("transport/preconnect.rs", "PRECONNECTED_AT", Reset("transport::preconnect::reset()")),
     ("providers/grok/mod.rs", "NUMBERED_REQUEST_IDS", Reset("providers::grok::reset_process_state()")),
     ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
+    ("random.rs", "NEXT", Reset("random::script(Vec::new())")),
+    ("wall.rs", "FIXED", Reset("wall::set(None)")),
+    ("providers/google/request.rs", "GEMINI_OWNER", NotState("a constant provider id")),
+    ("providers/google/request.rs", "ANTIGRAVITY_OWNER", NotState("a constant provider id")),
     (
         "oauth/lease.rs",
         "THIS",

@@ -116,14 +116,29 @@ pub fn message(node: &Exact) -> Message {
                     })
                     .collect();
             }
-            // Node's `{version, provider, items}` envelope; the Anthropic and Responses decoders hold `items` as is
-            // (Gemini's `{parts}` form is built by its own replay).
+            // Node's `{version, provider, items[, requestContext]}` envelope as the core's decoders write it: the
+            // Anthropic and Responses blocks as they are, a Gemini wire's parts as `{parts, model}`.
             "providerReplay" => {
                 assert_eq!(value.get("version").as_f64(), 1.0, "a version-1 envelope");
+                let items = crate::provider_cases::plain(value.get("items"));
+                let items = match value.try_get("requestContext") {
+                    Some(context) => {
+                        assert_eq!(context.entries().len(), 1, "a {{model}} request context: {context:?}");
+                        serde_json::json!({ "parts": items, "model": context.get("model").as_str() })
+                    }
+                    None => items,
+                };
                 message.push_replay(mixdog_core_api::domain::provider::ProviderReplay {
                     owner: mixdog_protocol::ProviderId::from(value.get("provider").as_str()),
-                    items: crate::provider_cases::plain(value.get("items")),
+                    items,
                 });
+            }
+            // The stored metadata the agent hands the provider: its Gemini parts (`Message::gemini_metadata`).
+            "providerMetadata" => {
+                for (slot, _) in value.entries() {
+                    assert_eq!(slot, "gemini", "a providerMetadata slot these replays do not read: {slot}");
+                }
+                message.gemini_metadata = Some(crate::provider_cases::plain(value.get("gemini")));
             }
             other => panic!("a message key these replays do not read: {other}"),
         }

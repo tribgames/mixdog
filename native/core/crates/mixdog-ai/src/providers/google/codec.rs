@@ -46,6 +46,7 @@ use super::serving::VertexAccount;
 use super::serving::VertexPlace;
 use super::serving::Wire;
 use super::traits::ModelTraits;
+use crate::registry::keys::Environment;
 
 pub const GEMINI_ORIGIN: &str = "https://generativelanguage.googleapis.com";
 pub const ANTIGRAVITY_ORIGIN: &str = "https://daily-cloudcode-pa.googleapis.com";
@@ -75,6 +76,19 @@ pub struct GoogleCodec {
     provider: ProviderId,
     /// The Anthropic catalog's model capabilities, for Claude on Vertex AI ([`Self::with_claude_caps`]).
     claude_caps: CapsLookup,
+    /// The environment Antigravity's default function-calling mode is read from on every request
+    /// ([`Self::with_env`]); none reads the default.
+    env: Option<Arc<dyn Environment>>,
+}
+
+/// `FUNCTION_CALLING_MODES`: the values `MIXDOG_ANTIGRAVITY_FC_MODE` may override the default with.
+const FUNCTION_CALLING_MODES: [&str; 3] = ["AUTO", "ANY", "VALIDATED"];
+
+/// `antigravityFunctionCallingMode(env)`: the mode sent when the caller sets no tool choice, `VALIDATED` (what the
+/// Antigravity client sends) unless `MIXDOG_ANTIGRAVITY_FC_MODE` names another of [`FUNCTION_CALLING_MODES`].
+pub fn antigravity_function_calling_mode(env: &dyn Environment) -> &'static str {
+    let raw = mixdog_js::js_trim(&env.var("MIXDOG_ANTIGRAVITY_FC_MODE").unwrap_or_default()).to_uppercase();
+    FUNCTION_CALLING_MODES.iter().find(|mode| **mode == raw).copied().unwrap_or("VALIDATED")
 }
 
 /// `encodeURIComponent` with `@` kept: a version suffix (`claude-…@default`)
@@ -97,7 +111,7 @@ pub(super) fn antigravity_user_agent(client_version: &str) -> String {
 }
 
 fn uuid_v4() -> String {
-    let mut b: [u8; 16] = rand::random();
+    let mut b: [u8; 16] = crate::random::bytes();
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let hex: Vec<String> = b.iter().map(|x| format!("{x:02x}")).collect();
@@ -135,6 +149,7 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("gemini"),
             claude_caps: Arc::new(|_| None),
+            env: None,
         }
     }
 
@@ -144,6 +159,7 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("vertex-ai"),
             claude_caps: Arc::new(|_| None),
+            env: None,
         }
     }
 
@@ -162,6 +178,7 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("antigravity-oauth"),
             claude_caps: Arc::new(|_| None),
+            env: None,
         }
     }
 
@@ -169,6 +186,13 @@ impl GoogleCodec {
     /// (`buildAnthropicApiRequest({ capabilityModel })`).
     pub fn with_claude_caps(mut self, caps: CapsLookup) -> Self {
         self.claude_caps = caps;
+        self
+    }
+
+    /// The process environment Antigravity's default function-calling mode is read from
+    /// ([`antigravity_function_calling_mode`]).
+    pub fn with_env(mut self, env: Arc<dyn Environment>) -> Self {
+        self.env = Some(env);
         self
     }
 
@@ -185,6 +209,8 @@ impl GoogleCodec {
     fn replay_owner(&self) -> ProviderId {
         match self.target {
             Target::Vertex { .. } => ProviderId::from("gemini"),
+            // Node's Antigravity envelopes are `antigravity` (antigravity-response.mjs:60), not the account provider id.
+            Target::Antigravity { .. } => ProviderId::from("antigravity"),
             _ => self.provider.clone(),
         }
     }
@@ -199,7 +225,6 @@ impl GoogleCodec {
             system_role: Some("system"),
             function_ids: true,
             family_gated: false,
-            replay_same_model: true,
             default_tool_mode: None,
             omit_ignored_sampling: false,
         };
@@ -213,8 +238,7 @@ impl GoogleCodec {
             Target::Antigravity { .. } => Dialect {
                 system_role: Some("user"),
                 family_gated: true,
-                replay_same_model: false,
-                default_tool_mode: Some("VALIDATED"),
+                default_tool_mode: Some(self.env.as_deref().map_or("VALIDATED", antigravity_function_calling_mode)),
                 ..base
             },
         }
@@ -427,17 +451,21 @@ impl GoogleCodec {
                 }
                 let contents = inner["contents"].as_array().cloned().unwrap_or_default();
                 inner["sessionId"] = json!(session_id(&contents));
-                (
-                    format!("{origin}/v1internal:streamGenerateContent?alt=sse"),
-                    json!({
+                let mut envelope = json!({
                         "project": project,
                         "model": id,
                         "request": inner,
                         "requestType": "agent",
                         "userAgent": "antigravity",
                         "requestId": format!("agent-{}", uuid_v4()),
-                    }),
-                )
+                });
+                // An account with no project sends none (`JSON.stringify` drops an undefined `project`).
+                if project.is_empty()
+                    && let Some(map) = envelope.as_object_mut()
+                {
+                    map.shift_remove("project");
+                }
+                (format!("{origin}/v1internal:streamGenerateContent?alt=sse"), envelope)
             }
         };
         let body = serde_json::to_vec(&body).map_err(|e| {

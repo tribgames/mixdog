@@ -56,22 +56,6 @@ pub(crate) fn scenarios(group: &str) -> Vec<String> {
     names
 }
 
-/// Node's provider name of a replay envelope as the Rust owner of the same provider.
-fn owner_of(node: &str) -> ProviderId {
-    ProviderId::from(match node {
-        "antigravity" => "antigravity-oauth",
-        other => other,
-    })
-}
-
-/// The inverse of [`owner_of`]: the Rust owner of an envelope as Node's provider name.
-fn node_tag(owner: &ProviderId) -> String {
-    match owner.as_str() {
-        "antigravity-oauth" => "antigravity".to_owned(),
-        other => other.to_owned(),
-    }
-}
-
 /// A Node transcript message (`{role, content, toolCalls, toolCallId, providerReplay}`) as the neutral message. A Gemini-shaped
 /// replay (`items` a parts array, `requestContext.model`) becomes the Google codecs' envelope `{parts, model}`.
 pub(crate) fn message(node: &Value) -> Message {
@@ -100,7 +84,7 @@ pub(crate) fn message(node: &Value) -> Message {
         if let Some(model) = replay.pointer("/requestContext/model") {
             items["model"] = model.clone();
         }
-        message.push_replay(ProviderReplay { owner: owner_of(replay["provider"].as_str().expect("provider")), items });
+        message.push_replay(ProviderReplay { owner: ProviderId::from(replay["provider"].as_str().expect("provider")), items });
     }
     message
 }
@@ -110,7 +94,7 @@ pub(crate) fn message(node: &Value) -> Message {
 fn node_replay(replay: &ProviderReplay) -> Value {
     let mut out = Map::new();
     out.insert("version".into(), json!(1));
-    out.insert("provider".into(), json!(node_tag(&replay.owner)));
+    out.insert("provider".into(), json!(replay.owner.as_str()));
     match replay.items.get("parts") {
         Some(parts) => {
             out.insert("items".into(), parts.clone());

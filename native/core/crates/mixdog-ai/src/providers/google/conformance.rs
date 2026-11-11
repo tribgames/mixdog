@@ -543,8 +543,17 @@ fn clock() -> Box<dyn Fn() -> u64 + Send + Sync> {
     Box::new(|| NOW_MS)
 }
 
+/// An environment that sets nothing.
+struct NoVars;
+
+impl crate::registry::keys::Environment for NoVars {
+    fn var(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+
 async fn antigravity_adapter(http: Arc<Scripted>, store: Arc<MemoryStore>) -> super::adapter::GoogleAdapter {
-    super::antigravity(store, "2.19.1".into(), http, traits(), clock()).await.expect("adapter")
+    super::antigravity(store, "2.19.1".into(), http, traits(), Arc::new(NoVars), clock()).await.expect("adapter")
 }
 
 async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<StreamEvent>, Option<ProviderError>) {
