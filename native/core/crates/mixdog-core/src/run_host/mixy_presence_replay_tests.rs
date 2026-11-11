@@ -505,9 +505,11 @@ impl Profile {
     }
 }
 
-/// The recorded observation with the manifest's declaration applied: `profileFilesAfter` (the
-/// recorder's per-check state file names and Node's session path) is not compared; the lead
-/// manifest it lists is compared byte for byte as `leadManifestAfter`.
+/// The recorded observation with the manifest's declaration applied: `profileFilesAfter` is not
+/// compared. Every file it lists but the lead manifest is the recorder's own (the state paths it
+/// hands the heartbeat and the queue, named by its call counter,
+/// `record-mixy-presence-cases.mjs:56-59, :63`, and the input thread it writes, `:48-49, :119`);
+/// the lead manifest is compared whole as `leadManifestAfter`, absent included (`:75`).
 fn expected(observed: &Exact) -> Exact {
     Exact::Object(observed.entries().iter().filter(|(key, _)| key != "profileFilesAfter").cloned().collect())
 }
