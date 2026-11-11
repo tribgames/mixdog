@@ -19,8 +19,10 @@
 //! every other crate, and here only `time.rs` (its wrappers, for use off this clock) and tests arm them; such a timer fires at the
 //! first stop at or after its due, unordered among its kind.
 //!
-//! Disconnect, a malformed command, a wrong token, a non-loopback address, or no settle within settle-ms: the process exits
-//! [`EXIT_CODE`] with the cause on stderr.
+//! A thread of its own reads the connection while commands run, so a closed connection or a malformed command ends the process at
+//! once, during an `advance` or a `wait` too. Every millisecond count on the wire, and wall-ms + V, is at most [`MAX_MS`]
+//! (2^53 - 1, JavaScript's largest exact integer): a larger number, or an `advance` that would take wall-ms + V past it, ends the
+//! process, as do a wrong token, a non-loopback address and no settle within settle-ms: exit [`EXIT_CODE`], the cause on stderr.
 //!
 //! # The settle point: invariant
 //!
@@ -121,6 +123,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 use std::io::BufRead;
@@ -128,6 +131,7 @@ use std::io::BufReader;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::num::IntErrorKind;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::Condvar;
@@ -139,6 +143,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::mpsc;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -159,6 +164,9 @@ pub const ENV: &str = "MIXDOG_VIRTUAL_CLOCK";
 pub const TOKEN_ENV: &str = "MIXDOG_VIRTUAL_CLOCK_TOKEN";
 /// The exit code of a core whose replay's clock failed.
 pub const EXIT_CODE: i32 = 86;
+/// The largest millisecond count the wire carries, and the largest wall-ms + V: JavaScript's largest exact integer
+/// (`Number.MAX_SAFE_INTEGER`), where a Node replay's numbers end.
+pub const MAX_MS: u64 = (1 << 53) - 1;
 /// How long the core waits for the replay to accept its connection and send `start`.
 const HANDSHAKE: Duration = Duration::from_secs(30);
 
@@ -185,6 +193,8 @@ struct Clock {
     /// `node_log` lines a `wait` has not consumed.
     log: Mutex<Vec<String>>,
     logged: Condvar,
+    /// The commands read and not yet answered, oldest first.
+    unanswered: Mutex<VecDeque<String>>,
 }
 
 /// Node's timer lists (`lib/internal/timers.js`): one list per duration, the lists in a queue by (expiry, list id).
@@ -560,14 +570,26 @@ pub(crate) fn start(on_control: impl FnOnce() + Send + 'static, on_work: impl Fn
         timers: Mutex::new(Timers::default()),
         log: Mutex::new(Vec::new()),
         logged: Condvar::new(),
+        unanswered: Mutex::new(VecDeque::new()),
     };
     if CLOCK.set(clock).is_err() {
         fail("a second set of executors started under the replay's clock");
     }
     let clock = self::clock();
     answer(&mut stream, &format!("now {}", clock.wall_origin));
-    std::thread::Builder::new().name("mixdog-virtual-clock".to_owned()).spawn(move || serve(clock, reader, stream))?;
+    let (commands, received) = mpsc::channel();
+    std::thread::Builder::new().name("mixdog-virtual-clock-reader".to_owned()).spawn(move || read(clock, reader, &commands))?;
+    std::thread::Builder::new().name("mixdog-virtual-clock".to_owned()).spawn(move || serve(clock, &received, stream))?;
     Ok(handles)
+}
+
+/// A millisecond count from the wire: `None` when `field` is not a decimal; past [`MAX_MS`], the process ends.
+fn wire_ms(field: &str, line: &str) -> Option<u64> {
+    match field.parse::<u64>() {
+        Ok(ms) if ms <= MAX_MS => Some(ms),
+        Err(error) if *error.kind() != IntErrorKind::PosOverflow => None,
+        _ => fail(format!("the replay sent {line:?}: {field} is past {MAX_MS} ms (2^53 - 1), the largest millisecond count of the wire")),
+    }
 }
 
 fn handshake() -> (TcpStream, BufReader<TcpStream>, u64, Duration) {
@@ -592,14 +614,14 @@ fn handshake() -> (TcpStream, BufReader<TcpStream>, u64, Duration) {
     answer(&mut stream, &format!("hello {}", std::process::id()));
     stream.set_read_timeout(Some(HANDSHAKE)).unwrap_or_else(|error| fail(format!("the control connection: {error}")));
     let mut reader = BufReader::new(stream.try_clone().unwrap_or_else(|error| fail(format!("the control connection: {error}"))));
-    let line = next_line(&mut reader, "`start`");
+    let line = next_line(&mut reader, || "before `start`".to_owned());
     let (wall_origin, settle_within) = match line.split(' ').collect::<Vec<_>>().as_slice() {
         ["start", given, wall, settle] => {
             if *given != token {
                 fail(format!("the replay's `start` carries a token that is not this core's {TOKEN_ENV}: its clock is refused"));
             }
-            match (wall.parse::<u64>(), settle.parse::<u64>()) {
-                (Ok(wall), Ok(settle)) if settle > 0 => (wall, Duration::from_millis(settle)),
+            match (wire_ms(wall, &line), wire_ms(settle, &line)) {
+                (Some(wall), Some(settle)) if settle > 0 => (wall, Duration::from_millis(settle)),
                 _ => fail(format!("the replay sent a malformed `start` {line:?}: expected `start <token> <wall-ms> <settle-ms>`")),
             }
         }
@@ -609,16 +631,17 @@ fn handshake() -> (TcpStream, BufReader<TcpStream>, u64, Duration) {
     (stream, reader, wall_origin, settle_within)
 }
 
-fn next_line(reader: &mut BufReader<TcpStream>, waiting_for: &str) -> String {
+/// The next line; a closed or failed connection ends the process, the cause naming `when` (what the core was doing).
+fn next_line(reader: &mut BufReader<TcpStream>, when: impl FnOnce() -> String) -> String {
     let mut line = String::new();
-    let closed = |how: &str| -> ! {
-        fail(format!("the replay closed the control connection ({how}) while the core waited for {waiting_for}: a core under a replay's clock does not run on its own"))
+    let closed = |how: &str, when: String| -> ! {
+        fail(format!("the replay closed the control connection ({how}) {when}: a core under a replay's clock does not run on its own"))
     };
     match reader.read_line(&mut line) {
-        Ok(0) => closed("end of stream"),
+        Ok(0) => closed("end of stream", when()),
         Ok(_) => line.trim_end_matches(['\r', '\n']).to_owned(),
-        Err(error) if matches!(error.kind(), io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted) => closed(&error.to_string()),
-        Err(error) => fail(format!("the replay's control connection failed while the core waited for {waiting_for}: {error}")),
+        Err(error) if matches!(error.kind(), io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted) => closed(&error.to_string(), when()),
+        Err(error) => fail(format!("the replay's control connection failed {}: {error}", when())),
     }
 }
 
@@ -687,7 +710,7 @@ fn move_to(clock: &Clock, to: u64, during: &str) {
     lock(&clock.timers).now = to;
     clock.now.store(to, SeqCst);
     for runtime in &clock.runtimes {
-        let at = runtime.origin + Duration::from_millis(to);
+        let at = runtime.origin.checked_add(Duration::from_millis(to)).unwrap_or_else(|| fail(format!("{during}: V {to} ms is past what {}'s clock holds", runtime.name)));
         drop(runtime.handle.spawn(async move {
             let now = tokio::time::Instant::now();
             if at > now {
@@ -698,10 +721,14 @@ fn move_to(clock: &Clock, to: u64, during: &str) {
     settle(clock, during);
 }
 
-fn advance(clock: &Clock, ms: u64) {
+/// Runs Node's idle loop over `ms` and returns the wall clock it ends at.
+fn advance(clock: &Clock, ms: u64) -> u64 {
     let during = format!("advance {ms}");
+    let now = clock.now.load(SeqCst);
+    let Some((target, wall)) = now.checked_add(ms).and_then(|target| Some((target, clock.wall_origin.checked_add(target)?))).filter(|(_, wall)| *wall <= MAX_MS) else {
+        fail(format!("{during}: wall-ms {} + V {now} + {ms} is past {MAX_MS} ms (2^53 - 1), the largest wall clock the replay's clock answers", clock.wall_origin))
+    };
     settle(clock, &during);
-    let target = clock.now.load(SeqCst).saturating_add(ms);
     // An idle Node loop over `ms`: it turns at each list's expiry, in order, and fires what `processTimers` fires there.
     loop {
         let next = lock(&clock.timers).queue.first().map(|&(expiry, _, _)| expiry).filter(|expiry| *expiry <= target);
@@ -716,6 +743,12 @@ fn advance(clock: &Clock, ms: u64) {
     if clock.now.load(SeqCst) < target {
         move_to(clock, target, &during);
     }
+    wall
+}
+
+/// `within` from now on this machine's clock; a span it cannot hold ends the process.
+fn real_deadline(within: Duration, during: &str) -> std::time::Instant {
+    std::time::Instant::now().checked_add(within).unwrap_or_else(|| fail(format!("{during}: {} ms from now is past what this machine's clock holds", within.as_millis())))
 }
 
 /// What keeps the core from its settle point, if anything: the queues first, then the busy flags and the lanes (the invariant's
@@ -738,7 +771,7 @@ fn busy(clock: &Clock) -> Option<String> {
 
 /// Waits for the settle point (the invariant above), within the replay's settle bound.
 fn settle(clock: &Clock, during: &str) {
-    let deadline = std::time::Instant::now() + clock.settle_within;
+    let deadline = real_deadline(clock.settle_within, during);
     loop {
         let seen = ACTIVITY.epoch.load(SeqCst);
         let poked = pause::pokes();
@@ -832,7 +865,7 @@ pub mod pause {
 
 /// The first unconsumed log line starting with `prefix`, within `within`; the lines up to it are consumed.
 fn wait_log(clock: &Clock, within: Duration, prefix: &str) -> Option<String> {
-    let deadline = std::time::Instant::now() + within;
+    let deadline = real_deadline(within, &format!("wait for {prefix:?}"));
     let mut lines = lock(&clock.log);
     loop {
         if let Some(at) = lines.iter().position(|line| line.starts_with(prefix)) {
@@ -846,41 +879,56 @@ fn wait_log(clock: &Clock, within: Duration, prefix: &str) -> Option<String> {
     }
 }
 
-enum Command<'a> {
+enum Command {
     Advance(u64),
-    Wait { within: u64, prefix: &'a str },
+    Wait { within: u64, prefix: String },
 }
 
-fn parse(line: &str) -> Option<Command<'_>> {
+fn parse(line: &str) -> Option<Command> {
     let (verb, rest) = line.split_once(' ')?;
     match verb {
-        "advance" => rest.parse().ok().map(Command::Advance),
+        "advance" => wire_ms(rest, line).map(Command::Advance),
         "wait" => {
             let (within, prefix) = rest.split_once(' ')?;
             (!prefix.is_empty()).then_some(())?;
-            Some(Command::Wait { within: within.parse().ok()?, prefix })
+            Some(Command::Wait { within: wire_ms(within, line)?, prefix: prefix.to_owned() })
         }
         _ => None,
     }
 }
 
-fn serve(clock: &'static Clock, mut reader: BufReader<TcpStream>, mut stream: TcpStream) {
+/// Reads the replay's commands as they come, on a thread of its own, so a closed connection or a malformed command ends the
+/// process while another command blocks (an `advance` settling, a `wait` waiting).
+fn read(clock: &'static Clock, mut reader: BufReader<TcpStream>, commands: &mpsc::Sender<Command>) {
     loop {
-        let line = next_line(&mut reader, "the replay's next command");
-        let reply = match parse(&line) {
-            Some(Command::Advance(ms)) => {
-                advance(clock, ms);
-                format!("now {}", clock.wall_origin + clock.now.load(SeqCst))
-            }
-            Some(Command::Wait { within, prefix }) => match wait_log(clock, Duration::from_millis(within), prefix) {
+        let line = next_line(&mut reader, || match lock(&clock.unanswered).iter().map(|line| format!("`{line}`")).collect::<Vec<_>>() {
+            unanswered if unanswered.is_empty() => "between commands".to_owned(),
+            unanswered => format!("with {} unanswered", unanswered.join(", ")),
+        });
+        let command = parse(&line).unwrap_or_else(|| {
+            fail(format!("the replay sent a malformed command {line:?}: the clock knows `advance <ms>` and `wait <deadline-ms> <log-line prefix>`"))
+        });
+        lock(&clock.unanswered).push_back(line);
+        if commands.send(command).is_err() {
+            return;
+        }
+    }
+}
+
+/// Runs the commands [`read`] passes on, one at a time, in order.
+fn serve(clock: &'static Clock, commands: &mpsc::Receiver<Command>, mut stream: TcpStream) {
+    for command in commands {
+        let reply = match command {
+            Command::Advance(ms) => format!("now {}", advance(clock, ms)),
+            Command::Wait { within, prefix } => match wait_log(clock, Duration::from_millis(within), &prefix) {
                 Some(seen) => {
                     settle(clock, &format!("wait for {prefix:?}"));
                     format!("seen {seen}")
                 }
                 None => format!("missed {prefix}"),
             },
-            None => fail(format!("the replay sent a malformed command {line:?}: the clock knows `advance <ms>` and `wait <deadline-ms> <log-line prefix>`")),
         };
+        lock(&clock.unanswered).pop_front();
         answer(&mut stream, &reply);
     }
 }
