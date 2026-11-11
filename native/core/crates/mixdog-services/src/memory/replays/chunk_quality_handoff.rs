@@ -10,19 +10,13 @@
 //! - The classifier request: Node passes `{mode: 'cycle1', signal}`; the Rust port (`Cycle1Llm`) is the cycle1
 //!   dispatch and gets the cancellation token. `signal` is `{aborted}` read from the token at the call when the run
 //!   passes one (the recorder's `useSignal`), else absent as in Node.
-//! - `stats.llmMs / verificationMs / totalMs` and `timingFields` are the manifest's normalisation (virtual clock, 0 in
-//!   the recording): compared as the recorded 0 on the Node side and left out on the Rust side.
+//! - The generation's clock is the recording's (`Generation::now`, Node's `Date.now()` frozen at `clock.dateNowMs`), so
+//!   `stats.llmMs / verificationMs / totalMs` and `timingFields` are the core's own values.
 //! - An error a Rust entry returns is a JS `Error` with the error's message (the abort reason of case 17 is the
 //!   caller's `Error('cancelled')`; the core's cancellation is `cancelled`).
 //! - The pure parser of case 5 ran inside a 1 s vm limit in Node; the Rust parser is called directly.
-//! - Quoted rows: the recorder's rows carry a numeric `ts`; Node's database path hands BIGINT over as text
-//!   (`cycle1-rows.mjs:195`, `cycle1-window.mjs:31`), which is the only form a core row has, so the recorded prompts
-//!   and quoted rows are compared in that form (`db_prompt`, `db_quoted`).
-//!
-//! Not replayed, reported for a decision on the recording: cases 18, 19 and 20 (test lines 287, 300, 319). Their
-//! fragment cuts are made against a token budget that counts the quoted row, so a numeric `ts` (2 characters shorter
-//! than Node's database form) moves the cuts and the per-part token counts (case 18's last part: 752 recorded, 753
-//! for `"ts":"1000"`); no mapping of the recorded text gives the values Node computes for database rows.
+//! - Rows carry `ts` as text, as Node's database path hands BIGINT over (`cycle1-rows.mjs:195`,
+//!   `cycle1-window.mjs:31`); the recorder's `row()` gives it in that form.
 
 use std::sync::Mutex;
 
@@ -45,15 +39,14 @@ use crate::memory::recall::period::Clock;
 
 const SET: &str = "memory-chunk-quality-handoff";
 const REPEATED: &str = "The request and its details are repeated. ";
-const TIMING: [&str; 3] = ["llmMs", "verificationMs", "totalMs"];
 
 // ---- the recorder's input helpers
 
-/// `row(id, content, session)`: `{id, ts: id * 1000, source_turn: id, session_id, role, content}`.
+/// `row(id, content, session)`: `{id, ts: String(id * 1000), source_turn: id, session_id, role, content}`.
 fn input(id: i64, content: Option<&str>, session: &str) -> Exact {
     object(vec![
         ("id", int(id)),
-        ("ts", int(id * 1000)),
+        ("ts", string((id * 1000).to_string())),
         ("source_turn", int(id)),
         ("session_id", string(session)),
         ("role", string(if id % 2 == 1 { "user" } else { "assistant" })),
@@ -76,7 +69,7 @@ pub(super) fn qrow(value: &Exact) -> Row {
         };
         match key.as_str() {
             "id" => row.id = v.as_f64() as i64,
-            "ts" => row.ts = v.as_f64() as i64,
+            "ts" => row.ts = super::bigint(v).unwrap_or_else(|e| panic!("ts: {e}")),
             "role" => row.role = text(),
             "content" => row.content = text().unwrap_or_default(),
             "session_id" => row.session_id = text(),
@@ -104,7 +97,7 @@ fn as_recorded(row: &Row, template: &Exact) -> Exact {
             .map(|(key, recorded)| {
                 let value = match key.as_str() {
                     "id" => int(row.id),
-                    "ts" => int(row.ts),
+                    "ts" => string(row.ts.to_string()),
                     "role" => opt(&row.role),
                     "content" => string(row.content.as_str()),
                     "session_id" => opt(&row.session_id),
@@ -201,69 +194,6 @@ fn source_rows(prompt: &str) -> Vec<Exact> {
         .collect()
 }
 
-/// The recorded prompt as Node writes it for rows read from the database: node-postgres hands `ts` (BIGINT) over as
-/// text (`cycle1-rows.mjs:195`, `cycle1-window.mjs:31`), so a quoted row's `"ts":1000` of the recorder's numeric test
-/// rows is `"ts":"1000"` there, which is the only form the core's rows have.
-fn db_prompt(prompt: &str) -> String {
-    prompt
-        .split('\n')
-        .map(|line| {
-            let Some(rest) = line.strip_prefix('@') else { return line.to_owned() };
-            let Some(space) = rest.find(' ') else { return line.to_owned() };
-            let (n, body) = rest.split_at(space);
-            let Some(ts) = body.strip_prefix(" {\"ts\":") else { return line.to_owned() };
-            let end = ts.find(',').unwrap_or(0);
-            if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) || end == 0 || !ts[..end].bytes().all(|b| b.is_ascii_digit()) {
-                return line.to_owned();
-            }
-            format!("@{n} {{\"ts\":\"{}\"{}", &ts[..end], &ts[end..])
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn db_prompt_value(prompt: &Exact) -> Exact {
-    string(db_prompt(prompt.as_str()))
-}
-
-/// A recorded quoted row (`sourceRows`) in the database form of `db_prompt`.
-fn db_quoted(row: &Exact) -> Exact {
-    Exact::Object(
-        row.entries()
-            .iter()
-            .map(|(k, v)| match (k.as_str(), v) {
-                ("ts", Exact::Number(n)) => (k.clone(), string((*n as i64).to_string())),
-                _ => (k.clone(), v.clone()),
-            })
-            .collect(),
-    )
-}
-
-fn db_quoted_rows(rows: &Exact) -> Exact {
-    Exact::Array(rows.as_array().iter().map(db_quoted).collect())
-}
-
-fn db_calls(calls: &Exact) -> Exact {
-    Exact::Array(
-        calls
-            .as_array()
-            .iter()
-            .map(|call| {
-                Exact::Object(
-                    call.entries()
-                        .iter()
-                        .map(|(k, v)| (k.clone(), if k == "prompt" { db_prompt_value(v) } else { v.clone() }))
-                        .collect(),
-                )
-            })
-            .collect(),
-    )
-}
-
-fn without_timing(value: &Exact) -> Exact {
-    Exact::Object(value.entries().iter().filter(|(k, _)| !TIMING.contains(&k.as_str())).cloned().collect())
-}
-
 // ---- the scripted classifier
 
 type Reply = Box<dyn Fn(usize, &str, &CancellationToken) -> Result<String, String> + Send + Sync>;
@@ -305,7 +235,7 @@ async fn generate(what: &str, run: &Exact, now_ms: i64, signal: bool, reply: Rep
         .await
         .unwrap_or_else(|_| panic!("{what}: the generator did not settle within 60 s"));
     let calls = script.calls.into_inner().expect("calls");
-    same(&format!("{what}: calls"), &db_calls(run.get("calls")), &Exact::Array(calls.clone()));
+    same(&format!("{what}: calls"), run.get("calls"), &Exact::Array(calls.clone()));
     match outcome {
         Ok(generated) => {
             let chunks = generated
@@ -323,25 +253,19 @@ async fn generate(what: &str, run: &Exact, now_ms: i64, signal: bool, reply: Rep
                     ])
                 })
                 .collect();
-            let stats = without_timing(&Exact::plain(&generated.stats.to_json(generated.total_ms)));
+            let stats = Exact::plain(&generated.stats.to_json(generated.total_ms));
             let result = object(vec![
                 ("chunks", Exact::Array(chunks)),
                 ("rawRowIds", ints(generated.raw_row_ids.clone())),
                 ("invalidChunks", Exact::Array(generated.invalid_chunks.iter().map(invalid_value).collect())),
-                ("stats", stats),
+                ("stats", stats.clone()),
             ]);
-            let recorded = run.get("result");
-            let recorded_stats = recorded.get("stats");
-            for key in TIMING {
-                assert_eq!(recorded_stats.get(key), &int(0), "{what}: the recorded {key} is the virtual clock's 0");
+            same(&format!("{what}: result"), run.get("result"), &result);
+            // The recorder's `timingFields`: `{llmMs, totalMs}` of the stats.
+            if let Some(fields) = run.try_get("timingFields") {
+                let timing = object(vec![("llmMs", stats.get("llmMs").clone()), ("totalMs", stats.get("totalMs").clone())]);
+                same(&format!("{what}: timingFields"), fields, &timing);
             }
-            for key in ["llmMs", "totalMs"] {
-                assert_eq!(run.get("timingFields").get(key), &int(0), "{what}: timingFields.{key}");
-            }
-            let recorded = Exact::Object(
-                recorded.entries().iter().map(|(k, v)| (k.clone(), if k == "stats" { without_timing(v) } else { v.clone() })).collect(),
-            );
-            same(&format!("{what}: result"), &recorded, &result);
         }
         Err(error) => {
             assert!(run.try_get("result").is_none(), "{what}: Node returned a result, Rust failed with {}", error.message());
@@ -374,13 +298,13 @@ fn full_quoted_input_retains_code_urls_pipes_and_a_condition_after_character_400
     let c = case(&g, 0, name);
     let text = c.get("text").as_str();
     let prompt = build_cycle1_chunk_prompt(&[qrow(&input(1, Some(text), "s"))], false);
-    same(name, &db_prompt_value(c.get("prompt")), &string(prompt.as_str()));
+    same(name, c.get("prompt"), &string(prompt.as_str()));
     let quoted = source_rows(&prompt);
     same(&format!("{name}: quotedContent"), c.get("quotedContent"), quoted[0].get("content"));
     same(&format!("{name}: quotedEqualsInput"), c.get("quotedEqualsInput"), &Exact::Bool(quoted[0].get("content").as_str() == text));
     let injected = build_cycle1_chunk_prompt(&[qrow(&input(1, Some(c.get("injectedInput").as_str()), "s"))], false);
-    same(&format!("{name}: injectedPrompt"), &db_prompt_value(c.get("injectedPrompt")), &string(injected.as_str()));
-    same(&format!("{name}: injectedQuotedRows"), &db_quoted_rows(c.get("injectedQuotedRows")), &Exact::Array(source_rows(&injected)));
+    same(&format!("{name}: injectedPrompt"), c.get("injectedPrompt"), &string(injected.as_str()));
+    same(&format!("{name}: injectedQuotedRows"), c.get("injectedQuotedRows"), &Exact::Array(source_rows(&injected)));
 }
 
 #[test]
@@ -389,8 +313,8 @@ fn source_topic_keys_stay_quoted_data_alongside_their_complete_bodies() {
     let name = "source topic keys stay quoted data alongside their complete bodies";
     let c = case(&g, 1, name);
     let prompt = build_cycle1_chunk_prompt(&[qrow(c.get("input"))], false);
-    same(name, &db_prompt_value(c.get("prompt")), &string(prompt.as_str()));
-    same(&format!("{name}: quotedRows"), &db_quoted_rows(c.get("quotedRows")), &Exact::Array(source_rows(&prompt)));
+    same(name, c.get("prompt"), &string(prompt.as_str()));
+    same(&format!("{name}: quotedRows"), c.get("quotedRows"), &Exact::Array(source_rows(&prompt)));
 }
 
 #[test]
@@ -399,7 +323,7 @@ fn a_request_carries_only_its_own_length_target_and_session_grouped_rows() {
     let name = "a request carries only its own length target and session-grouped rows";
     let c = case(&g, 2, name);
     let prompt = build_cycle1_chunk_prompt(&qrows(c.get("rows")), false);
-    same(name, &db_prompt_value(c.get("prompt")), &string(prompt.as_str()));
+    same(name, c.get("prompt"), &string(prompt.as_str()));
     let lines: Vec<&str> = prompt.split('\n').collect();
     same(&format!("{name}: firstLine"), c.get("firstLine"), &string(lines[0]));
     same(&format!("{name}: sessionHeaders"), c.get("sessionHeaders"), &strings(lines.iter().filter(|l| l.starts_with("# session "))));
@@ -601,6 +525,61 @@ async fn cancellation_is_propagated_and_never_converted_to_a_quality_verdict() {
     generate(name, case(&g, 17, name).get("run"), now_ms(&g), true, reply).await;
 }
 
+#[test]
+fn large_rows_split_reversibly_within_budget_without_broken_surrogate_pairs() {
+    let g = golden(SET);
+    let name = "large rows split reversibly, within budget, without broken surrogate pairs";
+    let c = case(&g, 18, name);
+    let original_value = input(1, Some(&format!("{}FINAL: C:\\path\\file.mjs | 42", "가😀 \n".repeat(4000))), "s");
+    same(&format!("{name}: original"), c.get("original"), &original_value);
+    let original = qrow(&original_value);
+    let budget = cycle1_source_budget(4096.0).expect("budget");
+    same(&format!("{name}: budget"), c.get("budget"), &Exact::from(budget));
+    let parts = crate::memory::cycles::quality::split_cycle1_row(&original, budget).unwrap_or_else(|e| panic!("{name}: {e}"));
+    same(&format!("{name}: parts"), c.get("parts"), &Exact::Array(parts.iter().map(|p| as_recorded(p, &original_value)).collect()));
+    same(&format!("{name}: partCount"), c.get("partCount"), &int(parts.len() as i64));
+    let rejoined: String = parts.iter().map(|p| p.content.as_str()).collect();
+    same(&format!("{name}: rejoinedEqualsOriginal"), c.get("rejoinedEqualsOriginal"), &Exact::Bool(rejoined == original.content));
+    // `isWellFormed()`: the part's UTF-16 has no lone surrogate.
+    let per_part = parts
+        .iter()
+        .map(|p| {
+            let well_formed = char::decode_utf16(p.content.encode_utf16()).all(|c| c.is_ok());
+            object(vec![
+                ("sourceTokens", int(estimate_tokens(&crate::memory::cycles::quality::chunk_source_text(std::slice::from_ref(p))) as i64)),
+                ("wellFormed", Exact::Bool(well_formed)),
+            ])
+        })
+        .collect();
+    same(&format!("{name}: perPart"), c.get("perPart"), &Exact::Array(per_part));
+    same(&format!("{name}: originalEndsWith42"), c.get("originalEndsWith42"), &Exact::Bool(original.content.ends_with("42")));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn all_fragments_including_the_short_final_condition_are_represented_before_a_row_is_committed() {
+    let g = golden(SET);
+    let name = "all fragments including the short final condition are represented before a row is committed";
+    let c = case(&g, 19, name);
+    let reply: Reply = Box::new(|_, prompt, _| {
+        let content = source_rows(prompt)[0].get("content").as_str().to_owned();
+        Ok(answer("1", Some(if content.contains("FINAL-CONDITION-296") { "Keep FINAL-CONDITION-296." } else { "Repeated filler." })))
+    });
+    let (_, prompts) = generate(name, c.get("run"), now_ms(&g), false, reply).await;
+    let tokens = prompts.iter().map(|p| int(estimate_tokens(p.as_str()) as i64)).collect();
+    same(&format!("{name}: promptTokens"), c.get("promptTokens"), &Exact::Array(tokens));
+    let joined: String = prompts.iter().map(|p| source_rows(p.as_str())[0].get("content").as_str().to_owned()).collect();
+    let original = c.get("run").get("rows").as_array()[0].get("content").as_str();
+    same(&format!("{name}: observedJoinedEqualsOriginal"), c.get("observedJoinedEqualsOriginal"), &Exact::Bool(joined == original));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn failure_in_a_later_fragment_rejects_the_whole_original_row_not_just_that_fragment() {
+    let g = golden(SET);
+    let name = "failure in a later fragment rejects the whole original row, not just that fragment";
+    let reply: Reply = Box::new(|n, _, _| if n == 2 { Err("network down".into()) } else { Ok(answer("1", None)) });
+    generate(name, case(&g, 20, name).get("run"), now_ms(&g), false, reply).await;
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn large_multi_row_input_partitions_without_loss_and_maps_local_indexes_back_to_originals() {
     let g = golden(SET);
@@ -657,10 +636,9 @@ fn legacy_chunks_are_reusable_while_expanded_altered_and_incomplete_known_chunks
         if let Exact::Object(entries) = assess_probe(summary, quality, members) {
             actual.extend(entries);
         }
-        // The legacy step also records the root's chunk_quality after the assessment: none yet (the Rust assessment
-        // borrows the root and cannot write it).
+        // The legacy step also records the root's chunk_quality after the assessment: the record the root holds then.
         if step.try_get("chunkQualityAfter").is_some() {
-            actual.push(("chunkQualityAfter".into(), Exact::Undefined));
+            actual.push(("chunkQualityAfter".into(), quality.map_or(Exact::Undefined, Exact::plain)));
         }
         same(&format!("{name}: {label}"), step, &Exact::Object(actual));
     }

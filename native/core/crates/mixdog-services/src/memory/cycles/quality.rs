@@ -5,7 +5,6 @@
 //! source hash as strings; [`Row::ts`] is written the same way.
 
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
 use futures::future::BoxFuture;
 use mixdog_js::token_estimate::estimate_tokens;
@@ -436,10 +435,11 @@ impl Packets<'_, '_> {
         if estimate_tokens(prompt) as f64 > self.ctx.input_token_budget {
             return Err(Stop::Failed("cycle1 prompt exceeds input token budget".into()));
         }
-        let started = Instant::now();
+        // `Date.now()` before and after the call (memory-chunk-quality.mjs:261,268): the generation's clock.
+        let started = (self.ctx.now)();
         self.stats.grouping_calls += 1;
         let reply = self.ctx.llm.call(self.ctx.request, self.ctx.cancel, prompt).await;
-        self.stats.llm_ms += started.elapsed().as_millis() as i64;
+        self.stats.llm_ms += (self.ctx.now)() - started;
         let reply = reply.map_err(Stop::Failed)?;
         if self.ctx.cancel.is_cancelled() {
             return Err(Stop::Aborted);
@@ -486,7 +486,7 @@ impl Packets<'_, '_> {
 /// `generateCycle1Chunks`.
 pub fn generate_cycle1_chunks<'a>(rows: &'a [Row], ctx: &'a Generation<'a>) -> BoxFuture<'a, Result<Generated>> {
     Box::pin(async move {
-        let started = Instant::now();
+        let started = (ctx.now)();
         let mut stats = Stats::default();
         let mut failures = Vec::new();
         let source_budget = cycle1_source_budget(ctx.input_token_budget)?;
@@ -559,7 +559,7 @@ pub fn generate_cycle1_chunks<'a>(rows: &'a [Row], ctx: &'a Generation<'a>) -> B
     })
 }
 
-fn project(candidates: Vec<Parsed>, rows: &[Row], failures: Vec<InvalidChunk>, stats: Stats, started: Instant, now: &(dyn Fn() -> i64 + Send + Sync)) -> Generated {
+fn project(candidates: Vec<Parsed>, rows: &[Row], failures: Vec<InvalidChunk>, stats: Stats, started: i64, now: &(dyn Fn() -> i64 + Send + Sync)) -> Generated {
     let mut covered = HashSet::new();
     let mut accepted: Vec<Chunk> = candidates
         .into_iter()
@@ -578,6 +578,6 @@ fn project(candidates: Vec<Parsed>, rows: &[Row], failures: Vec<InvalidChunk>, s
         raw_row_ids: rows.iter().filter(|r| !covered.contains(&r.id)).map(|r| r.id).collect(),
         invalid_chunks: failures,
         stats,
-        total_ms: started.elapsed().as_millis() as i64,
+        total_ms: now() - started,
     }
 }
