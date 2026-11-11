@@ -734,7 +734,10 @@ pub(crate) struct SessionActor {
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
-    /// Whether [`Self::pump`] is releasing acked entries now, and the replies they released, sent once the pump published.
+    /// Whether [`Self::pump`] is releasing acked entries now, and the replies they released: sent once the pump has
+    /// published its frames and the thread's view, so a caller that reads the thread as soon as it is answered (a reset,
+    /// then the home's view; a route move's model and figures) sees what its request did. Records written as one unit are
+    /// released in one pump, the answer with the records it follows.
     releasing: bool,
     replies_after_publish: Vec<(Waiter, Value)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
@@ -752,6 +755,8 @@ pub(crate) struct SessionActor {
     generation: u64,
     pending: bool,
     indeterminate: bool,
+    /// A closing thread asked the durability task to write the units kept from a failed write.
+    flush_sent: bool,
     published_storage: StorageState,
     ch: ActorChannels,
     jobs_tx: mpsc::UnboundedSender<JobDone>,
@@ -1073,6 +1078,7 @@ impl SessionActor {
             generation: 0,
             pending: false,
             indeterminate: false,
+            flush_sent: false,
             published_storage: StorageState::Ok,
             ch,
             jobs_tx,
@@ -1185,7 +1191,13 @@ impl SessionActor {
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
+                self.cell.unacked.store(self.outbox.unacked(), SeqCst);
                 self.cell.stepped.notify_waiters();
+            }
+            // A closing thread writes the units kept from a failed write now (Node's exit drain writes what is queued), once
+            // per failure: a write that fails again keeps them, and the thread with them.
+            if self.cell.closed.load(SeqCst) && !self.flush_sent && self.outbox.has_retained() {
+                self.flush_sent = self.ch.dur_tx.try_send(ToDurability::Flush { generation: self.generation }).is_ok();
             }
             // An unloaded thread stops once its accepted records are handed off; a deleted one
             // also waits for its turn to end and its mark.
@@ -1615,11 +1627,13 @@ impl SessionActor {
                         self.outbox.encoded(id, encoded, stored);
                     }
                     Err(error) => {
-                        if let Some(entry) = self.outbox.remove(id) {
+                        // The unit goes whole: none of a request's records is written without the rest.
+                        for entry in self.outbox.remove_unit(id) {
+                            let gone = entry.id;
                             self.fail_entry(entry, &error);
-                        }
-                        for dependent in self.outbox.remove_needing(id) {
-                            self.fail_entry(dependent, &error);
+                            for dependent in self.outbox.remove_needing(gone) {
+                                self.fail_entry(dependent, &error);
+                            }
                         }
                         self.rebuild_projected();
                     }
@@ -2008,14 +2022,13 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        for (id, record, bytes) in self.outbox.handoff() {
+        for unit in self.outbox.handoff(self.ch.dur_tx.capacity()) {
             let msg = ToDurability::Append {
-                id,
                 generation: self.generation,
-                record,
-                bytes,
+                retain: unit.retain,
+                records: unit.records,
             };
-            // The window bounds unacked records below the channel's capacity.
+            // Never more than the channel holds is handed off, so a refusal is a durability task that is gone.
             if self.ch.dur_tx.try_send(msg).is_err() {
                 self.fail_all(CoreError::StorageIndeterminate {
                     scope: "thread".into(),
@@ -2040,10 +2053,10 @@ impl SessionActor {
         for released in self.after_publish.drain(..) {
             let _ = released.send(Ok(()));
         }
+        self.publish_cell();
         for (tx, value) in self.replies_after_publish.drain(..) {
             let _ = tx.send(Ok(Reply::Value(value)));
         }
-        self.publish_cell();
     }
 
     fn storage(&self) -> StorageState {
@@ -2265,8 +2278,7 @@ impl SessionActor {
                 if let Some(op) = &op {
                     self.ops.applied(op, &value);
                 }
-                // A change released by the pump is answered once its view is published: a caller reading the thread's view
-                // after the answer (a route move's model and figures) sees what it answered.
+                // A change released by the pump is answered once its view is published (`replies_after_publish`).
                 match tx {
                     Some(tx) if self.releasing => self.replies_after_publish.push((tx, value)),
                     Some(tx) => {
@@ -2378,6 +2390,36 @@ impl SessionActor {
         self.projected = self.acked.clone();
     }
 
+    /// A rolled-back write kept the units `retained` for the next write (as Node's recorder keeps a failed batch's bytes):
+    /// their records stay queued, in order, and land with it; their requests hear the failure now, once. Everything else
+    /// unreleased fails as in [`Self::fail_all`]. Nothing of a kept unit is shown until it lands.
+    fn fail_all_but(&mut self, retained: Vec<u64>, error: CoreError) {
+        let retained: std::collections::HashSet<u64> = retained.into_iter().collect();
+        for entry in self.outbox.fail_all_but(&retained) {
+            self.fail_entry(entry, &error);
+        }
+        let ids: Vec<u64> = retained.iter().copied().collect();
+        for id in ids {
+            let Some(entry) = self.outbox.get_mut(id) else { continue };
+            let (told, kept): (Vec<Effect>, Vec<Effect>) =
+                std::mem::take(&mut entry.effects).into_iter().partition(|effect| matches!(effect, Effect::Reply { .. }));
+            entry.effects = kept;
+            for effect in told {
+                if let Effect::Reply { op, tx, .. } = effect {
+                    if let Some(op) = &op {
+                        self.ops.failed(op, &error);
+                    }
+                    if let Some(tx) = tx {
+                        let _ = tx.send(Err(error.clone()));
+                    }
+                }
+            }
+        }
+        self.generation += 1;
+        self.flush_sent = false;
+        self.rebuild_projected();
+    }
+
     fn rebuild_projected(&mut self) {
         let mut projected = self.acked.clone();
         for change in self.outbox.changes() {
@@ -2469,7 +2511,7 @@ impl SessionActor {
                     self.outbox.acked(id, ordinal);
                 }
             }
-            FromDurability::Failed { generation, error } => {
+            FromDurability::Failed { generation, error, retained } => {
                 if generation != self.generation {
                     return;
                 }
@@ -2486,7 +2528,11 @@ impl SessionActor {
                         }
                     }
                 };
-                self.fail_all(error);
+                if retained.is_empty() {
+                    self.fail_all(error);
+                } else {
+                    self.fail_all_but(retained, error);
+                }
             }
             FromDurability::Pending(pending) => self.pending = pending,
             FromDurability::Retried(result) => self.indeterminate = result.is_err(),
@@ -4363,7 +4409,11 @@ impl SessionActor {
         };
         match result {
             Ok(plan) => {
+                // The plan's records are one unit, written together. Rows stored as a conversation (an inheritance, a room
+                // post, an import) are kept for the next write when theirs fails, as Node's recorder keeps them.
+                self.outbox.begin_unit(req.method.as_str() == "thread/roomRows/commit");
                 self.apply_plan(plan, req.op.clone(), tx);
+                self.outbox.end_unit();
                 Ok(())
             }
             Err(error) => fail(error, tx, &mut self.ops),
@@ -4946,9 +4996,20 @@ impl SessionActor {
             records.push((Record::Item(row), Class::Normal, Display::None, Vec::new()));
         }
         let value = json!({ "added": records.len() });
-        let mut set = serde_json::Map::new();
+        // Header keys stored with the rows (an inheritance's `inheritedFromSessionId` and title: Node saves them with the
+        // carried messages in one save).
+        let mut set = match req.params.get("set") {
+            Some(Value::Object(set)) => set.clone(),
+            _ => serde_json::Map::new(),
+        };
         set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        // And the keys the same save drops (an inheritance's copy-in-progress marks: the heir stops inheriting with the
+        // write that gives it the rows).
+        let unset: Vec<String> = match req.params.get("unset") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(value) => serde_json::from_value(value.clone()).map_err(|_| invalid("unset", "a list of header keys"))?,
+        };
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset }) });
         records.push((meta, Class::Normal, Display::None, Vec::new()));
         // A row's prompt joins the prompt history as it is applied.
         Ok(Plan { kind: PlanKind::Records(records, Vec::new()), value, after: None, prompt: None })

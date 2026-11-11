@@ -1,4 +1,5 @@
 mod admission;
+mod anthropic_bound_frame;
 mod ai_other_fixtures;
 mod anthropic_request_gzip;
 mod ai_other_no_timer;

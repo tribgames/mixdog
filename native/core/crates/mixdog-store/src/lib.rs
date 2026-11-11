@@ -14,6 +14,8 @@ mod crc32c;
 pub mod encode;
 pub mod fold;
 pub mod framing;
+#[cfg(test)]
+mod framing_o1;
 pub mod fsio;
 pub mod log;
 pub mod log_rewrite;

@@ -77,7 +77,7 @@ tempfile = { workspace = true }
 tokio-util = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "process", "io-util"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
