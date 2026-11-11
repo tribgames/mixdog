@@ -761,10 +761,12 @@ impl RunObserver for PortObserver {
     }
 }
 
-/// The run's failure log with each failed call's arguments through the thread's sensitive projection: the log is a file
-/// (`history/tool-failures.jsonl`), so a failed sensitive fill's value goes there as its marker. Node summarizes the
-/// arguments as they are (`agent-trace-format.mjs:526`, `summarizeToolArgs`), which keeps a fill's `input.text`, and so
-/// writes the value to disk: fixed on both sides (`redactSensitiveToolCall(sessionId, { arguments: toolArgs })`).
+/// The run's failure log with each failed call's arguments through the thread's sensitive projection and its result text
+/// with the thread's values replaced: the log is a file (`history/tool-failures.jsonl`), so a failed sensitive fill's
+/// value goes there as its marker, also where the tool's error repeats it. Node summarizes the arguments as they are
+/// (`agent-trace-format.mjs:526`, `summarizeToolArgs`) and takes the error line from the result text as it is, and so
+/// writes the value to disk: fixed on both sides (`redactSensitiveToolCall(sessionId, { arguments: toolArgs })`,
+/// `redactSensitiveText(sessionId, resultText)`, `node-fix-sensitive-side-writes.patch`).
 struct SensitiveFailures {
     inner: Arc<dyn mixdog_agent::env::ToolFailureLog>,
     context: mixdog_core_session::session::run::ModelContext,
@@ -773,6 +775,7 @@ struct SensitiveFailures {
 impl mixdog_agent::env::ToolFailureLog for SensitiveFailures {
     fn failed(&self, mut call: mixdog_agent::env::FailedCall) {
         call.tool_args = self.context.redact_arguments(&call.tool_args);
+        call.result_text = self.context.redact_text(&call.result_text);
         self.inner.failed(call);
     }
 

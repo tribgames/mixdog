@@ -5,8 +5,8 @@
 // bridge answered, and as the secret card it hands the password through `approval/provideSecret`). The first core runs the two
 // turns and the compaction and is stopped; a second core on the same profile resumes the thread and runs the third turn.
 //
-// Then every file under the profile (data, home, AppData, temp, the runtime folder: whatever the cores wrote) is searched for the
-// scenario's three values as UTF-8, JSON-escaped (plain and \uXXXX), UTF-16LE, base64 and base64url (lib/sensitive-writes-files.mjs
+// Then every file under the profile (data, home, AppData, temp, the runtime folder), the workspace and the cores' debug log is
+// searched for the scenario's three values as UTF-8, JSON-escaped (plain and \uXXXX), UTF-16LE/BE, base64 and base64url (lib/sensitive-writes-files.mjs
 // `spellings`); every hit is printed as `file@offset (encoding of value)` and fails the run. The model input is compared with
 // Node's per provider call: the text of each message (roles, contents, tool-call arguments), the values whole while the first
 // process runs and the marker after the reload. The core's tool-failure log is compared with Node's file whole (normalised the
@@ -19,7 +19,7 @@ import { register } from 'node:module';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CODE, FAILED, MODEL, REPLIES, SECRET, TURNS, browserAnswer } from './lib/sensitive-writes-scenario.mjs';
-import { normalizeTree, scanSecrets } from './lib/sensitive-writes-files.mjs';
+import { normalizeTree, scanSecrets, walk } from './lib/sensitive-writes-files.mjs';
 import { readJobReport, spawnInJob } from './lib/job-run.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -237,12 +237,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         await deadline(client.call('turn/start', { threadId, input: { prompt: turn.prompt, options: {} } }), 60_000, 'turn/start');
         await deadline(done, 120_000, `the turn "${turn.prompt}"`);
       }
-      // The answer comes once the compaction has ended; Node's pass changed nothing ("nothing to compact"), so no divider.
+      // The answer comes once the compaction has ended; it is compared with Node's recorded outcome (`golden.compaction`:
+      // `changed`, `reason`), and a divider is shown exactly when the pass changed something (`compaction-runner.mjs` `if (changed)`).
       const answer = await deadline(client.call('thread/compact/start', { threadId, opId: 'op-compact' }), 120_000, 'thread/compact/start');
-      console.log(`the compaction: ${JSON.stringify(answer)}`);
-      // Node's pass that changes nothing keeps the transcript and shows no divider (`compaction-runner.mjs` `if (changed)`).
       const dividers = notifications.filter((n) => n.params?.item?.type === 'contextCompaction');
-      if (answer?.changed !== false || answer?.reason !== 'nothing to compact' || dividers.length) throw new Error(`the compaction differs from Node's "nothing to compact": ${JSON.stringify({ answer, dividers })}`);
+      const core = { changed: answer?.changed ?? null, reason: answer?.reason ?? null, dividers: dividers.length };
+      const node = { changed: golden.compaction.changed, reason: golden.compaction.reason, dividers: golden.compaction.changed ? 1 : 0 };
+      if (JSON.stringify(core) !== JSON.stringify(node)) {
+        bad += 1;
+        console.log(`DIFF the compaction\n   core: ${JSON.stringify(core)}\n   node: ${JSON.stringify(node)}`);
+      } else console.log(`SAME the compaction ${JSON.stringify(core)}`);
     });
     const second = await runCore(p, bin, log, async ({ client, turnCompleted }) => {
       await deadline(client.resumeThread(threadId, { lastItems: 10 }), 30_000, 'thread/resume after the reload');
@@ -254,8 +258,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     });
     writeFileSync(join(base, 'server-requests.json'), JSON.stringify([first, second], null, 1));
     writeFileSync(join(base, 'requests.json'), JSON.stringify(requests, null, 1));
-    // 1. No file the cores wrote holds a value, in any spelling.
-    const hits = scanSecrets(profile, [CODE, FAILED, SECRET]);
+    // 1. No file the cores wrote holds a value, in any spelling: the whole profile (data dir, home, AppData, temp, the runtime
+    // folder), the workspace, and the cores' own log (stderr at RUST_LOG=debug, the one log location outside the profile).
+    const hits = scanSecrets(base, [CODE, FAILED, SECRET], [...walk(profile), ...walk(ws), log]);
     for (const hit of hits) console.log(`HIT ${hit.file}@${hit.offset} (${hit.encoding} of ${hit.value})`);
     bad += hits.length;
     // 2. The model input per provider call, against Node's.
