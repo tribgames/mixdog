@@ -8,29 +8,23 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-anthropic-stream',
-  net: false,
-  entry: 'anthropic-oauth.mjs parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta) over a scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a network send.',
+  entry: 'anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, { onStreamDelta, onToolCall }) against the loopback endpoint serving the scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a live endpoint.',
   compare: 'mixdog-ai providers::anthropic decoder.rs (UsageAcc::update :110-135, :182 refusal, :259-296 thinking shapes, :278-283): feed `input.events` and compare `result` whole (usage slots, stopReason/stopDetails, toolCalls incl. the invalid-args marker, thinkingBlocks) and the callbacks (`toolCalls`, `streamDeltas`) in order. K1 gap: Rust drops stopDetails/category (row 1, low).',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
 });
-const { parseSSEStream } = await rec.P('agent/orchestrator/providers/anthropic-oauth.mjs');
+const { AnthropicProvider } = await rec.P('agent/orchestrator/providers/anthropic.mjs');
 const { isInvalidToolArgsMarker } = await rec.P('agent/orchestrator/providers/openai-compat-stream.mjs');
 const SRC = 'scripts/provider-toolcall/anthropic-stream.test.mjs';
 
-const sseResponse = (events) => {
-  const chunks = events.map((e) => new TextEncoder().encode(`event: ${e.type || 'message'}\ndata: ${JSON.stringify(e)}\n\n`));
-  let i = 0;
-  return { body: { getReader: () => ({ read: () => Promise.resolve(i < chunks.length ? { done: false, value: chunks[i++] } : { done: true, value: undefined }), cancel: () => Promise.resolve(), releaseLock() {} }) } };
-};
+// WIRE level: the real AnthropicProvider (API-key route, real SDK client) sends to the loopback endpoint, which serves the scripted events as SSE (each event its own socket
+// write); the request that arrived is `requests` of the case, `result` / `error` are what the provider's send returns or throws (a retry it takes is followed on the virtual clock).
 async function parse(events) {
   const toolCalls = [];
   const streamDeltas = [];
-  const out = {};
-  try {
-    out.result = await parseSSEStream(sseResponse(events), null, () => {}, (kind) => streamDeltas.push(kind), (call) => toolCalls.push(call), {}, null);
-  } catch (error) {
-    out.error = error;
-  }
+  rec.net.reply = () => ({ status: 200, contentType: 'text/event-stream', chunks: events.map((e) => `event: ${e.type || 'message'}\ndata: ${JSON.stringify(e)}\n\n`) });
+  const provider = new AnthropicProvider({ apiKey: 'fixture-key' });
+  const settled = provider.send([{ role: 'user', content: 'hi' }], 'claude', [], { onStreamDelta: (kind) => streamDeltas.push(kind), onToolCall: (call) => toolCalls.push(call) }).then((result) => ({ result }), (error) => ({ error }));
+  const out = await rec.clock.followRetries(settled);
   return { ...out, toolCalls, streamDeltas };
 }
 const row = (id, line, events, extra = () => ({})) => rec.run(id, `${SRC}:${line}`, { events }, async () => {
