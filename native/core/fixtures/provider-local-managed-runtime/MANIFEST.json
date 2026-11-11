@@ -8,19 +8,19 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "src/runtime/local-provider/catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir, platform, arch, hardware }), asset-installer.mjs downloadVerifiedLocalAsset(asset, destination, { fetchFn, onProgress, checkDiskSpace, signal }), agent/orchestrator/session/manager/context-meta.mjs resolveSessionContextMeta. Not run: a real download.",
+  "entry": "src/runtime/local-provider/catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir, platform, arch, hardware }), asset-installer.mjs downloadVerifiedLocalAsset(asset, destination, { onProgress, checkDiskSpace, signal }) over the loopback asset server, agent/orchestrator/session/manager/context-meta.mjs resolveSessionContextMeta. Not run: a real download.",
   "exclusions": [
     "catalog status disk.availableBytes: the host's real free disk space, written <host free disk bytes>",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 31324,
+      "bytes": 37679,
       "path": "cases.json",
-      "sha256": "674f73902ca12f39c3b1a155dab74c7e147f94855b91a8c2e502e18ce50ded5b"
+      "sha256": "157fb8d8e327cd24fa029d6949af4e735cc0d72557caa51778a59b0e7b1e537e"
     }
   ],
   "inputs": [
@@ -42,11 +42,58 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "manifest-pins-https-assets-matching-sizes",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "rtx-recommendation-before-install",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "apple-silicon-metal-and-unsupported-hosts",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "no-recommendation-beyond-vram",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "resume-partial-publish-after-sha256",
+      "level": "wire"
+    },
+    {
+      "id": "digest-mismatch-not-published",
+      "level": "wire"
+    },
+    {
+      "id": "runtime-capacity-bounds-picker-and-restored-selection",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "partial-download-allowed-when-remaining-bytes-fit",
+      "level": "wire"
+    },
+    {
+      "id": "server-declining-range-cannot-bypass-disk-check",
+      "level": "wire"
+    },
+    {
+      "id": "cancellation-closes-stream-preserves-partial-for-resume",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -68,9 +115,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-local-managed-runtime.mjs",
-  "recorderSha256": "f392f87c1e3dcda2ce9a0c9df107c45efccb186f8e76c657fc11f5fc94211abc",
+  "recorderSha256": "c15a922c736174c3149a69b1b486b9a2b91c1674fc5ac5f8c63dac33479aa20b",
   "replay": "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-local-managed-runtime",
-  "totalBytes": 31324,
+  "totalBytes": 37679,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
