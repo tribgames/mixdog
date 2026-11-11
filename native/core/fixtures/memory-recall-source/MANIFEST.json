@@ -1,0 +1,57 @@
+{
+  "command": "node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-memory-recall-source.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL and hybrid retrieval: searchRelevantHybrid is replaced by db.search at the module boundary and db.query answers by SQL text (as the test file does)",
+    "runs": "createQueryHandlers(...).handleSearch (query-handlers.mjs), renderEntryLines and renderSessionGroupedLines (recall-format.mjs), compactHandoffRows (compact-handoff.mjs)"
+  },
+  "exclusions": "test cases 72 (ID recall bodies) and 90 (RAW opt-in) are covered by the recall goldens id-member-and-root and query-raw-included and are not recorded again",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 91128,
+      "path": "golden.json",
+      "sha256": "ac0ebfdade6a28d7a06c25cd8afa1963ab097ec63fd02016d949b8dd76ec7eed"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "a77c6c7ed731f67d9ec1dce798d2080b7c82613f6a1021b0c7920b40b9fdf58c"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "row timestamps": "Date.now() fixed at clock.dateNowMs; rendered text in UTC"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-recall-source.mjs",
+  "recorderSha256": "01dd8bc91698d568cae00cda71431de883bbb16e3ea6a799f4cd34286c16f211",
+  "replay": "mixdog-services memory: mem/recall/browse.rs search_by_ids/session expansion, mem/recall/format.rs render_entry_lines/render_session_grouped_lines, mem/recall/compact.rs compact_handoff_rows, over the three rows in `rows`; compares the rendered text exactly, the search options handed to the seam and the ordered statements",
+  "set": "memory-recall-source",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 91128
+}
