@@ -652,6 +652,8 @@ pub struct AgentTurn {
 
 /// What the actor hands a new run.
 pub struct RunStart {
+    /// The conversation transcripts the turn appends its prompt and assistant texts to.
+    pub transcripts: Option<Arc<super::transcript_writer::TranscriptFiles>>,
     /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
     pub agent_turn: Option<AgentTurn>,
     /// A routine fire's trusted skill-selection text (`options.skillSelection`).

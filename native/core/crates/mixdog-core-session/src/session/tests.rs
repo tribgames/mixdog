@@ -4291,43 +4291,8 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     subscribe(&handle);
     handle.cell.unsubscribed();
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-    // Both decisions are made where the turn settles and the session unloads, before anything is spawned.
+    // The decision is made where the session unloads, before anything is spawned.
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
-    assert!(lock(&rig.live_memory.seen).is_empty(), "nor is a turn fed to it");
-}
-
-/// `transcript-writer.mjs`: memory sees each turn while the session lives, not only at unload,
-/// whatever way the turn ended; an agent's conversation stays outside memory.
-#[tokio::test(start_paused = true)]
-async fn each_settled_turn_is_fed_to_memory_while_the_session_lives() {
-    let rig = Rig::new();
-    rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "hello", "op-1").await;
-    eventually_on!(&[&*rig.live_memory.ended], || (lock(&rig.live_memory.seen).len() == 1).then_some(())).await;
-    let (thread, messages) = lock(&rig.live_memory.seen)[0].clone();
-    assert_eq!(thread, handle.id);
-    assert_eq!(messages.len(), 2, "the input row and the reply: {messages:?}");
-    assert!(directory.handle(&handle.id).is_some(), "the session is still loaded");
-
-    rig.set_script(Arc::new(|_| Box::pin(async { RunOutcome::Interrupted })));
-    turn(&handle, "stop", "op-2").await;
-    eventually_on!(&[&*rig.live_memory.ended], || (lock(&rig.live_memory.seen).len() == 2).then_some(())).await;
-    assert!(lock(&rig.live_memory.seen)[1].1.iter().any(|m| m.to_string().contains("stop")), "the interrupted prompt");
-
-    rig.set_script(echo());
-    directory
-        .create_with_id(ThreadId::from("sess_w1"), json!({ "owner": "agent" }).as_object().cloned().unwrap(), json!({}))
-        .await
-        .expect("worker");
-    let worker = directory.handle(&ThreadId::from("sess_w1")).expect("loaded");
-    turn(&worker, "work", "op-w").await;
-    eventually_on!(&[&rig.ingests.1], || lock(&rig.ingests.0).iter().any(|(id, _)| id == &worker.id).then_some(())).await;
-    // The Lead's next turn is fed after the worker's ended; the worker's never is.
-    turn(&handle, "again", "op-3").await;
-    eventually_on!(&[&*rig.live_memory.ended], || (lock(&rig.live_memory.seen).len() == 3).then_some(())).await;
-    assert!(lock(&rig.live_memory.seen).iter().all(|(id, _)| *id == handle.id), "the agent's turn is not fed to memory");
 }
 
 #[tokio::test(start_paused = true)]

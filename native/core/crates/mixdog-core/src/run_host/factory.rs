@@ -565,6 +565,8 @@ struct PortObserver {
     /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
     /// abort's own step, so a call that settles after the abort is closed as cancelled).
     cancel: tokio_util::sync::CancellationToken,
+    /// The session's conversation transcript (`onAssistantText` appends to it, `ask-callbacks.mjs:92`).
+    transcript: Option<mixdog_core_session::session::transcript_writer::TurnTranscript>,
 }
 
 impl PortObserver {
@@ -634,6 +636,9 @@ impl PortObserver {
 
 impl RunObserver for PortObserver {
     fn event(&self, event: RunEvent) {
+        if let (RunEvent::AssistantText { text, .. }, Some(transcript)) = (&event, &self.transcript) {
+            transcript.assistant_text(text);
+        }
         match event {
             RunEvent::Stage(Stage::Connecting) => {
                 lock(&self.observed).tools = false;
@@ -905,7 +910,7 @@ async fn drive(
     search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     run: RunStart,
 ) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, transcripts } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -961,6 +966,12 @@ async fn drive(
         if port.save_header(patch.change).await.is_err() {
             return failed("the session's prompt could not be saved", Value::Null);
         }
+    }
+    // `ensureSessionTranscriptWriter(); transcript.appendUser(prompt)` (`turn-prepare.mjs:162-163`): the prompt as submitted,
+    // before the turn's reminders ride it.
+    let turn_transcript = transcripts.as_ref().and_then(|files| files.turn(thread.as_str(), &header, &prior));
+    if let Some(transcript) = &turn_transcript {
+        transcript.user(input_body.get("content").unwrap_or(&Value::Null));
     }
     let surface_now = surface.borrow().clone();
     let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
@@ -1146,7 +1157,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), transcript: turn_transcript.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1240,6 +1251,10 @@ async fn drive(
                 asked_at_ms: asked_at,
             };
             let _ = port.settled(settled).await;
+            // `transcript.appendFinalAssistant(result)` (`turn-settle.mjs:44`): `historyContent ?? content`.
+            if let Some(turn_transcript) = &turn_transcript {
+                turn_transcript.final_text(output.response.history_content.as_deref().unwrap_or(&output.response.content));
+            }
             sink.live.clear();
             progress.done(output.response.content.trim().is_empty());
             if let Some(state) = output.provider_state.clone() {
@@ -1541,6 +1556,116 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    struct TranscriptNow;
+    impl mixdog_core_session::session::Clock for TranscriptNow {
+        fn now_ms(&self) -> i64 {
+            1_772_600_767_890
+        }
+    }
+
+    /// `fixtures/session-transcript/turn-lead.json`: Node's exec turn over its real session runtime, a Lead session with
+    /// memory on and a value it marked sensitive, wrote `<home>/projects/<slug>/<id>.jsonl` as the prompt, the text the
+    /// model surfaced before its tool call and the final answer, each with the value redacted. The same turn here goes
+    /// the whole production way (the session actor starts it, the factory builds the run, the loop asks the provider and
+    /// runs the tool) and leaves the same file; the cwd, the project slug, the session id and the wall clock are names.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_writes_the_conversation_transcript_node_wrote() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/session-transcript/turn-lead.json")).expect("the recording");
+        let script = recorded["script"].as_array().expect("script");
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::TextDelta(script[0]["text"].as_str().unwrap().to_owned()),
+                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: script[0]["calls"][0][1].clone(), native_type: None }),
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                ],
+                vec![StreamEvent::TextDelta(script[1]["text"].as_str().unwrap().to_owned()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+            ])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(TranscriptNow), rig.sensitive.clone());
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcripts = Some(files.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let project = workspace.path().to_string_lossy().into_owned();
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": project }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        // The value the session marked sensitive, as the recording's browser fill marked it.
+        rig.sensitive.remember(id.as_str(), &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "ref": "e1", "text": recorded["secret"], "sensitive": true } } })]);
+        let handle = directory.handle(&id).expect("loaded");
+        handle
+            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": recorded["prompt"] } }), "op-1"))
+            .await
+            .expect("turn/start");
+        let rows = || rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Item(_))).count();
+        eventually_on_awaiting(|| "the turn settled".to_owned(), &[handle.stepped()], || (rows() >= 4 && !handle.turn_busy()).then_some(())).await;
+        let header = handle.header_snapshot();
+        files.turn(id.as_str(), &header, &[]).expect("the session's transcript").flushed().await;
+
+        let cwd = header["cwd"].as_str().expect("cwd").to_owned();
+        let slug = mixdog_core_session::session::purge::project_slug(&cwd);
+        let path = home.path().join("projects").join(&slug).join(format!("{id}.jsonl"));
+        let written = std::fs::read_to_string(&path).expect("the transcript");
+        let named = written
+            .replace(&serde_json::to_string(&cwd).unwrap()[1..serde_json::to_string(&cwd).unwrap().len() - 1], "<cwd>")
+            .replace(id.as_str(), recorded["sessionId"].as_str().unwrap())
+            .replace("\"timestamp\":\"2026-03-04T05:06:07.890Z\"", "\"timestamp\":\"<now>\"");
+        let node = recorded["atClose"]["files"].as_object().expect("files");
+        let key = format!("<slug>/{}.jsonl", recorded["sessionId"].as_str().unwrap());
+        assert_eq!(node.keys().collect::<Vec<_>>(), [&key], "Node wrote one transcript, named as here");
+        assert_eq!(named, node[&key].as_str().unwrap());
+    }
+
+    /// `fixtures/session-transcript/turn-exec.json`: Node's own exec runtime (memory switched off for the session,
+    /// `MIXDOG_FEATURE_MEMORY=0`) writes its transcript only inside its pristine home, which is gone when the exec ends,
+    /// with the memory ingest disabled there: nothing of the conversation is left for memory. A session whose memory is
+    /// off writes no transcript here.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_session_with_memory_off_leaves_no_transcript_for_memory() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/session-transcript/turn-exec.json")).expect("the recording");
+        assert_eq!(recorded["memoryFeature"], false);
+        assert_eq!(recorded["atClose"]["memoryIngestDisabled"], "1");
+        assert_eq!(recorded["afterExec"], json!({ "userProjects": [], "pristineHomeLeft": false }));
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(TranscriptNow), rig.sensitive.clone());
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcripts = Some(files.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let project = workspace.path().to_string_lossy().into_owned();
+        let params = json!({ "opId": "op-start", "kind": "task", "projectPath": project, "session": { "toolProfile": "headless", "approvalMode": "implicit", "memory": false } });
+        let reply = directory.request(request("thread/start", params, "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": recorded["prompt"] } }), "op-1")).await.expect("turn/start");
+        let rows = || rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Item(_))).count();
+        eventually_on_awaiting(|| "the turn settled".to_owned(), &[handle.stepped()], || (rows() >= 2 && !handle.turn_busy()).then_some(())).await;
+        assert!(files.turn(id.as_str(), &handle.header_snapshot(), &[]).is_none(), "no writer for a memory-off session");
+        assert!(!home.path().join("projects").exists(), "nothing was written for memory");
     }
 
     /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's

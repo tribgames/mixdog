@@ -104,7 +104,7 @@ fn stored_id(id: &str) -> bool {
 }
 
 /// `cwdToProjectSlug(resolve(cwd))`.
-pub(crate) fn project_slug(cwd: &str) -> String {
+pub fn project_slug(cwd: &str) -> String {
     let resolved = super::user_cwd::node_resolve(cwd).replace('\\', "/");
     let bytes = resolved.as_bytes();
     let drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';

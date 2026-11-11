@@ -1,3 +1,24 @@
+diff --git a/src/runtime/shared/transcript-writer/transcript-file.mjs b/src/runtime/shared/transcript-writer/transcript-file.mjs
+--- a/src/runtime/shared/transcript-writer/transcript-file.mjs
++++ b/src/runtime/shared/transcript-writer/transcript-file.mjs
+@@ -5,6 +5,7 @@
+  */
+ import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+ import { resolve } from 'node:path';
++import { redactSensitiveContent } from '../../agent/orchestrator/session/sensitive-projection.mjs';
+
+ // Canonical project-slug mapping for `<mixdogHome>/projects/<slug>` transcript dirs.
+ export function cwdToProjectSlug(cwd) {
+@@ -86,7 +87,8 @@ export function createTranscriptFile({
+       for (const message of Array.isArray(messages) ? messages : []) {
+         const role = message?.role;
+         if (role !== 'user' && role !== 'assistant') continue;
+-        const text = conversationText(message?.content);
++        // The session's sensitive values never reach the transcript (and so memory) in plain text.
++        const text = redactSensitiveContent(sessionId, conversationText(message?.content));
+         if (!text.trim()) continue;
+         const entry = { type: role, sessionId, cwd: resolvedCwd };
+         if (!memoryEligible) entry.memoryEligible = false;
 diff --git a/src/runtime/shared/transcript-writer.mjs b/src/runtime/shared/transcript-writer.mjs
 index 57a8a76..cecfcda 100644
 --- a/src/runtime/shared/transcript-writer.mjs
