@@ -28,7 +28,11 @@ export function _absFrom(base, input) {
   return isAbsolute(input) ? pathResolve(input) : pathResolve(base, input);
 }
 
-const notSelf = (baseCwd) => (root) => pathResolve(root) !== pathResolve(baseCwd);
+// Windows paths compare without case: the graph cache keys a root lowercased, so a case-sensitive test took a
+// sentinel-free cwd's own cached root for a child and federated the cwd into itself.
+const rootKey = (p) => (process.platform === 'win32' ? pathResolve(p).toLowerCase() : pathResolve(p));
+const notSelf = (baseCwd) => (root) => rootKey(root) !== rootKey(baseCwd);
+export { notSelf as _notSelf };
 
 /**
  * Decide whether — and over which roots — this call federates. `active`
