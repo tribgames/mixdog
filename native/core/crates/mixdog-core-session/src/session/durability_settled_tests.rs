@@ -20,9 +20,9 @@ use super::tests::start_thread;
 async fn settled_waits_for_a_record_held_at_the_store_and_answers_once_it_is_committed() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
-    assert_eq!(directory.durability_settled().await, Ok(0), "no thread loaded: settled at once");
+    assert_eq!(directory.durability_settled().wait().await, Ok(0), "no thread loaded: settled at once");
     let handle = start_thread(&directory).await;
-    assert_eq!(directory.durability_settled().await, Ok(1), "a loaded thread with nothing pending: settled at once");
+    assert_eq!(directory.durability_settled().wait().await, Ok(1), "a loaded thread with nothing pending: settled at once");
 
     let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
     *super::testing::lock(&rig.store.commit_gate) = Some((arrived.clone(), go.1));
@@ -40,12 +40,9 @@ async fn settled_waits_for_a_record_held_at_the_store_and_answers_once_it_is_com
     };
     // The record is at the store, unacknowledged.
     tokio::time::timeout(DEADLINE, arrived.notified()).await.expect("the rename's record did not reach the store within 10 s");
-    let mut settled = Box::pin(directory.durability_settled());
+    let mut settled = Box::pin(directory.durability_settled().wait());
     assert!(futures::poll!(settled.as_mut()).is_pending());
-    // The inbox is in order: once this answers, the actor has taken the settled question too.
-    let (tx, taken) = tokio::sync::oneshot::channel();
-    handle.inbox.send(super::actor::Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
-    tokio::time::timeout(DEADLINE, taken).await.expect("the actor did not answer QuotaFacts within 10 s").expect("the actor answers");
+    super::tests::caught_up(&handle).await;
     assert!(futures::poll!(settled.as_mut()).is_pending(), "a record is still held at the store");
 
     go.0.send(()).expect("the commit waits");
@@ -79,7 +76,7 @@ async fn settled_answers_at_the_records_accepted_before_it_while_later_ones_are_
         tokio::spawn(async move { handle.request(request).await })
     };
     tokio::time::timeout(DEADLINE, before_arrived.notified()).await.expect("the record from before the call did not reach the store within 10 s");
-    let mut settled = Box::pin(directory.durability_settled());
+    let mut settled = Box::pin(directory.durability_settled().wait());
     assert!(futures::poll!(settled.as_mut()).is_pending());
     super::tests::caught_up(&handle).await;
 
@@ -111,9 +108,28 @@ async fn settled_answers_an_error_when_a_record_from_before_it_failed() {
     rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
     let failed = tokio::time::timeout(DEADLINE, handle.request(rename(&handle, "op-failed", "failed"))).await.expect("the rename did not answer within 10 s");
     assert!(failed.is_err(), "the store failed the record: {failed:?}");
-    let answer = tokio::time::timeout(DEADLINE, directory.durability_settled()).await.expect("settled did not answer within 10 s");
+    let answer = tokio::time::timeout(DEADLINE, directory.durability_settled().wait()).await.expect("settled did not answer within 10 s");
     let error = answer.expect_err("a failed record from before the call is the call's error");
-    assert!(error.starts_with(&format!("thread {}: record ", handle.id.as_str())) && error.contains("accepted before the barrier, failed: "), "{error}");
+    assert!(error.starts_with(&format!("thread {}: the thread's records: write ", handle.id.as_str())) && error.contains("accepted before the barrier, failed: "), "{error}");
+}
+
+/// A thread whose actor ends with a record from before the call not yet acked: nobody commits it now, so the call answers
+/// that failure, naming the thread, instead of waiting for ever.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_answers_an_error_when_the_thread_ends_with_a_record_unwritten() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let (arrived, _go) = rig.store.hold_title("held");
+    let mut renamed = Box::pin(handle.request(rename(&handle, "op-held", "held")));
+    assert!(futures::poll!(renamed.as_mut()).is_pending());
+    tokio::time::timeout(DEADLINE, arrived.notified()).await.expect("the record did not reach the store within 10 s");
+    let settling = directory.durability_settled();
+    assert_eq!(settling.pending(), vec![format!("thread {}: the thread's records", handle.id.as_str())]);
+    handle.inbox.send(super::actor::Inbox::Unwind(super::actor::UnwindAt::Now)).await.expect("the actor takes the inbox");
+    let answer = tokio::time::timeout(DEADLINE, settling.wait()).await.expect("settled did not answer within 10 s of the thread's end");
+    let error = answer.expect_err("an unwritten record from before the call is the call's error");
+    assert!(error.starts_with(&format!("thread {}: the thread's records: write ", handle.id.as_str())) && error.ends_with("failed: the thread ended before the record was committed"), "{error}");
 }
 
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);

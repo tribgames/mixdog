@@ -108,6 +108,84 @@ async fn workers(headers: Arc<GatedHeaders>, root: &std::path::Path) -> StoreWor
     StoreWorkers::new(index, headers, tokens.interactive_io)
 }
 
+/// The control over `directory`, the agent index `workers` and the other stores in `data`.
+fn service(directory: Arc<SessionDirectory>, data: &std::path::Path, workers: StoreWorkers) -> StoresSettled {
+    let tokens = mixdog_rt::testing::tokens();
+    let gateway = mixdog_core_session::session::gateway_usage::GatewayUsage::new(
+        data,
+        tokens.durability_io,
+        Arc::new(mixdog_core_session::session::SystemClock),
+        Arc::new(Unpriced),
+        Arc::new(NeverFires),
+    );
+    let push = mixdog_core::run_host::usage_stats_feed::UsagePush::new(Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), Arc::new(|| 0));
+    let ledgers = mixdog_core::run_host::ledger_source::LedgerSource::new(Arc::new(mixdog_ai::registry::keys::ProcessEnv), data.join("ledger"), tokens, Arc::new(NoPrices), push);
+    let writers = WriteBehind { workers: Arc::new(workers), read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)) };
+    StoresSettled::new(directory, writers, gateway, ledgers)
+}
+
+fn settled() -> CoreRequest {
+    CoreRequest { method: Method(mixdog_app_server::REPLAY_STORES_SETTLED), params: json!({}), op: None, ctx: CallContext::internal("test") }
+}
+
+/// A header update awaiting its outside read on the actor as the call arrives (`UpdateHeaderAwaiting`): the actor handles
+/// nothing else meanwhile, and once the read resumes it appends its record, which the store then holds unsynced. That record
+/// was accepted after the call arrived, so the call answers without it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_record_an_awaiting_header_update_appends_after_the_call_arrived_is_not_waited_for() {
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let id = ThreadId::from("sess_awaiting");
+    directory.create_with_id(id.clone(), Map::new(), json!({})).await.expect("the thread");
+    directory.open_handle(&id, &CallContext::internal("test")).await.expect("the thread loads");
+
+    let (reading, resume) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    type Awaiting = Box<dyn FnOnce(mixdog_store::schema::record::Header) -> futures::future::BoxFuture<'static, mixdog_store::schema::record::HeaderChange> + Send>;
+    let update: Awaiting = {
+        let (reading, resume) = (reading.clone(), resume.clone());
+        Box::new(move |_header| {
+            Box::pin(async move {
+                reading.notify_one();
+                resume.notified().await;
+                let mut set = Map::new();
+                set.insert("title".to_owned(), json!("after"));
+                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+            })
+        })
+    };
+    let mut updated = Box::pin({
+        let (directory, id) = (directory.clone(), id.clone());
+        async move { directory.update_header_awaiting(&id, update).await }
+    });
+    assert!(futures::poll!(updated.as_mut()).is_pending());
+    tokio::time::timeout(DEADLINE, reading.notified()).await.expect("the update did not start its read within 10 s");
+
+    let data = tempfile::tempdir().expect("temp dir");
+    let stores = service(directory.clone(), data.path(), workers(Arc::new(GatedHeaders::default()), data.path()).await);
+    let mut call = Box::pin(stores.call(settled()));
+    // Nothing from before the call is pending, so it may answer on its first poll.
+    let first = match futures::poll!(call.as_mut()) {
+        std::task::Poll::Ready(answer) => Some(answer),
+        std::task::Poll::Pending => None,
+    };
+
+    // After the call arrived, the read resumes and the update appends its record, which the store holds unsynced.
+    let (after_arrived, after_go) = rig.store.hold_title("after");
+    resume.notify_one();
+    tokio::time::timeout(DEADLINE, after_arrived.notified()).await.expect("the update's record did not reach the store within 10 s");
+    let answer = match first {
+        Some(answer) => answer,
+        None => tokio::time::timeout(DEADLINE, call).await.expect("the call did not answer within 10 s although nothing from before it was pending"),
+    };
+    match answer {
+        Ok(Reply::Value(value)) => assert_eq!(value, json!({ "threads": 1 })),
+        other => panic!("the call answers the threads it asked: {other:?}"),
+    }
+    assert!(futures::poll!(updated.as_mut()).is_pending(), "the update's record was still unsynced when the call answered");
+    after_go.send(()).expect("the commit waits");
+    tokio::time::timeout(DEADLINE, updated).await.expect("the update did not answer within 10 s").expect("committed");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_record_accepted_while_the_call_waits_on_the_agent_index_is_not_waited_for() {
     let rig = Rig::new();
@@ -124,21 +202,8 @@ async fn a_record_accepted_while_the_call_waits_on_the_agent_index_is_not_waited
     workers.write("row", Some(Map::new()));
     tokio::time::timeout(DEADLINE, row_arrived.notified()).await.expect("the row's patch did not start within 10 s");
 
-    let tokens = mixdog_rt::testing::tokens();
-    let gateway = mixdog_core_session::session::gateway_usage::GatewayUsage::new(
-        data.path(),
-        tokens.durability_io,
-        Arc::new(mixdog_core_session::session::SystemClock),
-        Arc::new(Unpriced),
-        Arc::new(NeverFires),
-    );
-    let push = mixdog_core::run_host::usage_stats_feed::UsagePush::new(Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), Arc::new(|| 0));
-    let ledgers = mixdog_core::run_host::ledger_source::LedgerSource::new(Arc::new(mixdog_ai::registry::keys::ProcessEnv), data.path().join("ledger"), tokens, Arc::new(NoPrices), push);
-    let writers = WriteBehind { workers: Arc::new(workers), read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)) };
-    let stores = StoresSettled::new(directory.clone(), writers, gateway, ledgers);
-
-    let settled = CoreRequest { method: Method(mixdog_app_server::REPLAY_STORES_SETTLED), params: json!({}), op: None, ctx: CallContext::internal("test") };
-    let mut call = Box::pin(stores.call(settled));
+    let stores = service(directory.clone(), data.path(), workers);
+    let mut call = Box::pin(stores.call(settled()));
     assert!(futures::poll!(call.as_mut()).is_pending(), "the row write from before the call is still held");
 
     // After the call arrived, while the agent index still holds it: the thread accepts a record the store holds unsynced.

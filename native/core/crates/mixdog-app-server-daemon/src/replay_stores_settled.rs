@@ -3,13 +3,13 @@
 //! waits for every write-behind writer under the core's folders to have written what it accepted before the call, and nothing
 //! accepted after: each writer numbers its writes ([`mixdog_rt::WriteMarks`]), the call takes every writer's accepted count
 //! as it arrives, every one before it waits for any, then waits for all of them at once, each writer's committed count to
-//! reach its own: the agent index's row writes (`StoreWorkers::marks`), each thread loaded at the call (every record its
-//! actor took before the question committed, and every prompt-history append pushed before the call written:
+//! reach its own: the agent index's row writes (`StoreWorkers::marks`), each thread loaded at the call (every durable record
+//! its actor accepted before the call committed, and every prompt-history append pushed before it written:
 //! `SessionDirectory::durability_settled`), the read-state snapshots (`ReadState::marks`, their debounce cut short), the
 //! gateway usage events (`GatewayUsage::marks`, then the compaction their appends scheduled, run now) and the usage ledger,
 //! when open (`UsageWriter::marks`). It answers how many threads were asked. A write from before the call that
-//! failed answers an error naming its store, as does a thread that ended with something unwritten or a wait past
-//! [`DEADLINE`]; no path leaves the call unanswered.
+//! failed answers an error naming its store, as does a thread that ended with something unwritten; a wait past [`DEADLINE`]
+//! answers an error naming each store (and thread) still pending; no path leaves the call unanswered.
 //!
 //! The other stores a call writes need no control of their own: the config file and the MCP server list in it are written through
 //! the config's one writer, which the replay's `config/setTheme` waits for; a secret is written on the durability lane inside the
@@ -60,35 +60,32 @@ impl StoresSettled {
     async fn settle(&self) -> Result<usize, String> {
         // Every writer's accepted count as the call arrives, all of them before any wait: a write accepted while one store
         // is still being waited for is not the call's, whichever store takes it.
-        let workers = self.writers.workers.marks().accepted();
-        let read_state = self.writers.read_state.marks().accepted();
-        let gateway = self.gateway_usage.marks().accepted();
-        let ledger = self.ledgers.if_open().map(|ledger| {
-            let mark = ledger.writer.marks().accepted();
-            (ledger, mark)
-        });
         let threads = self.directory.durability_settled();
+        let ledger = self.ledgers.if_open();
+        let mut stores = vec![self.writers.workers.marks(), self.writers.read_state.marks(), self.gateway_usage.marks()];
+        stores.extend(ledger.as_ref().map(|ledger| ledger.writer.marks()));
+        let stores: Vec<(&mixdog_rt::WriteMarks, u64)> = stores.into_iter().map(|marks| (marks, marks.accepted())).collect();
         self.writers.read_state.flush_pending();
         self.gateway_usage.flush();
         // Then every store is waited for at once. A worker row is a header patch answered once its record is durable, so a
         // row write from before the call is committed on its own thread whenever the agent index counts it written.
-        let (threads, (), (), (), ()) = futures::try_join!(
-            threads,
-            self.writers.workers.marks().reached(workers),
-            self.writers.read_state.marks().reached(read_state),
-            async {
-                self.gateway_usage.marks().reached(gateway).await?;
-                self.gateway_usage.compact_scheduled_now().await;
-                Ok::<(), String>(())
-            },
-            async {
-                match ledger {
-                    Some((ledger, mark)) => ledger.writer.marks().reached(mark).await,
-                    None => Ok(()),
+        let wait = async {
+            let (threads, _) = futures::try_join!(threads.wait(), futures::future::try_join_all(stores.iter().map(|(marks, mark)| marks.reached(*mark))))?;
+            // The compaction the gateway usage appends scheduled, run now.
+            self.gateway_usage.compact_scheduled_now().await;
+            Ok(threads)
+        };
+        match tokio::time::timeout(DEADLINE, wait).await {
+            Ok(answer) => answer,
+            Err(_) => {
+                let mut pending = threads.pending();
+                pending.extend(stores.iter().filter(|(marks, mark)| marks.check(*mark).is_none()).map(|(marks, _)| marks.store().to_owned()));
+                if pending.is_empty() {
+                    pending.push("the gateway usage compaction".to_owned());
                 }
-            },
-        )?;
-        Ok(threads)
+                Err(format!("the core's write-behind writers had not all written within {DEADLINE:?}; still pending: {}", pending.join(", ")))
+            }
+        }
     }
 }
 
@@ -103,10 +100,9 @@ impl DomainService for StoresSettled {
     }
 
     async fn call(&self, _req: CoreRequest) -> Result<Reply, CoreError> {
-        match tokio::time::timeout(DEADLINE, self.settle()).await {
-            Ok(Ok(threads)) => Ok(Reply::Value(json!({ "threads": threads }))),
-            Ok(Err(detail)) => Err(failed(detail)),
-            Err(_) => Err(failed(format!("the core's write-behind writers had not all written within {DEADLINE:?}"))),
+        match self.settle().await {
+            Ok(threads) => Ok(Reply::Value(json!({ "threads": threads }))),
+            Err(detail) => Err(failed(detail)),
         }
     }
 
