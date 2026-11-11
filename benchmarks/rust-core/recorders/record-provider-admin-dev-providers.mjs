@@ -11,7 +11,7 @@ const rec = await startRecording({
   net: false,
   entry: 'src/session-runtime/services/provider-admin.mjs providerSetup({}, { checkSecrets: false, detectLocal: false }).oauth / providerStatus({}) / isKnownProvider / listProviderAccounts, with src/runtime/shared/config.mjs updateSection("agent", ...) over the recording data dir (MIXDOG_CONFIG_READ_TTL_MS=0).',
   compare: 'per step, apply the `developer` flags (stored `agent.developer`) and compare `provider_available(name, client_mode=false, stored_developer)` for each name in `known`, and the whole `setup` (providerSetup result: the `oauth` rows) and `status` (providerStatus rows) the product listed; `listAccountsError` is the whole error for an unknown OAuth provider.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::service::admin_models developer_option_for_provider (service/admin_models.rs:427), developer_option_enabled (:438) and provider_available (:445) over the stored `developer` section (`pub mod admin_models`, service/mod.rs:5): replay `provider_available(name, client_mode, stored_developer)` per option state; the provider setup list that the Node test also reads (`oauth` rows) is the registry listing built over it (registry/effective.rs:31-33).",
+  replay: "PURE, per output: (1) availability per option state: mixdog_ai::service::admin_models developer_option_for_provider (service/admin_models.rs:427), developer_option_enabled (:438) and provider_available (:445) (`pub mod admin_models`, service/mod.rs:5); (2) the provider setup rows (`setup`, the oauth rows): mixdog-core-domains/src/domains/ai_account/provider_setup.rs:451 `pub fn provider_setup(world: &dyn SetupWorld, config: &Value, options: SetupOptions) -> Value` (`pub mod provider_setup`, ai_account/mod.rs:19); (3) the account-listing error for an unknown OAuth provider: mixdog-core-domains/src/domains/ai_account/admin.rs:379 `list_provider_accounts(&self, provider)` (`pub mod admin`, ai_account/mod.rs:4). (4) `status` (providerStatus rows): RUST WORK - looked for a public provider_status / providers_status function in mixdog-core-domains ai_account, mixdog-ai service and registry: none; the closest, registry/effective.rs:31-33, builds the listing but is not a status function.",
 });
 process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
 process.env.MIXDOG_USER_DATA_BACKUP_ROOT = `${rec.dataDir}/backups`;
@@ -32,7 +32,7 @@ const step = async (developer) => {
     }
   }
   return {
-    developer: developer ?? null,
+    developer,
     setup: await providerSetup({}, { checkSecrets: false, detectLocal: false }),
     known: Object.fromEntries(KNOWN.map((id) => [id, isKnownProvider(id)])),
     status: providerStatus({}),
