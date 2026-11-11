@@ -342,21 +342,6 @@
         "catalog [<room log 0>]"
       ],
       "compareWith": "startup-interrupted"
-    },
-    {
-      "scenario": "startup-interrupted-post-behind-detach",
-      "step": "restart-and-update",
-      "part": "before the answer",
-      "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
-      "reason": "Detach race (MANIFEST startupRace.cases.startup-interrupted-post-behind-detach, forcedOrders.startupOrder): the earlier host's connection closes and the daemon detaches the room log (lifecycle-barriers.mjs:122: a generation bump, then the writer claim goes), a daemon operation in the log's order. The start-up recovery's post of the interrupted row (agent-rooms.ts:474 → agent-room-delivery.mjs:199 → saveSessionAsync with the copy's expectedGeneration) that is admitted behind the detach's queued record is dropped by its generation fence (store.mjs _dropsAgainst): the post answers, no row is written, both catalogs Node publishes carry messageCount 0. The core has no daemon and no second process: the room log is its own store's, the recovery posts into it in-process (live.rs recover → view.post) and nothing detaches it, so the row is always written. The core's part is compared whole with Node's startup-interrupted part (the same step and part), the order in which the post lands, which Node also produces when the detach has landed before the post (the claim let go, then taken again: startup-interrupted).",
-      "rust": [
-        "native/core/crates/mixdog-core-rooms/src/rooms/live.rs:336-351 (LiveRooms::recover: the interrupted row posted into the room log, in-process, with no detach ahead of it)"
-      ],
-      "node": [
-        "catalog [<room log 0>]",
-        "catalog [<room log 0>]"
-      ],
-      "compareWith": "startup-interrupted"
     }
   ],
   "rowFields": [
