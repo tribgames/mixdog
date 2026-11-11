@@ -98,162 +98,73 @@
         }
       },
       "result": {
-        "original": {
-          "type": "object",
-          "properties": {
-            "pattern": {
-              "anyOf": [
+        "sent": {
+          "result": {
+            "content": "ok",
+            "model": "grok-4.5",
+            "toolCalls": {
+              "$exact": "undefined"
+            },
+            "stopReason": null,
+            "citations": {
+              "$exact": "undefined"
+            },
+            "webSearchCalls": {
+              "$exact": "undefined"
+            },
+            "providerReplay": {
+              "version": 1,
+              "provider": "xai-responses",
+              "items": [
                 {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "maxItems": 10
+                  "type": "message",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
                 }
-              ],
-              "description": "Ripgrep regex(es); escape literal metacharacters."
+              ]
             },
-            "path": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 10,
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ],
-              "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
-            },
-            "glob": {
-              "type": "string",
-              "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
-            },
-            "mode": {
-              "type": "string",
-              "enum": [
-                "content",
-                "files",
-                "count"
-              ],
-              "description": "content default; files lists matching paths; count totals all patterns together per file."
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
-            },
-            "offset": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "context": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 200,
-              "description": "Omit for automatic context; 0 for matches only."
-            },
-            "include_noise": {
-              "type": "boolean",
-              "description": "Also search gitignored trees."
-            },
-            "text": {
-              "type": "boolean",
-              "description": "Search binary data as text (archives/Git objects not decoded)."
-            }
-          },
-          "required": [
-            "pattern"
-          ],
-          "additionalProperties": false
-        },
-        "normalized": {
-          "name": "grep",
-          "title": "Grep",
-          "annotations": {
-            "title": "Grep",
-            "readOnlyHint": true,
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "compressible": true
-          },
-          "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "pattern": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 10,
-                "description": "Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array."
-              },
-              "path": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 10,
-                "items": {
-                  "type": "string"
-                },
-                "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array."
-              },
-              "glob": {
-                "type": "string",
-                "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
-              },
-              "mode": {
-                "type": "string",
-                "enum": [
-                  "content",
-                  "files",
-                  "count"
-                ],
-                "description": "content default; files lists matching paths; count totals all patterns together per file."
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
-              },
-              "offset": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "context": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 200,
-                "description": "Omit for automatic context; 0 for matches only."
-              },
-              "include_noise": {
-                "type": "boolean",
-                "description": "Also search gitignored trees."
-              },
-              "text": {
-                "type": "boolean",
-                "description": "Search binary data as text (archives/Git objects not decoded)."
+            "providerState": {
+              "xaiResponses": {
+                "previousResponseId": null,
+                "responseId": "resp-1",
+                "store": false,
+                "encryptedReasoningItems": [],
+                "encryptedReasoningHistory": [],
+                "seenMessageCount": 1,
+                "model": "grok-4.5",
+                "updatedAt": 1794225600000
               }
             },
-            "required": [
-              "pattern"
-            ],
-            "additionalProperties": false
+            "usage": {
+              "$exact": "undefined"
+            }
           }
         }
       },
       "calls": [
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs.normalizeGrokToolSchemas",
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
           "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.5",
             [
               {
                 "name": "grep",
@@ -344,8 +255,114 @@
                   "additionalProperties": false
                 }
               }
-            ]
+            ],
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.5"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "1908"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"grep\",\"description\":\"Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"maxItems\":10,\"description\":\"Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array.\"},\"path\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"type\":\"string\"},\"description\":\"Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array.\"},\"glob\":{\"type\":\"string\",\"description\":\"Relative glob filter evaluated inside path, e.g. \\\"*.cs\\\" or \\\"src/**/*.ts\\\"; for exact/absolute paths use path instead.\"},\"mode\":{\"type\":\"string\",\"enum\":[\"content\",\"files\",\"count\"],\"description\":\"content default; files lists matching paths; count totals all patterns together per file.\"},\"limit\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset.\"},\"offset\":{\"type\":\"integer\",\"minimum\":0},\"context\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":200,\"description\":\"Omit for automatic context; 0 for matches only.\"},\"include_noise\":{\"type\":\"boolean\",\"description\":\"Also search gitignored trees.\"},\"text\":{\"type\":\"boolean\",\"description\":\"Search binary data as text (archives/Git objects not decoded).\"}},\"required\":[\"pattern\"],\"additionalProperties\":false},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -355,6 +372,7 @@
       "input": {
         "tool": {
           "name": "grep",
+          "description": "xor",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -382,32 +400,77 @@
         }
       },
       "result": {
-        "normalized": {
-          "name": "grep",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "pattern": {
-                "type": "string"
-              },
-              "glob": {
-                "type": "string"
+        "sent": {
+          "result": {
+            "content": "ok",
+            "model": "grok-4.5",
+            "toolCalls": {
+              "$exact": "undefined"
+            },
+            "stopReason": null,
+            "citations": {
+              "$exact": "undefined"
+            },
+            "webSearchCalls": {
+              "$exact": "undefined"
+            },
+            "providerReplay": {
+              "version": 1,
+              "provider": "xai-responses",
+              "items": [
+                {
+                  "type": "message",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            },
+            "providerState": {
+              "xaiResponses": {
+                "previousResponseId": null,
+                "responseId": "resp-1",
+                "store": false,
+                "encryptedReasoningItems": [],
+                "encryptedReasoningHistory": [],
+                "seenMessageCount": 1,
+                "model": "grok-4.5",
+                "updatedAt": 1794225600000
               }
             },
-            "additionalProperties": false,
-            "required": [
-              "pattern"
-            ]
+            "usage": {
+              "$exact": "undefined"
+            }
           }
         }
       },
       "calls": [
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs.normalizeGrokToolSchemas",
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
           "args": [
             [
               {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.5",
+            [
+              {
                 "name": "grep",
+                "description": "xor",
                 "inputSchema": {
                   "type": "object",
                   "properties": {
@@ -433,8 +496,114 @@
                   "additionalProperties": false
                 }
               }
-            ]
+            ],
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "670491a4-985c-4c8c-81a2-d4a13c6bca2e"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.5"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "419"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"grep\",\"description\":\"xor\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"glob\":{\"type\":\"string\"}},\"additionalProperties\":false,\"required\":[\"pattern\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -444,6 +613,7 @@
       "input": {
         "tool": {
           "name": "searchish",
+          "description": "xor object",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -472,31 +642,77 @@
         }
       },
       "result": {
-        "normalized": {
-          "name": "searchish",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "pattern": {
-                "type": "string"
-              },
-              "glob": {
-                "type": "string"
+        "sent": {
+          "result": {
+            "content": "ok",
+            "model": "grok-4.5",
+            "toolCalls": {
+              "$exact": "undefined"
+            },
+            "stopReason": null,
+            "citations": {
+              "$exact": "undefined"
+            },
+            "webSearchCalls": {
+              "$exact": "undefined"
+            },
+            "providerReplay": {
+              "version": 1,
+              "provider": "xai-responses",
+              "items": [
+                {
+                  "type": "message",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            },
+            "providerState": {
+              "xaiResponses": {
+                "previousResponseId": null,
+                "responseId": "resp-1",
+                "store": false,
+                "encryptedReasoningItems": [],
+                "encryptedReasoningHistory": [],
+                "seenMessageCount": 1,
+                "model": "grok-4.5",
+                "updatedAt": 1794225600000
               }
             },
-            "required": [
-              "pattern"
-            ]
+            "usage": {
+              "$exact": "undefined"
+            }
           }
         }
       },
       "calls": [
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs.normalizeGrokToolSchemas",
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
           "args": [
             [
               {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.5",
+            [
+              {
                 "name": "searchish",
+                "description": "xor object",
                 "inputSchema": {
                   "type": "object",
                   "properties": {
@@ -523,8 +739,114 @@
                   ]
                 }
               }
-            ]
+            ],
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "f5e848b6-0eb0-4474-8bdb-28760e3b82c0"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.5"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "402"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"tools\":[{\"type\":\"function\",\"name\":\"searchish\",\"description\":\"xor object\",\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"},\"glob\":{\"type\":\"string\"}},\"required\":[\"pattern\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -532,143 +854,1914 @@
       "id": "xai-responses-cache-routing",
       "source": "scripts/provider-toolcall/xai-grok.test.mjs:66",
       "input": {
-        "params": {
-          "messages": [
+        "sends": [
+          [
+            "first",
             {
-              "role": "system",
-              "content": "stable system"
+              "sessionId": "session-a"
+            }
+          ],
+          [
+            "same",
+            {
+              "sessionId": "session-a"
+            }
+          ],
+          [
+            "other",
+            {
+              "sessionId": "session-b"
+            }
+          ],
+          [
+            "sessionless",
+            {}
+          ],
+          [
+            "optedOut",
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "none"
+            }
+          ],
+          [
+            "sessionA",
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "session"
+            }
+          ],
+          [
+            "sessionAgain",
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "session"
+            }
+          ],
+          [
+            "sessionB",
+            {
+              "sessionId": "session-b",
+              "xaiResponsesCacheScope": "session"
+            }
+          ],
+          [
+            "sharedA",
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "prefix"
+            }
+          ],
+          [
+            "sharedB",
+            {
+              "sessionId": "session-b",
+              "xaiResponsesCacheScope": "prefix"
+            }
+          ]
+        ]
+      },
+      "result": {
+        "sent": {
+          "first": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "same": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "other": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "sessionless": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "optedOut": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "sessionA": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "sessionAgain": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "sessionB": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "sharedA": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "sharedB": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.6",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.6",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-a"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-a"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-b"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "none"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "session"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "session"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-b",
+              "xaiResponsesCacheScope": "session"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "prefix"
+            }
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
+            {
+              "sessionId": "session-b",
+              "xaiResponsesCacheScope": "prefix"
             }
           ]
         }
-      },
-      "result": {
-        "routes": {
-          "first": {
-            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
-            "mode": "session",
-            "seedHash": "0693ed50848bc892",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "fa57a52dbf081902"
-          },
-          "same": {
-            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
-            "mode": "session",
-            "seedHash": "0693ed50848bc892",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "fa57a52dbf081902"
-          },
-          "other": {
-            "key": "9f4cc917-a55d-43ef-9a79-8fdd4daa6479",
-            "mode": "session",
-            "seedHash": "9f4cc917a55de3ef",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "e8de016fbd70182f"
-          },
-          "sessionless": {
-            "key": null,
-            "mode": "none",
-            "seedHash": null,
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": null
-          },
-          "optedOut": {
-            "key": null,
-            "mode": "none",
-            "seedHash": null,
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "fa57a52dbf081902"
-          },
-          "sessionA": {
-            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
-            "mode": "session",
-            "seedHash": "0693ed50848bc892",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "fa57a52dbf081902"
-          },
-          "sessionAgain": {
-            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
-            "mode": "session",
-            "seedHash": "0693ed50848bc892",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "fa57a52dbf081902"
-          },
-          "sessionB": {
-            "key": "9f4cc917-a55d-43ef-9a79-8fdd4daa6479",
-            "mode": "session",
-            "seedHash": "9f4cc917a55de3ef",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "e8de016fbd70182f"
-          },
-          "sharedA": {
-            "key": "8ebad4ae-d01a-45d1-b9b6-fa8ed0816454",
-            "mode": "prefix",
-            "seedHash": "8ebad4aed01af5d1",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "fa57a52dbf081902"
-          },
-          "sharedB": {
-            "key": "8ebad4ae-d01a-45d1-b9b6-fa8ed0816454",
-            "mode": "prefix",
-            "seedHash": "8ebad4aed01af5d1",
-            "prefixHash": "2abfdd076a21a3cd",
-            "ownerSessionHash": "e8de016fbd70182f"
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-a"
+            ],
+            [
+              "x-grok-req-id",
+              "3c16294e-ac3c-4dc6-85e0-c7ad1c979ec7"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"0693ed50-848b-4892-aabb-0009741f1f63\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
           }
         },
-        "equalities": {
-          "firstKeyEqualsSame": true,
-          "otherKeyDiffers": true,
-          "prefixHashEqual": true,
-          "sessionKeysEqual": true,
-          "sessionKeysDifferAcrossSessions": true,
-          "prefixKeysEqualAcrossSessions": true
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-a"
+            ],
+            [
+              "x-grok-req-id",
+              "84538130-fc1f-4399-884c-428d489c3690"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"0693ed50-848b-4892-aabb-0009741f1f63\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         },
-        "payload": {
-          "provider": "xai",
-          "api": "responses",
-          "transport": "http",
-          "model": "grok-4.6",
-          "response_model": "grok-4.6-build",
-          "session_id_hash": "fa57a52dbf081902",
-          "provider_cache_key_hash": null,
-          "prompt_cache_key_option_hash": null,
-          "prompt_cache_key_hash": "37a8a2bdb766c748",
-          "xai_prompt_prefix_hash": "2abfdd076a21a3cd",
-          "xai_cache_mode": "session",
-          "xai_cache_seed_hash": "0693ed50848bc892",
-          "owner_session_hash": "fa57a52dbf081902",
-          "response_id_hash": null,
-          "previous_response_id_hash": null,
-          "previous_response_used": false,
-          "stateless_continuation_used": true,
-          "continuation_used": true,
-          "continuation_reset_reason": null,
-          "input_start_index": 0,
-          "input_count": 1,
-          "input_hash": "ab9a498d260e5fb0",
-          "request_sans_input_hash": "686e597275407b72",
-          "context_prefix_hash": "0075a441dc7379bc",
-          "has_instructions": false,
-          "instructions_chars": 0,
-          "instructions_hash": null,
-          "reasoning_effort": null,
-          "tool_count": 0,
-          "tool_schema_hash": "4f53cda18c2baa0c",
-          "tool_names_hash": "4f53cda18c2baa0c",
-          "xai_cache_lane_enabled": false,
-          "xai_cache_lane_hash": null,
-          "xai_cache_lane_shard": null,
-          "xai_cache_lane_shards": null,
-          "xai_cache_lane_auto": false,
-          "xai_cache_lane_seed_hash": null,
-          "xai_cache_lane_max_in_flight": null,
-          "xai_cache_lane_wait_ms": null,
-          "xai_cache_lane_queued": false,
-          "input_tokens": 7324,
-          "output_tokens": 0,
-          "cached_tokens": 128,
-          "cache_hit_rate": 0.017477,
-          "mid_turn_cold": true
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-b"
+            ],
+            [
+              "x-grok-req-id",
+              "728edffa-1442-4650-8c29-7695d6161852"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"9f4cc917-a55d-43ef-9a79-8fdd4daa6479\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "728ab20c-cf2a-43b5-8e20-73d05d421513"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "162"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-a"
+            ],
+            [
+              "x-grok-req-id",
+              "f0814a8b-776f-4f1b-89c1-1af8b005c872"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "162"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-a"
+            ],
+            [
+              "x-grok-req-id",
+              "00dcc167-129a-4d4a-8d6a-70b02f1d6d75"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"0693ed50-848b-4892-aabb-0009741f1f63\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-a"
+            ],
+            [
+              "x-grok-req-id",
+              "92487089-71b2-4731-8e6a-d631c2c6c6e1"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"0693ed50-848b-4892-aabb-0009741f1f63\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-b"
+            ],
+            [
+              "x-grok-req-id",
+              "db932f52-29fd-400c-81bd-3d985898a305"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"9f4cc917-a55d-43ef-9a79-8fdd4daa6479\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-a"
+            ],
+            [
+              "x-grok-req-id",
+              "86fd5903-29b4-42e5-80ce-8ca41e06d051"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"eb6988c5-7b0d-42c8-894a-f1070f75023e\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-b"
+            ],
+            [
+              "x-grok-req-id",
+              "d398a45f-1f8e-4c18-8d88-1cac2295a39f"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"eb6988c5-7b0d-42c8-894a-f1070f75023e\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
+      ]
+    },
+    {
+      "id": "xai-responses-fingerprint-payload",
+      "source": "scripts/provider-toolcall/xai-grok.test.mjs:66",
+      "input": {
+        "sessionId": "session-a"
+      },
+      "result": {
+        "provider": "xai",
+        "api": "responses",
+        "transport": "http",
+        "model": "grok-4.6",
+        "response_model": "grok-4.6-build",
+        "session_id_hash": "fa57a52dbf081902",
+        "provider_cache_key_hash": null,
+        "prompt_cache_key_option_hash": null,
+        "prompt_cache_key_hash": "37a8a2bdb766c748",
+        "xai_prompt_prefix_hash": "2abfdd076a21a3cd",
+        "xai_cache_mode": "session",
+        "xai_cache_seed_hash": "0693ed50848bc892",
+        "owner_session_hash": "fa57a52dbf081902",
+        "response_id_hash": null,
+        "previous_response_id_hash": null,
+        "previous_response_used": false,
+        "stateless_continuation_used": true,
+        "continuation_used": true,
+        "continuation_reset_reason": null,
+        "input_start_index": 0,
+        "input_count": 1,
+        "input_hash": "ab9a498d260e5fb0",
+        "request_sans_input_hash": "686e597275407b72",
+        "context_prefix_hash": "0075a441dc7379bc",
+        "has_instructions": false,
+        "instructions_chars": 0,
+        "instructions_hash": null,
+        "reasoning_effort": null,
+        "tool_count": 0,
+        "tool_schema_hash": "4f53cda18c2baa0c",
+        "tool_names_hash": "4f53cda18c2baa0c",
+        "xai_cache_lane_enabled": false,
+        "xai_cache_lane_hash": null,
+        "xai_cache_lane_shard": null,
+        "xai_cache_lane_shards": null,
+        "xai_cache_lane_auto": false,
+        "xai_cache_lane_seed_hash": null,
+        "xai_cache_lane_max_in_flight": null,
+        "xai_cache_lane_wait_ms": null,
+        "xai_cache_lane_queued": false,
+        "input_tokens": 7324,
+        "output_tokens": 0,
+        "cached_tokens": 128,
+        "cache_hit_rate": 0.017477,
+        "mid_turn_cold": true
       },
       "calls": [
         {
@@ -676,172 +2769,6 @@
           "args": [
             {
               "sessionId": "session-a"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-a"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-b"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {},
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-a",
-              "xaiResponsesCacheScope": "none"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-a",
-              "xaiResponsesCacheScope": "session"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-a",
-              "xaiResponsesCacheScope": "session"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-b",
-              "xaiResponsesCacheScope": "session"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-a",
-              "xaiResponsesCacheScope": "prefix"
-            },
-            {
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "stable system"
-                }
-              ]
-            },
-            [],
-            "grok-4.6"
-          ]
-        },
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-b",
-              "xaiResponsesCacheScope": "prefix"
             },
             {
               "messages": [
@@ -912,30 +2839,209 @@
       "input": {
         "env": {
           "MIXDOG_OAI_TRANSPORT": "ws-delta",
-          "MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT": "websocket"
-        }
+          "then": {
+            "MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT": "websocket",
+            "providerConfig": {
+              "responsesTransport": "websocket"
+            }
+          }
+        },
+        "models": [
+          "grok-build-0.1",
+          "grok-build",
+          "grok-4.5"
+        ]
       },
       "result": {
-        "models": [
-          {
-            "model": "grok-build-0.1",
-            "responsesTransport": "http",
-            "baseURL": "https://cli-chat-proxy.grok.com/v1"
+        "sent": {
+          "grok-build-0.1": {
+            "result": {
+              "content": "ok",
+              "model": "grok-build-0.1",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-build-0.1",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
           },
-          {
-            "model": "grok-build",
-            "responsesTransport": "http",
-            "baseURL": "https://cli-chat-proxy.grok.com/v1"
+          "grok-build": {
+            "result": {
+              "content": "ok",
+              "model": "grok-build",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-build",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
           },
-          {
-            "model": "grok-4.5",
-            "responsesTransport": "http",
-            "baseURL": "https://cli-chat-proxy.grok.com/v1"
+          "grok-4.5": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.5",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.5",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
+          },
+          "explicitWebsocket": {
+            "result": {
+              "content": "ok",
+              "model": "grok-4.5",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": null,
+              "citations": {
+                "$exact": "undefined"
+              },
+              "webSearchCalls": {
+                "$exact": "undefined"
+              },
+              "providerReplay": {
+                "version": 1,
+                "provider": "xai-responses",
+                "items": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "ok"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "providerState": {
+                "xaiResponses": {
+                  "previousResponseId": null,
+                  "responseId": "resp-1",
+                  "store": false,
+                  "encryptedReasoningItems": [],
+                  "encryptedReasoningHistory": [],
+                  "seenMessageCount": 1,
+                  "model": "grok-4.5",
+                  "updatedAt": 1794225600000
+                }
+              },
+              "usage": {
+                "$exact": "undefined"
+              }
+            }
           }
-        ],
-        "explicitWebsocket": {
-          "responsesTransport": "http",
-          "baseURL": "https://cli-chat-proxy.grok.com/v1"
         }
       },
       "calls": [
@@ -948,24 +3054,61 @@
           ]
         },
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
           "args": [
-            "tok-grok-build-0.1",
-            "grok-build-0.1"
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-build-0.1",
+            [],
+            {}
           ]
         },
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
           "args": [
-            "tok-grok-build",
-            "grok-build"
+            {
+              "preconnect": false
+            }
           ]
         },
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
           "args": [
-            "tok-grok-4.5",
-            "grok-4.5"
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-build",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.5",
+            [],
+            {}
           ]
         },
         {
@@ -978,11 +3121,432 @@
           ]
         },
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
           "args": [
-            "tok-explicit",
-            "grok-4.5"
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.5",
+            [],
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "2085de83-6fd3-4c45-8f27-23f3c2beda79"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-build-0.1"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "168"
+            ]
+          ],
+          "body": "{\"model\":\"grok-build-0.1\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-build-0.1\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "c2c52b10-6403-4056-8e6f-0e6711e867f3"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-build"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "164"
+            ]
+          ],
+          "body": "{\"model\":\"grok-build\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-build\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "5cef9295-91ba-4b76-88c1-94f3cdf674cc"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.5"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "162"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "fdb0311e-1df5-4529-86dd-90de958ab326"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.5"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "162"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     }
