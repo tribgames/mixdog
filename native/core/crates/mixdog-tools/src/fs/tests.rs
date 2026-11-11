@@ -957,7 +957,12 @@ fn the_builtin_tools_are_nodes_definitions() {
         Box::new(EditTool::new()),
         Box::new(ApplyPatchTool::new()),
         Box::new(crate::git::GitTool::new()),
-        Box::new(crate::github::GithubTool::new()),
+        Box::new(crate::github::GithubTool::new(
+            mixdog_scm::engine::Scm::new(Arc::new(mixdog_core_api::domain::mock::MockProcessManager::default()), mixdog_rt::testing::tokens().maintenance_io, cache_dir.path().join("scm"))
+                .github
+                .clone(),
+            None,
+        )),
     ];
     for tool in &tools {
         let spec = tool.spec();
@@ -1148,7 +1153,7 @@ async fn an_edit_through_a_symlink_waits_for_the_referents_lock() {
             text_of(EditTool::new().call(&ctx, args).await)
         })
     };
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert!(!through_link.is_finished(), "an edit through a symlink ran under its referent's lock");
     drop(held);
     let (is_error, text) = through_link.await.unwrap();
@@ -1181,7 +1186,7 @@ async fn writes_to_one_path_wait_for_its_path_lock() {
     let (unrelated_error, text) = unrelated.await.unwrap();
     assert!(!unrelated_error, "{text}");
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
     assert!(!first.is_finished() && !second.is_finished(), "edits ran under a held path lock");
     drop(held);
 
@@ -1409,7 +1414,7 @@ async fn apply_patch_through_a_junction_waits_for_the_referents_lock() {
             text_of(ApplyPatchTool::new().call(&ctx, args).await)
         })
     };
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(150)).await;
     assert!(!task.is_finished(), "a patch through a junction ran under its referent's lock");
     drop(held);
     let (is_error, text) = task.await.unwrap();
@@ -1484,7 +1489,7 @@ async fn edit_and_apply_patch_wait_for_the_advisory_lock_of_their_file() {
                 text_of(if is_edit { EditTool::new().call(&ctx, args).await } else { ApplyPatchTool::new().call(&ctx, args).await })
             })
         };
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(200)).await;
         assert!(!task.is_finished(), "{name} was written under another holder's advisory lock");
         std::fs::remove_file(&lock_file).unwrap();
         let (is_error, text) = task.await.unwrap();

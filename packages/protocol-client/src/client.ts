@@ -91,12 +91,19 @@ const toB64 = (b: Uint8Array): string => {
 export class ClientFailure extends Error implements ClientError {
   readonly detail: ClientErrorDetail;
   constructor(detail: ClientErrorDetail) {
-    super(detail.kind === 'rpc' ? `${detail.code} ${detail.reason ?? ''} ${detail.message}` : detail.kind);
+    super(detail.kind === 'rpc' ? `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}` : detail.kind);
     this.name = 'ClientError';
     this.detail = detail;
   }
 }
 const fail = (detail: ClientErrorDetail): ClientFailure => new ClientFailure(detail);
+
+/** A refused argument's sentence, for the message a person sees: the core's `expected` names what the field had to hold (for a
+ *  lone surrogate, the field itself). */
+function refusedArgument(data: ErrorData | undefined): string {
+  const fields = data as { reason?: unknown; expected?: unknown } | undefined;
+  return fields?.reason === 'invalidParams' && typeof fields.expected === 'string' && fields.expected ? `: ${fields.expected}` : '';
+}
 const rpcFailure = (e: JsonRpcErrorBody): ClientFailure => {
   const data = e.data as ErrorData | undefined;
   return fail({ kind: 'rpc', code: e.code, reason: data?.reason, message: e.message, data });

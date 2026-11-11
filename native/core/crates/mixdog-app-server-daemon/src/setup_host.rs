@@ -107,7 +107,7 @@ impl SetupWarmup {
         }
         let this = self.clone();
         mixdog_rt::spawn("provider-setup-warmup", TaskClass::Work, async move {
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(delay_ms)).await;
             this.pending.store(false, Ordering::SeqCst);
             if this.closing() {
                 return;

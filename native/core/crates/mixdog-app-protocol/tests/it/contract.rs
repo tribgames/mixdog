@@ -26,6 +26,7 @@ use mixdog_app_protocol::inventory::Target;
 use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_protocol::rpc::InboundText;
 use mixdog_app_protocol::rpc::decode_inbound_text;
+use mixdog_js::LoneAt;
 use serde_json::Value;
 use serde_json::json;
 
@@ -221,7 +222,7 @@ fn ds_dup_1_no_duplicate_rows() {
 fn terminal_ensure_is_keyed_by_its_tab_only_when_it_names_one() {
     use mixdog_app_protocol::common::SerializationScope;
     let scope = |params: Value| {
-        let request = JsonRpcRequest { id: RequestId::Integer(1), method: "terminal/ensure".into(), params: Some(params), trace: None };
+        let request = JsonRpcRequest { id: RequestId::Integer(1), method: "terminal/ensure".into(), params: Some(params), trace: None, lone_surrogates: Vec::new() };
         ClientRequest::from_jsonrpc(request).unwrap().serialization_scope()
     };
     assert_eq!(scope(json!({ "opId": "o1", "options": {} })), None);
@@ -435,6 +436,7 @@ fn envelope_failure_codes() {
         method: "no/such".into(),
         params: None,
         trace: None,
+        lone_surrogates: Vec::new(),
     };
     let error = ClientRequest::from_jsonrpc(request)
         .unwrap_err()
@@ -451,6 +453,245 @@ fn envelope_failure_codes() {
     let bad = decode_inbound_text("{not json", 1 << 20);
     assert_eq!(bad, InboundText::Invalid);
     assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
+}
+
+/// A request holding unpaired surrogate escapes (a high one, a low one, a reversed pair, in a key, in a nested
+/// value, in the method name) is a request, read with U+FFFD in each place; a pair stays the character it encodes.
+/// A frame that is not JSON stays refused (1007). Node accepts such a frame (`JSON.parse`); the recording is
+/// `native/core/fixtures/inbound-lone-surrogate`.
+#[test]
+fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
+    let frame = r#"{"id":1,"method":"x\ud83d","params":{"a":"\ud800 \udc00 \ude00\ud83d \ud83d\ude00","\udbff":{"n":["\ude00"]}}}"#;
+    let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
+    assert_eq!(request.method, "x\u{fffd}");
+    assert_eq!(
+        request.params,
+        Some(json!({"a": "\u{fffd} \u{fffd} \u{fffd}\u{fffd} \u{1f600}", "\u{fffd}": {"n": ["\u{fffd}"]}}))
+    );
+    // Where it happened, for the server's refusal of every place that is no free-text field: the strings that held one,
+    // not the ones that hold a real U+FFFD; a place outside the params (the method name) behind `#`.
+    // A string is named once, then each lone unit it held with its UTF-16 index ([`LoneAt::Unit`]); the order is the parsed
+    // map's.
+    let places = |lone: &[LoneAt]| lone.iter().filter(|at| !matches!(at, LoneAt::Unit { .. })).cloned().collect::<Vec<_>>();
+    let mut named = places(&request.lone_surrogates);
+    named.sort();
+    let mut expected = vec![LoneAt::Value("#/method".into()), LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
+    expected.sort();
+    assert_eq!(named, expected);
+    assert_eq!(LoneAt::units_at(&request.lone_surrogates, "/a"), [(0, 0xd800), (2, 0xdc00), (4, 0xde00), (5, 0xd83d)]);
+    assert_eq!(LoneAt::units_at(&request.lone_surrogates, "#/method"), [(1, 0xd83d)]);
+    let frame = r#"{"id":2,"method":"m","params":{"content":"a\ufffdb","relPath":"n\ude00.txt"}}"#;
+    let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into()), LoneAt::Unit { pointer: "/relPath".into(), at: 1, unit: 0xde00 }]);
+    // Upper-case hex is the same escape; an escaped backslash before `u` is no escape; an escaped valid pair is one character.
+    let frame = r#"{"id":3,"method":"m","params":["\uD83D x","\\ud83d","\uD83D\uDE00","\ud83d\u0041","\ud83d\ud83d\ude00"]}"#;
+    let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
+    assert_eq!(request.params, Some(json!(["\u{fffd} x", "\\ud83d", "\u{1f600}", "\u{fffd}A", "\u{fffd}\u{1f600}"])));
+    assert_eq!(places(&request.lone_surrogates), [LoneAt::Value("/0".into()), LoneAt::Value("/3".into()), LoneAt::Value("/4".into())]);
+    let bad = decode_inbound_text(r#"{"id":1,"method":"\ud800"#, 1 << 20);
+    assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
+}
+
+/// Every inbound kind keeps where its payload held a lone unit: a notification (no id) its `params`, a client's answer its
+/// `result`, an error answer its `error`; a key as a key.
+#[test]
+fn every_inbound_kind_names_its_lone_surrogates() {
+    let decode = |frame: &str| match decode_inbound_text(frame, 1 << 20) {
+        InboundText::Message(message) => message,
+        other => panic!("{frame}: {other:?}"),
+    };
+    let note = decode(r#"{"method":"x","params":{"a":"\ud800"}}"#);
+    assert!(matches!(note, JsonRpcMessage::Notification(_)));
+    let unit = |pointer: &str, at, unit| LoneAt::Unit { pointer: pointer.into(), at, unit };
+    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into()), unit("/a", 0, 0xd800)]);
+    let answer = decode(r#"{"id":"s1","result":{"answers":{"q\ud83d":"x"}}}"#);
+    assert!(matches!(answer, JsonRpcMessage::Response(_)));
+    assert_eq!(answer.lone_surrogates(), [LoneAt::Key("/answers/q\u{fffd}".into())]);
+    let failed = decode(r#"{"id":"s1","error":{"code":1,"message":"m\udc00"}}"#);
+    assert!(matches!(failed, JsonRpcMessage::Error(_)));
+    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into()), unit("/message", 1, 0xdc00)]);
+    let id = decode(r#"{"id":"r\ud800","method":"m","params":{}}"#);
+    assert_eq!(id.lone_surrogates(), [LoneAt::Value("#/id".into()), unit("#/id", 1, 0xd800)]);
+    // The same key twice is one key to Node too (the last value).
+    let JsonRpcMessage::Request(twice) = decode(r#"{"id":1,"method":"m","params":{"a":1,"a":2}}"#) else { panic!("not a request") };
+    assert_eq!(twice.params, Some(json!({"a": 2})));
+}
+
+/// Every string field of every client request, client notification and answer to a server request (read from the
+/// schema goldens, and inside the values the schema leaves untyped from the inventory's `payloads`), a map's keys
+/// included, is in exactly one class of `free_text_fields.json` with its reason, and the `free` class is exactly
+/// `free_text::FREE_TEXT`, either way: the inventory is the statement the table is checked against. A part classed whole
+/// (`**`) is only one the inventory declares `open` (no fixed fields by nature), in the class it declares.
+#[test]
+fn every_string_field_is_classed_once_and_free_text_is_listed_free() {
+    use mixdog_app_protocol::free_text::FREE_TEXT;
+    use mixdog_app_protocol::free_text::Kind;
+    use std::collections::BTreeSet;
+    fn untyped(schema: &Value) -> bool {
+        schema == &Value::Bool(true)
+            || schema.as_object().is_some_and(|object| {
+                !["type", "$ref", "anyOf", "oneOf", "allOf", "properties", "items", "enum", "const", "additionalProperties"]
+                    .iter()
+                    .any(|key| object.contains_key(*key))
+            })
+    }
+    fn walk(schema: &Value, defs: &Value, path: &str, out: &mut BTreeSet<String>, seen: &[String]) {
+        if schema.is_null() || schema == &Value::Bool(false) {
+            return;
+        }
+        if untyped(schema) {
+            out.insert(format!("{path}/**"));
+            return;
+        }
+        if let Some(name) = schema["$ref"].as_str().and_then(|r| r.rsplit('/').next()) {
+            if seen.iter().any(|s| s == name) {
+                out.insert(format!("{path}/**"));
+                return;
+            }
+            let seen = [seen, &[name.to_owned()]].concat();
+            walk(&defs[name], defs, path, out, &seen);
+        }
+        for key in ["anyOf", "oneOf", "allOf"] {
+            for branch in schema[key].as_array().into_iter().flatten() {
+                walk(branch, defs, path, out, seen);
+            }
+        }
+        let types: Vec<&str> = match &schema["type"] {
+            Value::String(t) => vec![t.as_str()],
+            Value::Array(ts) => ts.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        };
+        if types.contains(&"string")
+            || schema["enum"].as_array().is_some_and(|values| values.iter().any(Value::is_string))
+            || schema["const"].is_string()
+        {
+            out.insert(path.to_owned());
+        }
+        for (key, property) in schema["properties"].as_object().into_iter().flatten() {
+            walk(property, defs, &format!("{path}/{}", key.replace('~', "~0").replace('/', "~1")), out, seen);
+        }
+        if let Some(more) = schema.get("additionalProperties").filter(|more| *more != &Value::Bool(false)) {
+            // A map: its keys are strings of their own class.
+            out.insert(format!("{path}/{{}}"));
+            walk(more, defs, &format!("{path}/*"), out, seen);
+        }
+        match &schema["items"] {
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    walk(item, defs, &format!("{path}/{index}"), out, seen);
+                }
+            }
+            Value::Null => {}
+            item => walk(item, defs, &format!("{path}/*"), out, seen),
+        }
+    }
+    let schema = |name: &str| -> Value { serde_json::from_slice(&std::fs::read(crate_dir().join("schema").join(name)).unwrap()).unwrap() };
+    let named: Value = serde_json::from_slice(&std::fs::read(crate_dir().join("tests/it/free_text_fields.json")).unwrap()).unwrap();
+    let mut problems = Vec::new();
+    // Each untyped value (`path/**`) is replaced by what `payloads` declares for it; one with no declaration is a failure.
+    // The `**` parts left are the declared `open` ones, each with the class it must have.
+    let mut used = BTreeSet::new();
+    let mut open_class: BTreeMap<String, String> = BTreeMap::new();
+    let mut expand = |kind: &str, method: &str, walked: BTreeSet<String>, problems: &mut Vec<String>| {
+        let mut out = BTreeSet::new();
+        for field in walked {
+            let Some(at) = field.strip_suffix("/**") else {
+                out.insert(field);
+                continue;
+            };
+            let spec = &named["payloads"][kind][method][at];
+            if spec.is_null() {
+                problems.push(format!("{kind} {method} {field}: an untyped value whose fields are not enumerated in `payloads`"));
+                continue;
+            }
+            used.insert(format!("{kind} {method} {at}"));
+            assert!(spec["source"].as_str().is_some_and(|s| !s.is_empty()), "{kind} {method} {at}: a payload without its source");
+            for sub in spec["fields"].as_array().into_iter().flatten() {
+                out.insert(format!("{at}{}", sub.as_str().unwrap()));
+            }
+            if let Some(reference) = spec["schema"].as_str() {
+                let (file, definition) = reference.split_once('#').unwrap();
+                let file = schema(file);
+                walk(&file["definitions"][definition], &file["definitions"], at, &mut out, &[definition.to_owned()]);
+            }
+            for (sub, open) in spec["open"].as_object().into_iter().flatten() {
+                let class = open["class"].as_str().unwrap_or_default();
+                if !["free", "refused"].contains(&class) || !open["reason"].as_str().is_some_and(|r| !r.is_empty()) {
+                    problems.push(format!("{kind} {method} {at}{sub}: an open part without its class and reason"));
+                }
+                out.insert(format!("{at}{sub}/**"));
+                open_class.insert(format!("{kind} {method} {at}{sub}/**"), class.to_owned());
+            }
+        }
+        out
+    };
+    let mut fields: BTreeSet<String> = BTreeSet::new();
+    for (file, kind) in [("client_request.json", "request"), ("client_notification.json", "notification")] {
+        let file = schema(file);
+        for variant in file["oneOf"].as_array().unwrap() {
+            let method = &variant["properties"]["method"];
+            let method = method["const"].as_str().or_else(|| method["enum"][0].as_str()).unwrap().to_owned();
+            let mut out = BTreeSet::new();
+            walk(&variant["properties"]["params"], &file["definitions"], "", &mut out, &[]);
+            fields.extend(expand(kind, &method, out, &mut problems).into_iter().map(|f| format!("{kind} {method} {f}")));
+        }
+    }
+    let answers = schema("server_request_methods.json");
+    for (method, row) in answers["methods"].as_object().unwrap() {
+        let mut out = BTreeSet::new();
+        walk(&row["result"], &answers["definitions"], "", &mut out, &[]);
+        fields.extend(expand("answer", method, out, &mut problems).into_iter().map(|f| format!("answer {method} {f}")));
+    }
+    for (kind, methods) in named["payloads"].as_object().unwrap() {
+        for (method, paths) in methods.as_object().unwrap() {
+            for at in paths.as_object().unwrap().keys().filter(|at| !used.contains(&format!("{kind} {method} {at}"))) {
+                problems.push(format!("{kind} {method} {at}: a payload declaration for no untyped value of the schema"));
+            }
+        }
+    }
+    // The inventory's classes: every field once, with its reason.
+    let mut class_of: BTreeMap<String, String> = BTreeMap::new();
+    for group in named["classes"].as_array().unwrap() {
+        let class = group["class"].as_str().unwrap();
+        assert!(["free", "refused"].contains(&class), "a class that is neither free nor refused: {class}");
+        assert!(group["reason"].as_str().is_some_and(|r| !r.is_empty()), "a class without its reason");
+        for entry in group["fields"].as_array().unwrap() {
+            let entry = entry.as_str().unwrap();
+            if class_of.insert(entry.to_owned(), class.to_owned()).is_some() {
+                problems.push(format!("{entry}: classed twice"));
+            }
+            if !fields.contains(entry) {
+                problems.push(format!("{entry}: classed, not a string field of the schema"));
+            }
+        }
+    }
+    for field in &fields {
+        match (class_of.get(field), open_class.get(field)) {
+            (None, _) => problems.push(format!("{field}: a string field in no class")),
+            (Some(class), Some(open)) if class != open => problems.push(format!("{field}: an open part classed {class}, declared {open}")),
+            _ => {}
+        }
+    }
+    // FREE_TEXT equals the inventory's free class, either way.
+    let listed: BTreeSet<String> = FREE_TEXT
+        .iter()
+        .flat_map(|(kind, method, patterns)| {
+            let kind = match kind {
+                Kind::Request => "request",
+                Kind::Notification => "notification",
+                Kind::Answer => "answer",
+            };
+            patterns.iter().map(move |pattern| format!("{kind} {method} {pattern}"))
+        })
+        .collect();
+    let free: BTreeSet<String> = class_of.iter().filter(|(_, class)| *class == "free").map(|(field, _)| field.clone()).collect();
+    for field in listed.difference(&free) {
+        problems.push(format!("{field}: in FREE_TEXT, not classed free in the inventory"));
+    }
+    for field in free.difference(&listed) {
+        problems.push(format!("{field}: classed free in the inventory, not in FREE_TEXT"));
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
 }
 
 /// §14.3, wire half: the handshake refusals are `-32600` with their `reason`
@@ -684,6 +925,7 @@ fn ccr_shapes() {
             params: None,
             emitted_at_ms: None,
             feed: None,
+            lone_surrogates: Vec::new(),
         },
     );
     assert_eq!(

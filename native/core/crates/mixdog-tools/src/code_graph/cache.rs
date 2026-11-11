@@ -551,7 +551,7 @@ impl GraphCache {
         }
         let cache = self.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(FLUSH_DELAY).await;
+            mixdog_rt::time::sleep(FLUSH_DELAY).await;
             cache.scheduled.store(false, Ordering::SeqCst);
             let _ = cache.drain(lane, &tokio_util::sync::CancellationToken::new()).await;
         });

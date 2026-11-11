@@ -299,7 +299,7 @@ impl Conn {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().expect("lsp pending").insert(id, tx);
         let _ = self.out.send(frame(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })));
-        match tokio::time::timeout(timeout, rx).await {
+        match mixdog_rt::time::timeout(timeout, rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err("The language server connection closed.".into()),
             Err(_) => {
@@ -818,7 +818,7 @@ impl LspManager {
         let generation = session.idle_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let (this, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
-            tokio::time::sleep(IDLE).await;
+            mixdog_rt::time::sleep(IDLE).await;
             if session.idle_generation.load(Ordering::SeqCst) == generation {
                 this.stop(&session).await;
             }

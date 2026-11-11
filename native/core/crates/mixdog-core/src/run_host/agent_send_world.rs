@@ -170,7 +170,8 @@ impl BlobSizes for StoreBlobSizes {
     async fn size(&self, reference: &str) -> Result<Option<u64>, SendWorldError> {
         let Ok(digest) = Digest::try_from(format!("sha256:{reference}")) else { return Ok(None) };
         let blobs = self.blobs.clone();
-        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), move |lane| blobs.len(lane, &digest))
+        // The size gates an agent's send: a full lane is waited out, not a failed send.
+        mixdog_core_base::support::on_lane_wait(self.io, &CancellationToken::new(), move |lane| blobs.len(lane, &digest))
             .await
             .map_err(|error| SendWorldError::Submit(format!("{error:?}")))?
             .map_err(|error| SendWorldError::Submit(error.to_string()))

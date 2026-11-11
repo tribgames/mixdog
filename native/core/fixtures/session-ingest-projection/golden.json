@@ -1,0 +1,137 @@
+{
+  "note": "Node's session-ingest projection at b6f10295a2f698afc85332467192de28500bd146 over the cases of session-ingest-projection.test.mjs",
+  "projections": [
+    {
+      "test": ":10",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>runtime context</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "actual user instruction"
+            },
+            {
+              "type": "image",
+              "source": "ignored-binary"
+            },
+            {
+              "type": "text",
+              "text": "pasted continuation"
+            }
+          ]
+        }
+      ],
+      "projected": [
+        {
+          "role": "user",
+          "content": "<system-reminder>runtime context</system-reminder>\nactual user instruction\npasted continuation"
+        }
+      ]
+    },
+    {
+      "test": ":28",
+      "messages": [
+        {
+          "role": "user",
+          "content": "actual user instruction"
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>\n<active-turn-continuation>\ncontinue without repeating completed tool calls\n</active-turn-continuation>\n</system-reminder>",
+          "meta": {
+            "source": "compact-active-turn-continuation",
+            "synthetic": true
+          }
+        }
+      ],
+      "projected": [
+        {
+          "role": "user",
+          "content": "actual user instruction"
+        }
+      ]
+    }
+  ],
+  "contents": [
+    {
+      "test": ":55",
+      "message": {
+        "role": "user",
+        "content": "# Session\nCwd: C:\\\\Project\\\\mixdog\nModel: test\nWorkflow: solo\n\n# Project Instructions\nrepo-local rules\n# Additional context\nprefetch notes\n# Prefetch\nfile list\n# Task\nreal user prompt"
+      },
+      "content": "real user prompt"
+    },
+    {
+      "test": ":55",
+      "message": {
+        "role": "user",
+        "content": "# Session\nmeeting notes\n# Task is later"
+      },
+      "content": "# Session\nmeeting notes\n# Task is later"
+    }
+  ],
+  "exclusions": [
+    {
+      "test": ":78",
+      "message": {
+        "role": "user",
+        "content": "Reference files:\nfoo.ts"
+      },
+      "excluded": true
+    },
+    {
+      "test": ":78",
+      "message": {
+        "role": "user",
+        "content": "(attachment)"
+      },
+      "excluded": true
+    },
+    {
+      "test": ":78",
+      "message": {
+        "role": "user",
+        "content": "<skill>body</skill>",
+        "meta": "skill"
+      },
+      "excluded": true
+    },
+    {
+      "test": ":78",
+      "message": {
+        "role": "user",
+        "content": "[mixdog-runtime] continue"
+      },
+      "excluded": true
+    },
+    {
+      "test": ":78",
+      "message": {
+        "role": "assistant",
+        "content": "."
+      },
+      "excluded": true
+    },
+    {
+      "test": ":78",
+      "message": {
+        "role": "user",
+        "content": "please continue the task"
+      },
+      "excluded": false
+    },
+    {
+      "test": ":78",
+      "message": {
+        "role": "assistant",
+        "content": "working on it"
+      },
+      "excluded": false
+    }
+  ]
+}

@@ -42,6 +42,11 @@ pub struct CallContext {
     pub cancel: CancellationToken,
     /// What the service keeps alive until its answer is in the caller's outgoing queue (see [`AfterAnswer`]).
     pub after_answer: AfterAnswer,
+    /// Where in the params an unpaired surrogate escape on the wire was read as U+FFFD (the request's
+    /// `lone_surrogates`). Only free-text fields can be named here: the server refused every other place
+    /// (mixdog-app-protocol `free_text`). A service refuses such text where Node refuses a lone code unit,
+    /// or matches nothing with it where Node matched nothing. Empty for an internal producer.
+    pub lone_surrogates: Vec<mixdog_js::LoneAt>,
 }
 
 /// Guards a service hands the server to keep until the request's answer has been handed to the connection's outgoing queue (written,
@@ -85,6 +90,7 @@ impl CallContext {
             origin,
             cancel,
             after_answer: AfterAnswer::default(),
+            lone_surrogates: Vec::new(),
         }
     }
 
@@ -96,6 +102,7 @@ impl CallContext {
             origin: Origin::Local,
             cancel: CancellationToken::new(),
             after_answer: AfterAnswer::default(),
+            lone_surrogates: Vec::new(),
         }
     }
 }
