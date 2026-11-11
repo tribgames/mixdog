@@ -9,7 +9,8 @@ const rec = await startRecording({
   set: 'provider-model-recency',
   net: false,
   entry: 'src/session-runtime/model-recency.mjs providerModelCacheRow(provider, { id: "m", ...row }, () => false). The visibility callback is `() => false` as in the test.',
-  replay: 'mixdog-ai service::admin_models provider_model_cache_row (admin_models.rs:306): feed `input` and compare the whole `result` row (absent keys stay absent; undefined is dropped by JSON).',
+  compare: 'mixdog-ai service::admin_models provider_model_cache_row (admin_models.rs:306): feed `input` and compare the whole `result` row (absent keys stay absent; undefined is dropped by JSON).',
+  replay: "Rust entry (pub, on o1): mixdog_ai::service::admin_models::provider_model_cache_row(name, m, web_search_capable) (service/admin_models.rs:306).",
 });
 const { providerModelCacheRow } = await rec.load('src/session-runtime/model-recency.mjs');
 const SRC = 'src/session-runtime/model-recency.test.mjs';
