@@ -33,6 +33,7 @@ pub mod setup_runtime;
 pub mod naming;
 pub mod oauth;
 mod ajv_formats;
+mod ajv_stack;
 mod ecma_pattern;
 pub mod outbound;
 pub mod output_schema;

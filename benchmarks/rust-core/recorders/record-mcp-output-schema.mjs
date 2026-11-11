@@ -3,7 +3,9 @@
 // result against the listed schema (`client.mjs` `connectMcpServers` / `executeMcpTool`, with the lazy validator of
 // `lazy-output-validator.mjs`). Each case is a stdio server answering its `tools` and, for `tools/call {i}`,
 // `results[tool][i]`; recorded are the connect failure (`null` when it connected) and, per call, the whole of what
-// `executeMcpTool` returned (a text, or the parts in order) or `Error: <message>` when it threw (`execute-call.mjs`).
+// `executeMcpTool` returned or threw (`answer`, through `exact`: an error with its name, message, code and data) and what
+// the SDK's `Client.callTool` under it settled with (`sdk`: the validated result with `isError` and `structuredContent`,
+// or the McpError it threw).
 // A case naming a remote `$ref` also records how many requests the server at that address got. The Rust replay serves
 // the same case from its mock server.
 //
@@ -25,6 +27,7 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 const { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, orderedStringify, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest } =
   await import('./lib/common.mjs');
 const { recorderProvenance } = await import('./lib/provenance.mjs');
+const { exact } = await import('./lib/exact.mjs');
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-mcp-output-schema.mjs';
@@ -33,6 +36,22 @@ const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const only = args.get('only') ?? null;
 const client = await importFrom(tree, 'src/runtime/agent/orchestrator/mcp/client.mjs');
+// What the SDK's `Client.callTool` (the one that checks the output schema) settled with, for each call `executeMcpTool`
+// makes: the result as the server sent it once validated (`isError`, `structuredContent`), or the error it threw (code,
+// message, data). Observed only; the call goes on unchanged.
+const { Client } = await importFrom(tree, 'node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js');
+const sdkCallTool = Client.prototype.callTool;
+let sdkSettled = null;
+Client.prototype.callTool = async function callTool(...callArgs) {
+  try {
+    const result = await sdkCallTool.apply(this, callArgs);
+    sdkSettled?.push({ returned: exact(result) });
+    return result;
+  } catch (error) {
+    sdkSettled?.push({ thrown: exact(error) });
+    throw error;
+  }
+};
 
 // The server ends when its stdin closes (the client's disconnect, or this process ending).
 const server = join(sandbox, 'server.mjs');
@@ -140,10 +159,15 @@ const KEYWORDS_BAD = {
   tuple: ['a', 'b'], cont: [0], maxp: { a: 1, b: 2 }, minp: {}, names: { AB: 1 }, deps: { a: 1, c: 2 }, pprops: { n1: 'x' },
   not: 'x', all: 0, one: 1, cond: 5, fals: [1], uniqt: ['a', 1, 2, 'a', 1.0], deps2: { a: 1 }, condelse: 'ab',
 };
+// A string that makes a nested quantifier backtrack exponentially before it fails.
+const HOSTILE = `${'a'.repeat(24)}b`;
 // `format: "regex"` (ajv-formats: `new RegExp(str)`, no flags, and no `\Z`).
 const REGEX_FORMAT = [
   '(?i)a', 'a\\Z', 'a\\\\Z', '(?<=a)b', '(?<n>a)\\k<n>', '\\1(a)', 'a{', 'a{1', ']', '\\c', '[\\d-z]', '\\p{L}', '(?i:a)',
   '\\u{61}', 'a**', '\\k', '(?<a>x)(?<a>y)', '[z-a]', '\\-',
+  // Each construct the pattern cases try with the u flag, as a format value (no flags).
+  '\\d\\w\\s\\b\\D\\W\\S\\B', '^.$', '[😀]', '^\\p{Lu}$', '\\P{L}', '^(?<y>\\d{4})-\\k<y>$', '^(a)\\1$', '(?<!a)b', '^[^]$', '(',
+  '^k$', '^(a+)+$', '^(?=a)(a+)+$', '^(?:(?=a)a+)+$',
 ];
 // `pattern` (Ajv: `new RegExp(pattern, "u")`): each construct with values on both sides; the last ones do not compile
 // with the u flag.
@@ -163,6 +187,19 @@ const PATTERNS = [
   ['^[😀]$', ['😀', '😁']],
   ['(?i)a', ['a']],
   ['\\-', ['-']],
+  // No case folding without the i flag: the Kelvin sign is not k.
+  ['^k$', ['\u212A', 'k']],
+  ['^[a-z]$', ['\u212A', '\u017F']],
+  ['^\\S\\s\\B$', ['a ', 'a b']],
+  ['^\\P{L}$', ['1', 'a']],
+  ['^\\D\\W$', ['a-', '1a']],
+  // Nested quantifiers that backtrack exponentially on a string that fails (Node's V8 answers in about a second); the
+  // last two keep a lookaround inside the repetition.
+  ['^(a+)+$', [HOSTILE]],
+  ['^(a|a)+$', [HOSTILE]],
+  ['^(?=a)(a+)+$', [HOSTILE]],
+  ['^(?:(?=a)a+)+$', [HOSTILE]],
+  ['^(?:a+(?<=a))+$', [HOSTILE]],
 ];
 // Schemas Ajv cannot compile (or can), by kind.
 const NOT_COMPILING = [
@@ -201,6 +238,14 @@ const STRICT_FORMATS = {
 };
 // `n` arrays nested around `leaf`.
 const nested = (n, leaf) => (n === 0 ? leaf : [nested(n - 1, leaf)]);
+// An object schema whose `v` is reached through a chain of `n` references (`d0` → `d1` → … → a number).
+const chain = (n) => ({
+  type: 'object',
+  properties: { v: { $ref: '#/definitions/d0' } },
+  definitions: Object.fromEntries(
+    Array.from({ length: n + 1 }, (_, i) => [`d${i}`, i < n ? { $ref: `#/definitions/d${i + 1}` } : { type: 'number' }])
+  ),
+});
 // A server a remote `$ref` names; every request it gets is counted, and the count recorded.
 let remoteHits = 0;
 const remoteServer = createServer((_, response) => {
@@ -216,6 +261,7 @@ await new Promise((done, fail) => {
   });
 });
 const REMOTE = `http://127.0.0.1:${remoteServer.address().port}`;
+const REMOTE_PLACE = 'http://127.0.0.1:<port>';
 const CASES = [
   {
     name: 'results checked against the output schema',
@@ -565,6 +611,33 @@ const CASES = [
     },
     calls: [['tree', 0], ['tree', 1], ['loop', 0], ['self', 0], ['self', 1], ['endless', 0]],
   },
+  {
+    name: 'a reference loop reached only when its property is present',
+    tools: [
+      { name: 'loop', inputSchema: input, outputSchema: { type: 'object', properties: { v: { $ref: '#/definitions/a' } }, definitions: { a: { $ref: '#/definitions/b' }, b: { allOf: [{ $ref: '#/definitions/a' }] } } } },
+    ],
+    results: {
+      loop: [
+        { content: text('absent'), structuredContent: {} },
+        { content: text('present'), structuredContent: { v: [] } },
+      ],
+    },
+    calls: [['loop', 0], ['loop', 1]],
+  },
+  // Not between about 2500 and 6900 references: there Node's answer depends on how far V8 has optimized Ajv's code by
+  // then (two runs answered a chain of 3000 differently).
+  ...[100, 1000, 10000].map((n) => ({
+    name: `a chain of ${n} references`,
+    tools: [{ name: 'chain', inputSchema: input, outputSchema: chain(n) }],
+    results: {
+      chain: [
+        { content: text('number'), structuredContent: { v: 1 } },
+        { content: text('string'), structuredContent: { v: 'x' } },
+        { content: text('absent'), structuredContent: {} },
+      ],
+    },
+    calls: [['chain', 0], ['chain', 1], ['chain', 2]],
+  })),
 ];
 const cases = CASES.filter((scenario) => !only || scenario.name === only);
 if (!cases.length) throw new Error(`--only ${CASES.map((c) => c.name).join(' | ')}, got ${only}`);
@@ -584,19 +657,32 @@ async function record(scenario, index) {
   }
   try {
     for (const [tool, i] of scenario.calls) {
-      let output;
+      let answer;
+      sdkSettled = [];
       try {
-        output = await within(`calling ${tool} ${i}`, client.executeMcpTool(`mcp__srv__${tool}`, { i }, { scopeId }));
+        answer = { returned: exact(await within(`calling ${tool} ${i}`, client.executeMcpTool(`mcp__srv__${tool}`, { i }, { scopeId }))) };
       } catch (error) {
         if (/no answer within/.test(error.message)) throw error;
-        output = `Error: ${error.message}`;
+        answer = { thrown: exact(error) };
       }
-      entry.outputs.push({ tool, i, output });
+      entry.outputs.push({ tool, i, answer, sdk: sdkSettled });
+      sdkSettled = null;
     }
   } finally {
     await within(`disconnecting ${scenario.name}`, client.disconnectAll({ scopeId }));
   }
-  if (JSON.stringify(scenario.tools).includes(REMOTE)) Object.assign(entry, { remote: REMOTE, remoteHits: remoteHits - hitsBefore });
+  if (JSON.stringify(scenario.tools).includes(REMOTE)) {
+    // The listener's port differs per run: the address is written as REMOTE_PLACE where it appears.
+    const tools = scenario.tools.map((tool) =>
+      tool.name === 'remote' ? { ...tool, outputSchema: { ...tool.outputSchema, properties: { v: { $ref: `${REMOTE_PLACE}/schema.json` } } } } : tool
+    );
+    Object.assign(entry, {
+      tools,
+      connect: entry.connect?.replace(REMOTE, REMOTE_PLACE) ?? null,
+      remote: REMOTE_PLACE,
+      remoteHits: remoteHits - hitsBefore,
+    });
+  }
   return entry;
 }
 
@@ -614,7 +700,13 @@ try {
       recorder,
       command: `node ${recorder} --tree <tree>`,
       identity,
-      extra: recorderProvenance(import.meta.url),
+      extra: {
+        ...recorderProvenance(import.meta.url),
+        normalized: [
+          'cases["a reference to a remote address is never fetched"]: tools[remote].outputSchema.properties.v.$ref, connect and remote ' +
+            'name the per-run listener as http://127.0.0.1:<port>; the replay moves it to a listener of its own',
+        ],
+      },
     });
     commitStage(stage, finalDir);
     console.log(`recorded ${recorded.length} cases`);
