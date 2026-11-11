@@ -21,15 +21,14 @@
     "live-view: live with view (resume-held, fork-held heir): `live` is what the owning process shows (Rust's resumed snapshot and the heir's read are compared against it); `view` is the stored projection a second process would read, which Rust's reopen is compared against in the crash steps",
     "queued-rows: the desktop's projection of the queue, compared as id, text, mode and priority; Node's id is the submission id, which Rust's row carries as clientSubmissionId (its id being the queue entry's); Node's submittedAt and displayText (the text again) and Rust's enqueuedAt are not compared",
     "spool: the 1.4.5 steering mirror file; Rust keeps queued entries in the session log, compared through the queue a reopened session shows and drains",
-    "requests: the user messages of each request, whole, per process",
-    "usage-save-timer: crash-queued-while-take, steps `taken`, `reopened` and `drained`: `usage`, the books of the durable record: whether the first request's usage is in it at the kill follows Node's 150 ms debounced session save (SAVE_DEBOUNCE_MS, a real timer): recordings of this case from the unpatched tree gave 10 input tokens in one and 0 in two, the patched tree's gave 10 in five of five"
+    "requests: the user messages of each request, whole, per process"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1324050,
+      "bytes": 1324918,
       "path": "golden.json",
-      "sha256": "9e1ea75476bca95197458446cff92c7c62d0b92409022bf346fd359e680318ad"
+      "sha256": "4e04268985dc86e33a67ebbfc32a3f54655f5ac6436a20d57f9696baf4af7267"
     }
   ],
   "inputs": [
@@ -47,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/turn-durability-child.mjs",
-      "sha256": "f19e9cf23b9c401939458fd3a6d2aa08f6164a895571ce772c358f2a31c30418"
+      "sha256": "1747294c756f1470083d26b11e519fc023c52bc8988703b7e809abfb71a87e6b"
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-take-kill-duplicate-answer.patch",
@@ -81,7 +80,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-durability.mjs",
-  "recorderSha256": "ab18491f266643c5b6ab2d7d876f01099258731ecf3e790e0335d033539400ee",
+  "recorderSha256": "9cce914b7fcc33868966e77ea3ffa5ec885f0088df950584dc3655d891ce6cfe",
   "set": "turn-durability",
-  "totalBytes": 1324050
+  "totalBytes": 1324918
 }

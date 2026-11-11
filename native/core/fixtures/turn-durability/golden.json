@@ -6177,23 +6177,33 @@
               }
             ],
             "usage": {
-              "totalInputTokens": 0,
-              "totalOutputTokens": 0,
+              "totalInputTokens": 10,
+              "totalOutputTokens": 2,
               "totalToolCalls": 0,
-              "tokensCumulative": 0,
-              "totalCachedReadTokens": null,
-              "totalCacheWriteTokens": null,
-              "totalUncachedInputTokens": null,
-              "usageReadout": null,
-              "lastInputTokens": null,
-              "lastOutputTokens": null,
-              "lastCachedReadTokens": null,
-              "lastCacheWriteTokens": null,
-              "lastUncachedInputTokens": null,
-              "lastContextTokens": null,
+              "tokensCumulative": 12,
+              "totalCachedReadTokens": 0,
+              "totalCacheWriteTokens": 0,
+              "totalUncachedInputTokens": 10,
+              "usageReadout": {
+                "input": 10,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "output": 2,
+                "requestOutputTokens": 0,
+                "requestMs": 0
+              },
+              "lastInputTokens": 10,
+              "lastOutputTokens": 2,
+              "lastCachedReadTokens": 0,
+              "lastCacheWriteTokens": 0,
+              "lastUncachedInputTokens": 10,
+              "lastContextTokens": 10,
               "usageMetricsTurnId": 1,
-              "reasoningUsage": null,
-              "lastIterationIndex": null
+              "reasoningUsage": {
+                "reasoningTokens": null,
+                "reasoningTokensComplete": false
+              },
+              "lastIterationIndex": 1
             }
           },
           "checkpoint": {
@@ -6402,23 +6412,33 @@
               }
             ],
             "usage": {
-              "totalInputTokens": 0,
-              "totalOutputTokens": 0,
+              "totalInputTokens": 10,
+              "totalOutputTokens": 2,
               "totalToolCalls": 0,
-              "tokensCumulative": 0,
-              "totalCachedReadTokens": null,
-              "totalCacheWriteTokens": null,
-              "totalUncachedInputTokens": null,
-              "usageReadout": null,
-              "lastInputTokens": null,
-              "lastOutputTokens": null,
-              "lastCachedReadTokens": null,
-              "lastCacheWriteTokens": null,
-              "lastUncachedInputTokens": null,
+              "tokensCumulative": 12,
+              "totalCachedReadTokens": 0,
+              "totalCacheWriteTokens": 0,
+              "totalUncachedInputTokens": 10,
+              "usageReadout": {
+                "input": 10,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "output": 2,
+                "requestOutputTokens": 0,
+                "requestMs": 0
+              },
+              "lastInputTokens": 10,
+              "lastOutputTokens": 2,
+              "lastCachedReadTokens": 0,
+              "lastCacheWriteTokens": 0,
+              "lastUncachedInputTokens": 10,
               "lastContextTokens": 10,
               "usageMetricsTurnId": 1,
-              "reasoningUsage": null,
-              "lastIterationIndex": null
+              "reasoningUsage": {
+                "reasoningTokens": null,
+                "reasoningTokensComplete": false
+              },
+              "lastIterationIndex": 1
             }
           },
           "checkpoint": null,
@@ -6620,23 +6640,33 @@
               }
             ],
             "usage": {
-              "totalInputTokens": 0,
-              "totalOutputTokens": 0,
+              "totalInputTokens": 10,
+              "totalOutputTokens": 2,
               "totalToolCalls": 0,
-              "tokensCumulative": 0,
-              "totalCachedReadTokens": null,
-              "totalCacheWriteTokens": null,
-              "totalUncachedInputTokens": null,
-              "usageReadout": null,
-              "lastInputTokens": null,
-              "lastOutputTokens": null,
-              "lastCachedReadTokens": null,
-              "lastCacheWriteTokens": null,
-              "lastUncachedInputTokens": null,
+              "tokensCumulative": 12,
+              "totalCachedReadTokens": 0,
+              "totalCacheWriteTokens": 0,
+              "totalUncachedInputTokens": 10,
+              "usageReadout": {
+                "input": 10,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "output": 2,
+                "requestOutputTokens": 0,
+                "requestMs": 0
+              },
+              "lastInputTokens": 10,
+              "lastOutputTokens": 2,
+              "lastCachedReadTokens": 0,
+              "lastCacheWriteTokens": 0,
+              "lastUncachedInputTokens": 10,
               "lastContextTokens": 10,
               "usageMetricsTurnId": 1,
-              "reasoningUsage": null,
-              "lastIterationIndex": null
+              "reasoningUsage": {
+                "reasoningTokens": null,
+                "reasoningTokensComplete": false
+              },
+              "lastIterationIndex": 1
             }
           },
           "checkpoint": null,

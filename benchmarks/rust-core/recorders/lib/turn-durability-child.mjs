@@ -58,8 +58,11 @@ globalThis.Date = class extends RealDate {
 const timers = { seq: 0, queue: [], scoped: false };
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
+// `crash-queued-while-take`: from the first request on, the store's usage debounce (`SAVE_DEBOUNCE_MS`, 150 ms,
+// `store/pending-writes.mjs`) is virtual too, so whether the first request's usage is durable at the kill is the script's choice.
+const debounceVirtual = () => timers.debounce && new Error().stack.includes('pending-writes.mjs');
 globalThis.setTimeout = (fn, ms = 0, ...args) => {
-  if (!timers.scoped) return realSetTimeout(fn, ms, ...args);
+  if (!timers.scoped && !debounceVirtual()) return realSetTimeout(fn, ms, ...args);
   const timer = { virtual: true, due: NOW + Math.max(0, Number(ms) || 0), seq: timers.seq++, fn, args };
   timers.queue.push(timer);
   return Object.assign(timer, { ref: () => timer, unref: () => timer, hasRef: () => true, refresh: () => timer });
@@ -266,6 +269,21 @@ const fault = (armed) => {
     : realWrite;
 };
 const kill = () => process.kill(process.pid, 'SIGKILL');
+// A wait on a write the case's kill point depends on: one deadline, and a message naming what it waits for.
+const within = (promise, what) =>
+  new Promise((resolve, reject) => {
+    const deadline = realSetTimeout(() => reject(new Error(`${caseName}: waited 30 s for ${what}`)), 30_000);
+    promise.then(
+      (value) => {
+        realClearTimeout(deadline);
+        resolve(value);
+      },
+      (error) => {
+        realClearTimeout(deadline);
+        reject(error);
+      }
+    );
+  });
 const idFile = join(workdir, 'session-id');
 
 // What a client reading the session sees (the desktop's and the phone's transcript read), what the durable record holds, and the
@@ -488,10 +506,14 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
     onSend = async (n, opts) => {
       onWire.resolve(n);
       if (n === 1) {
+        if (caseName === 'crash-queued-while-take') timers.debounce = true;
         await first;
         return answer(opts, 'answer');
       }
       if (caseName === 'crash-queued-while-take') {
+        // The first request's usage debounce runs out, and its write lands, before the kill.
+        advance(150);
+        await settleRecorder(id);
         step({ step: 'taken', ...(await f.seen()), ...(await observe(id)) });
         await settleThenKill();
       }
@@ -554,7 +576,14 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
   } else if (caseName === 'crash-answer-streamed') {
     // The answer streamed and was checkpointed as streamed text; the finished message and its seal are not written yet (their
     // write is held) when the process dies at the terminal save (the batch recording the turn's coverage), before it writes.
-    onSend = async (_n, opts) => answer(opts, 'answer');
+    onSend = async (_n, opts) => {
+      const reply = answer(opts, 'answer');
+      // The streamed text's journal write, the one this case is about, lands before the turn goes on to its terminal save: the
+      // flush throttle runs out and its write is awaited (the held write below comes later).
+      advance(150);
+      await within(settleTurnCheckpointWrites(id), 'the streamed text reaches the checkpoint journal');
+      return reply;
+    };
     _setJournalOpGateForTest(async (op) => {
       const data = String(op.data ?? '');
       if (op.kind === 'append' && (data.includes('"t":"m"') || data.includes('"t":"seal"'))) await new Promise(() => {});
@@ -584,7 +613,9 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
     const synced = () => {
       if (!covered) return;
       // The end is durable, the checkpoint not yet removed: it is still on disk. Only that it is there is recorded: its seal
-      // and message count depend on how far its async journal had flushed (two recordings differed).
+      // and message count depend on how far its async journal had flushed (two recordings differed). Node races here too: in
+      // about one run of 25 the terminal save is a log rewrite (`writeAllSync`, not the hooked batch write) and the case
+      // never reaches this point, so the kill point cannot be made certain either.
       step({ step: 'killed', sends, checkpointPresent: checkpointOf(id) !== null });
       kill();
     };
