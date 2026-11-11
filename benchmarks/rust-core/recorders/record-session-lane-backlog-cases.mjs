@@ -43,7 +43,7 @@ await set.run('a backed-up session stream still delivers a lane the desktop deco
 });
 
 await set.finish({
-  entry: { runs: 'createSessionFrameStream (attachSse, broadcast, drain handling) with a scripted SSE response (EventEmitter; the first write returns true, later ones false when more than one string has been written), the snapshot delta encoder/decoder', notRun: 'no HTTP server; the stream\'s interval timer is the mocked one' },
+  entry: { hops: "The SSE response is a scripted writer: every write the real session frame stream makes is recorded whole, in order (the wire text); the decoder parses the data events from those writes.", runs: 'createSessionFrameStream (attachSse, broadcast, drain handling) with a scripted SSE response (EventEmitter; the first write returns true, later ones false when more than one string has been written), the snapshot delta encoder/decoder', notRun: 'no HTTP server; the stream\'s interval timer is the mocked one' },
   replay: { entry: 'mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order, whole, and that each data event decodes to the recorded snapshot', normalised: {} },
 });
 process.exit(0);
