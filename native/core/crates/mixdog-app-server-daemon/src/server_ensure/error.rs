@@ -23,6 +23,9 @@ pub enum EnsureError {
     Core(String),
     #[error("{0}")]
     DaemonUnproven(String),
+    /// Node's `terminateProcess` failure: the core outlived SIGKILL.
+    #[error("The Mixdog daemon (pid {0}) did not exit after SIGKILL.")]
+    DaemonStop(u32),
     #[error("This Mixdog (version {desktop_version}) is older than the Mixdog on the server (version {server_version}). Update Mixdog on this computer.")]
     ClientOutdated { desktop_version: String, server_version: String },
     /// The older core is still running work; the desktop shows the list and may confirm.
@@ -44,6 +47,7 @@ impl EnsureError {
             EnsureError::CoreExited { .. } => "core-exited",
             EnsureError::Core(_) => "core-control",
             EnsureError::DaemonUnproven(_) => "daemon-unproven",
+            EnsureError::DaemonStop(_) => "daemon-stop",
             EnsureError::ClientOutdated { .. } => "client-outdated",
             EnsureError::Busy { .. } => "daemon-busy-other-version",
             EnsureError::Arguments(_) => "protocol",

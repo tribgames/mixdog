@@ -1,0 +1,256 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "every overlapping host disposal waits for the same attachment cleanup",
+      "observed": {
+        "events": [
+          "cleanup entered",
+          "cleanup released",
+          "cleanup returned",
+          "first dispose finished",
+          "second dispose finished"
+        ],
+        "closes": 1
+      }
+    },
+    {
+      "case": "archiving a session archives its sub-agent sessions; restoring it brings back the ones it took",
+      "observed": {
+        "rows": [
+          {
+            "id": "sess_lead",
+            "owner": "user",
+            "agent": "lead",
+            "sourceType": "lead",
+            "messageCount": 2,
+            "preview": "lead"
+          },
+          {
+            "id": "sess_w1",
+            "owner": "agent",
+            "agent": "worker",
+            "visibility": "agent-only",
+            "ownerSessionId": "sess_lead",
+            "messageCount": 2,
+            "preview": "work"
+          },
+          {
+            "id": "sess_w2",
+            "owner": "agent",
+            "agent": "worker",
+            "visibility": "agent-only",
+            "ownerSessionId": "sess_lead",
+            "messageCount": 2,
+            "preview": "work"
+          },
+          {
+            "id": "sess_w_other",
+            "owner": "agent",
+            "agent": "worker",
+            "visibility": "agent-only",
+            "ownerSessionId": "sess_lead_other",
+            "messageCount": 2,
+            "preview": "work"
+          }
+        ],
+        "log": [
+          {
+            "step": "w2 archived, then the lead",
+            "archived": {
+              "sess_w2": 1800000000000,
+              "sess_lead": 1800000000001,
+              "sess_w1": 1800000000001
+            }
+          },
+          {
+            "step": "lead restored",
+            "archived": {
+              "sess_w2": 1800000000000
+            }
+          },
+          {
+            "step": "w2 forgotten (store deleted it)",
+            "archived": {}
+          }
+        ]
+      }
+    },
+    {
+      "case": "archiving or restoring a session hands its tree's ids to the worktree cleanup, and a failure there never fails the archive",
+      "observed": {
+        "rows": [
+          {
+            "id": "sess_lead",
+            "owner": "user",
+            "agent": "lead",
+            "sourceType": "lead",
+            "messageCount": 2,
+            "preview": "lead"
+          },
+          {
+            "id": "sess_w1",
+            "owner": "agent",
+            "agent": "worker",
+            "ownerSessionId": "sess_lead",
+            "messageCount": 2,
+            "preview": "w"
+          }
+        ],
+        "forwarded": [
+          [
+            "setArchivedSessionWorktrees",
+            [
+              {
+                "sessionIds": [
+                  "sess_lead",
+                  "sess_w1"
+                ],
+                "archived": true
+              }
+            ]
+          ],
+          [
+            "setArchivedSessionWorktrees",
+            [
+              {
+                "sessionIds": [
+                  "sess_lead",
+                  "sess_w1"
+                ],
+                "archived": false
+              }
+            ]
+          ]
+        ],
+        "archivedAfter": {}
+      }
+    },
+    {
+      "case": "sub-agent retention archives exactly its tree's members through the real host, no cascade past them",
+      "observed": {
+        "rows": [
+          {
+            "id": "sess_lead",
+            "owner": "user",
+            "agent": "lead",
+            "sourceType": "lead",
+            "messageCount": 2,
+            "preview": "lead"
+          },
+          {
+            "id": "sess_t",
+            "owner": "agent",
+            "agent": "worker",
+            "visibility": "agent-only",
+            "messageCount": 2,
+            "preview": "work",
+            "ownerSessionId": "sess_lead",
+            "parentSessionId": "sess_lead"
+          },
+          {
+            "id": "sess_t_child",
+            "owner": "agent",
+            "agent": "worker",
+            "visibility": "agent-only",
+            "messageCount": 2,
+            "preview": "work",
+            "ownerSessionId": "sess_lead",
+            "parentSessionId": "sess_t"
+          },
+          {
+            "id": "sess_t_outside",
+            "owner": "agent",
+            "agent": "worker",
+            "visibility": "agent-only",
+            "messageCount": 2,
+            "preview": "work",
+            "ownerSessionId": "sess_t",
+            "taskOrigin": {
+              "agentId": "mailer"
+            }
+          }
+        ],
+        "storedRecordAgeDays": 5,
+        "members": [
+          {
+            "id": "sess_t",
+            "parentId": "sess_lead",
+            "lastActive": 1799568000000
+          },
+          {
+            "id": "sess_t_child",
+            "parentId": "sess_t",
+            "lastActive": 1799568000000
+          }
+        ],
+        "applied": {
+          "archived": [
+            "sess_t",
+            "sess_t_child"
+          ],
+          "deleted": []
+        },
+        "archivedAfterRetention": {
+          "sess_t": 1800000000000,
+          "sess_t_child": 1800000000001
+        },
+        "archivedAfterExplicitArchive": {
+          "sess_t_child": 1800000000001,
+          "sess_t": 1800000000002,
+          "sess_t_outside": 1800000000002
+        }
+      }
+    },
+    {
+      "case": "a read lands in the session’s own numbering: a surface counting in a retired one cannot read past it",
+      "observed": {
+        "listedMessageCount": 62,
+        "listedCompactCount": 17,
+        "surfaceReadCount": 417,
+        "listed": {
+          "id": "sess_chat",
+          "preview": "chat",
+          "title": "chat",
+          "updatedAt": 0,
+          "activityAt": 0,
+          "messageCount": 62,
+          "cwd": "",
+          "classification": "task",
+          "projectPath": null,
+          "compactCount": 17,
+          "readMessageCount": 62,
+          "readRevision": 1
+        }
+      }
+    },
+    {
+      "case": "failed metadata flushing cannot prevent host attachment cleanup",
+      "observed": {
+        "metadataPathIsADirectory": "desktop-session-metadata.json",
+        "disposeOutcome": {
+          "rejected": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "Desktop session metadata could not be loaded.",
+            "cause": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "EISDIR: illegal operation on a directory, read",
+              "code": "EISDIR",
+              "props": {
+                "errno": -4068,
+                "syscall": "read"
+              }
+            },
+            "props": {}
+          }
+        },
+        "closes": 1
+      }
+    }
+  ]
+}
