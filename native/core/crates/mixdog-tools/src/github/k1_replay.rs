@@ -494,16 +494,16 @@ async fn case8_merge_refusal_and_unreadable_write_responses_are_errors_not_succe
 
 #[tokio::test]
 async fn case9_the_agent_tool_is_registered_and_returns_the_ordinary_builtin_text_error_contract() {
-    let expected = recorded(9, "the agent tool is registered and returns the ordinary builtin text/error contract");
-    // `isBuiltinTool('github')`: the tool is one of the built-in tools, its definition Node's built-in one whole
-    // (`fixtures/tool-definitions`), not merely a tool named `github`.
-    let registered = GithubTool::new(Scripted::fixed("").client(), None);
-    let builtin = mixdog_js::fixture_tools::definition("github").is_ok_and(|node| registered.definition() == node);
+    let recorded_case = recorded(9, "the agent tool is registered and returns the ordinary builtin text/error contract");
+    // `isBuiltinTool('github')` is a fact of the product's registry, which this crate does not compose: the daemon's composed-core test
+    // `compose::tests::the_github_tool_a_session_gets_is_nodes_builtin_one` compares it, read from this recording (the manifest says so).
+    // The rest of the case, in its recorded order, is compared here.
+    let expected = Exact::Object(recorded_case.entries().iter().filter(|(key, _)| key != "isBuiltinTool").cloned().collect());
+    assert_eq!(recorded_case.entries().len(), 5, "case 9 records isBuiltinTool and the four tool answers");
     let value = tool_text(&Scripted::fixed(r#"{"full_name":"owner/project"}"#), None, &json!({"action": "repo.view", "repo": REPO}), None).await;
     let unsupported = tool_text(&Scripted::fixed(""), None, &json!({"action": "not-supported"}), None).await;
     let bounded = tool_text(&Scripted::fixed(&"한".repeat(100_000)), None, &json!({"action": "run.logs", "repo": REPO, "id": 42}), None).await;
     let actual = o(vec![
-        ("isBuiltinTool", Exact::Bool(builtin)),
         ("builtinValue", s(&value)),
         ("unsupported", s(&unsupported)),
         ("bounded", s(&bounded)),
