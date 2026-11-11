@@ -16144,7 +16144,15 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs.sendCompatChat",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "custom-x",
+                {
+                  "apiKey": "fixture",
+                  "baseURL": "https://custom.invalid/v1",
+                  "preconnect": false
+                }
+              ]
             },
             [
               {
@@ -16196,7 +16204,15 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs.sendCompatChat",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "custom-x",
+                {
+                  "apiKey": "fixture",
+                  "baseURL": "https://custom.invalid/v1",
+                  "preconnect": false
+                }
+              ]
             },
             [
               {
@@ -16542,7 +16558,15 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "custom-r",
+                {
+                  "apiKey": "fixture",
+                  "baseURL": "https://custom.invalid/v1",
+                  "preconnect": false
+                }
+              ]
             },
             [
               {
@@ -16578,7 +16602,15 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "custom-r",
+                {
+                  "apiKey": "fixture",
+                  "baseURL": "https://custom.invalid/v1",
+                  "preconnect": false
+                }
+              ]
             },
             [
               {
