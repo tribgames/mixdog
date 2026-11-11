@@ -1,0 +1,536 @@
+{
+  "set": "provider-xai-grok",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "flatten-keeps-grep-pattern-required",
+      "source": "scripts/provider-toolcall/xai-grok.test.mjs:15",
+      "input": {
+        "tool": {
+          "name": "grep",
+          "title": "Grep",
+          "annotations": {
+            "title": "Grep",
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "compressible": true
+          },
+          "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Ripgrep regex(es); escape literal metacharacters."
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+              },
+              "glob": {
+                "type": "string",
+                "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "files",
+                  "count"
+                ],
+                "description": "content default; files lists matching paths; count totals all patterns together per file."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "context": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200,
+                "description": "Omit for automatic context; 0 for matches only."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              },
+              "text": {
+                "type": "boolean",
+                "description": "Search binary data as text (archives/Git objects not decoded)."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "result": {
+        "original": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 10
+                }
+              ],
+              "description": "Ripgrep regex(es); escape literal metacharacters."
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 10,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+            },
+            "glob": {
+              "type": "string",
+              "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "content",
+                "files",
+                "count"
+              ],
+              "description": "content default; files lists matching paths; count totals all patterns together per file."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "context": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200,
+              "description": "Omit for automatic context; 0 for matches only."
+            },
+            "include_noise": {
+              "type": "boolean",
+              "description": "Also search gitignored trees."
+            },
+            "text": {
+              "type": "boolean",
+              "description": "Search binary data as text (archives/Git objects not decoded)."
+            }
+          },
+          "required": [
+            "pattern"
+          ],
+          "additionalProperties": false
+        },
+        "normalized": {
+          "name": "grep",
+          "title": "Grep",
+          "annotations": {
+            "title": "Grep",
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "compressible": true
+          },
+          "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "description": "Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array."
+              },
+              "path": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                  "type": "string"
+                },
+                "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array."
+              },
+              "glob": {
+                "type": "string",
+                "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "files",
+                  "count"
+                ],
+                "description": "content default; files lists matching paths; count totals all patterns together per file."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "context": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200,
+                "description": "Omit for automatic context; 0 for matches only."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              },
+              "text": {
+                "type": "boolean",
+                "description": "Search binary data as text (archives/Git objects not decoded)."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "id": "flatten-promotes-first-xor-required-only-anyof",
+      "source": "scripts/provider-toolcall/xai-grok.test.mjs:32",
+      "input": {
+        "tool": {
+          "name": "grep",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "glob": {
+                "type": "string"
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "pattern"
+                ]
+              },
+              {
+                "required": [
+                  "glob"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "result": {
+        "normalized": {
+          "name": "grep",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "glob": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "pattern"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "flatten-promotes-first-xor-object-branch",
+      "source": "scripts/provider-toolcall/xai-grok.test.mjs:48",
+      "input": {
+        "tool": {
+          "name": "searchish",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "glob": {
+                "type": "string"
+              }
+            },
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "pattern"
+                ]
+              },
+              {
+                "type": "object",
+                "required": [
+                  "glob"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "normalized": {
+          "name": "searchish",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "glob": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "xai-responses-cache-routing",
+      "source": "scripts/provider-toolcall/xai-grok.test.mjs:66",
+      "input": {
+        "params": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "stable system"
+            }
+          ]
+        }
+      },
+      "result": {
+        "routes": {
+          "first": {
+            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
+            "mode": "session",
+            "seedHash": "0693ed50848bc892",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "fa57a52dbf081902"
+          },
+          "same": {
+            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
+            "mode": "session",
+            "seedHash": "0693ed50848bc892",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "fa57a52dbf081902"
+          },
+          "other": {
+            "key": "9f4cc917-a55d-43ef-9a79-8fdd4daa6479",
+            "mode": "session",
+            "seedHash": "9f4cc917a55de3ef",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "e8de016fbd70182f"
+          },
+          "sessionless": {
+            "key": null,
+            "mode": "none",
+            "seedHash": null,
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": null
+          },
+          "optedOut": {
+            "key": null,
+            "mode": "none",
+            "seedHash": null,
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "fa57a52dbf081902"
+          },
+          "sessionA": {
+            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
+            "mode": "session",
+            "seedHash": "0693ed50848bc892",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "fa57a52dbf081902"
+          },
+          "sessionAgain": {
+            "key": "0693ed50-848b-4892-aabb-0009741f1f63",
+            "mode": "session",
+            "seedHash": "0693ed50848bc892",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "fa57a52dbf081902"
+          },
+          "sessionB": {
+            "key": "9f4cc917-a55d-43ef-9a79-8fdd4daa6479",
+            "mode": "session",
+            "seedHash": "9f4cc917a55de3ef",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "e8de016fbd70182f"
+          },
+          "sharedA": {
+            "key": "8ebad4ae-d01a-45d1-b9b6-fa8ed0816454",
+            "mode": "prefix",
+            "seedHash": "8ebad4aed01af5d1",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "fa57a52dbf081902"
+          },
+          "sharedB": {
+            "key": "8ebad4ae-d01a-45d1-b9b6-fa8ed0816454",
+            "mode": "prefix",
+            "seedHash": "8ebad4aed01af5d1",
+            "prefixHash": "2abfdd076a21a3cd",
+            "ownerSessionHash": "e8de016fbd70182f"
+          }
+        },
+        "equalities": {
+          "firstKeyEqualsSame": true,
+          "otherKeyDiffers": true,
+          "prefixHashEqual": true,
+          "sessionKeysEqual": true,
+          "sessionKeysDifferAcrossSessions": true,
+          "prefixKeysEqualAcrossSessions": true
+        },
+        "payload": {
+          "provider": "xai",
+          "api": "responses",
+          "transport": "http",
+          "model": "grok-4.6",
+          "response_model": "grok-4.6-build",
+          "session_id_hash": "fa57a52dbf081902",
+          "provider_cache_key_hash": null,
+          "prompt_cache_key_option_hash": null,
+          "prompt_cache_key_hash": "37a8a2bdb766c748",
+          "xai_prompt_prefix_hash": "2abfdd076a21a3cd",
+          "xai_cache_mode": "session",
+          "xai_cache_seed_hash": "0693ed50848bc892",
+          "owner_session_hash": "fa57a52dbf081902",
+          "response_id_hash": null,
+          "previous_response_id_hash": null,
+          "previous_response_used": false,
+          "stateless_continuation_used": true,
+          "continuation_used": true,
+          "continuation_reset_reason": null,
+          "input_start_index": 0,
+          "input_count": 1,
+          "input_hash": "ab9a498d260e5fb0",
+          "request_sans_input_hash": "686e597275407b72",
+          "context_prefix_hash": "0075a441dc7379bc",
+          "has_instructions": false,
+          "instructions_chars": 0,
+          "instructions_hash": null,
+          "reasoning_effort": null,
+          "tool_count": 0,
+          "tool_schema_hash": "4f53cda18c2baa0c",
+          "tool_names_hash": "4f53cda18c2baa0c",
+          "xai_cache_lane_enabled": false,
+          "xai_cache_lane_hash": null,
+          "xai_cache_lane_shard": null,
+          "xai_cache_lane_shards": null,
+          "xai_cache_lane_auto": false,
+          "xai_cache_lane_seed_hash": null,
+          "xai_cache_lane_max_in_flight": null,
+          "xai_cache_lane_wait_ms": null,
+          "xai_cache_lane_queued": false,
+          "input_tokens": 7324,
+          "output_tokens": 0,
+          "cached_tokens": 128,
+          "cache_hit_rate": 0.017477,
+          "mid_turn_cold": true
+        }
+      }
+    },
+    {
+      "id": "grok-oauth-pinned-to-cli-proxy-http-sse",
+      "source": "scripts/provider-toolcall/xai-grok.test.mjs:161",
+      "input": {
+        "env": {
+          "MIXDOG_OAI_TRANSPORT": "ws-delta",
+          "MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT": "websocket"
+        }
+      },
+      "result": {
+        "models": [
+          {
+            "model": "grok-build-0.1",
+            "responsesTransport": "http",
+            "baseURL": "https://cli-chat-proxy.grok.com/v1"
+          },
+          {
+            "model": "grok-build",
+            "responsesTransport": "http",
+            "baseURL": "https://cli-chat-proxy.grok.com/v1"
+          },
+          {
+            "model": "grok-4.5",
+            "responsesTransport": "http",
+            "baseURL": "https://cli-chat-proxy.grok.com/v1"
+          }
+        ],
+        "explicitWebsocket": {
+          "responsesTransport": "http",
+          "baseURL": "https://cli-chat-proxy.grok.com/v1"
+        }
+      }
+    }
+  ]
+}
