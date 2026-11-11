@@ -168,6 +168,11 @@ fn a_next_drain_leaves_later_entries_queued() {
     }
 }
 
+/// A fresh id for a history row the core creates.
+pub fn new_item_id() -> ItemId {
+    ItemId::from(format!("itm_{}", uuid::Uuid::new_v4().simple()))
+}
+
 /// A history row the run commits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemCommit {

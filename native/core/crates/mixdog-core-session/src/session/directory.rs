@@ -1173,6 +1173,7 @@ impl DirInner {
         if prewarm {
             deps.effort.prewarm(id, &opened.state.header);
         }
+        let (ready, recovered) = tokio::sync::oneshot::channel();
         let (handle, launch) = self.spawn(
             id.clone(),
             opened.state,
@@ -1182,9 +1183,12 @@ impl DirInner {
             opened.log_id,
             opened.next_ordinal,
             opened.log,
-            Init::Open { fenced },
+            Init::Open { fenced, ready },
         );
         launch();
+        // Node recovers an interrupted turn before the session is returned (`turn-checkpoint-recovery.mjs:131`):
+        // the first read sees the recovered conversation. A dropped actor ends the wait too.
+        let _ = recovered.await;
         Ok(handle)
     }
 
