@@ -10,6 +10,7 @@
 import crypto from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
+import { startH2World } from './lib/h2-world.mjs';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
@@ -18,12 +19,18 @@ const rec = await startRecording({
   exclusions: [
     '`draws` is not compared: the recorder\'s count of its own seeded `Math.random` stream before the send and during it (`Math.random` wrapped right after `startRecording`), not an output of the product; the replay reads it to find the retry jitter sample among the SDK clients\' draws, and the sample is compared through the recorded wait',
     '`attemptRequests` is not compared: the recorder\'s own list of which arrivals were attempts of the send (the others are token grants, session exchanges and catalog reads it answered itself), not an output of the product; the replay reads it to take each retry wait once the attempt before it failed',
+    'The Cursor case\'s HTTP/2 streams are recorded by the world\'s h2c hub (lib/h2-world.mjs): `:authority` is written as the host and `:scheme` as the scheme of the origin the product addressed (the loopback address and clear text are the world\'s), the pseudo-headers in the order :method, :scheme, :authority, :path (the client library\'s choice, not the product\'s), and the body of the Run stream is its first Connect frame (later frames - heartbeats - are not part of the arrival). Replay side: the Rust h2 client (reqwest) adds `accept: */*` to every request and the `content-length` of a whole body, and `node:http2` adds no header of its own, so the replay\'s h2 listener leaves those two headers out of the arrival',
     '`requesting and streaming stages` is not compared: the core raises them from its run loop around the whole send (mixdog-agent/src/send.rs:460, `RunEvent::Stage`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder\'s `reconnecting` stage, compared whole and in order',
   ],
-  entry: 'anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider(\'xai\', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: \'api-key\', apiKey } or { authMode: \'adc\', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case\'s input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.',
+  entry: 'anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider(\'xai\', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: \'api-key\', apiKey } or { authMode: \'adc\', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and cursor.mjs CursorOAuthProvider({}) (over node:http2, against the world\'s h2c hub) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case\'s input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.',
   compare: 'Serve each case\'s replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages and the stderr lines.',
   replay: 'Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build("anthropic" | "xai" | "vertex-ai" | "anthropic-oauth" | "openrouter" | "grok-oauth" | "antigravity-oauth" | "devin-oauth") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).',
 });
+// Cursor sends over `node:http2` (cursor-wire-transport.mjs:4): its streams reach the world's h2c hub (lib/h2-world.mjs), which must be
+// in place before the first product module loads.
+await startH2World(rec);
+// The one client version Cursor sends, from the environment: no install-script read (`warmCursorClientVersion`) is part of the send.
+process.env.MIXDOG_CURSOR_CLIENT_VERSION = 'cli-2026.11.01-0123456';
 // The recorder's own count of the `Math.random` stream (the seeded one `startRecording` installed), kept with each case so the replay
 // finds the jitter sample among the SDK clients' draws without assuming how many each provider makes.
 const seededRandom = Math.random;
@@ -164,6 +171,34 @@ const devinSession = (record) => {
   }
   return undefined;
 };
+// Cursor: the model listing it resolves the send's model from (a unary call over h2), the token exchange every in-place retry makes
+// first, and the Run stream.
+const { CursorOAuthProvider } = await rec.P(`${P}cursor.mjs`);
+const cursorPb = await rec.raw(`${P}cursor-wire-protobuf.mjs`);
+const CURSOR_MODELS = Buffer.from(cursorPb.encodeMessage('AvailableModelsResponse', { useModelParameters: true, models: [{ name: 'fixture-model', clientDisplayName: 'Fixture Model', supportsAgent: true, contextTokenLimit: 200000 }] }));
+// A refusal at the HTTP level, with no body: the run's failure then ends the stream (`finish`, cursor-wire-transport.mjs:181) with the status
+// error. (A Connect end frame carrying an error is closed through `close()`, whose own CANCEL raises the request's `aborted` first, so the
+// bridge sees `stream_aborted` instead of the server's error: not what this set records.)
+const cursorRefusal = (status, headers) => ({ status, contentType: 'application/proto', ...(headers ? { headers } : {}), body: '' });
+const cursorAux = (() => {
+  let exchanges = 0;
+  return (record) => {
+    if (record.path === '/aiserver.v1.AiService/AvailableModels') return { status: 200, contentType: 'application/proto', body: CURSOR_MODELS };
+    if (record.path === '/auth/exchange_user_api_key') return json(200, { accessToken: `fixture-exchanged-token-${++exchanges}`, refreshToken: 'fixture-refresh-token-2' });
+    return undefined;
+  };
+})();
+const cursorRoute = [
+    'cursor-raises-the-stage',
+    'src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs:119',
+    { provider: 'cursor-oauth', credentials: { 'cursor-oauth.json': { access_token: 'fixture-access-token', refresh_token: 'fixture-refresh-token', expires_at: FAR } }, env: { MIXDOG_CURSOR_CLIENT_VERSION: process.env.MIXDOG_CURSOR_CLIENT_VERSION } },
+    () => new CursorOAuthProvider({}),
+    'fixture-model',
+    // The first run is refused as retryable with advice, the second as not.
+    [cursorRefusal(503, ADVICE), cursorRefusal(400)],
+    cursorAux,
+    { sessionId: 'fixture-session' },
+];
 const routes = [
   [
     'anthropic-oauth-raises-the-stage',
@@ -259,12 +294,15 @@ const routes = [
     [json(503, { code: 'unavailable', message: 'busy' }, ADVICE)],
     devinSession,
   ],
+  // Last: its h2c streams and token exchanges leave the shared keep-alive sockets of the `fetch` endpoint as the cases before it left them.
+  cursorRoute,
 ];
 for (const [id, source, input, make, model, replies, aux, options] of routes) {
   await rec.run(id, source, input, async (ctx) => {
     caseStart = randomDrawn;
     uuidStart = uuidDrawn;
     for (const [file, doc] of Object.entries(input.credentials)) rec.write(file, JSON.stringify(doc));
+    for (const [name, value] of Object.entries(input.env ?? {})) process.env[name] = value;
     if (input.adcFile) process.env.GOOGLE_APPLICATION_CREDENTIALS = join(rec.dataDir, input.adcFile);
     if (input.modelsDev) {
       rec.write('modelsdev-catalog.json', JSON.stringify({ fetchedAt: 1, data: input.modelsDev }));

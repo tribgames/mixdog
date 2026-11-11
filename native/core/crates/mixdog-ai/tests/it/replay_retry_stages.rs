@@ -49,6 +49,7 @@ fn config(case: &Case, provider: &str) -> serde_json::Value {
         "openrouter" => "OpenRouterProvider",
         "grok-oauth" => "GrokOAuthProvider",
         "antigravity-oauth" => "AntigravityOAuthProvider",
+        "cursor-oauth" => "CursorOAuthProvider",
         "vertex-ai" => "VertexAIProvider",
         "devin-oauth" => "DevinOAuthProvider",
         // The registered OpenCode Go provider wraps the gateway engines the recorder drove (`OpenCodeGoProvider`).
@@ -71,6 +72,8 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
         // The Gemini ladder by connection draws the step's sample and, the refusal advising a wait, the advice's
         // (`retryDelayFor`, retry-executor.mjs:320-324; `jitterDelayMs`, retry-backoff.mjs:93-104).
         "opencode-go-gemini-raises-the-ladder-stage" => (2, Some((0, 1))),
+        // Cursor draws one `Math.random` of its own (not a retry sample: the server's advice is waited in full).
+        "cursor-raises-the-stage" => (1, None),
         "vertex-gemini-retries-its-stream-without-the-stage"
         | "anthropic-oauth-raises-the-stage"
         | "anthropic-oauth-redacts-an-echoed-credential"
@@ -85,7 +88,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 14,"the recorded cases");
+    assert_eq!(set.cases.len(), 15, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,
@@ -122,7 +125,15 @@ async fn every_case_replays_as_nodes() {
             draws.uuid_bytes();
             uuids_consumed += 1;
         }
-        mixdog_ai::random::script((0..uuid_count).map(|_| draws.uuid_bytes()).collect::<Vec<_>>());
+        let mut uuid_draws: Vec<_> = (0..uuid_count).map(|_| draws.uuid_bytes()).collect();
+        if provider == "cursor-oauth" {
+            // Node's run draws, in order: the model listing's request id, the run's message id, the SSE response's
+            // completion id (`newCompletionId`, cursor-wire.mjs:328, the OpenAI-shaped stream Node wraps the run in: no
+            // wire carries it and the Rust send has no such stream), then each run's request id. The third is not the Rust
+            // send's draw.
+            uuid_draws.remove(2);
+        }
+        mixdog_ai::random::script(uuid_draws);
         uuids_consumed += uuid_count;
 
         let endpoint = Endpoint::start().await;
@@ -133,11 +144,15 @@ async fn every_case_replays_as_nodes() {
             let text = serde_json::to_string(&plain(document)).expect("a credentials document");
             std::fs::write(home.path().join(file), text).expect("a credentials file");
         }
-        let env = case
+        let mut env: Vec<(String, String)> = case
             .input
             .try_get("adcFile")
             .map(|file| vec![("GOOGLE_APPLICATION_CREDENTIALS".to_owned(), home.path().join(file.as_str()).display().to_string())])
             .unwrap_or_default();
+        // The variables the recorded case set (Cursor's client version).
+        for (name, value) in case.input.try_get("env").map_or(&[][..], Exact::entries) {
+            env.push((name.clone(), value.as_str().to_owned()));
+        }
         // The models.dev catalog the case routes by, its recorded input as the disk copy the product warms from.
         if let Some(catalog) = case.input.try_get("modelsDev") {
             let text = serde_json::json!({ "fetchedAt": 1, "data": plain(catalog) }).to_string();
@@ -145,7 +160,7 @@ async fn every_case_replays_as_nodes() {
             std::fs::write(home.path().join("catalog").join("modelsdev-catalog.json"), text).expect("the models.dev disk copy");
         }
         // Antigravity reads the updater's manifest before its first send, which the recording holds as its first arrival.
-        let builder = replay_world::builder_versioned(&endpoint, home.path(), env, SessionContext::new(), provider == "antigravity-oauth").await;
+        let builder = replay_world::builder_versioned(&endpoint, home.path(), env, SessionContext::new(), matches!(provider, "antigravity-oauth" | "cursor-oauth")).await;
         let adapter = replay_world::adapter(&builder, provider, &config(case, provider)).await;
         let args = case.args_of("#send", 0);
         // The options the send was called with: the stage callback (the sink's) and the gateway case's output ceiling.
@@ -175,7 +190,12 @@ async fn every_case_replays_as_nodes() {
         let clock = async {
             for (k, step) in case.clock.iter().enumerate() {
                 let at = attempt_requests[k];
-                endpoint.until(&format!("{what}: attempt {k} failed"), |e| e.body(at).dropped).await;
+                // An HTTP/2 run is over once the client closes its stream; an HTTP/1 response, once its body is dropped.
+                if provider == "cursor-oauth" {
+                    endpoint.until(&format!("{what}: attempt {k} failed"), |e| e.stream_closed(at)).await;
+                } else {
+                    endpoint.until(&format!("{what}: attempt {k} failed"), |e| e.body(at).dropped).await;
+                }
                 endpoint.advance(step).await;
             }
         };

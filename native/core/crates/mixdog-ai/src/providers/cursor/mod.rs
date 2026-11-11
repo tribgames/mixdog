@@ -134,7 +134,10 @@ pub struct CursorCodec {
 
 impl CursorCodec {
     pub fn new(request: &ModelRequest, target: CursorTarget) -> Result<Self, ProviderError> {
-        let run = build_run(request, &target.selection, &target.conversation_id, &random_uuid())?;
+        // The run request is built once per send and every in-place retry sends its bytes again (`requestBytes`,
+        // cursor-wire.mjs:`handleChatCompletion`): its message id is the send's, drawn by the first attempt.
+        let message_id = request.options.send_identity.get_or_mint(random_uuid);
+        let run = build_run(request, &target.selection, &target.conversation_id, &message_id)?;
         Ok(Self { target, run })
     }
 
@@ -528,7 +531,16 @@ impl ProviderAdapter for CursorAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let mut token = self.tokens.access_token(false).await?;
+        // Every in-place retry of Node's bridge force-refreshes the credentials and keeps the previous token when the
+        // refresh fails (`createCursorCredentialRefresher`, cursor-wire-guards.mjs:315).
+        let mut token = if request.options.send_identity.next_attempt() > 0 {
+            match self.tokens.access_token(true).await {
+                Ok(next) => next,
+                Err(_) => self.tokens.access_token(false).await?,
+            }
+        } else {
+            self.tokens.access_token(false).await?
+        };
         let mut refreshed = false;
         loop {
             let error = match self.open(&request, &token).await {

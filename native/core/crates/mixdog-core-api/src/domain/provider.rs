@@ -304,9 +304,17 @@ pub struct SendIdentity {
     /// The wire a gateway's latest attempt of this send went out on: the send's own route (Node keeps it per send,
     /// `wire-route.mjs` `sendOnRoute`), so concurrent sends of one model on different wires never share it.
     wire: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
+    /// The attempts of this send that began so far.
+    attempts: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl SendIdentity {
+    /// Marks an attempt of this send as begun and returns how many began before it: 0 for the send's first attempt,
+    /// more for a retry.
+    pub fn next_attempt(&self) -> u32 {
+        self.attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// The send's id, minted with `mint` by the first caller.
     pub fn get_or_mint(&self, mint: impl FnOnce() -> String) -> String {
         self.id.get_or_init(mint).clone()
