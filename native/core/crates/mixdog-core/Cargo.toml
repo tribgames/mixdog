@@ -61,6 +61,9 @@ windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win3
 # self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
 count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
 
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Threading"] }
+
 [dev-dependencies]
 mixdog-core = { path = ".", features = ["count-work"] }
 bytes = { workspace = true }
@@ -79,7 +82,7 @@ mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util", "process"] }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
