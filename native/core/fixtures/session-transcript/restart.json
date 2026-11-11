@@ -38,7 +38,7 @@
         }
       ],
       "position": {
-        "bytes": 776,
+        "bytes": 731,
         "lineIndex": 3,
         "generation": 0
       },
@@ -80,13 +80,13 @@
         }
       ],
       "position": {
-        "bytes": 776,
+        "bytes": 731,
         "lineIndex": 3,
         "generation": 0
       },
       "persisted": {
         "<file>": {
-          "bytes": 776,
+          "bytes": 731,
           "lineIndex": 3,
           "generation": 0
         }
@@ -97,13 +97,13 @@
       "count": 0,
       "inserts": [],
       "position": {
-        "bytes": 776,
+        "bytes": 731,
         "lineIndex": 3,
         "generation": 0
       },
       "persisted": {
         "<file>": {
-          "bytes": 776,
+          "bytes": 731,
           "lineIndex": 3,
           "generation": 0
         }

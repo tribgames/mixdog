@@ -5,7 +5,7 @@
     {
       "bytes": 2818,
       "path": "restart.json",
-      "sha256": "0ab12a8bdecabdca7f1daab51879ab3dbf3a1865614f6b07f16646817762c36c"
+      "sha256": "a658965cfaff66506cd47f091044998541d81e677a6e105cb4fd2f37136febbc"
     },
     {
       "bytes": 1184,
@@ -18,9 +18,9 @@
       "sha256": "fdb782adf342b42a918a733cb539059703b98833440929e24f7ab1e2868d2020"
     },
     {
-      "bytes": 9804,
+      "bytes": 9803,
       "path": "writer.json",
-      "sha256": "dd892ab34d98cc3682a79b332b24deed427a9fba3198e9cf38c4c529b5033afd"
+      "sha256": "da20cd24b090f0d520a6a1d95893ae00216fb695d077e0d6fad33f264da1f91a"
     }
   ],
   "inputs": [
@@ -46,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/node-patches/node-fix-memory-sensitive.patch",
-      "sha256": "5075d7f52123860a79f33adc42d84f98622a7a9b82c90cb9efbfbd985d689cc9"
+      "sha256": "fa8ea77851f35b7f996b1940564c87ab9cb1842ce60fbbb83ab0a37980c9a35b"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -60,20 +60,21 @@
     "patch": {
       "file": "benchmarks/rust-core/recorders/node-patches/node-fix-memory-sensitive.patch",
       "paths": [
+        "src/runtime/shared/buffered-appender.mjs",
         "src/runtime/shared/transcript-writer-sensitive.test.mjs",
         "src/runtime/shared/transcript-writer.mjs",
         "src/runtime/shared/transcript-writer/transcript-file.mjs",
         "src/session-runtime/lifecycle/memory-ingest.mjs"
       ],
-      "sha256": "5075d7f52123860a79f33adc42d84f98622a7a9b82c90cb9efbfbd985d689cc9"
+      "sha256": "fa8ea77851f35b7f996b1940564c87ab9cb1842ce60fbbb83ab0a37980c9a35b"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 4
+      "filesDifferingFromCommit": 5
     },
-    "srcSha256": "7e5cedbd302f07e8635f37183928c63ff0e5f9c15000e10dd7126548f0c83125",
+    "srcSha256": "441167921336069686f7f0de41c627b6473b0c289bf000fecb115183fc93a64c",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
@@ -87,5 +88,5 @@
     "restart"
   ],
   "set": "session-transcript",
-  "totalBytes": 15107
+  "totalBytes": 15106
 }
