@@ -505,28 +505,38 @@
         ]
       },
       "result": {
-        "input": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "input_text",
-                "text": "read a.txt then summarize"
-              }
-            ]
+        "sent": {
+          "content": "",
+          "model": "gpt-5.5",
+          "reasoningItems": {
+            "$exact": "undefined"
           },
-          {
-            "type": "function_call",
-            "call_id": "toolu_1",
-            "name": "read",
-            "arguments": "{\"path\":\"a.txt\"}"
+          "providerReplay": {
+            "$exact": "undefined"
           },
-          {
-            "type": "function_call_output",
-            "call_id": "toolu_1",
-            "output": "file body"
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "responseId": "r",
+          "serviceTier": {
+            "$exact": "undefined"
           }
-        ]
+        }
       },
       "calls": [
         {
@@ -621,7 +631,7 @@
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-responses-input.mjs.convertMessagesToResponsesInput",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.buildRequestBody",
           "args": [
             [
               {
@@ -647,10 +657,165 @@
                 "content": "file body"
               }
             ],
+            "gpt-5.5",
+            [
+              {
+                "name": "read",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs.sendViaHttpSse",
+          "args": [
             {
-              "replayEncryptedReasoning": true
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "instructions": "You are a helpful assistant.",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "read a.txt then summarize"
+                      }
+                    ],
+                    "internal_chat_message_metadata_passthrough": {}
+                  },
+                  {
+                    "type": "function_call",
+                    "call_id": "toolu_1",
+                    "name": "read",
+                    "arguments": "{\"path\":\"a.txt\"}"
+                  },
+                  {
+                    "type": "function_call_output",
+                    "call_id": "toolu_1",
+                    "output": "file body"
+                  }
+                ],
+                "tools": [
+                  {
+                    "type": "function",
+                    "name": "read",
+                    "description": "Read a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    },
+                    "strict": false
+                  }
+                ],
+                "tool_choice": "auto",
+                "parallel_tool_calls": true,
+                "reasoning": {
+                  "effort": "medium",
+                  "summary": "auto"
+                },
+                "store": false,
+                "stream": true,
+                "stream_options": {
+                  "reasoning_summary_delivery": "sequential_cutoff"
+                },
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "prompt_cache_key": "mixdog-codex",
+                "text": {
+                  "verbosity": "low"
+                }
+              },
+              "useModel": "gpt-5.5"
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.openai.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "api.openai.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer k"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "x-client-request-id",
+              "2b94d07a22339d69c88f1e7d29672eb6"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "866"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"instructions\":\"You are a helpful assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"read a.txt then summarize\"}],\"internal_chat_message_metadata_passthrough\":{}},{\"type\":\"function_call\",\"call_id\":\"toolu_1\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"toolu_1\",\"output\":\"file body\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream\":true,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"gpt-5.5\"}}\n\n",
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"model\":\"gpt-5.5\",\"output\":[]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -711,35 +876,49 @@
         ]
       },
       "result": {
-        "messages": [
-          {
-            "role": "user",
-            "content": "read a.txt then summarize"
+        "sent": {
+          "content": "ok",
+          "model": "claude-sonnet-5",
+          "toolCalls": {
+            "$exact": "undefined"
           },
-          {
-            "role": "assistant",
-            "content": [
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "ok"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
               {
-                "type": "tool_use",
-                "id": "call_1",
-                "name": "read",
-                "input": {
-                  "path": "a.txt"
-                }
+                "type": "text",
+                "text": "ok"
               }
             ]
           },
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "tool_result",
-                "tool_use_id": "call_1",
-                "content": "file body"
-              }
-            ]
+          "generationMs": 0,
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
           }
-        ]
+        }
       },
       "calls": [
         {
@@ -819,7 +998,15 @@
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs.toAnthropicMessages",
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
           "args": [
             [
               {
@@ -845,13 +1032,128 @@
                 "content": "file body"
               }
             ],
+            "claude-sonnet-5",
             [
               {
-                "name": "read"
+                "name": "read",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
               }
             ],
-            "anthropic"
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "573"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":\"read a.txt then summarize\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"read\",\"input\":{\"path\":\"a.txt\"}}]},{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"call_1\",\"content\":\"file body\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"Read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]},\"eager_input_streaming\":true}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\",\"usage\":{\"input_tokens\":1}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -951,113 +1253,111 @@
         ]
       },
       "result": {
-        "geminiToAnthropic": [
-          {
-            "role": "user",
-            "content": "read a.txt then summarize"
+        "geminiToAnthropic": {
+          "content": "ok",
+          "model": "claude-sonnet-5",
+          "toolCalls": {
+            "$exact": "undefined"
           },
-          {
-            "role": "assistant",
-            "content": [
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "ok"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
               {
-                "type": "tool_use",
-                "id": "gem_1",
-                "name": "read",
-                "input": {
-                  "path": "a.txt"
-                }
+                "type": "text",
+                "text": "ok"
               }
             ]
           },
-          {
-            "role": "user",
-            "content": [
-              {
-                "type": "tool_result",
-                "tool_use_id": "gem_1",
-                "content": "file body"
-              }
-            ]
+          "generationMs": 0,
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
           }
-        ],
-        "geminiToGemini": [
-          {
-            "role": "user",
-            "parts": [
-              {
-                "text": "read a.txt then summarize"
-              }
-            ]
+        },
+        "geminiToGemini": {
+          "content": "ok",
+          "model": "gemini-3-pro",
+          "toolCalls": {
+            "$exact": "undefined"
           },
-          {
-            "role": "model",
-            "parts": [
-              {
-                "functionCall": {
-                  "name": "read",
-                  "args": {
-                    "path": "a.txt"
-                  },
-                  "id": "gem_1"
-                },
-                "thoughtSignature": "skip_thought_signature_validator"
-              }
-            ]
+          "citations": {
+            "$exact": "undefined"
           },
-          {
-            "role": "user",
-            "parts": [
+          "providerReplay": {
+            "version": 1,
+            "provider": "gemini",
+            "items": [
               {
-                "functionResponse": {
-                  "name": "read",
-                  "response": {
-                    "result": "file body"
-                  },
-                  "id": "gem_1"
-                }
+                "text": "ok"
               }
-            ]
+            ],
+            "requestContext": {
+              "model": "gemini-3-pro"
+            }
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
+          "providerState": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
           }
-        ],
-        "anthropicToGemini": [
-          {
-            "role": "user",
-            "parts": [
-              {
-                "text": "read a.txt then summarize"
-              }
-            ]
+        },
+        "anthropicToGemini": {
+          "content": "ok",
+          "model": "gemini-3-pro",
+          "toolCalls": {
+            "$exact": "undefined"
           },
-          {
-            "role": "model",
-            "parts": [
-              {
-                "functionCall": {
-                  "name": "read",
-                  "args": {
-                    "path": "a.txt"
-                  },
-                  "id": "toolu_1"
-                },
-                "thoughtSignature": "skip_thought_signature_validator"
-              }
-            ]
+          "citations": {
+            "$exact": "undefined"
           },
-          {
-            "role": "user",
-            "parts": [
+          "providerReplay": {
+            "version": 1,
+            "provider": "gemini",
+            "items": [
               {
-                "functionResponse": {
-                  "name": "read",
-                  "response": {
-                    "result": "file body"
-                  },
-                  "id": "toolu_1"
-                }
+                "text": "ok"
               }
-            ]
+            ],
+            "requestContext": {
+              "model": "gemini-3-pro"
+            }
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
+          "providerState": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
           }
-        ]
+        }
       },
       "calls": [
         {
@@ -1091,42 +1391,15 @@
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs.toAnthropicMessages",
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
           "args": [
-            [
-              {
-                "role": "user",
-                "content": "read a.txt then summarize"
-              },
-              {
-                "role": "assistant",
-                "content": "",
-                "toolCalls": [
-                  {
-                    "id": "gem_1",
-                    "name": "read",
-                    "arguments": {
-                      "path": "a.txt"
-                    }
-                  }
-                ]
-              },
-              {
-                "role": "tool",
-                "toolCallId": "gem_1",
-                "content": "file body"
-              }
-            ],
-            [
-              {
-                "name": "read"
-              }
-            ],
-            "anthropic"
+            {
+              "apiKey": "fixture-key"
+            }
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
           "args": [
             [
               {
@@ -1152,7 +1425,81 @@
                 "content": "file body"
               }
             ],
-            "gemini-3-pro"
+            "claude-sonnet-5",
+            [
+              {
+                "name": "read",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "read a.txt then summarize"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "gem_1",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a.txt"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "gem_1",
+                "content": "file body"
+              }
+            ],
+            "gemini-3-pro",
+            [
+              {
+                "name": "read",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            ],
+            {}
           ]
         },
         {
@@ -1247,7 +1594,15 @@
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
           "args": [
             [
               {
@@ -1273,8 +1628,238 @@
                 "content": "file body"
               }
             ],
-            "gemini-3-pro"
+            "gemini-3-pro",
+            [
+              {
+                "name": "read",
+                "description": "Read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                }
+              }
+            ],
+            {}
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "571"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":\"read a.txt then summarize\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"gem_1\",\"name\":\"read\",\"input\":{\"path\":\"a.txt\"}}]},{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"gem_1\",\"content\":\"file body\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"Read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]},\"eager_input_streaming\":true}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\",\"usage\":{\"input_tokens\":1}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "573"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"read a.txt then summarize\"}]},{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"read\",\"args\":{\"path\":\"a.txt\"},\"id\":\"gem_1\"},\"thoughtSignature\":\"skip_thought_signature_validator\"}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"read\",\"response\":{\"result\":\"file body\"},\"id\":\"gem_1\"}}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "577"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"read a.txt then summarize\"}]},{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"read\",\"args\":{\"path\":\"a.txt\"},\"id\":\"toolu_1\"},\"thoughtSignature\":\"skip_thought_signature_validator\"}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"read\",\"response\":{\"result\":\"file body\"},\"id\":\"toolu_1\"}}]}],\"tools\":[{\"functionDeclarations\":[{\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+            ]
+          }
         }
       ]
     }

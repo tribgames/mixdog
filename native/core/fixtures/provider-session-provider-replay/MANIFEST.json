@@ -1,25 +1,25 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-session-provider-replay.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-core-api domain/provider.rs replay_for (:197-204), mixdog-ai providers::{openai input.rs, anthropic body.rs, google request.rs}: feed `input.turns` (messages with their native replay state) and compare `stripped` and each target lowering whole.",
+  "compare": "PURE strip case: feed `input.turns` to the public strip_provider_replay_messages and compare `stripped` whole (messages, order, no native replay state). WIRE cases: send the stripped history through the Rust sender of the target provider to a loopback endpoint and compare the request as it arrived (body bytes, headers in order) in `requests`.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "session/manager/provider-replay.mjs stripProviderReplayMessages(history); openai-responses-input.mjs convertMessagesToResponsesInput(history, { replayEncryptedReasoning: true }); lib/anthropic-request-utils.mjs toAnthropicMessages(history, [{ name: \"read\" }], \"anthropic\"); gemini-schema.mjs toGeminiContents(history, \"gemini-3-pro\"). lib/provider-replay.mjs createProviderReplay builds the native state of the scripted turns.",
+  "entry": "session/manager/provider-replay.mjs stripProviderReplayMessages(history) (pure); the target lowerings through the real senders to the loopback endpoint: openai-oauth.mjs buildRequestBody + openai-oauth-http-sse.mjs sendViaHttpSse, anthropic.mjs AnthropicProvider.send, gemini.mjs GeminiProvider.send. lib/provider-replay.mjs createProviderReplay builds the native replay state of the scripted turns.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 35413,
+      "bytes": 55594,
       "path": "cases.json",
-      "sha256": "bbd7baf2edac0946a0f9bd94a0ae7dbc876293057e50dbbeb9750b261408f458"
+      "sha256": "13b528dcdafe9f55c7d5ecd83a0e472b25a44754a4ffb9fde7ae3d23cd0d89a3"
     }
   ],
   "inputs": [
@@ -41,11 +41,30 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "strip-keeps-messages-order-no-native-state",
+      "level": "pure",
+      "rust": "mixdog-agent/src/recovery.rs:271 strip_provider_replay_messages(&[Message]) -> Vec<Message> (pub fn; `pub mod recovery` at mixdog-agent/src/lib.rs:32; per message :253 strip_provider_replay)"
+    },
+    {
+      "id": "anthropic-to-openai-plain-pair",
+      "level": "wire"
+    },
+    {
+      "id": "openai-to-anthropic-tool-pair",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-signature-never-crosses-account",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +86,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-provider-replay.mjs",
-  "recorderSha256": "2426a05b9873ac2cf4f5dc1fdad431a408333f0ef97c02ccc9ce593609f64d50",
-  "replay": "Rust entry (pub, on o1): mixdog_core_api domain Message::replay_for (domain/provider.rs:226) and the codecs of the target providers (AnthropicCodec anthropic/codec.rs:148, OpenAiCodec openai/codec.rs:36, GoogleCodec google/codec.rs:63).",
+  "recorderSha256": "7fe0de59feaaf3d99b05b799aa7bf2a370d13948b2091e55bc6d3f9d44673716",
+  "replay": "PURE: mixdog-agent/src/recovery.rs:271 strip_provider_replay_messages (pub). WIRE: the provider sends through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) with the adapters AnthropicAdapter (anthropic/adapter.rs:169), OpenAiAdapter (openai/adapter.rs:308), GoogleAdapter (google/adapter.rs:53) against a loopback endpoint.",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-session-provider-replay",
-  "totalBytes": 35413,
+  "totalBytes": 55594,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
