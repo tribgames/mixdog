@@ -11,7 +11,7 @@
   "entry": "openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, providerName, parseToolCalls, knownToolNames, onToolCall }) and openai-compat-response-normalization.mjs normalizeCompatChatResponse({ providerName, useModel, opts, assembled }). The test's own parseToolCalls (JSON.parse of the arguments) is the callback the collector receives.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
@@ -41,11 +41,53 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "prefix-repeating-fragment-verbatim",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
+    },
+    {
+      "id": "fragmented-dispatches-once",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
+    },
+    {
+      "id": "finish-length-never-dispatches",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
+    },
+    {
+      "id": "finish-content_filter-never-dispatches",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
+    },
+    {
+      "id": "leaked-call-finish-stop",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
+    },
+    {
+      "id": "leaked-call-finish-length",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
+    },
+    {
+      "id": "leaked-call-finish-content_filter",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
+    },
+    {
+      "id": "leaked-call-finish-network_error",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,8 +109,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-compat-chat-stream-tool-calls.mjs",
-  "recorderSha256": "243cb7968d0869d9bfad4ca720560b9f553178f8d4b026765a689fbac2ba16b8",
-  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  "recorderSha256": "797bec27cc4bd03059df5b63fb82482c4c957bf7d3e788ab74dc56a8d76a96d8",
+  "replay": "mixdog-ai/src/providers/compat/chat/decode.rs: `pub struct ChatDecoder` (:155, re-exported pub at providers/compat/chat/mod.rs:18) built by `ChatDecoder::new(profile, owner)` (:193) and `.with_known_tools(names)` (:224), fed each recorded chunk as one SSE `data: <json>\n\n` unit through `WireDecoder::feed(&[u8])` (:578) and ended by `finish()` (:601). `feed` returns the StreamEvents (text, tool dispatches, errors) the Node consumer returns/dispatches for the same chunks; the `normalized` field (normalizeCompatChatResponse over a cut stream) maps to the typed error `finish()` / `feed` returns for a cut finish_reason.",
   "set": "provider-compat-chat-stream-tool-calls",
   "totalBytes": 34650,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
