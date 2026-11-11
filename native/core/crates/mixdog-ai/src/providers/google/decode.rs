@@ -230,6 +230,10 @@ pub struct GeminiDecoder {
     shown: String,
     /// The model the replay envelope is bound to (`requestContext.model`), when the decoder knows the request.
     model: Option<String>,
+    /// `Date.now()` for an in-band error's reset instant.
+    clock: std::sync::Arc<dyn Fn() -> std::time::SystemTime + Send + Sync>,
+    /// A failure met after other events of the same read: reported by the next call.
+    failed: Option<ProviderError>,
 }
 
 /// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
@@ -272,7 +276,16 @@ impl GeminiDecoder {
             raw: String::new(),
             shown: String::new(),
             model: None,
+            clock: std::sync::Arc::new(std::time::SystemTime::now),
+            failed: None,
         }
+    }
+
+    /// A replay's virtual wall clock in place of the system's.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_clock(mut self, clock: impl Fn() -> std::time::SystemTime + Send + Sync + 'static) -> Self {
+        self.clock = std::sync::Arc::new(clock);
+        self
     }
 
     /// Binds the replay envelope to the model that produced it (Node's `requestContext.model`): a later turn replays its
@@ -355,7 +368,7 @@ impl GeminiDecoder {
         } else {
             payload
         };
-        if let Some(mut err) = in_band(&chunk, &self.dialect.errors, std::time::SystemTime::now()) {
+        if let Some(mut err) = in_band(&chunk, &self.dialect.errors, (self.clock)()) {
             err.exposure = self.exposure;
             return Err(err);
         }
@@ -480,8 +493,10 @@ impl GeminiDecoder {
 
     fn conclude(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
         let mut out = Vec::new();
+        // `assertGeminiStreamCompleted` names the consumer's label (`gemini-stream.mjs:237`, `:244`).
+        let label = self.dialect.errors.label;
         if !self.saw_chunk {
-            return Err(truncated("stream truncated: empty stream", self.exposure));
+            return Err(truncated(&format!("{label} truncated: empty stream"), self.exposure));
         }
         let kind = self.finish.as_deref().map_or(FinishKind::Unfinished, finish_kind);
         let whole_calls = self.whole_calls > 0 && !self.incomplete_call;
@@ -489,7 +504,7 @@ impl GeminiDecoder {
         // none); only an output cutoff or an unmapped finish is named.
         let stop = match kind {
             FinishKind::Unfinished if whole_calls => None,
-            FinishKind::Unfinished => return Err(truncated("stream truncated: no finishReason", self.exposure)),
+            FinishKind::Unfinished => return Err(truncated(&format!("{label} truncated: no finishReason"), self.exposure)),
             _ if self.incomplete_call => {
                 return Err(truncated("stream truncated: unfinished function call", self.exposure));
             }
@@ -568,16 +583,30 @@ impl GeminiDecoder {
 
 impl WireDecoder for GeminiDecoder {
     fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
+        if let Some(err) = self.failed.take() {
+            return Err(err);
+        }
         self.buf.extend_from_slice(unit);
         let mut out = Vec::new();
         while let Some(end) = self.buf.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = self.buf.drain(..=end).collect();
-            self.line(&line[..line.len() - 1], &mut out)?;
+            if let Err(err) = self.line(&line[..line.len() - 1], &mut out) {
+                // Node relays every chunk before the failing one of the same read (`relayChunk` per payload): those
+                // events go out first, and the failure ends the stream on the next call.
+                if out.is_empty() {
+                    return Err(err);
+                }
+                self.failed = Some(err);
+                break;
+            }
         }
         Ok(out)
     }
 
     fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
+        if let Some(err) = self.failed.take() {
+            return Err(err);
+        }
         let rest = std::mem::take(&mut self.buf);
         let mut out = Vec::new();
         self.line(&rest, &mut out)?;

@@ -392,7 +392,9 @@ pub fn plain(value: &Value) -> Exact {
 pub const ERROR_FIELDS: &[(&str, &str, &str)] = &[
     ("acquireTimeoutMs", "unread", ""),
     ("attempts", "observable: the attempts on the wire (requests/dials counted by the endpoint)", "o/providers/openai-ws-send-attempts/handshake-failure.mjs:27 o/session/manager/ask-turn-failure.mjs:66 src/runtime/shared/err-text.mjs:219"),
+    ("connectCode", "unread", ""),
     ("data", "the response body as served (its RetryInfo is ProviderError.retry_after; the cached-content check reads it)", "o/providers/gemini.mjs:225 o/providers/provider-error-kind.mjs:83 o/providers/provider-error-kind.mjs:188 o/providers/anthropic-fast-mode.mjs:76 o/providers/anthropic-fast-mode.mjs:107 o/providers/vertex-ai-models.mjs:380 o/providers/vertex-ai-models.mjs:383 o/mcp/client.mjs:161 o/mcp/client.mjs:162"),
+    ("detail", "ProviderError.message (the Devin wire error's detail: the opaque-rejection check reads it, and the message carries it)", "o/providers/devin.mjs:260"),
     ("details", "ProviderError.retry_after (the RetryInfo `providerErrorKind` reads behind the stamped retryAfterMs)", "o/providers/provider-error-kind.mjs:186 o/providers/provider-error-kind.mjs:187 o/providers/provider-error-kind.mjs:188 o/providers/vertex-ai-models.mjs:384 o/providers/devin-wire-transport.mjs:378 o/session/manager/ask-turn-failure.mjs:53 (+13 more)"),
     ("emittedText","ProviderError.exposure.text_emitted", "o/providers/anthropic-midstream-recovery.mjs:177 o/providers/anthropic-midstream-recovery.mjs:270 o/providers/anthropic-sse-turn/turn-outcome.mjs:31 o/providers/anthropic-sse.mjs:549 o/providers/lib/stream-outcome.mjs:106 o/providers/openai-compat-chat-stream/stream-result.mjs:24 o/providers/openai-compat-chat-stream/stream-result.mjs:60 o/providers/openai-compat-chat-stream/stream-result.mjs:71 o/providers/openai-compat-chat-stream/stream-state.mjs:188 o/providers/openai-compat-chat-stream.mjs:112 (+7 more)"),
     ("emittedToolCall", "ProviderError.exposure.tool_dispatched", "o/providers/account-pool.mjs:519 o/providers/antigravity-oauth.mjs:201 o/providers/effort-configuration.mjs:99 o/providers/effort-rejection.mjs:225 o/providers/gemini.mjs:661 o/providers/grok-oauth.mjs:469 o/providers/grok-oauth.mjs:484 o/providers/openai-compat.mjs:176 o/providers/openai-oauth-dispatch.mjs:31 o/providers/openai-oauth-dispatch.mjs:145 (+4 more)"),
@@ -436,13 +438,15 @@ pub const ERROR_FIELDS: &[(&str, &str, &str)] = &[
     ("resetAt", "ProviderError.reset_at", "o/providers/openai-compat-error-contract.mjs:42 o/providers/openai-error-contract.mjs:231"),
     ("responseDoneStatus", "unread", ""),
     ("responseFailed", "ProviderError.kind (a response.failed frame)", "o/providers/provider-error-kind.mjs:72 o/providers/provider-error-kind.mjs:719 o/providers/retry-classification.mjs:585 o/providers/retry-midstream.mjs:197 o/session/image-strip-recovery.mjs:162 o/session/thinking-replay-recovery.mjs:19"),
+    ("retryable", "ProviderError.kind (a retryable Devin protocol fault is a truncated stream)", "o/providers/devin.mjs:249 o/providers/anthropic-oauth.mjs:903"),
     ("retryAfterAt", "ProviderError.retry_after", "o/providers/openai-error-contract.mjs:223"),
     ("retryAfterMs", "ProviderError.retry_after", "o/providers/admission-scheduler.mjs:59 o/providers/anthropic-error-contract.mjs:91 o/providers/anthropic-fast-mode.mjs:103 o/providers/openai-compat-error-contract.mjs:38 o/providers/retry-midstream.mjs:140 src/runtime/shared/err-text.mjs:205 src/runtime/web-search/lib/fetch-pipeline.mjs:54 src/runtime/web-search/lib/fetch-pipeline.mjs:151"),
     ("retryClassifier", "unread outside traces: transport-fallback-trace rows (core: no trace rows, K1 G12)", "o/providers/lib/transport-fallback-trace.mjs:16 o/providers/lib/transport-fallback-trace.mjs:19 o/providers/openai-compat.mjs:225 o/providers/openai-compat.mjs:241 o/providers/openai-oauth-dispatch.mjs:130 o/providers/openai-oauth-dispatch.mjs:166 o/providers/openai-oauth.mjs:303 o/providers/openai-oauth.mjs:330 o/providers/openai-ws-send-attempts/handshake-failure.mjs:12 o/providers/retry-executor.mjs:369 (+2 more)"),
     ("status", "ProviderError.status", "o/providers/admission-scheduler.mjs:366 o/providers/anthropic-api-transport.mjs:105 o/providers/anthropic-api-transport.mjs:106 o/providers/anthropic-api-transport.mjs:131 o/providers/anthropic-api-transport.mjs:201 o/providers/anthropic-error-contract.mjs:75 o/providers/anthropic-fast-mode.mjs:69 o/providers/anthropic-midstream-recovery.mjs:196 o/providers/anthropic-midstream-recovery.mjs:285 o/providers/anthropic-oauth-request.mjs:141 (+80 more)"),
     ("streamInterrupted", "unread", ""),
     ("streamOutcome", "the 23 streamOutcome fields below", "o/providers/anthropic-sse.mjs:544"),
-    ("streamStalled", "ProviderError.timed_out + kind", "o/providers/openai-compat-chat-send.mjs:211 o/providers/openai-compat-responses.mjs:259 o/providers/openai-compat-xai-send.mjs:144 o/providers/provider-error-kind.mjs:261 o/providers/retry-midstream.mjs:102 o/providers/retry-midstream.mjs:266 o/providers/wire-route.mjs:295 o/session/manager/turn-reap.mjs:34"),
+    ("streamStalled", "ProviderError.timed_out + kind; on a cut stream (TransportFault::TruncatedStream) the partial-final stamp: the attempt's text kept (exposure.text_emitted)", "o/providers/openai-compat-chat-send.mjs:211 o/providers/openai-compat-responses.mjs:259 o/providers/openai-compat-xai-send.mjs:144 o/providers/provider-error-kind.mjs:261 o/providers/retry-midstream.mjs:102 o/providers/retry-midstream.mjs:266 o/providers/wire-route.mjs:295 o/session/manager/turn-reap.mjs:34"),
+    ("timeoutPhase", "ProviderError.timeout phase", "o/providers/provider-error-kind.mjs:767 o/providers/provider-error-kind.mjs:769 src/runtime/shared/err-text.mjs:228 src/runtime/shared/provider-timeout-phase.mjs:17"),
     ("toolCallEmitted", "ProviderError.exposure.tool_dispatched", "o/providers/openai-oauth-dispatch.mjs:32 o/providers/openai-oauth-dispatch.mjs:146"),
     ("transportTiming", "read by session telemetry only (real-clock durations, masked by the manifests); core field to add with the telemetry rows", "o/session/manager/ask-turn-commit.mjs:140 o/session/manager/status-telemetry.mjs:84"),
     ("truncatedStream", "ProviderError.kind (truncation) + delivery", "o/providers/anthropic-midstream-recovery.mjs:246 o/providers/gemini-stream.mjs:114 o/providers/gemini.mjs:175 o/providers/openai-compat-chat-stream/stream-result.mjs:55 o/providers/provider-error-kind.mjs:261 o/providers/retry-classification.mjs:100"),
@@ -669,6 +673,13 @@ impl Endpoint {
     /// The set's running clock now.
     pub fn now_ms(&self) -> u64 {
         self.origin_ms.load(std::sync::atomic::Ordering::Relaxed) + self.started.elapsed().as_millis() as u64
+    }
+
+    /// The recorders' `Date.now()` on the set's running clock now: `T0` (`lib/provider-case-recorder.mjs:42`,
+    /// 2026-11-09T12:00:00Z) plus [`Endpoint::now_ms`].
+    pub fn wall_now(&self) -> std::time::SystemTime {
+        let t0 = mixdog_js::time::date_parse("2026-11-09T12:00:00Z") as u64;
+        std::time::UNIX_EPOCH + Duration::from_millis(t0 + self.now_ms())
     }
 
     /// Scripts the HTTP side with the case's recorded replies: the k-th arrival is answered by `requests[k].reply`.
