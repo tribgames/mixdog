@@ -1,16 +1,19 @@
 {
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-anthropic-thinking-contract.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-core run_host/builder_env.rs (adaptive-only generation floor, :197-224) and mixdog-ai providers::anthropic body.rs (:670-684): the refusal text per model id and the whole request `body` per model/effort.",
   "entry": "src/runtime/agent/orchestrator/providers/anthropic-effort.mjs applyAnthropicEffortToBody(body, { model, opts, maxTokens, clampThinkingBudgetTokens }) and anthropic-oauth.mjs _buildRequestBodyForCacheSmoke(history, model, [], { effort }) after setModelEffortCapabilities([]). Not run: a send.",
   "exclusions": [
-    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
-    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 14552,
+      "bytes": 24080,
       "path": "cases.json",
-      "sha256": "9283d294055f3ef5a2c8cb9fc403adee39c0bfbf008ef37f724b5bf02012e308"
+      "sha256": "0791161f62ceb5f7d5661c2a007cab6ef52a0935e961d393d645c7a223487cf8"
     }
   ],
   "inputs": [
@@ -23,12 +26,16 @@
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -50,8 +57,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-thinking-contract.mjs",
-  "recorderSha256": "e54f17b9dd08e21c8b4076b082fd01b754af9b5f08784f023ed2df5516a2da2a",
-  "replay": "mixdog-core run_host/builder_env.rs (adaptive-only generation floor, :197-224) and mixdog-ai providers::anthropic body.rs (:670-684): the refusal text per model id and the whole request `body` per model/effort.",
+  "recorderSha256": "3f65295c0659bee22da7d643dd80fd466969e1f88573a53d5c710921db3a0669",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). The adaptive-only model floor lives in mixdog-core run_host/builder_env.rs (no pub entry located): work for the Rust side.",
   "set": "provider-anthropic-thinking-contract",
-  "totalBytes": 14552
+  "totalBytes": 24080,
+  "valueTags": {
+    "{\"$bigint\":\"<digits>\"}": "bigint",
+    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
+    "{\"$cycle\":true}": "a reference back to an ancestor object",
+    "{\"$date\":\"<ISO>\"}": "Date",
+    "{\"$function\":\"<name>\"}": "a function",
+    "{\"$map\":[[k,v]...]}": "Map, insertion order",
+    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
+    "{\"$set\":[v...]}": "Set, insertion order",
+    "{\"$symbol\":\"<text>\"}": "a symbol",
+    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
+  }
 }

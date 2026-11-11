@@ -9,7 +9,8 @@ const rec = await startRecording({
   set: 'provider-anthropic-thinking-contract',
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/anthropic-effort.mjs applyAnthropicEffortToBody(body, { model, opts, maxTokens, clampThinkingBudgetTokens }) and anthropic-oauth.mjs _buildRequestBodyForCacheSmoke(history, model, [], { effort }) after setModelEffortCapabilities([]). Not run: a send.',
-  replay: 'mixdog-core run_host/builder_env.rs (adaptive-only generation floor, :197-224) and mixdog-ai providers::anthropic body.rs (:670-684): the refusal text per model id and the whole request `body` per model/effort.',
+  compare: 'mixdog-core run_host/builder_env.rs (adaptive-only generation floor, :197-224) and mixdog-ai providers::anthropic body.rs (:670-684): the refusal text per model id and the whole request `body` per model/effort.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). The adaptive-only model floor lives in mixdog-core run_host/builder_env.rs (no pub entry located): work for the Rust side.",
 });
 const { applyAnthropicEffortToBody, setModelEffortCapabilities } = await rec.P('agent/orchestrator/providers/anthropic-effort.mjs');
 const { clampAnthropicThinkingBudget } = await rec.P('agent/orchestrator/providers/lib/anthropic-request-utils.mjs');
