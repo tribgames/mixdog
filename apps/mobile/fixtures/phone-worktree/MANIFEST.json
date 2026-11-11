@@ -1,5 +1,5 @@
 {
-  "cases": 275,
+  "cases": 278,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the relay transport (encryption, admission) and the window process; the daemon runs without memory worker and MCP servers (MIXDOG_DAEMON_SKIP_MEMORY, MIXDOG_DISABLE_MCP), with the supervisor binary the real-turn harness cached",
@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 480509,
+      "bytes": 493584,
       "path": "golden.json",
-      "sha256": "b9357b8b2a8a6822226a3e44d948bcb25dd41ef86532c1e683b4b1a8a2395f73"
+      "sha256": "bd77fa48c3521ea07ecd63ba2b64a380e750b9a9892d36170bf07d5f7f83a83f"
     }
   ],
   "inputs": [
@@ -25,6 +25,14 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/status-clock-hooks.mjs",
+      "sha256": "e28867be7d0d03343e2e967257de507d66f80d3dafb150f3341314a819b405e7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/status-clock-preload.mjs",
+      "sha256": "f8feba7579acc677e8a87e858ad041971c1e3a4fe3be8690d911db613eb1eb20"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -57,10 +65,23 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
-  "recorderSha256": "f06bc88b46dbb794c34274cafd77bb050d3876b9716fd0f1a6aba3cedc65795a",
+  "recorderSha256": "1485ab530579a33e9eb46a16003b77e6f22cb34751ac7f1a6cfa5e291f15d71b",
   "set": "phone-worktree",
+  "settledStatus": {
+    "core": "has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case",
+    "fields": [
+      "contextWindow",
+      "rawContextWindow",
+      "effectiveContextWindowPercent",
+      "displayContextWindow",
+      "autoCompactTokenLimit",
+      "compactBoundaryTokens"
+    ],
+    "node": "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values. Which of these a call answered depended on whether a pass had landed",
+    "recording": "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, three marks of every session each followed by 1 s), no real wait"
+  },
   "syntheticInput": {
     "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
   },
-  "totalBytes": 480509
+  "totalBytes": 493584
 }
