@@ -70,6 +70,23 @@ async fn the_configured_route_values_are_state_from_install_and_no_frame() {
     assert_eq!((&route["autoClear"], &route["systemShell"], &route["webSearchRoute"]), (&auto_clear, &system_shell, &web_search_route));
 }
 
+/// The turn's effort reaches clients only when it changed, as Node's route state does (`local-session-runtime.mjs:162`
+/// `publishChanged` skips a value equal to the one published): a run that starts with the effort already in force publishes no
+/// route frame.
+#[tokio::test(start_paused = true)]
+async fn an_unchanged_turn_effort_publishes_no_route_frame() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let routes = || rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, name, _)| name == "thread/route/updated").map(|(_, _, p)| p["value"]["turnEffort"].clone()).collect::<Vec<_>>();
+    for effort in [None, Some("high"), Some("high"), None] {
+        handle.set_section(Section::TurnEffort(effort.map(Into::into))).await.expect("effort");
+    }
+    handle.set_section(Section::Route(ThreadRoute { effort: Some("low".into()), ..Default::default() })).await.expect("route");
+    eventually_on!(&[&handle.cell.stepped], || (routes().len() >= 3).then_some(())).await;
+    assert_eq!(routes(), vec![json!("high"), Value::Null, Value::Null]);
+}
+
 /// A route written into the header (`updateSessionRoute`) moves the route state: `provider`, `model` and the session's own
 /// (`sessionProvider`, `sessionModel`) follow, and the values read under the provider (`autoClear`) are read again.
 #[tokio::test(start_paused = true)]
