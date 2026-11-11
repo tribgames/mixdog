@@ -48,7 +48,8 @@ pub const MAX_FRAME_LEN: usize = MAX_FRAME_PAYLOAD + FRAME_OVERHEAD;
 /// Bytes of frames after which the writer starts the next batch with a `checkpoint`.
 pub const CHECKPOINT_EVERY: u64 = 1024 * 1024;
 /// Bytes of frames a session may have written but not yet acknowledged (RL §6.2 window);
-/// the most one write batch holds.
+/// the most one write batch holds without a closing `checkpoint` (a larger one, one request's
+/// whole unit, ends with one so the reader bound below still holds).
 pub const DURABILITY_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 /// Reader bound (FORMAT.md §6.3): the bytes from the start of the newest committed
 /// `checkpoint` (or `session`) frame of the newest log file to its end are fewer.

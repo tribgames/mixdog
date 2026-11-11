@@ -489,6 +489,23 @@ async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
     assert!(opened.bytes_read <= 5 * 1024 * 1024 + MAX_FRAME_LEN as u64, "SM §11.8: ≤ 5 MiB + state");
 }
 
+/// One request's unit larger than the durability window (an inherited conversation; Node writes it as one record) is one
+/// write and one barrier, and the open after it still reads a bounded tail: a checkpoint closes the write.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_batch_over_the_window_is_one_write_and_the_tail_stays_bounded() {
+    use crate::schema::frame::*;
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let batch: Vec<Encoded> = (0..30).map(|i| big_item(&format!("i{i}"))).collect();
+    let (w, ordinals) = env.commit(w, batch).await;
+    assert_eq!(ordinals.len(), 30, "every record of the batch is acknowledged");
+    drop(w);
+    let opened = env.reopen("s1").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 30));
+    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + MAX_FRAME_LEN as u64 + 1, "{}", opened.bytes_read);
+    assert!(opened.bytes_read < 1024 * 1024, "the newest anchor ends the write: {}", opened.bytes_read);
+}
+
 #[test]
 fn the_codec_moves_large_bodies_to_blobs_and_refs_them() {
     let small = crate::encode::encode_record(item("a").record().clone()).unwrap();

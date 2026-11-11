@@ -59,23 +59,24 @@ fn inherited_append(messages: Vec<Value>) -> CoreRequest {
     CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") }
 }
 
-/// The burst went to the store in batches no larger than the durability lane holds, every record of it once.
-fn bounded_batches(rig: &Rig) {
+/// The rows of the burst and the `updatedAt` after them reached the store in one commit (one barrier): a kill lands before it
+/// (none of them) or after it (all of them), never between two parts of it, as Node's one `append` record and one fsync.
+fn one_unit(rig: &Rig) {
     let batches = lock(&rig.store.batches).clone();
-    let lane = { let limits = super::SessionLimits::default(); limits.window_records + limits.reserve_records + limits.control_lane + 1 };
-    assert!(batches.iter().all(|batch| *batch <= lane), "{batches:?}");
-    assert!(batches.iter().sum::<usize>() >= ROWS + 1, "{batches:?}");
+    assert!(batches.contains(&(ROWS + 1)), "the burst is one commit: {batches:?}");
 }
 
-/// The transcript-window replay's entry: 2000 rows in one request.
+/// The transcript-window replay's entry: 2000 rows in one request, with a group commit far smaller than the burst.
 #[tokio::test(start_paused = true)]
 async fn a_conversation_of_2000_rows_stored_in_one_request_lands_whole_and_in_order() {
     let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.limits.batch_bytes = 1024;
+    let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     handle.request(inherited_append(conversation())).await.expect("the burst is stored");
     assert_eq!(stored(&rig, &handle.id), expected());
-    bounded_batches(&rig);
+    one_unit(&rig);
     assert!(lock(&rig.notices.0).is_empty(), "{:?}", lock(&rig.notices.0));
 }
 
@@ -88,7 +89,7 @@ async fn a_room_post_or_import_of_2000_rows_lands_whole_and_in_order() {
     let added = SessionRoomLog::new(directory.clone()).append_rows(handle.id.as_str(), conversation()).await.expect("the post is stored");
     assert_eq!(added, ROWS);
     assert_eq!(stored(&rig, &handle.id), expected());
-    bounded_batches(&rig);
+    one_unit(&rig);
 }
 
 /// `inheritFrom` carries a source of 2000 rows into its heir.
@@ -144,21 +145,65 @@ async fn a_burst_behind_a_slow_store_waits_for_it_and_lands_in_order() {
     eventually_on!(&[&handle.cell.stepped], || (handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
 }
 
-/// The write of the burst fails: the request is told once, the thread shows none of it and stores none of it, and goes on - the
-/// same burst stored again lands whole.
+fn header_patch(handle: &SessionHandle, title: &str) -> CoreRequest {
+    let params = json!({ "threadId": handle.id, "set": { "title": title }, "unset": [] });
+    CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }
+}
+
+/// The write of the burst fails (rolled back): the post is told once with one notice (`_recordSaveFailure`), nothing of it is
+/// stored or shown, and its rows stay queued: the next write of the thread takes them first, in order, then its own record.
 #[tokio::test(start_paused = true)]
-async fn a_failed_write_of_a_burst_is_told_once_and_leaves_none_of_it() {
+async fn a_failed_write_of_a_burst_keeps_its_rows_for_the_next_write() {
     let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
+    // The product's transcript: stored rows show as the user's would.
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.transcript = Arc::new(super::transcript::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     rig.store.fail_next.store(true, SeqCst);
     let failed = handle.request(inherited_append(conversation())).await;
     assert!(matches!(failed, Err(CoreError::BarrierFailed { .. })), "{failed:?}");
     assert_eq!(*lock(&rig.notices.0), ["save-failed"]);
     assert!(stored(&rig, &handle.id).is_empty());
-    assert!(handle.cell.view.load_full().items.is_empty(), "nothing of the failed burst is shown");
-    let stored_again = handle.request(inherited_append(conversation())).await;
-    assert!(matches!(stored_again, Ok(Reply::Value(_))), "{stored_again:?}");
-    assert_eq!(stored(&rig, &handle.id), expected());
+    assert!(handle.cell.view.load_full().items.is_empty(), "no prefix of the burst is shown");
+    handle.request(header_patch(&handle, "next")).await.expect("the next write lands");
+    assert_eq!(stored(&rig, &handle.id), expected(), "the kept rows landed with it, in order");
+    let records = rig.store.records(&handle.id);
+    assert!(
+        matches!(&records.last().expect("records").1, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.get("title") == Some(&json!("next")))),
+        "the next write's own record follows the kept rows"
+    );
+    let shown = handle.cell.view.load_full().items.len();
+    assert!(shown > 0, "the rows show once landed");
     assert_eq!(*lock(&rig.notices.0), ["save-failed"], "the failure was told once");
+}
+
+/// `inheritFrom` answers as Node's (whose save it does not await) when the heir's write fails: the inheritance succeeds,
+/// one notice, and the carried rows land with the heir's next write.
+#[tokio::test(start_paused = true)]
+async fn an_inheritance_whose_write_fails_answers_and_its_rows_land_with_the_next_write() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = |value: Value| value.as_object().cloned().expect("header");
+    let route = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" });
+    let (source, heir) = (ThreadId::from("sess_source"), ThreadId::from("sess_heir"));
+    directory.create_with_id(source.clone(), header(route.clone()), json!({})).await.expect("create the source");
+    directory.create_with_id(heir.clone(), header(route), json!({})).await.expect("create the heir");
+    let opened = directory.open_handle(&source, &CallContext::internal("test")).await.expect("open the source");
+    opened.request(inherited_append(conversation())).await.expect("the source's conversation");
+    rig.store.fail_next.store(true, SeqCst);
+    let fork = CoreRequest {
+        method: Method("thread/fork"),
+        params: json!({ "threadId": source, "intoThreadId": heir, "opId": "op-inherit" }),
+        op: Some(OpId::from("op-inherit")),
+        ctx: CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
+    };
+    directory.request(fork).await.expect("the inheritance answers");
+    assert_eq!(*lock(&rig.notices.0), ["save-failed"]);
+    assert!(stored(&rig, &heir).is_empty());
+    let handle = directory.open_handle(&heir, &CallContext::internal("test")).await.expect("open the heir");
+    handle.request(header_patch(&handle, "next")).await.expect("the heir's next write");
+    assert_eq!(stored(&rig, &heir), expected());
+    let header = handle.cell.header.load();
+    assert_eq!(header.get("inheritedFromSessionId"), Some(&json!("sess_source")), "the inheritance's header keys went with the rows");
 }
