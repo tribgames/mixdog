@@ -479,7 +479,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let attachments: Arc<dyn mixdog_ai::service::model_proxy_inline::AttachmentReader> = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments { store: blobs.clone(), interactive: b.tokens.interactive_io });
     let store_blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads> = Arc::new(mixdog_core::run_host::attachment_store::StoreBlobs::new(blobs.clone(), &b.tokens));
     let attachment_files = Arc::new(mixdog_core::run_host::attachment_store::StoreFiles::new(blobs.clone(), &b.data_dir, &b.tokens));
-    let attachment_facts: Arc<dyn mixdog_core::run_host::media::AttachmentFacts> = Arc::new(mixdog_core::run_host::attachment_store::StoreFacts::new(blobs.clone(), &b.tokens));
+    let attachment_facts: Arc<dyn mixdog_core::run_host::media::AttachmentFacts> = Arc::new(mixdog_core::run_host::attachment_store::StoreFacts::new(blobs.clone(), &b.tokens).with_documents(documents.clone()));
     // The one observed-file / read-cache state of the read, edit and apply_patch tools (and the purge hooks, the workspace host): persisted under
     // `<data>/read-snapshots`. NOT here: `FileSnapshotPersist::sweep_stale` (30-day sweep, blocking `std::fs`): it must run once at boot as a lane job.
     let snapshot_persist = Arc::new(mixdog_core::run_host::read_snapshots::FileSnapshotPersist::new(&b.data_dir));

@@ -1,7 +1,12 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <exact export of b6f10295a>",
-  "fileCount": 2,
+  "fileCount": 3,
   "files": [
+    {
+      "bytes": 149506,
+      "path": "attachment-preflight.json",
+      "sha256": "5a240eab3b32a6f0135be68532b7ef3c8e1655fb563c33f482b434ee472c0e83"
+    },
     {
       "bytes": 26320,
       "path": "image-strip.json",
@@ -42,11 +47,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-gaps.mjs",
-  "recorderSha256": "07aad057911b1ff9e0e89da63b5601d8939e436396b8a059961ac587d8373c6b",
+  "recorderSha256": "a0b7f6061a9b23fd744cecd0a1275c27b3355f4180c12d9b2ce83c10b5c292fa",
   "scenarios": [
     "legacy-json-keys",
-    "image-strip"
+    "image-strip",
+    "attachment-preflight"
   ],
   "set": "session-gaps",
-  "totalBytes": 28569
+  "totalBytes": 178075
 }
