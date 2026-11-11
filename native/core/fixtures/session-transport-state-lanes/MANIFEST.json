@@ -3,7 +3,7 @@
   "entry": "Ran src/standalone/session-state-patch.mjs (diffSessionState/applySessionStatePatch), session-service.mjs createSessionService().handleCall with scripted sessionExists / readStoredSession / subscribeExternalSessionStates / onFrame, channel-transport.mjs createChannelTransport over real HTTP on 127.0.0.1 (behind a TCP tap), the real session transport + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, and, for 192/446/493, the real session client against a scripted HTTP daemon (the test's own stand-in, a recorder-side http.createServer) behind the tap. Every HTTP exchange (status line, headers in order, body; an event stream as its frames) is recorded. Did not run the identity case 19.",
   "exclusions": [
     "case 19 is listed in notRecorded with its reason",
-    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine's roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads \"<CWD> (JSON-escaped)\"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised",
     "case 303: written through the transport's `_writeRemoteStateToForTest` hook (the same function the pointer uses) because the production writer needs a displaced client",
     "cases 446 and 493 move virtual clocks: 446 ticks the mocked global setTimeout (only setTimeout is faked; sockets keep their own timers), 493 moves Date.now() by recorded steps while the client's own 5-20 ms timers run in real time and the scripted daemon holds every reconnect until released",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
@@ -20,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1231508,
+      "bytes": 1231916,
       "path": "recording.json",
-      "sha256": "9d9c5aa90e5cb22e4a8f9b0693f30dc4df60e6d6801a59070a9ce3095b19f28d"
+      "sha256": "f57f01959f24b03248f812d9c82a551056235bd155460765caa00f16a90c96e2"
     }
   ],
   "inputs": [
@@ -48,7 +48,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "5a1bc2a993be16a1919a82639f5f10144f4a9fd529227651dcc68eaa51a9e9c4"
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-remote-state-null-session.patch",
@@ -78,10 +82,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-state-lanes.mjs",
-  "recorderSha256": "72defe192a67043f3a33938ce4b0c3ab71c68c0b0b88c16117e43a7062f91ac4",
+  "recorderSha256": "c120d07c29ee619fcdf4b0af819c2c0a4bd025075355c16c188b7799b8457c9d",
   "replay": "App-server behaviour of the Rust core (mixdog-app-server over WebSocket; native/core/crates/mixdog-app-protocol): case 48 compare the transcript patch for the same two states byte for byte (thread/updated notifications); 67/94 compare the refusal (error name/message) and the pushed thread frames after thread/resume of the same session; 192/275/446/493 are Node SSE/HTTP transport contracts recorded at the level a client sees (what a reconnect reuses and sends, what is replayed or resynced, when a lane is declared dead and after which budget): the Rust WebSocket client must show the same observable order, resync and liveness verdicts (list as Rust-side work where the WebSocket server has no counterpart); 303/327 compare the latest pending remote-state frame and the ordered state callbacks (the remote/pointer and remote/connectionTimeline notifications), case 327-fixed is the expected Rust behaviour; 365 compare each view's folded items and frames; 428 compare client and connection counts and the clients-empty signal.",
   "set": "session-transport-state-lanes",
   "testFile": "scripts/session-transport/state-lanes.test.mjs",
-  "totalBytes": 1231508,
+  "totalBytes": 1231916,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

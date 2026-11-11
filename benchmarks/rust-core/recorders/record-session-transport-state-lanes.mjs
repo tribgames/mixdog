@@ -44,7 +44,7 @@ await runSessionRecorder(import.meta.url, {
   values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: [
     'case 19 is listed in notRecorded with its reason',
-    'wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised',
+    'wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine\'s roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads "<CWD> (JSON-escaped)"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised',
     'case 303: written through the transport\'s `_writeRemoteStateToForTest` hook (the same function the pointer uses) because the production writer needs a displaced client',
     'cases 446 and 493 move virtual clocks: 446 ticks the mocked global setTimeout (only setTimeout is faked; sockets keep their own timers), 493 moves Date.now() by recorded steps while the client\'s own 5-20 ms timers run in real time and the scripted daemon holds every reconnect until released',
     ...DETERMINISM,
