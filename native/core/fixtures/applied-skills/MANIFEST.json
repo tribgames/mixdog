@@ -1,12 +1,12 @@
 {
-  "cases": 4,
+  "cases": 8,
   "command": "node benchmarks/rust-core/recorders/record-applied-skills.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2702,
+      "bytes": 61365,
       "path": "golden.json",
-      "sha256": "3af73b991f38275cfce9c3f4242f9a93f6cbdc92121278cc03e10d868e95661b"
+      "sha256": "656761dce235c75dfbd42f77eabfdb3f8d943153e4334efea87bebb77fa0ed70"
     }
   ],
   "inputs": [
@@ -15,11 +15,15 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
-  "keptWhole": "per case: the prompt, the applied names, every stored user row meta.transcript, the restored user rows",
+  "keptWhole": "per case: the prompt(s), the applied names, every stored user row, every restored user row",
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -39,12 +43,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-applied-skills.mjs",
-  "recorderSha256": "c840e2745ce58fbcf773cd3ef61b2762db5ed128b837c6f0084d00bb0e5b3c82",
+  "recorderSha256": "63f1e54acd6869200dc78af3021bbb1b286c4ff179ddd16ddab209ca2619e799",
   "set": "applied-skills",
   "syntheticInputs": [
-    "the sessions: three stored rows before the turn (system, an earlier user turn, its answer), the Skill tool only",
-    "the skills: two SKILL.md files under MIXDOG_DATA_DIR/skills",
-    "the provider of the queued case: one that answers \"Done.\" and calls no tool"
+    "the provider: one that answers \"Done.\" (a summary request: \"a summary of the conversation\") and calls no tool",
+    "the skills: three SKILL.md files under MIXDOG_DATA_DIR/skills; broken-guide's file is removed before its case",
+    "each prompt's transcriptMeta, as a client turn carries it: { messageId (msg_turn, msg_<n>), attemptId, checkpointId, at: 1000, device: \"desktop-1\", completionVerb: \"Mapped\" }"
   ],
-  "totalBytes": 2702
+  "totalBytes": 61365
 }
