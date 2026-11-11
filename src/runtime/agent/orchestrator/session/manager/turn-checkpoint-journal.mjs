@@ -966,6 +966,12 @@ const JOURNAL_RESUME_LIMIT = 16;
 const JOURNAL_GUARD_BYTES = 1024;
 const _journalReplays = new Map(); // journal path → { ino, key, offset, first, last, replay }
 
+/** Tests: per kept replay, how many bytes its two guards keep alive (the size
+ *  of the memory each guard is a view of, not the guard's own length). */
+export function _journalReplayGuardBackingForTest() {
+  return [..._journalReplays.values()].map(({ first, last }) => ({ first: first.buffer.byteLength, last: last.buffer.byteLength }));
+}
+
 function readJournalBytes(fd, length, position) {
   const bytes = Buffer.allocUnsafe(length);
   let got = 0;
