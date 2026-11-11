@@ -718,11 +718,20 @@ impl Run {
             let max = policy
                 .row(next.class())
                 .map_or(0, |row| row.schedule.max_retries);
+            // Node's attempt is the one about to run, of the row's attempts.
+            let payload = mixdog_ai::retry::stage::reconnecting(
+                &decide_on,
+                next.count(None).retries + 1,
+                max + 1,
+                delay,
+                u64::try_from(self.env.clock.now_ms()).unwrap_or(0),
+            );
             self.emit(RunEvent::Stage(Stage::Reconnecting {
                 attempt: next.count(None).retries,
                 max,
                 delay,
                 reason,
+                payload: Some(payload),
             }));
             or_cancelled(&self.cancel, self.env.waiter.wait(delay))
                 .await
@@ -785,6 +794,7 @@ impl Run {
                     max: 3,
                     delay: std::time::Duration::ZERO,
                     reason: mixdog_core_api::domain::retry::RetryReason::Other,
+                    payload: None,
                 }));
                 Some(Recovery::Rebuilt)
             }

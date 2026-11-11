@@ -32,6 +32,9 @@ pub trait AttemptSink: Send {
     /// the send's own. The default ignores it; the accounting sink records it
     /// as `<requestId>:abandoned:<i>`.
     fn abandoned(&mut self, _usage: &Usage, _model: Option<&str>) {}
+    /// A display-only stage of the send (`onStageChange(stage, payload)`): `reconnecting` with its payload before each
+    /// retry wait. The default ignores it.
+    fn stage(&mut self, _stage: &str, _payload: Option<serde_json::Value>) {}
 }
 
 pub struct SendRequest {
@@ -68,10 +71,12 @@ impl ModelBroker {
 
     /// Runs the request to its terminal event. Returns the attempts made.
     ///
-    /// Failures before any event of an attempt count against the policy's
-    /// `request` row, later ones against `midstream`; each row keeps its own
-    /// state across attempts. The permit is held across retries, so a retry
-    /// never re-queues.
+    /// A failure before the attempt's stream opened (the response's headers
+    /// arrived and it was accepted) counts against the policy's `request` row,
+    /// a failure after it against `midstream` (`runGeminiStreamAttempts`'
+    /// `connected()`); each row keeps its own state across attempts. Each retry
+    /// raises the `reconnecting` stage before its wait. The permit is held
+    /// across retries, so a retry never re-queues.
     pub async fn send(
         &self,
         adapter: &dyn ProviderAdapter,
@@ -89,11 +94,18 @@ impl ModelBroker {
             })?;
         let model = send.request.model.clone();
         let mut request_state = RetryState::new(RetryClass::Request, model.clone());
-        let mut midstream_state = RetryState::new(RetryClass::Midstream, model);
+        let mut midstream_state = RetryState::new(RetryClass::Midstream, model.clone());
         let mut attempts = 0;
         let liveness = permit.liveness().cloned();
+        let stages = adapter.send_stages(&model);
+        for _ in 0..stages.preparing {
+            sink.stage("requesting", None);
+        }
         loop {
             attempts += 1;
+            if stages.each_attempt {
+                sink.stage("requesting", None);
+            }
             // A request beginning is the run's doing: the lease measures the
             // silence after it.
             if let Some(liveness) = &liveness {
@@ -117,15 +129,19 @@ impl ModelBroker {
             if failure.status == Some(429) {
                 permit.report_rate_limit(failure.retry_after);
             }
-            let state = if streamed {
-                &mut midstream_state
+            let (state, class) = if streamed {
+                // `runGeminiStreamAttempts`: each stream attempt opens under a fresh connection ladder.
+                request_state = RetryState::new(RetryClass::Request, model.clone());
+                (&mut midstream_state, RetryClass::Midstream)
             } else {
-                &mut request_state
+                (&mut request_state, RetryClass::Request)
             };
-            let decision =
-                self.decider
-                    .verdict(&failure, state, adapter.retry_policy_for(&send.request.model), random_samples());
+            let policy = adapter.retry_policy_for(&send.request.model);
+            let decision = self.decider.verdict(&failure, state, policy, random_samples());
+            // `emitProviderRetryStage`'s attempt: the one about to run, of the row's attempts.
+            let attempt = decision.next.count(None).retries + 1;
             *state = decision.next;
+            let exhausted = matches!(decision.verdict, Verdict::Exhausted);
             let end = |permit: crate::admission::Permit, error: ProviderError| {
                 permit.finish(Outcome::Failure {
                     status: error.status,
@@ -135,6 +151,11 @@ impl ModelBroker {
             };
             match decision.verdict {
                 Verdict::Retry { delay, .. } => {
+                    let max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
+                    sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
+                    if let Some(tag) = adapter.retry_log_tag(&model) {
+                        mixdog_rt::node_stderr!("{tag} retry attempt {attempt} after {}", failure.message);
+                    }
                     if let Some(usage) = &failure.partial_usage {
                         sink.abandoned(usage, failure.partial_model.as_deref());
                     }
@@ -142,6 +163,32 @@ impl ModelBroker {
                     if !pause(delay, cancel).await {
                         permit.finish(Outcome::Abandoned);
                         return Err(SendError::Cancelled);
+                    }
+                }
+                Verdict::Surface | Verdict::Exhausted
+                    if streamed && !cancel.is_cancelled() && adapter.recovers_spent(&model, &failure) =>
+                {
+                    // The provider's last re-issue of a stream that died with nothing shown; its own failure is
+                    // dropped and the ladder's surfaces.
+                    if stages.before_recovery {
+                        sink.stage("requesting", None);
+                    }
+                    sink.discard();
+                    match self.recovered(adapter, &send.request, sink, cancel, liveness.as_deref()).await {
+                        Ok(()) => {
+                            permit.finish(Outcome::Success);
+                            mixdog_rt::node_stderr!(
+                                "[gemini] stream failed ({}); recovered via non-streaming generateContent",
+                                failure.code.as_deref().filter(|c| !c.is_empty()).unwrap_or(&failure.message)
+                            );
+                            return Ok(attempts + 1);
+                        }
+                        Err(Stop::Cancelled) => {
+                            permit.finish(Outcome::Abandoned);
+                            return Err(SendError::Cancelled);
+                        }
+                        Err(Stop::Failed(_)) if exhausted => return Err(SendError::Exhausted(end(permit, failure))),
+                        Err(Stop::Failed(_)) => return Err(SendError::Provider(end(permit, failure))),
                     }
                 }
                 Verdict::Surface => return Err(SendError::Provider(end(permit, failure))),
@@ -165,12 +212,41 @@ impl ModelBroker {
         streamed: &mut bool,
         liveness: Option<&RunLiveness>,
     ) -> Result<(), Stop> {
-        let mut reported: Option<Usage> = None;
-        let mut stream = tokio::select! {
+        let stream = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Stop::Cancelled),
             opened = adapter.attempt(request.clone()) => opened.map_err(Stop::Failed)?,
         };
+        // The stream opened: a failure from here on is the stream's, not the request's.
+        *streamed = true;
+        Self::consume(stream, sink, cancel, liveness).await
+    }
+
+    /// The provider's re-issue of a spent send ([`ProviderAdapter::recover_spent`]), to its terminal event.
+    async fn recovered(
+        &self,
+        adapter: &dyn ProviderAdapter,
+        request: &Arc<ModelRequest>,
+        sink: &mut dyn AttemptSink,
+        cancel: &CancellationToken,
+        liveness: Option<&RunLiveness>,
+    ) -> Result<(), Stop> {
+        let stream = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Stop::Cancelled),
+            opened = adapter.recover_spent(request.clone()) => opened.map_err(Stop::Failed)?,
+        };
+        Self::consume(stream, sink, cancel, liveness).await
+    }
+
+    /// An opened stream's events into `sink`, to its terminal event.
+    async fn consume(
+        mut stream: Box<dyn mixdog_core_api::domain::provider::ModelStream>,
+        sink: &mut dyn AttemptSink,
+        cancel: &CancellationToken,
+        liveness: Option<&RunLiveness>,
+    ) -> Result<(), Stop> {
+        let mut reported: Option<Usage> = None;
         loop {
             let item = tokio::select! {
                 biased;
@@ -179,7 +255,6 @@ impl ModelBroker {
             };
             match item {
                 Some(Ok(event)) => {
-                    *streamed = true;
                     // A provider keepalive is informational, never progress (SPEC §4.9).
                     if let Some(liveness) = liveness
                         && !matches!(event, StreamEvent::ProviderKeepalive)

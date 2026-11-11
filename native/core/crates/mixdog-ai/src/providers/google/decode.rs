@@ -234,6 +234,9 @@ pub struct GeminiDecoder {
     clock: std::sync::Arc<dyn Fn() -> std::time::SystemTime + Send + Sync>,
     /// A failure met after other events of the same read: reported by the next call.
     failed: Option<ProviderError>,
+    /// A test's view of every call the guard recovered (`getLeakedToolCalls()`), whether or not the turn released it.
+    #[cfg(any(test, feature = "test-support"))]
+    recovered_view: Option<std::sync::Arc<std::sync::Mutex<Vec<ToolCall>>>>,
 }
 
 /// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
@@ -278,7 +281,16 @@ impl GeminiDecoder {
             model: None,
             clock: std::sync::Arc::new(std::time::SystemTime::now),
             failed: None,
+            #[cfg(any(test, feature = "test-support"))]
+            recovered_view: None,
         }
+    }
+
+    /// Every call the guard recovers, as `getLeakedToolCalls()` lists them, kept for the test after the stream ends (a
+    /// failed stream releases none of them).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn recovered_calls(&mut self) -> std::sync::Arc<std::sync::Mutex<Vec<ToolCall>>> {
+        self.recovered_view.get_or_insert_with(Default::default).clone()
     }
 
     /// A replay's virtual wall clock in place of the system's.
@@ -318,6 +330,10 @@ impl GeminiDecoder {
             let call = leak::gemini_call(recovered);
             if !self.dispatched.insert(leak::fingerprint(&call.name, &call.arguments)) {
                 continue;
+            }
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(view) = &self.recovered_view {
+                view.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(call.clone());
             }
             self.leaked.push(call);
             out.push(StreamEvent::Progress(ProgressKind::Tool));

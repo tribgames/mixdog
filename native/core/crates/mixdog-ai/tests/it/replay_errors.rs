@@ -20,6 +20,8 @@ use crate::replay_world::Events;
 pub struct Left<'a> {
     pub error: Option<&'a ProviderError>,
     pub cancelled: bool,
+    /// The send ended because a ladder ran out (`SendError::Exhausted`).
+    pub exhausted: bool,
     pub events: &'a [StreamEvent],
 }
 
@@ -31,7 +33,7 @@ impl<'a> Left<'a> {
             Err(SendError::Provider(e) | SendError::Exhausted(e) | SendError::Fallback { last: e, .. }) => (Some(e), false),
             Err(SendError::Admission(e)) => panic!("the send was not admitted: {e:?}"),
         };
-        Self { error, cancelled, events: &events.events }
+        Self { error, cancelled, exhausted: matches!(sent, Err(SendError::Exhausted(_))), events: &events.events }
     }
 
     fn text(&self) -> String {
@@ -55,6 +57,21 @@ impl<'a> Left<'a> {
 
     fn calls_done(&self) -> usize {
         self.events.iter().filter(|e| matches!(e, StreamEvent::ToolCallDone(_))).count()
+    }
+
+    /// The attempt's completed calls in Node's `{id, name, arguments}` shape, in order.
+    fn calls(&self) -> Exact {
+        Exact::Array(
+            self.events
+                .iter()
+                .filter_map(|e| match e {
+                    StreamEvent::ToolCallDone(call) => {
+                        Some(Exact::plain(&serde_json::json!({ "id": call.id, "name": call.name, "arguments": call.arguments })))
+                    }
+                    _ => None,
+                })
+                .collect(),
+        )
     }
 
     fn text_emitted(&self) -> bool {
@@ -128,7 +145,11 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
                 let error = left.error(field);
                 assert!(error.transport.is_none() && !error.timed_out, "{what}: {mapping}");
             }
-            _ => assert!(left.error.is_some(), "{what}: an error surfaced"),
+            // A JS class that names no more than an error: its typed meaning is compared through the error's other
+            // fields (code, status, flags). A class not listed here fails the replay.
+            "Error" | "TypeError" | "SyntaxError" | "StreamInterruptedError" | "MalformedStreamError" | "DevinWireError" | "CallerCancel"
+            | "ProviderTimeoutError" | "ProviderIncompleteError" => assert!(left.error.is_some(), "{what}: an error surfaced"),
+            other => panic!("{what}: no comparison for the error class {other}"),
         },
         // `sent_code`: the core's own code, `TRUNCATED_STREAM` for a cut stream that names none.
         "code" | "providerErrorCode" | "type" => {
@@ -150,6 +171,32 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         }
         "error" | "providerError" | "payload" => {
             let error = left.error(field);
+            // Every key of the body's error object is one this comparison reads.
+            for (key, _) in value.entries() {
+                assert!(
+                    matches!(key.as_str(), "code" | "status" | "type" | "message" | "details" | "param" | "resets_at"),
+                    "{what}.{key}: a recorded property this comparison does not read"
+                );
+            }
+            // A Gemini body names its HTTP status as `code` (the response's status) and its retry advice in `details`.
+            if let Some(Exact::Number(status)) = value.try_get("code") {
+                assert_eq!(error.status.map(f64::from), Some(*status), "{what}.code: the HTTP status ({mapping})");
+            }
+            if let Some(details) = value.try_get("details") {
+                let delay = details.as_array().iter().find_map(|detail| match detail.try_get("retryDelay") {
+                    Some(Exact::String(text)) => text.strip_suffix('s').and_then(|n| n.parse::<f64>().ok()),
+                    _ => None,
+                });
+                assert_eq!(error.retry_after, delay.map(|s| Duration::from_millis((s * 1000.0).ceil() as u64)), "{what}.details: {mapping}");
+            }
+            // `resets_at`: the reset instant in Unix seconds (`extractErrorReset`), the error's reset time.
+            if let Some(at) = value.try_get("resets_at") {
+                let reset = error.reset_at.map(|at| at.duration_since(std::time::UNIX_EPOCH).expect("after the epoch").as_millis() as f64);
+                assert_eq!(reset, Some(at.as_f64() * 1000.0), "{what}.resets_at: {mapping}");
+            }
+            if let Some(param) = value.try_get("param").and_then(opt_str) {
+                assert_eq!(error.rejected_tool.as_deref(), Some(param), "{what}.param: {mapping}");
+            }
             // A Gemini body's error names its HTTP status as `code` and its own code as `status`.
             let code = match value.try_get("code") {
                 Some(Exact::Number(_)) => value.try_get("status").map(|s| s.as_str().to_lowercase()),
@@ -157,9 +204,19 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
             };
             let code = code.as_deref();
             assert_eq!(error.code.as_deref(), code, "{what}.code: {mapping}");
-            // `httpResponseError` / `applyTypedWireMessage`: the error's message ends with the body's own message (its
-            // first 200 UTF-16 units), or with the typed copy (`userMessage`) that took its place.
-            if let Some(message) = value.try_get("message") {
+            // A Gemini body (its `code` the HTTP status): `geminiRestError` puts the raw body after `<label> <status>: `
+            // (its first 300 UTF-16 units), which holds the body's own message as JSON; an in-band error puts the
+            // message itself there. The whole message is compared as the error's `message`.
+            if let (Some(Exact::Number(_)), Some(message)) = (value.try_get("code"), value.try_get("message")) {
+                let shown = serde_json::to_string(message.as_str()).expect("a JSON string");
+                assert!(
+                    error.message.ends_with(&format!(": {}", message.as_str())) || error.message.contains(&shown),
+                    "{what}.message: {mapping}: {:?} carries neither the message nor its body {shown}",
+                    error.message
+                );
+            } else if let Some(message) = value.try_get("message") {
+                // `httpResponseError` / `applyTypedWireMessage`: the error's message ends with the body's own message (its
+                // first 200 UTF-16 units), or with the typed copy (`userMessage`) that took its place.
                 let own = mixdog_js::slice_utf16(message.as_str(), 200);
                 let tail = user.map_or(own.as_str(), |copy| copy);
                 assert!(error.message.ends_with(tail), "{what}.message: {mapping}: {:?} does not end with {tail:?}", error.message);
@@ -187,8 +244,8 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "providerWireError" | "responseFailed" => assert!(left.error.is_some() || !opt_bool(value), "{what}: {mapping}"),
         "partialContent" => assert_eq!(left.text(), value.as_str(), "{what}: {mapping}"),
         "partialToolCalls" => match value {
-            Exact::Undefined | Exact::Null => assert_eq!(left.calls_done(), 0, "{what}: {mapping}"),
-            other => assert_eq!(left.calls_done(), other.as_array().len(), "{what}: {mapping}"),
+            Exact::Undefined | Exact::Null => crate::provider_case::assert_exact(&format!("{what}: {mapping}"), &Exact::Array(Vec::new()), &left.calls()),
+            other => crate::provider_case::assert_exact(&format!("{what}: {mapping}"), other, &left.calls()),
         },
         "pendingToolUse" | "partialToolCall" | "partialToolCallStarted" => assert_eq!(left.tool_input_cut(), opt_bool(value), "{what}: {mapping}"),
         "partialModel" => assert_eq!(left.error(field).partial_model.as_deref(), opt_str(value), "{what}: {mapping}"),
@@ -229,6 +286,16 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
             assert_eq!(stalled, opt_bool(value), "{what}: {mapping}");
         }
         "streamOutcome" => compare_outcome(what, value, left),
+        // The refusal was the response's own (a status), not a transport fault after it.
+        "initialResponseError" => assert_eq!(left.error(field).status.is_some(), opt_bool(value), "{what}: {mapping}"),
+        // The parsed body: its error object, compared as the error's `error`.
+        "data" => {
+            for (key, _) in value.entries() {
+                assert_eq!(key, "error", "{what}.{key}: a recorded property this comparison does not read");
+            }
+            compare_field(&format!("{what}.error"), "error", value.get("error"), left, user);
+        }
+        "providerRecoveryExhausted" | "providerRecoveryTerminal" => assert_eq!(left.exhausted, opt_bool(value), "{what}: {mapping}"),
         other => panic!("{what}: no comparison for {other} ({mapping})"),
     }
 }

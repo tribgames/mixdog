@@ -145,6 +145,9 @@ pub enum Stage {
         max: u32,
         delay: Duration,
         reason: RetryReason,
+        /// The provider's `onStageChange('reconnecting', payload)` before the wait (`emitProviderRetryStage`), which
+        /// the client's status shows; `None` for a re-send no provider ladder raised.
+        payload: Option<serde_json::Value>,
     },
     /// The model changed for the rest of the turn.
     ModelFallback {

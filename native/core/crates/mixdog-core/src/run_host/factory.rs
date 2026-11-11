@@ -705,6 +705,10 @@ impl RunObserver for PortObserver {
             // `applyStageChange('account-changed')`: the selection change is thread state, never a transcript item.
             // The pool's `onStageChange('reconnecting', { message })` before it retries on the next account: the
             // client's status (`applyStageChange`: the spinner's mode and verb), never a transcript notice.
+            // A provider ladder's `emitProviderRetryStage` before its wait: the client's status, as Node raises it.
+            RunEvent::Stage(Stage::Reconnecting { payload: Some(payload), .. }) => {
+                let _ = self.out.send(Shown::Stage("reconnecting".to_owned(), Some(payload)));
+            }
             RunEvent::Stage(Stage::AccountSwitching { message }) => {
                 let _ = self.out.send(Shown::Stage("reconnecting".to_owned(), Some(serde_json::json!({ "message": message }))));
             }

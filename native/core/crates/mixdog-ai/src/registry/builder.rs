@@ -865,6 +865,10 @@ impl DefaultProviderBuilder {
         Ok(adapter(
             google::gemini_keyed(self.key_source(name, cfg), self.env.http.clone(), self.env.google_traits.clone())
                 .with_listing_lookup(self.env.listing.clone())
+                .with_settings({
+                    let env = self.env.env.clone();
+                    Arc::new(move |name| env.var(name))
+                })
                 .with_preconnect(self.preconnect()),
         ))
     }
