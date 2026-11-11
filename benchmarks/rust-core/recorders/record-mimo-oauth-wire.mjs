@@ -395,10 +395,25 @@ await rec.run('widened-stream-waits-and-explicit-first-byte-allowance', `${SRC}:
   const stall = await rec.P('agent/orchestrator/stall-policy.mjs');
   const policy = { shared: { PROVIDER_FIRST_BYTE_TIMEOUT_MS: stall.PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS: stall.PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS }, mimo: { MIMO_FIRST_BYTE_TIMEOUT_MS: profile.MIMO_FIRST_BYTE_TIMEOUT_MS, MIMO_SEMANTIC_IDLE_TIMEOUT_MS: profile.MIMO_SEMANTIC_IDLE_TIMEOUT_MS, MIMO_CHAT_PROFILE: profile.MIMO_CHAT_PROFILE } };
   // WIRE: the MiMo provider sends to a gateway that answers 200 with the SSE head and never writes a body byte; the virtual clock moves to every timer the send arms (its widened first-byte wait, then its retries) until the send ends.
-  const stalled = await withGateway((_req, _body, res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.flushHeaders(); }, async (silentGw) => {
+  // The order is fixed by events, never by event-loop turns: the clock first runs the 3000 ms keep-alive timer the previous case's HTTP client
+  // left armed (a recorded step), then the send starts and the clock waits for its request to arrive at the gateway (so its first-byte timer
+  // is armed); after a first-byte timer fires, the clock waits for the retry sleep to be armed (or the send to end); after each retry sleep
+  // fires, it waits for the retried request to arrive before it moves again.
+  await rec.clock.advance(3000, { what: 'the previous case\'s keep-alive timer' });
+  const stalled = await withGateway((_req, _body, res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.flushHeaders(); rec.clock.notify(); }, async (silentGw) => {
     signIn(silentGw.baseUrl);
     const settled = newProvider().send([{ role: 'user', content: 'hi' }], 'mimo-v2.6-pro', [], {}).then((response) => ({ response }), (error) => ({ error }));
-    return rec.clock.followRetries(settled, { sites: /./, what: 'mimo widened stream waits' });
+    await rec.clock.until(() => silentGw.requests.length >= 1, 'the first request arrived at the gateway');
+    const sleep = /at (async )?\S*[sS]leep\S* /;
+    const causes = (site) => {
+      // The first-byte timer ends the attempt: its consequence is the retry sleep being armed (or the send ending).
+      if (/at createTimeoutSignal /.test(site)) return () => rec.clock.pendingFrom(sleep).length > 0;
+      // The retry sleep starts the next attempt: its consequence is the retried request arriving at the gateway.
+      if (!sleep.test(site)) return null;
+      const before = silentGw.requests.length;
+      return () => silentGw.requests.length > before;
+    };
+    return rec.clock.followRetries(settled, { sites: /./, what: 'mimo widened stream waits', causes });
   });
   const gw = await gateway(streamOk);
   try {

@@ -51,7 +51,10 @@ const prebuiltBody = Object.freeze({ model: 'gpt-5.6-sol', instructions: 'fixtur
 // transportTiming.*Ms are performance.now() durations (the real clock, not the virtual one): written as a marker, keys kept.
 const maskTiming = (r) => (r && typeof r === 'object' && r.transportTiming ? { ...r, transportTiming: Object.fromEntries(Object.entries(r.transportTiming).map(([k, v]) => [k, /Ms$/.test(k) && typeof v === 'number' ? '<ms, real clock>' : v])) } : r);
 // Every send's own retry sleeps run on the virtual clock (no sleep function is injected): the clock moves to each armed retry sleep, a recorded step, until the send ends.
-const attempt = (promise) => rec.clock.followRetries(promise.then((result) => ({ result: maskTiming(result) }), (error) => ({ error })));
+// Before each step the clock waits until the endpoint has seen every connection it ended close (its `closed` entry), so that event comes
+// before the retry's dial in the trace whatever the machine's load.
+const endedConnectionsClosed = () => world.count((e) => e.event === 'terminate' || (e.event === 'close-sent' && e.by === 'server')) <= world.count((e) => e.event === 'closed' && e.serverInitiated);
+const attempt = (promise) => rec.clock.followRetries(promise.then((result) => ({ result: maskTiming(result) }), (error) => ({ error })), { ready: endedConnectionsClosed });
 
 const world = await rec.wsWorld();
 const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');

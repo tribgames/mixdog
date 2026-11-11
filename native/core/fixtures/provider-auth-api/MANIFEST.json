@@ -41,11 +41,15 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
+      "sha256": "9c3bac7af557e26757ee81a258b4ed3ae3c18603f4f249a376ae9785f29c6835"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "ca2aba4fd278a0a7c9bce57b40c5470d7811acb5f895cba2524dc21c960f1ddc"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
+      "sha256": "032afaa2f77a9049a9ca98147ac1a8d6900a352ffa73d7da8f2d618266a3972f"
     }
   ],
   "levels": [
@@ -119,7 +123,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-auth-api.mjs",
-  "recorderSha256": "aeb82537bb8a3e2d09ee8fe493ed84836eb59b900bd0cc2db0a6a4ba93d56cf7",
+  "recorderSha256": "9074bb298d67153e85df5bbf8833e91b96a672f6fcbbfd06fc9a0c2f5e6db26e",
   "replay": "Rust entry (pub, on o1): mixdog_core_domains ai_admin AccountActions (account_actions.rs:61, constructors new/over :113/:117) and ai_account spawn_provider_changes (provider_changes.rs:96) with LiveProviderEffects (provider_changes.rs:71). The catalog refresh after a key save is OPEN (K1 G8, dec:828): work for the Rust side.",
   "set": "provider-auth-api",
   "totalBytes": 35591,
