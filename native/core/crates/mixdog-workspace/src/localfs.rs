@@ -1982,8 +1982,10 @@ mod cancel_io {
         unsafe { windows_sys::Win32::System::IO::CancelSynchronousIo(thread.as_raw_handle()) };
     }
 
-    /// The signal that interrupts a producer's call: its default action is to ignore it, so one that arrives from
-    /// elsewhere changes nothing either.
+    /// The signal that interrupts a producer's call, sent to that thread alone (`pthread_kill`). Its default action is to
+    /// ignore it, and nothing in this process uses it: tokio listens only to the signals it is asked for (none is this),
+    /// std and tokio's child-process code wait on SIGCHLD or a pidfd, and the kernel sends it only to a process that
+    /// claimed a socket's urgent data (`F_SETOWN`), which nothing here does.
     #[cfg(unix)]
     const INTERRUPT: libc::c_int = libc::SIGURG;
 
@@ -1991,22 +1993,61 @@ mod cancel_io {
     extern "C" fn interrupted(_: libc::c_int) {}
 
     #[cfg(unix)]
+    fn ours() -> libc::sighandler_t {
+        interrupted as extern "C" fn(libc::c_int) as libc::sighandler_t
+    }
+
+    /// `signal`'s handler now.
+    #[cfg(unix)]
+    pub(super) fn handler(signal: libc::c_int) -> libc::sighandler_t {
+        // SAFETY: with no new action the call only writes the current one into `current`, a valid zeroed sigaction.
+        unsafe {
+            let mut current: libc::sigaction = std::mem::zeroed();
+            if libc::sigaction(signal, std::ptr::null(), &mut current) != 0 {
+                return libc::SIG_ERR;
+            }
+            current.sa_sigaction
+        }
+    }
+
+    /// Installs the interrupting handler for `signal` if, and only if, no other code holds the signal (its disposition
+    /// is the default): a handler another library or the host application installed is never replaced, and one that
+    /// appears between the check and the install is put back at once. Installed once per process ([`cancel`]); a
+    /// handler is reset to the default in a child process at `exec`, so children are not affected.
+    #[cfg(unix)]
+    pub(super) fn take_over(signal: libc::c_int) -> bool {
+        if handler(signal) != libc::SIG_DFL {
+            return false;
+        }
+        // SAFETY: zeroed sigactions are valid; the handler does nothing, so it is async-signal-safe.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = ours();
+            libc::sigemptyset(&mut action.sa_mask);
+            // No SA_RESTART: the interrupted call fails with EINTR instead of starting again.
+            action.sa_flags = 0;
+            let mut previous: libc::sigaction = std::mem::zeroed();
+            if libc::sigaction(signal, &action, &mut previous) != 0 {
+                return false;
+            }
+            if previous.sa_sigaction != libc::SIG_DFL {
+                libc::sigaction(signal, &previous, std::ptr::null_mut());
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Interrupts `thread`'s call while the signal's handler is the one installed here: never when another code held the
+    /// signal first, and no more once another code replaced the handler (its handler is never run on a producer).
+    #[cfg(unix)]
     fn cancel(thread: &JoinHandle<()>) {
         use std::os::unix::thread::JoinHandleExt as _;
-        static HANDLER: std::sync::Once = std::sync::Once::new();
-        HANDLER.call_once(|| {
-            // SAFETY: a zeroed sigaction is valid; the handler does nothing, so it is async-signal-safe.
-            unsafe {
-                let mut action: libc::sigaction = std::mem::zeroed();
-                action.sa_sigaction = interrupted as extern "C" fn(libc::c_int) as libc::sighandler_t;
-                libc::sigemptyset(&mut action.sa_mask);
-                // No SA_RESTART: the interrupted call fails with EINTR instead of starting again.
-                action.sa_flags = 0;
-                libc::sigaction(INTERRUPT, &action, std::ptr::null_mut());
-            }
-        });
-        // SAFETY: the thread is joinable (held, not detached), so its id is valid even once it has ended.
-        unsafe { libc::pthread_kill(thread.as_pthread_t(), INTERRUPT) };
+        static TAKEN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *TAKEN.get_or_init(|| take_over(INTERRUPT)) && handler(INTERRUPT) == ours() {
+            // SAFETY: the thread is joinable (held, not detached), so its id is valid even once it has ended.
+            unsafe { libc::pthread_kill(thread.as_pthread_t(), INTERRUPT) };
+        }
     }
 
     #[cfg(not(any(windows, unix)))]
@@ -3038,5 +3079,30 @@ mod tests {
         walk.close().await;
         let expected: Vec<String> = (0..2_000).map(|i| format!("{i:04}.txt")).collect();
         assert_eq!(names, expected);
+    }
+
+    /// The interrupting signal is installed only where no other code holds the signal: a handler another code installed
+    /// stays, and the default disposition is taken over (here on SIGWINCH, which nothing else in the tests uses).
+    #[cfg(unix)]
+    #[test]
+    fn a_signal_another_handler_holds_is_left_to_it() {
+        extern "C" fn other(_: libc::c_int) {}
+        let signal = libc::SIGWINCH;
+        let other_handler = other as extern "C" fn(libc::c_int) as libc::sighandler_t;
+        // SAFETY: zeroed sigactions are valid; `other` does nothing.
+        let set = |handler: libc::sighandler_t| unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = handler;
+            libc::sigemptyset(&mut action.sa_mask);
+            action.sa_flags = libc::SA_RESTART;
+            assert_eq!(libc::sigaction(signal, &action, std::ptr::null_mut()), 0);
+        };
+        set(other_handler);
+        assert!(!cancel_io::take_over(signal));
+        assert_eq!(cancel_io::handler(signal), other_handler, "another code's handler stays");
+        set(libc::SIG_DFL);
+        assert!(cancel_io::take_over(signal));
+        assert_ne!(cancel_io::handler(signal), libc::SIG_DFL, "a signal nobody holds is taken over");
+        set(libc::SIG_DFL);
     }
 }
