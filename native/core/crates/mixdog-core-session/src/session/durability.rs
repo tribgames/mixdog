@@ -7,6 +7,13 @@
 //! After a failed barrier every queued record of that generation is dropped: the actor fails
 //! them all, resets its projected state and continues with the next generation — except the
 //! retained units of a write that was rolled back cleanly, which wait to go first with the next write.
+//!
+//! Limits, as Node's: a kept unit lives in memory only, so a crash before the next write loses it; Node's recorder keeps a
+//! failed batch the same way (`session-log-writer.mjs:1236-1242`, the bytes stay in `_unacked` for the next `_drain`, and
+//! the session's messages in memory), so after the same sequence neither has the rows on disk. A unit is buffered whole:
+//! its size is the request's (one inherited conversation, bounded by the heir's context fit, `inheritance.rs`
+//! `fit_message`; one imported conversation; one room post), as Node holds the whole session in memory and writes one
+//! `append` record of it (`session-log-writer.mjs` `_messageRecord`); there is no other per-request bound on either side.
 
 use std::collections::VecDeque;
 use std::sync::Arc;

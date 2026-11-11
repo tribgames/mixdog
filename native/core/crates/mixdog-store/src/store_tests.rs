@@ -489,73 +489,333 @@ async fn open_reads_a_bounded_tail_and_rotation_starts_with_a_checkpoint() {
     assert!(opened.bytes_read <= 5 * 1024 * 1024 + MAX_FRAME_LEN as u64, "SM §11.8: ≤ 5 MiB + state");
 }
 
-/// One request's unit larger than the durability window (an inherited conversation; Node writes it as one record) is one
-/// write and one barrier, and the open after it still reads a bounded tail: a checkpoint closes the write.
+// ───────────── groups (FORMAT.md §3.6): recovery takes a write whole or not at all ─────────────
+
+/// The records a forward scan of `bytes` (a file's bytes from a frame start, `ordinal` due there, to its end) returns
+/// (every frame but the anchors), and how it ended.
+fn scanned_from(bytes: &[u8], ordinal: u64) -> (Vec<(u64, Vec<u8>)>, crate::schema::frame::ScanEnd) {
+    let scan = crate::framing::scan(bytes, 0, 0, ordinal);
+    let records = scan
+        .frames
+        .iter()
+        .filter(|frame| !is_anchor_payload(frame.payload(bytes)))
+        .map(|frame| (frame.ordinal, frame.payload(bytes).to_vec()))
+        .collect();
+    (records, scan.end)
+}
+
+fn scanned_records(bytes: &[u8]) -> (Vec<(u64, Vec<u8>)>, crate::schema::frame::ScanEnd) {
+    scanned_from(bytes, 0)
+}
+
+fn is_anchor_payload(payload: &[u8]) -> bool {
+    payload.starts_with(br#"{"k":"checkpoint","#) || payload.starts_with(br#"{"k":"session","#)
+}
+
+/// A log whose last write is the group under test, from the last frame before that write (`ordinal` due there) to its
+/// end: those bytes, where the write starts in them, the records before and after it, and the positions the writer
+/// acknowledged for it (file offsets; `from` is the file offset of `bytes[0]`).
+struct Written {
+    bytes: Vec<u8>,
+    from: usize,
+    ordinal: u64,
+    write_start: usize,
+    before: Vec<(u64, Vec<u8>)>,
+    after: Vec<(u64, Vec<u8>)>,
+    acked: Vec<crate::schema::checkpoint::FramePos>,
+}
+
+/// Writes `prefix` (one write each) then `group` as the last write of a fresh session `s1`.
+async fn written(prefix: Vec<Vec<Encoded>>, group: Vec<Encoded>) -> (Env, Written) {
+    let env = Env::new();
+    let mut w = env.create("s1", None).await;
+    for batch in prefix {
+        w = env.commit(w, batch).await.0;
+    }
+    let path = env.dir("s1").join(log_name(0));
+    let write_start = std::fs::metadata(&path).unwrap().len() as usize;
+    let before_bytes = std::fs::read(&path).unwrap();
+    let (w, ack) = env.append(w, group).await;
+    let ack = ack.expect("the group is written");
+    let acked = ack.positions.clone();
+    env.store.project(ack.projection).await.unwrap();
+    drop(w);
+    let file = std::fs::read(&path).unwrap();
+    let last = crate::framing::scan(&before_bytes, 0, 0, 0).frames.last().copied().expect("a frame before the write");
+    let (from, ordinal) = (last.start, last.ordinal);
+    let (before, end) = scanned_from(&before_bytes[from..], ordinal);
+    assert_eq!(end, crate::schema::frame::ScanEnd::Clean);
+    let bytes = file[from..].to_vec();
+    let (after, end) = scanned_from(&bytes, ordinal);
+    assert_eq!(end, crate::schema::frame::ScanEnd::Clean);
+    (env, Written { bytes, from, ordinal, write_start: write_start - from, before, after, acked })
+}
+
+impl Written {
+    /// The recovered records of `bytes` are exactly those before the group or those after it, never between: which.
+    fn before_or_after(&self, what: &str, bytes: &[u8]) -> bool {
+        let (records, end) = scanned_from(bytes, self.ordinal);
+        assert!(records == self.before || records == self.after, "{what}: recovered {} records ({end:?}), before {} after {}", records.len(), self.before.len(), self.after.len());
+        records == self.after
+    }
+
+    /// The marker of the group (in `bytes`): the frame start `GROUP_MARKER_LEN + FRAME_OVERHEAD` before the first
+    /// acknowledged member.
+    fn marker(&self) -> usize {
+        self.acked[0].offset as usize - self.from - (crate::schema::frame::GROUP_MARKER_LEN + crate::schema::frame::FRAME_OVERHEAD)
+    }
+}
+
+/// Re-encodes the group's marker with `payload` (same length, a valid frame): a forged count, length or digest.
+fn with_marker(w: &Written, payload: &[u8]) -> Vec<u8> {
+    let mut bytes = w.bytes.clone();
+    let mut frame = Vec::new();
+    crate::framing::encode_into(&mut frame, w.acked[0].ordinal, payload);
+    let at = w.marker();
+    bytes[at..at + frame.len()].copy_from_slice(&frame);
+    bytes
+}
+
+fn marker_payload(w: &Written) -> Vec<u8> {
+    let at = w.marker() + crate::schema::frame::HEADER_LEN;
+    w.bytes[at..at + crate::schema::frame::GROUP_MARKER_LEN].to_vec()
+}
+
+/// Every way a group of three (and one whose write starts with a checkpoint) can be damaged, at every byte: the
+/// recovered records are exactly those before the group or after it, never some of it; the positions the writer
+/// acknowledged are where the members are found.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_batch_over_the_window_is_one_write_and_the_tail_stays_bounded() {
+async fn a_group_is_recovered_whole_or_not_at_all_however_it_is_damaged() {
+    use crate::schema::frame::*;
+    // `since_anchor` past CHECKPOINT_EVERY: the second layout's group write starts with its leading checkpoint.
+    let big: Vec<Encoded> = (0..6).map(|i| big_item(&format!("p{i}"))).collect();
+    for (layout, prefix) in [("a group of three", vec![vec![item("x")]]), ("a group of three after a leading checkpoint", vec![big])] {
+        let (_env, w) = written(prefix, vec![item("a"), item("b"), item("c")]).await;
+        assert_eq!(w.after.len(), w.before.len() + 3, "{layout}");
+        // The acknowledged positions are the members' frames.
+        let scan = crate::framing::scan(&w.bytes, 0, 0, w.ordinal);
+        let members: Vec<(u64, u64)> = scan.frames.iter().rev().take(3).rev().map(|f| (f.ordinal, (w.from + f.start) as u64)).collect();
+        assert_eq!(members, w.acked.iter().map(|p| (p.ordinal, p.offset)).collect::<Vec<_>>(), "{layout}: BatchAck agrees");
+        if layout.contains("checkpoint") {
+            assert!(w.marker() > w.write_start, "{layout}: the leading checkpoint precedes the marker");
+        }
+        let len = w.bytes.len();
+        for cut in w.write_start..=len {
+            let after = w.before_or_after(&format!("{layout}: cut at {cut}"), &w.bytes[..cut]);
+            assert_eq!(after, cut == len, "{layout}: cut at {cut}");
+            let mut zeroed = w.bytes.clone();
+            zeroed[cut..].fill(0);
+            assert_eq!(w.before_or_after(&format!("{layout}: zero from {cut}"), &zeroed), cut == len, "{layout}: zero from {cut}");
+        }
+        for at in w.write_start..len {
+            let mut flipped = w.bytes.clone();
+            flipped[at] ^= 0x01;
+            assert!(!w.before_or_after(&format!("{layout}: byte {at} flipped"), &flipped), "{layout}: byte {at} flipped");
+        }
+        // Forged markers, each a well-formed frame: count ±1, length ±1, a digest of other bytes.
+        let marker = marker_payload(&w);
+        let text = String::from_utf8(marker.clone()).unwrap();
+        let count = u64::from_str_radix(&text[7..15], 16).unwrap();
+        let bytes = u64::from_str_radix(&text[16..32], 16).unwrap();
+        for (what, forged) in [
+            ("count + 1", format!("#group {:08x}{}", count + 1, &text[15..])),
+            ("count - 1", format!("#group {:08x}{}", count - 1, &text[15..])),
+            ("length + 1", format!("{}{:016x}{}", &text[..16], bytes + 1, &text[32..])),
+            ("length - 1", format!("{}{:016x}{}", &text[..16], bytes - 1, &text[32..])),
+            ("another digest", format!("{}{}", &text[..33], "0".repeat(64))),
+        ] {
+            assert!(!w.before_or_after(&format!("{layout}: {what}"), &with_marker(&w, forged.as_bytes())), "{layout}: {what}");
+        }
+    }
+}
+
+/// Stale bytes after a new marker (a longer earlier write whose truncation did not last): the members the marker names
+/// are not there, so none of the stale frames completes the group.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stale_bytes_after_a_marker_never_complete_its_group() {
+    use crate::schema::frame::*;
+    let (_env, longer) = written(vec![vec![item("x")]], vec![item("p"), item("q"), item("r"), item("s")]).await;
+    // The new write: three other records at the same ordinals, of which only the marker landed.
+    let members: Vec<u8> = [item("a"), item("b"), item("c")]
+        .iter()
+        .enumerate()
+        .flat_map(|(i, e)| {
+            let mut out = Vec::new();
+            crate::framing::encode_into(&mut out, longer.acked[0].ordinal + i as u64, &e.payload);
+            out
+        })
+        .collect();
+    let mut stale = longer.bytes.clone();
+    let mut marker = Vec::new();
+    crate::framing::encode_into(&mut marker, longer.acked[0].ordinal, &group_marker(3, &members));
+    let at = longer.marker();
+    stale[at..at + marker.len()].copy_from_slice(&marker);
+    let (records, end) = scanned_from(&stale, longer.ordinal);
+    assert_eq!(records, longer.before, "{end:?}");
+    // The same stale bytes with the new members fully landed: the whole new group.
+    let mut landed = stale[..at + marker.len()].to_vec();
+    landed.extend_from_slice(&members);
+    let (records, end) = scanned_from(&landed, longer.ordinal);
+    assert_eq!((records.len(), end), (longer.before.len() + 3, ScanEnd::Clean));
+}
+
+/// Two groups back to back, each damaged in turn: the first damaged leaves what was before it; the second damaged
+/// leaves the first whole. A damaged group mid-log is damage (FORMAT.md §3.4, as a damaged frame always was): the
+/// session opens read-only there and nothing after it is truncated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_damaged_group_mid_log_is_damage_and_nothing_after_it_is_truncated() {
+    use crate::schema::frame::*;
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let path = env.dir("s1").join(log_name(0));
+    let (w, first) = env.append(w, vec![item("a"), item("b"), item("c")]).await;
+    let first = first.unwrap();
+    let first_acked = first.positions.clone();
+    env.store.project(first.projection).await.unwrap();
+    let (w, second) = env.append(w, vec![item("d"), item("e"), item("f")]).await;
+    let second = second.unwrap();
+    let second_acked = second.positions.clone();
+    env.store.project(second.projection).await.unwrap();
+    drop(w);
+    let bytes = std::fs::read(&path).unwrap();
+    let marker_of = |acked: &[crate::schema::checkpoint::FramePos]| acked[0].offset as usize - (GROUP_MARKER_LEN + FRAME_OVERHEAD);
+    for (what, damaged_at, marker, rows) in [
+        ("the first group damaged", first_acked[1].offset as usize + 60, marker_of(&first_acked), 0),
+        ("the second group damaged", second_acked[1].offset as usize + 60, marker_of(&second_acked), 3),
+    ] {
+        let mut damaged = bytes.clone();
+        damaged[damaged_at] ^= 0x01;
+        std::fs::write(&path, &damaged).unwrap();
+        let opened = env.reopen("s1").await;
+        assert_eq!(opened.fold.rows, rows, "{what}");
+        assert!(matches!(opened.status, LogStatus::Damaged(ref d) if d.offset == marker as u64), "{what}: {:?}", opened.status);
+        // Open-for-append refuses a damaged log: nothing is truncated.
+        let deps = env.deps();
+        let refused = on_lane(move |l| LogWriter::open(l, opened, deps).err()).await;
+        assert!(matches!(refused, Some(OpenAppendError::StoreDamaged(_))), "{what}");
+        assert_eq!(std::fs::read(&path).unwrap(), damaged, "{what}: the file is as it was");
+    }
+    // The policy is the one a damaged single frame always had.
+    let env = Env::new();
+    let mut w = env.create("s2", None).await;
+    for iid in ["a", "b"] {
+        w = env.commit(w, vec![item(iid)]).await.0;
+    }
+    drop(w);
+    let path = env.dir("s2").join(log_name(0));
+    let mut bytes = std::fs::read(&path).unwrap();
+    let scan = crate::framing::scan(&bytes, 0, 0, 0);
+    bytes[scan.frames[1].start + 60] ^= 0x01;
+    std::fs::write(&path, &bytes).unwrap();
+    let opened = env.reopen("s2").await;
+    assert!(matches!(opened.status, LogStatus::Damaged(ref d) if d.offset == scan.frames[1].start as u64), "{:?}", opened.status);
+}
+
+/// A write over the durability window is one group with no checkpoint inside or after it: with its middle damaged the
+/// open validates the group from the anchor before it and keeps none of it; an anchor-looking line inside a group's
+/// extent is never an anchor.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_large_group_is_validated_whole_and_no_anchor_inside_a_group_is_used() {
     use crate::schema::frame::*;
     let env = Env::new();
     let w = env.create("s1", None).await;
     let batch: Vec<Encoded> = (0..30).map(|i| big_item(&format!("i{i}"))).collect();
-    let (w, ordinals) = env.commit(w, batch).await;
-    assert_eq!(ordinals.len(), 30, "every record of the batch is acknowledged");
+    let (w, ack) = env.append(w, batch).await;
+    let ack = ack.unwrap();
+    let positions = ack.positions.clone();
+    env.store.project(ack.projection).await.unwrap();
     drop(w);
+    let path = env.dir("s1").join(log_name(0));
+    let bytes = std::fs::read(&path).unwrap();
     let opened = env.reopen("s1").await;
     assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 30));
-    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + MAX_FRAME_LEN as u64 + 1, "{}", opened.bytes_read);
-    assert!(opened.bytes_read < 1024 * 1024, "the newest anchor ends the write: {}", opened.bytes_read);
+    let mut damaged = bytes.clone();
+    damaged[positions[15].offset as usize + 100] ^= 0x01;
+    std::fs::write(&path, &damaged).unwrap();
+    let opened = env.reopen("s1").await;
+    assert_eq!(opened.fold.rows, 0, "{:?}", opened.status);
+    assert!(matches!(opened.status, LogStatus::Damaged(_)), "{:?}", opened.status);
+
+    // A crafted group whose last member is a checkpoint line: the reverse scan passes over it, intact group or not, and
+    // the forward scan refuses the group.
+    let mut buf = Vec::new();
+    crate::framing::encode_into(&mut buf, 0, br#"{"k":"session","v":2}"#);
+    let mut members = Vec::new();
+    crate::framing::encode_into(&mut members, 1, &item("a").payload);
+    crate::framing::encode_into(&mut members, 2, &item("b").payload);
+    crate::framing::encode_into(&mut members, 3, br#"{"k":"checkpoint","state":{}}"#);
+    crate::framing::encode_into(&mut buf, 1, &group_marker(3, &members));
+    let group_at = buf.len();
+    buf.extend_from_slice(&members);
+    assert_eq!(crate::framing::reverse_scan(&buf, true), Some(crate::framing::Anchor { start: 0, ordinal: 0 }));
+    assert!(matches!(crate::framing::scan(&buf, 0, 0, 0).end, ScanEnd::Corrupt { .. }));
+    let mut broken = buf.clone();
+    broken[group_at + 60] ^= 0x01;
+    assert_eq!(crate::framing::reverse_scan(&broken, true), Some(crate::framing::Anchor { start: 0, ordinal: 0 }));
 }
 
-/// A batch of three records is one group: a kill anywhere inside its write (inside the marker, inside the first member,
-/// between members, inside the last, or with the last bytes never synced) recovers none of it, the tail torn from the
-/// marker; once all of it is on disk, all of it. A log of the format before groups (frames with no marker) reads as before.
+/// The open after a write over the window reads the newest file whole (no anchor is within the bound); the next write
+/// places a checkpoint and the open after it is bounded again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_batch_is_recovered_whole_or_not_at_all() {
-    use crate::framing;
+async fn the_open_after_a_large_group_is_bounded_again_after_the_next_write() {
     use crate::schema::frame::*;
     let env = Env::new();
     let w = env.create("s1", None).await;
-    let (w, ordinals) = env.commit(w, vec![item("a"), item("b"), item("c")]).await;
-    assert_eq!(ordinals, [1, 2, 3]);
+    let batch: Vec<Encoded> = (0..30).map(|i| big_item(&format!("i{i}"))).collect();
+    let (w, _) = env.commit(w, batch).await;
+    let opened = env.reopen("s1").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 30));
+    let (w, _) = env.commit(w, vec![item("next")]).await;
     drop(w);
-    let bytes = std::fs::read(env.dir("s1").join(log_name(0))).unwrap();
-    let whole = framing::scan(&bytes, 0, 0, 0);
-    assert_eq!((whole.frames.len(), &whole.end), (4, &ScanEnd::Clean), "the session frame and the three members");
-    let marker = whole.frames[0].end();
-    let members: Vec<_> = whole.frames[1..].to_vec();
-    assert_eq!(members[0].start, marker + GROUP_MARKER_LEN + FRAME_OVERHEAD, "the marker leads the members");
-    let cuts = [
-        ("inside the marker", marker + 10),
-        ("inside the first member", members[0].start + 20),
-        ("between the first and second member", members[1].start),
-        ("between the second and last member", members[2].start),
-        ("inside the last member", members[2].start + 50),
-        ("before the sync: the last byte never landed", members[2].end() - 1),
-    ];
-    for (what, cut) in cuts {
-        let scan = framing::scan(&bytes[..cut], 0, 0, 0);
-        assert_eq!((scan.frames.len(), scan.end), (1, ScanEnd::Torn { offset: marker as u64 }), "{what}");
-        // The same with the rest of the file zero (a file extended before its pages landed).
-        let mut zeroed = bytes.clone();
-        zeroed[cut..].fill(0);
-        let scan = framing::scan(&zeroed, 0, 0, 0);
-        assert_eq!((scan.frames.len(), scan.end), (1, ScanEnd::Torn { offset: marker as u64 }), "{what}, zero-filled");
-    }
-    // Opened after such a kill, the log holds none of the batch and its writer truncates the group away.
-    std::fs::write(env.dir("s1").join(log_name(0)), &bytes[..members[2].start + 50]).unwrap();
     let opened = env.reopen("s1").await;
-    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Torn { offset: marker as u64 }, 0));
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 31));
+    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + MAX_FRAME_LEN as u64 + 1, "{}", opened.bytes_read);
+}
 
-    // The format before groups: the same records, one frame each, no marker.
-    let mut old = bytes[..marker].to_vec();
-    for (i, record) in [item("a"), item("b"), item("c")].iter().enumerate() {
-        framing::encode_into(&mut old, 1 + i as u64, &record.payload);
+/// The reader o1 shipped (vendored, `framing_o1`) over logs with groups in every position never misreads them: up to its
+/// first group marker it returns what this reader returns; there it stops with damage (the first member fails its ordinal)
+/// and the marker is no record to its record layer; a member read by position reads the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_old_reader_never_misreads_a_log_with_groups() {
+    use crate::schema::frame::*;
+    let big = || (0..6).map(|i| big_item(&format!("p{i}"))).collect::<Vec<_>>();
+    let layouts: Vec<(&str, Vec<Vec<Encoded>>)> = vec![
+        ("a group first", vec![vec![item("a"), item("b")]]),
+        ("a group between single records", vec![vec![item("a")], vec![item("b"), item("c"), item("d")], vec![item("e")]]),
+        ("two groups back to back", vec![vec![item("a"), item("b")], vec![item("c"), item("d")]]),
+        ("a group, a large group with a leading checkpoint, a group", vec![vec![item("a"), item("b")], big(), vec![item("c"), item("d")], vec![item("e"), item("f")]]),
+    ];
+    for (layout, writes) in layouts {
+        let env = Env::new();
+        let mut w = env.create("s1", None).await;
+        for batch in writes {
+            w = env.commit(w, batch).await.0;
+        }
+        drop(w);
+        let bytes = std::fs::read(env.dir("s1").join(log_name(0))).unwrap();
+        let new = crate::framing::scan(&bytes, 0, 0, 0);
+        assert_eq!(new.end, ScanEnd::Clean, "{layout}");
+        let anchors = [Some(crate::framing_o1::Anchor { start: 0, ordinal: 0 }), crate::framing_o1::reverse_scan(&bytes, true)];
+        for anchor in anchors.into_iter().flatten() {
+            let old = crate::framing_o1::scan(&bytes, 0, anchor.start, anchor.ordinal);
+            let new_from: Vec<(u64, usize)> = new.frames.iter().filter(|f| f.start >= anchor.start).map(|f| (f.ordinal, f.start)).collect();
+            let old_frames: Vec<(u64, usize)> = old.frames.iter().map(|f| (f.ordinal, f.start)).collect();
+            let marker = old.frames.iter().position(|f| f.payload(&bytes).starts_with(GROUP_MARKER));
+            match marker {
+                None => assert_eq!((old_frames, &old.end), (new_from, &ScanEnd::Clean), "{layout} from {anchor:?}"),
+                Some(at) => {
+                    assert_eq!(at, old.frames.len() - 1, "{layout}: the old reader stops at its first marker");
+                    assert_eq!(old_frames[..at], new_from[..at], "{layout}: the same frames before it");
+                    assert!(matches!(old.end, ScanEnd::Corrupt { cause: CorruptCause::Ordinal, .. }), "{layout}: {:?}", old.end);
+                    assert!(serde_json::from_slice::<crate::schema::record::Record>(old.frames[at].payload(&bytes)).is_err(), "{layout}: the marker is no record");
+                }
+            }
+        }
+        for frame in &new.frames {
+            let line = &bytes[frame.start..frame.end()];
+            assert_eq!(crate::framing_o1::check_frame(line, frame.ordinal).ok(), crate::framing::check_frame(line, frame.ordinal).ok(), "{layout}: a positioned read");
+        }
     }
-    let scan = framing::scan(&old, 0, 0, 0);
-    assert_eq!((scan.frames.len(), scan.end), (4, ScanEnd::Clean));
-    std::fs::write(env.dir("s1").join(log_name(0)), &old).unwrap();
-    let opened = env.reopen("s1").await;
-    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 3), "an old log opens unchanged");
 }
 
 #[test]
@@ -2194,7 +2454,9 @@ async fn a_rebuild_marks_unreadable_logs_damaged_and_indexes_the_rest() {
     let (b, _) = env.commit(b, vec![user("b1", "ask"), answer("b2")]).await;
     drop(b);
     let y = env.create("y0", None).await;
-    let (y, _) = env.commit(y, vec![user("y1", "kept"), answer("y2"), user("y3", "lost")]).await;
+    // Two writes: the damaged record is a write of its own (a damaged group is damaged whole, FORMAT.md §3.6).
+    let (y, _) = env.commit(y, vec![user("y1", "kept"), answer("y2")]).await;
+    let (y, _) = env.commit(y, vec![user("y3", "lost")]).await;
     drop(y);
     let z = env.create("z0", Some(("y0", 4))).await;
     drop(z);
