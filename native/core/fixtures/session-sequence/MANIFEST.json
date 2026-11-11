@@ -1,0 +1,56 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-sequence.mjs --tree <tree>",
+  "entry": "Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord) and manager/session-close.mjs (closeSession) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.",
+  "exclusions": [
+    "session ids drop the test's process id (sess_sequence_<tag>_<n>)",
+    "log file text: epoch uuids -> <uuid>, the random 24-hex logId -> <logid>, 13-digit millisecond timestamps -> <ms>; every other byte kept",
+    "the unlink plan is computed by the test's `predict` oracle (copied here only to place the injected failures); the recorded outcomes are Node's own",
+    "timers of 1000 ms are not recorded: the derived summary index (store-summary-index.mjs:446,518) re-arms a retry when two of its flushes overlap in real time, so their presence is not deterministic; the summary log is retired in the Rust core (decisions: derived data, MIG/src/stores.rs:102-103). The only store timer recorded is the 150 ms save debounce (pending-writes.mjs:24)",
+    "the random op lists come from the test's seeded generator (seed * 7919), recorded as inputs"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 117940,
+      "path": "recording.json",
+      "sha256": "a3a183eea9b19662fab98403e13ca592e4c5c882c8001ca29efae012ae117a88"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-sequence.mjs",
+  "recorderSha256": "1356b82903b9deff38f60ff8a399af9845691be733073bd3133fb3427ae41691",
+  "replay": "mixdog-core-session actor ordering (S/close.rs detach/close, S/delete.rs delete_session, the item-commit barrier) driven by the same op list per case with the case's unlink failures injected in the store writer: compare each op's result, the lifecycle commit error, the stored record (messages, generation, closed) and the log file (normalised) whole.",
+  "set": "session-sequence",
+  "testFile": "src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs",
+  "totalBytes": 117940
+}
