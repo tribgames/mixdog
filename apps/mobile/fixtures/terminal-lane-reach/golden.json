@@ -1,74 +1,418 @@
 {
-  "note": "Node (b6f10295a): per world, whether each paired phone reading the terminal lane got a tab's output from the tab's first output on (a tab the desktop opened, a tab the other phone opened), and whether output written after an unpair of the first phone (refused by the relay, or confirmed with its socket still open) reached that phone. See the recorder's header.",
+  "note": "Node (b6f10295a): per world, every terminal-lane push each paired phone received, per kind in order and whole (exact), each termData with its relay envelope's `droppable`, and whether the desktop closed the phone. See the recorder's header for the steps.",
   "credentials": {
     "p1": "aaaaaaa1",
-    "p2": "aaaaaaa2"
+    "p2": "aaaaaaa2",
+    "p3": "aaaaaaa3"
   },
   "tabs": {
     "desktop": "term_lane_desk",
-    "phone": "term_lane_ph"
-  },
-  "marks": {
-    "desktop": {
-      "typed": "echo ('LANE' + '-DESK')\r",
-      "seen": "LANE-DESK"
-    },
-    "phone": {
-      "typed": "echo ('LANE' + '-PH')\r",
-      "seen": "LANE-PH"
-    },
-    "unpair": {
-      "typed": "echo ('LANE' + '-UNPAIR')\r",
-      "seen": "LANE-UNPAIR"
-    }
+    "phone": "term_lane_ph",
+    "ends": "term_lane_end"
   },
   "worlds": [
     {
       "name": "the relay refuses the unpair",
       "relayConfirms": false,
-      "desktopTab": {
+      "phones": {
         "p1": {
-          "fromFirstOutput": true
+          "termData": [
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-3\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-4\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "lane-end-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "\r\n[process exited with code 3]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "\r\n[process exited with code <ended by the dispose>]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-5\r\n"
+              },
+              "droppable": true
+            }
+          ],
+          "termActivity": [],
+          "termSizeOwner": [],
+          "closedByDesktop": null
         },
         "p2": {
-          "fromFirstOutput": true
-        }
-      },
-      "phoneTab": {
-        "p1": {
-          "fromFirstOutput": true
+          "termData": [
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-3\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-4\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "lane-end-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "\r\n[process exited with code 3]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "\r\n[process exited with code <ended by the dispose>]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-5\r\n"
+              },
+              "droppable": true
+            }
+          ],
+          "termActivity": [],
+          "termSizeOwner": [],
+          "closedByDesktop": null
         },
-        "p2": {
-          "fromFirstOutput": true
+        "p3": {
+          "termData": [
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-4\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "lane-end-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "\r\n[process exited with code 3]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "\r\n[process exited with code <ended by the dispose>]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-5\r\n"
+              },
+              "droppable": true
+            }
+          ],
+          "termActivity": [],
+          "termSizeOwner": [],
+          "closedByDesktop": null
         }
-      },
-      "unpair": {
-        "unpairedPhoneGotOutput": true,
-        "desktopClosedUnpairedPhone": null
       }
     },
     {
       "name": "the relay confirms the unpair, the socket still open",
       "relayConfirms": true,
-      "desktopTab": {
+      "phones": {
         "p1": {
-          "fromFirstOutput": true
+          "termData": [
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-3\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-4\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "lane-end-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "\r\n[process exited with code 3]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "\r\n[process exited with code <ended by the dispose>]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-5\r\n"
+              },
+              "droppable": true
+            }
+          ],
+          "termActivity": [],
+          "termSizeOwner": [],
+          "closedByDesktop": null
         },
         "p2": {
-          "fromFirstOutput": true
-        }
-      },
-      "phoneTab": {
-        "p1": {
-          "fromFirstOutput": true
+          "termData": [
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-3\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-4\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "lane-end-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "\r\n[process exited with code 3]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "\r\n[process exited with code <ended by the dispose>]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-5\r\n"
+              },
+              "droppable": true
+            }
+          ],
+          "termActivity": [],
+          "termSizeOwner": [],
+          "closedByDesktop": null
         },
-        "p2": {
-          "fromFirstOutput": true
+        "p3": {
+          "termData": [
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-4\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "lane-end-1\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_end",
+                "data": "\r\n[process exited with code 3]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "lane-ph-2\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_ph",
+                "data": "\r\n[process exited with code <ended by the dispose>]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "payload": {
+                "id": "term_lane_desk",
+                "data": "lane-desk-5\r\n"
+              },
+              "droppable": true
+            }
+          ],
+          "termActivity": [],
+          "termSizeOwner": [],
+          "closedByDesktop": null
         }
-      },
-      "unpair": {
-        "unpairedPhoneGotOutput": true,
-        "desktopClosedUnpairedPhone": null
       }
     }
   ]

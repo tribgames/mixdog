@@ -11,7 +11,7 @@ workspace = true
 # The phone terminal replay's core only: the terminal size leases on a clock the replay steps (mixdog-spawn `lease-clock`).
 terminal-lease-clock = ["mixdog-spawn/lease-clock"]
 # Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
-replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls"]
+replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls", "mixdog-spawn/scripted-shell"]
 crash-gates = ["mixdog-core-session/crash-gates"]
 
 [dependencies]
