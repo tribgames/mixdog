@@ -589,18 +589,18 @@ pub(crate) fn counted(job: QueuedJob) -> QueuedJob {
     pause::point(|| "lane-queued".to_owned());
     job.map_run(|run| {
         let held = InFlight(Some(run));
-        Box::new(move || {
+        Box::new(move |answer: crate::lanes::Answer| {
             let mut held = held;
             pause::point(|| "lane-start".to_owned());
             if let Some(run) = held.0.take() {
-                run();
+                run(answer);
             }
         })
     })
 }
 
 /// A lane job's place in the in-flight count (rows 12 and 13).
-struct InFlight(Option<Box<dyn FnOnce() + Send>>);
+struct InFlight(Option<Box<dyn FnOnce(crate::lanes::Answer) + Send>>);
 
 impl Drop for InFlight {
     fn drop(&mut self) {

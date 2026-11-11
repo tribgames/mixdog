@@ -4841,7 +4841,6 @@ version = "1.4.5"
 dependencies = [
  "arc-swap",
  "chrono",
- "crossbeam-channel",
  "libc",
  "mixdog-rt",
  "mixdog-workspace-hack",
@@ -4857,7 +4856,6 @@ version = "1.4.5"
 dependencies = [
  "arc-swap",
  "chrono",
- "crossbeam-channel",
  "libc",
  "mixdog-rt-feature-off",
  "mixdog-workspace-hack",
