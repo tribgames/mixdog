@@ -86,7 +86,7 @@
         "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
         "src/session-runtime/lifecycle/inheritance.mjs"
       ],
-      "sha256": "17585c040ba9d5d7d276fabcff9b9bb71c15bc83354012b4562ea846871890f7"
+      "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -94,7 +94,7 @@
       "exact": false,
       "filesDifferingFromCommit": 10
     },
-    "srcSha256": "41f87258b5d07ddcc250e04a1a3aa209db62c46f81f8e95d6efae0e70b71bb13",
+    "srcSha256": "04d6c544d71bfa75586701ecbaf54a18c4f1262e1e8767a6fe243f5dda8191a0",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
