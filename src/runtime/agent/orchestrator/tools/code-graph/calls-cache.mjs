@@ -19,7 +19,7 @@
 // makes the sidecar valid across incremental (`--files`) rebuilds: unchanged
 // files keep their call sites even when the rebuilding process never hydrated
 // them.
-import { readFileSync } from 'node:fs';
+import { readJsonFilePiecesSync } from '../../../../shared/json-pieces-read.mjs';
 import { join } from 'node:path';
 
 const CALLS_SIDECAR_VERSION = 1;
@@ -78,7 +78,7 @@ export function graphHasCallsToPersist(graph) {
 
 export function readCallsSidecarPayload(file) {
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    const { value: parsed } = readJsonFilePiecesSync(file, { pieceDepth: 2 });
     if (!parsed || typeof parsed !== 'object') return null;
     if (parsed.v !== CALLS_SIDECAR_VERSION) return null;
     if (!parsed.files || typeof parsed.files !== 'object') return null;
