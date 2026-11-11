@@ -21,6 +21,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_base::support::{FsFailure, FsStep, io_failure};
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_config::config::Config;
@@ -298,7 +299,14 @@ impl SessionPort for DirectorySessionPort {
         let metadata = job
             .await
             .map_err(|_| PortError::Cancelled)?
-            .map_err(|e| failed(format!("{}: {}", e.kind(), next)))?;
+            .map_err(|error| {
+                // Node's `statSync` throws its `fs` text: `ENOENT: no such file or directory, stat '<path>'`.
+                let failure = FsFailure { error, step: FsStep::Stat(std::path::PathBuf::from(&next)) };
+                match io_failure("session", &failure) {
+                    CoreError::DomainError { message: Some(message), .. } => failed(message.to_string()),
+                    other => failed(other.to_string()),
+                }
+            })?;
         if !metadata.is_dir() {
             return Err(PortError::Invalid { field: "path".to_owned(), reason: format!("session: not a directory: {next}") });
         }

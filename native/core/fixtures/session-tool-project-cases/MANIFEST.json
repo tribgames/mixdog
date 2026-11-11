@@ -1,0 +1,54 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-tool-project-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "per call: the whole outcome, the tool's text or its error message; the Project directory as <dir>",
+  "excluded": {
+    "a manual rename landing while the AI title saves wins on the live session": "COVERED (row 84): core/run_host/tool_pool/tests.rs:536",
+    "injected runtimes receive the caller context each tool expects": "GONE (row 84): the ToolContext carries the caller",
+    "model-tool calls to disabled features are refused before any dispatch": "COVERED (gaps-tools.md row 84): tools/policy/surface.rs:382",
+    "session compact schedules a one-shot pending compact; status reports the session": "GAP (row 84): the core answers compact as not available",
+    "session fork calls the lifecycle API and returns the new session id": "COVERED (row 84): core/run_host/tool_pool/tests.rs:559",
+    "session rename protects user titles, honors the setting, and is Lead-only": "COVERED (row 84): core/run_host/tool_pool/tests.rs:536",
+    "session reports, lists, and switches the Project through the caller or the runtime: the caller-owned switch ({path} with setCallerCwd)": "Node's MCP caller may own the cwd switch (setCallerCwd); the core's session tool has one switch, the session port's",
+    "session reports, lists, and switches the Project through the caller or the runtime: the retired cwd tool": "Node's internal executor's own refusal of a tool it does not route; the core has no internal executor, and a model never reaches either: the session surface refuses an unknown tool first"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6004,
+      "path": "golden.json",
+      "sha256": "9688e63a8144e4445b359c6f19191e51fac27a65e2aa91259a30c5abc0cf9a91"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-tool-project-cases.mjs",
+  "recorderSha256": "eeff980865a26b72019083fd22c9e5cf23bf71f90d1341b5f780a7909e95528c",
+  "set": "session-tool-project-cases",
+  "totalBytes": 6004
+}

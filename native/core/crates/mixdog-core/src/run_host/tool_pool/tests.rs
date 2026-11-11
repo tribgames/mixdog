@@ -61,6 +61,9 @@ use super::session_port::ThreadRequests;
 use crate::run_host::unattended::UnattendedRunRegistry;
 use mixdog_tools::policy::RunKind;
 
+#[path = "session_project_node_cases.rs"]
+mod session_project_node_cases;
+
 fn golden(text: &str) -> Value {
     serde_json::from_str(text).expect("fixture")
 }
