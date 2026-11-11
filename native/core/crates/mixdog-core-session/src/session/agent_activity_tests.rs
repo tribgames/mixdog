@@ -74,6 +74,17 @@ async fn a_loaded_thread_shows_its_scope_at_once_and_its_rows_after_one_settle_b
     assert_eq!(published(&rig, &busy.id), vec![scoped(ThreadAgents::default()), scoped(agents("review"))]);
 }
 
+/// A thread opened from the store shows its agent scope in the view its handle holds from the start, before its actor publishes
+/// anything: a `thread/read` answered at once (a phone's first snapshot of the control session) never finds it without.
+#[tokio::test(start_paused = true)]
+async fn an_opened_thread_reads_with_its_scope_before_its_actor_runs() {
+    let rig = Rig::new();
+    let id = start_thread(&SessionDirectory::new(rig.deps())).await.id.clone();
+    let reopened = SessionDirectory::new(rig.deps());
+    let handle = reopened.open_handle(&id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("reopened");
+    assert_eq!(serde_json::to_value(&handle.cell.view.load_full().state).unwrap()["agents"], scoped(ThreadAgents::default()));
+}
+
 /// Each signal reads the owner's status again; an answer equal to the published one publishes
 /// nothing (`publishChanged`), a changed one is published.
 #[tokio::test(start_paused = true)]
