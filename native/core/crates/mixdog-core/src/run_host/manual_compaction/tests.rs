@@ -248,11 +248,16 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
     use super::super::attachment_store::StoreFacts;
     use super::super::media::MediaLowering;
     use super::super::side_question_store::SideQuestionStore;
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::ids::{ConnectionId, Method, OpId};
+    use mixdog_core_api::{CoreRequest, Reply, ThreadDirectory, ThreadHandle};
 
     /// The provider the session routes to: it records each request and answers Node's fixed summary.
     struct Recording {
         inner: MockProvider,
         sent: Mutex<Vec<Arc<ModelRequest>>>,
+        /// The error each attempt fails with, when the case's provider throws.
+        fail: Option<ProviderError>,
     }
     #[async_trait]
     impl ProviderAdapter for Recording {
@@ -270,6 +275,9 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         }
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
             self.sent.lock().unwrap().push(request.clone());
+            if let Some(error) = &self.fail {
+                return Err(error.clone());
+            }
             self.inner.attempt(request).await
         }
     }
@@ -346,37 +354,59 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         ModelRequest { model: model.as_str().to_owned(), messages, tools: Vec::new(), options }
     }
 
-    /// The pass reads its snapshot from the caller here; the world is never asked.
-    struct NoWorld;
-    #[async_trait]
-    impl ContextWorld for NoWorld {
-        async fn snapshot(&self, _: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError> {
-            unreachable!("the pass is handed its snapshot")
+    use mixdog_core_ports::ports::route::Route;
+    use mixdog_tools::orch::util::PortError;
+    /// The runtime's live route: the session's own header names its provider and model, so the route adds nothing.
+    struct NoRoute;
+    impl mixdog_core_ports::ports::route::LiveRoute for NoRoute {
+        fn route(&self, _: &ThreadId) -> Route {
+            Route::new()
         }
-        fn lowering(&self, _: &ThreadId, _: &str) -> Meters {
-            unreachable!("the pass is handed its snapshot")
+        fn adopt_held(&self, _: &ThreadId, _: &Route) {
+            unreachable!("no route is held")
         }
     }
-    /// The live session's header, which a failed pass patches.
-    struct Headers(Mutex<Header>);
+    /// The route session as the world reads it: no first turn is in flight (the conversation is stored), and the user
+    /// conversation is Node's `hasUserConversationMessage`.
+    struct Settled;
     #[async_trait]
-    impl ThreadState for Headers {
-        async fn header(&self, _: &ThreadId) -> Result<Header, mixdog_tools::orch::util::PortError> {
-            Ok(self.0.lock().unwrap().clone())
+    impl mixdog_core_ports::ports::route::RouteSession for Settled {
+        fn generation(&self, _: &ThreadId) -> u64 {
+            0
         }
-        async fn patch_header(&self, _: &ThreadId, set: serde_json::Map<String, Value>, unset: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
-            let mut header = self.0.lock().unwrap();
-            header.extend(set);
-            for key in unset {
-                header.remove(&key);
-            }
-            Ok(())
+        async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
+            Ok(Vec::new())
         }
-        async fn patch_header_if(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<Option<serde_json::Map<String, Value>>, mixdog_tools::orch::util::PortError> {
-            unreachable!("a manual pass patches unconditionally")
+        fn has_user_conversation(&self, messages: &[Value]) -> bool {
+            mixdog_core_session::session::route_session::has_user_conversation(messages)
         }
-        async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
-            Ok(())
+        async fn update_route(&self, _: &ThreadId, _: Route, _: bool) -> Result<bool, PortError> {
+            unreachable!("no route change")
+        }
+        async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, PortError> {
+            unreachable!("no route change")
+        }
+        async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
+            unreachable!("no route change")
+        }
+        async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
+            unreachable!("no route change")
+        }
+        fn write_statusline(&self, _: &ThreadId, _: &Route) {}
+        fn invalidate_context_status(&self, _: &ThreadId) {}
+    }
+    /// The tool mode the recorder's runtime had (none set).
+    struct DefaultMode;
+    #[async_trait]
+    impl mixdog_core_ports::ports::tools_status::SurfaceHost for DefaultMode {
+        fn mode(&self, _: Option<&Header>) -> String {
+            String::new()
+        }
+        async fn preview(&self) -> Result<mixdog_tools::orch::status::StatusSurface, CoreError> {
+            unreachable!("the session exists")
+        }
+        async fn reconcile_empty(&self, _: &ThreadId) -> Result<(), CoreError> {
+            unreachable!("the session has its conversation")
         }
     }
     /// The recorder ran no hook.
@@ -390,20 +420,6 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
     impl mixdog_core_session::session::route_session::ContextStatusCache for NoGauge {
         fn invalidate(&self, _: &ThreadId) {}
     }
-    /// Node's live session: the pass reads its transcript, and the commit lands with no row appended meanwhile.
-    struct Committed {
-        rows: Vec<Value>,
-        header: Header,
-    }
-    #[async_trait]
-    impl PassTranscript for Committed {
-        async fn context(&self, _: &ThreadId) -> Result<Vec<(ItemId, Value)>, CoreError> {
-            Ok(self.rows.iter().enumerate().map(|(n, row)| (ItemId::from(format!("item_{n}")), row.clone())).collect())
-        }
-        async fn commit(&self, _: &ThreadId, _: Vec<ItemId>, _: Compaction, header: CompactionHeader) -> Result<CompactionCommit, CoreError> {            header(&self.header, &[]);
-            Ok(CompactionCommit::Applied)
-        }
-    }
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/compaction-pasted-text.json");
     let exact = Exact::load(&path);
@@ -411,6 +427,12 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
     let mut compared = 0;
     for (case, whole) in recorded["cases"].as_array().unwrap().iter().zip(exact.get("cases").as_array()) {
         let name = case["name"].as_str().unwrap();
+        // Node aborts a compaction whose session's abort signal is already aborted (an agent session linked to a
+        // cancelled parent); the core's manual pass is handed no cancellation (`compaction_world.rs`, the summary
+        // request's fresh `CancellationToken`): not replayed, the open difference of this recording.
+        if name == "cancelled" {
+            continue;
+        }
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let blobs = mixdog_store::blobs::BlobStore::new(dir.path());
@@ -420,11 +442,19 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             super::super::fixture_fs::write(&path, base64::engine::general_purpose::STANDARD.decode(data).unwrap());
             (name == "held-open").then(|| hold_open(&path))
         });
-        let script = (0..case["sends"].as_array().unwrap().len()).map(|_| MockAttempt::Body(b"t:SUMMARY of the conversation so far\nu:1000,50\ndone\n".to_vec()));
-        let provider = Arc::new(Recording { inner: MockProvider::new(script), sent: Mutex::new(Vec::new()) });
+        // Node's summary provider as scripted per case: the fixed summary, an empty one, or a request error it throws once.
+        let body: &[u8] = if name == "empty-summary" { b"u:1000,50\ndone\n" } else { b"t:SUMMARY of the conversation so far\nu:1000,50\ndone\n" };
+        let script = (0..case["sends"].as_array().unwrap().len()).map(|_| MockAttempt::Body(body.to_vec()));
+        let fail = (name == "provider-error").then(|| {
+            let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::InvalidRequest, mixdog_core_api::domain::provider::DeliveryState::Accepted);
+            error.status = Some(400);
+            error.message = "openai: 400 invalid request".to_owned();
+            error
+        });
+        let provider = Arc::new(Recording { inner: MockProvider::new(script), sent: Mutex::new(Vec::new()), fail });
         let registry = Arc::new(ProviderRegistry::new(Arc::new(Builds(provider.clone()))));
         let saved = json!({ "providers": { "openai": { "enabled": true } } }).as_object().cloned().unwrap();
-        let mut services = services_over(dir.path(), json!({}), Arc::default(), WarmLedger::new(), Arc::new(SideQuestionStore::new()), registry, saved).await;
+        let mut services = services_over(dir.path(), json!({}), Arc::default(), WarmLedger::new(), Arc::new(SideQuestionStore::new()), registry.clone(), saved.clone()).await;
         let reader: Arc<dyn mixdog_ai::service::model_proxy_inline::AttachmentReader> = Arc::new(StoreAttachments { store: blobs.clone(), interactive: tokens.interactive_io });
         let facts: Arc<dyn super::super::media::AttachmentFacts> = Arc::new(StoreFacts::new(blobs.clone(), &tokens));
         services.reader = reader.clone();
@@ -439,38 +469,27 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         for (row, id) in rows.iter_mut().zip(mixdog_migrate::session::ids::message_iids(thread.as_str(), &case["messages"].as_array().unwrap().clone())) {
             row["meta"]["transcript"]["messageId"] = json!(id);
         }
-        let messages: Vec<AgentMessage> = rows.iter().map(|row| message_of(row).expect("a stored row")).collect();
         let mut header = Header::new();
         for (key, value) in [("provider", json!("openai")), ("model", json!("gpt-x")), ("contextWindow", json!(8000)), ("rawContextWindow", json!(8000)), ("effectiveContextWindowPercent", json!(100)), ("tools", json!([])), ("compaction", json!({ "auto": true }))] {
             header.insert(key.into(), value);
         }
-        let lowering = Arc::new(MediaLowering::new(thread.clone(), docs, reader, facts, false, ProviderId::from("openai")));
-        let snapshot = ContextSnapshot {
-            header: header.clone(),
-            provider: "openai".into(),
-            model: "gpt-x".into(),
-            context_window: Value::Null,
-            cwd: Value::Null,
-            mode: Value::Null,
-            messages: messages.clone(),
-            active: true,
-            request_native: Vec::new(),
-            request_defined: Vec::new(),
-            session_defined: Vec::new(),
-            agent_mode: false,
-            annotations: HashMap::new(),
-            media: lowering.clone(),
-            images: lowering,
-            rows: Arc::new(StoredBodies),
-            replay_owner: ProviderId::from("openai"),
-        };
+
+        // The product's composition of the manual compaction (`compose_flip.rs`): the live context world and the thread
+        // state over the session directory, bound once the directory is up, and the directory's own transcript.
+        let late = Arc::new(super::super::compose_parts::LateDirectory::default());
+        let threads = Arc::new(super::super::compose_parts::LateThreads(late.clone()));
+        let lowering: Arc<super::super::context_world::LoweringFor> = Arc::new(move |thread: &ThreadId, provider: &str| {
+            let lowering = Arc::new(MediaLowering::new(thread.clone(), docs.clone(), reader.clone(), facts.clone(), false, ProviderId::from(provider)));
+            (lowering.clone() as Arc<dyn MediaMeter>, lowering as Arc<dyn ImageIdentities>)
+        });
+        let world = super::super::context_world::LiveContextWorld { threads: threads.clone(), messages: threads.clone(), routes: Arc::new(NoRoute), session: Arc::new(Settled), host: Arc::new(DefaultMode), lowering };
         let (dir_seams, seams) = run_seams().await;
-        let manual = HostManualCompaction::new(ManualParts {
-            world: Arc::new(NoWorld),
-            threads: Arc::new(Headers(Mutex::new(header.clone()))),
+        let manual: Arc<dyn ManualCompaction> = Arc::new(HostManualCompaction::new(ManualParts {
+            world: Arc::new(world),
+            threads,
             config: Arc::new(seams),
             compactors: Arc::new(compactors),
-            next: super::super::next_request_source::NextRequestSource::new(),
+            directory: late.clone(),
             hooks: Arc::new(NoHooks),
             gauge: Arc::new(NoGauge),
             clock: Arc::new(Fixed),
@@ -478,10 +497,27 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
             data_dir: dir_seams.path().to_path_buf(),
             blobs: Arc::new(super::super::attachment_store::StoreBlobs::new(blobs.clone(), &tokens)),
-        });
-        let committed = Committed { rows: rows.clone(), header: header.clone() };
-        // Node's `runSessionCompaction(live, { mode: 'manual', force: true })` is the core's manual pass.
-        let outcome = manual.pass(&thread, "manual", false, snapshot, &committed).await;
+        }));
+        let rig = mixdog_core_session::session::testing::Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.compaction = manual;
+        let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(deps)));
+        late.bind(&directory);
+        // Node's session as its store holds it (`saveSessionAsync(live)` before the compaction): the header and the rows.
+        directory.create_with_id(thread.clone(), header, json!({})).await.expect("the session");
+        let log = mixdog_core_session::session::room_log::SessionRoomLog::new(directory.clone());
+        assert_eq!(mixdog_core_session::session::room_log::RoomLog::append_rows(&log, thread.as_str(), rows.clone()).await.expect("the conversation"), rows.len());
+        directory.open(&thread, &CallContext::internal("test")).await.expect("the session opens");
+        let handle = directory.handle(&thread).expect("loaded");
+
+        // The client's compact request (`thread/compact/start`, Node's `compactSessionMessages(sessionId)`).
+        let request = CoreRequest {
+            method: Method("thread/compact/start"),
+            params: json!({ "threadId": thread.as_str(), "opId": "op-compact" }),
+            op: Some(OpId::from("op-compact")),
+            ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
+        };
+        let outcome = handle.request(request).await;
         // The send group ties the core loop's own retries of one send; Node retries inside `provider.send`, which is
         // handed no such id.
         let sent: Vec<ModelRequest> = provider
@@ -493,16 +529,18 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             .collect();
         let node: Vec<ModelRequest> = whole.get("sends").as_array().iter().map(request_of).collect();
         assert_eq!(sent, node, "{name}: the summary requests, outcome {outcome:?}");
-        // A failure reaches the client as its message (`compactFailureNotice` presents the error's text); Node's
-        // errno code and props do not cross the core's attachment reader, which carries text only.
+        // The client's answer, whole. A thrown failure is Node's error as it crosses to a client (`name`, `message`, and
+        // its errno `code`, `errno`, `syscall` and `path`, which the core's attachment reader does not carry: its
+        // `ReadError::Other` is the read's text, `media.rs` `resolve_ref`).
         let (answered, node) = match outcome {
-            Ok(Some(value)) => (Exact::plain(&json!({ "value": value })), whole.get("result").clone()),
-            Ok(None) => (Exact::plain(&json!({ "value": null })), whole.get("result").clone()),
+            Ok(Reply::Value(value)) => (Exact::plain(&json!({ "value": value })), whole.get("result").clone()),
+            Ok(other) => panic!("{name}: thread/compact/start answers a value: {other:?}"),
             Err(CoreError::DomainError { message, .. }) => {
                 let text = message.as_deref().unwrap_or_default().replace(&dir.path().display().to_string(), "<data>");
+                let error = &case["result"]["error"];
                 (
-                    Exact::plain(&json!({ "error": { "message": text } })),
-                    Exact::plain(&json!({ "error": { "message": case["result"]["error"]["message"] } })),
+                    Exact::plain(&json!({ "error": { "name": "Error", "message": text } })),
+                    Exact::plain(&json!({ "error": { "name": error["name"], "message": error["message"] } })),
                 )
             }
             Err(other) => panic!("{name}: not a domain failure: {other:?}"),
@@ -510,7 +548,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         assert_eq!(answered, node, "{name}: the outcome differs");
         compared += 1;
     }
-    assert_eq!(compared, 3);
+    assert_eq!(compared, 5);
 }
 
 /// The configuration seams over an empty saved configuration and environment (the recorder ran with neither).

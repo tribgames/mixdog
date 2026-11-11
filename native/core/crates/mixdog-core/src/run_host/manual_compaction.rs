@@ -48,7 +48,6 @@ use super::context_world::request_definitions;
 use super::factory::new_item_id;
 use super::host_seams::{CompactorSource, ConfigSeams};
 use super::message_row::{message_of, row_of};
-use super::next_request_source::NextRequestSource;
 use super::rearm::{rearm_late_deferred_tools, rearm_prompt_settings_notice};
 use super::tool_exposure::native_request_tools;
 
@@ -60,8 +59,8 @@ pub struct ManualParts {
     pub threads: Arc<dyn ThreadState>,
     pub config: Arc<dyn ConfigSeams>,
     pub compactors: Arc<dyn CompactorSource>,
-    /// Binds the session directory the commit goes through, as the other directory-side parts are.
-    pub next: Arc<NextRequestSource>,
+    /// The session directory the commit goes through, bound once it is built, as the other directory-side parts are.
+    pub directory: Arc<super::compose_parts::LateDirectory>,
     pub hooks: Arc<dyn CompactHooks>,
     pub gauge: Arc<dyn ContextStatusCache>,
     pub clock: Arc<dyn Clock>,
@@ -414,7 +413,7 @@ impl HostManualCompaction {
 impl ManualCompaction for HostManualCompaction {
     async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError> {
         let Some(snapshot) = self.parts.world.snapshot(Some(thread)).await? else { return Ok(None) };
-        let Some(directory) = self.parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
+        let Some(directory) = self.parts.directory.directory() else { return Ok(None) };
         self.pass(thread, trigger, require_reduction, snapshot, &*directory).await
     }
 
@@ -426,7 +425,7 @@ impl ManualCompaction for HostManualCompaction {
     async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
         let parts = &self.parts;
         let Ok(stored) = parts.threads.header(source).await else { return Ok(None) };
-        let Some(directory) = parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
+        let Some(directory) = parts.directory.directory() else { return Ok(None) };
         let context = directory.model_context(source).read().await?;
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
         let messages = super::factory::session_messages(&stored, &rows).map_err(|e| failed(DOMAIN, e))?;

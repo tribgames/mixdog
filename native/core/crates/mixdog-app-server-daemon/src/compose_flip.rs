@@ -1869,7 +1869,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             threads: Arc::new(mixdog_core::run_host::compose_parts::LateThreads(late.clone())),
             config: config_seams.clone(),
             compactors: compactors.clone(),
-            next: side_wiring.next(),
+            directory: late.clone(),
             hooks: Arc::new(mixdog_core::run_host::compact_hooks::BusCompactHooks::new(hook_bus.clone(), {
                         // `session.cwd` and `hookCommonPayload` of the loaded session (`common_of_header`); a session that is not loaded runs hooks in the startup folder with Node's defaults.
                         let (late, startup_cwd) = (late.clone(), startup_cwd.clone());
