@@ -4,14 +4,15 @@
   "exclusions": [
     "The model endpoint is the one stand-in: a scripted OpenAI-chat endpoint (session-send-world/cases.mjs createModel) answering by the mark in the last user message. Every other step is the tree run unchanged: the app main process (DesktopServiceClient over SessionTransport), its daemon (the tree desktop service built by apps/desktop/scripts/build-daemon.mjs) and the supervisor, stopped and started again at a case step.",
     "Scripted at the source: the window submission ids (desktop-submit-<alias>-<n>, as the renderer passes them), and in the daemon (session-send-world/daemon-clock.mjs, its execArgv) Date.now as virtual time along each causal chain (a start instant per daemon start; a timer of 1 s or more moves its callback chain by its delay) and crypto.randomUUID numbered within each call site. The memory daemon keeps the real clock.",
-    "Normal form (cases.mjs normalized): session ids by alias, other minted ids (atask, msg, sess_desktop, call, it, uuids) numbered by first appearance, padding runs named."
+    "Placed by the recorder: the app's user-data folder is <case>/core/data/userdata, where the replay's core keeps its own (<data>/userdata).",
+    "Normal form (cases.mjs normalized): session ids by alias, the user-data folder named <userData> and the case folder <case>, other minted ids (atask, msg, sess_desktop, call, it, uuids) numbered by first appearance, padding runs named."
   ],
-  "cases": 15,
+  "cases": 18,
   "files": [
     {
       "path": "golden.json",
-      "bytes": 129580,
-      "sha256": "345d67627a8d33bed83da1bdd03061d91b66aa2470243b718c871ee8c97a3ed4"
+      "bytes": 141109,
+      "sha256": "b129daa16c847a682985b6d15d331405b480613c9b49007c528a8a6e6f01bf6d"
     }
   ],
   "product": {
@@ -34,7 +35,7 @@
   "provenance": {
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
-    "recorderSha256": "618adf9e2052fbcc2ae24afabdf09f13dc07fa30b8425b42c4abb5cf7ae7f63b",
+    "recorderSha256": "839343e4103e30c128681c1895b05cc2a0f4aa0da8cbb8ae6de383ca641532b6",
     "inputs": [
       {
         "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -66,19 +67,19 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/cases.mjs",
-        "sha256": "21f01b24798f78be598c653ca7766a7bdc63b3ba3e45a1401a4287a116cd3c8f"
+        "sha256": "3686b1f61bf1144c0d5e6f18c17c3699d74041d3a8f33596f9e9b103ec829bce"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/daemon-clock.mjs",
-        "sha256": "4254a7d86b95d2a23383ea0c15877a6cf045ee1f6d60d5b7cc9779886d325ef8"
+        "sha256": "ce6ada0b166b0dc0f8fdc0387c9f1d2cf3244807b5c9a16086e3bd4bbebd6f4b"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/replay.mjs",
-        "sha256": "c73634c815291193e908ca52e3fc52eec14d9073b17e909e74e2a4e92a4db4d4"
+        "sha256": "3cb9203ca4bf85ef1cbf695dfaf664873a66485d7de33db77cbe0604e053db57"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/world.mjs",
-        "sha256": "196b9648741ce533aa399350bfb1032159ec64e367b1aa25e6a64b78201e82b0"
+        "sha256": "b444767abb92976230d6f4b5869e1028c10358a7d69a090522a9625016960a9f"
       }
     ]
   }

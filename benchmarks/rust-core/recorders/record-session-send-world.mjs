@@ -30,9 +30,10 @@ if (!Number.isInteger(JOBS) || JOBS < 1) throw new Error(`--jobs takes a whole n
 /** One case on Node in its own process (the app's main process), its daemon and every process it starts ended with the job. */
 async function recordCase(c, run) {
   const root = caseRoot(c);
-  // The second run keeps the first's raw recording beside its own (`home` is the run's app home, made anew).
+  // The second run keeps the first's raw recording beside its own (`home` is the run's app home and `core/data/userdata` its user
+  // data, both made anew).
   if (run === 'run-1') rmSync(root, { recursive: true, force: true });
-  else rmSync(join(root, 'home'), { recursive: true, force: true });
+  else for (const dir of ['home', 'core']) rmSync(join(root, dir), { recursive: true, force: true });
   mkdirSync(root, { recursive: true });
   const out = join(root, `${run}.json`);
   const spec = join(root, 'case.json');
@@ -92,7 +93,8 @@ if (args.get('once')) {
     exclusions: [
       'The model endpoint is the one stand-in: a scripted OpenAI-chat endpoint (session-send-world/cases.mjs createModel) answering by the mark in the last user message. Every other step is the tree run unchanged: the app main process (DesktopServiceClient over SessionTransport), its daemon (the tree desktop service built by apps/desktop/scripts/build-daemon.mjs) and the supervisor, stopped and started again at a case step.',
       'Scripted at the source: the window submission ids (desktop-submit-<alias>-<n>, as the renderer passes them), and in the daemon (session-send-world/daemon-clock.mjs, its execArgv) Date.now as virtual time along each causal chain (a start instant per daemon start; a timer of 1 s or more moves its callback chain by its delay) and crypto.randomUUID numbered within each call site. The memory daemon keeps the real clock.',
-      'Normal form (cases.mjs normalized): session ids by alias, other minted ids (atask, msg, sess_desktop, call, it, uuids) numbered by first appearance, padding runs named.',
+      "Placed by the recorder: the app's user-data folder is <case>/core/data/userdata, where the replay's core keeps its own (<data>/userdata).",
+      'Normal form (cases.mjs normalized): session ids by alias, the user-data folder named <userData> and the case folder <case>, other minted ids (atask, msg, sess_desktop, call, it, uuids) numbered by first appearance, padding runs named.',
     ],
     cases: Object.keys(cases).length,
     files: [{ path: 'golden.json', bytes: Buffer.byteLength(golden), sha256: sha256(Buffer.from(golden)) }],

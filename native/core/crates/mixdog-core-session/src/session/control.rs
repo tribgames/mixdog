@@ -55,6 +55,8 @@ pub(crate) enum Ctl {
     /// A workspace change applied the session's cwd (`applyResolvedCwd`), `changed` when the
     /// folder moved: the code-graph warm follows.
     CwdApplied { changed: bool },
+    /// A client resumed the thread (`thread/resume`, Node's `resumeSession`).
+    Resumed,
     /// The last subscriber left: an idle thread unloads.
     Unsubscribed,
     /// The thread's tombstone landed (`closeSession`): no Goal continues it, and once its turn

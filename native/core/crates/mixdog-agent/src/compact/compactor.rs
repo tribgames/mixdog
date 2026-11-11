@@ -183,7 +183,7 @@ impl FreshCompactor {
             context_window: self.config.context_window,
             handoff_token_cap: self.config.handoff_token_cap,
             handoff_text,
-            active_turn: true,
+            active_turn: request.active_turn,
             reference_latest_attachments: request.reference_latest_attachments,
             force: true,
             preview,

@@ -220,7 +220,7 @@ impl DirectorySessionPort {
             let own = session_control::scoped_bot(&self.parts.callers.scope(&call.caller_thread).await, call.caller_thread.as_str());
             return super::session_bots::status(self.parts.bot_sources.as_ref(), self.parts.listing.as_ref(), &call.args, own).await.map_err(failed);
         }
-        if !matches!(action, "list" | "read" | "send" | "cancel" | "delete") {
+        if !matches!(action, "list" | "read" | "send" | "cancel" | "delete" | "status") {
             return Err(PortError::Unavailable {
                 capability: "session-control".to_owned(),
                 message: format!("session: action={action} is not available in this runtime"),
@@ -241,6 +241,20 @@ impl DirectorySessionPort {
                 session_control::read(&target.session_id, &rows, has_older, &target, call.args.get("item_id")).map_err(failed)
             }
             "send" => self.parts.send.get().map_err(failed)?.send(call, &target.session_id).await.map_err(failed),
+            "status" => {
+                let Some(header) = self.parts.callers.header(&thread).await? else {
+                    return Err(failed(format!("session {} is not available", target.session_id)));
+                };
+                // `service.readSession(...).full`: whether a turn runs (the runtime's in-flight activity) and what quota resume
+                // waits (the runtime projection).
+                let busy = self.parts.listing.live_sources().await.map_err(failed)?.working.iter().any(|id| id == thread.as_str());
+                let read = self.parts.requests.request(&thread, "thread/read", json!({ "threadId": thread.as_str(), "window": { "lastItems": 1 } })).await.map_err(core)?;
+                let quota_resume = read.pointer("/state/quotaResume").cloned().unwrap_or(Value::Null);
+                // `taskSessionPendingWork(sessionId)`.
+                let send = self.parts.send.get().map_err(failed)?;
+                let agents_working = mixdog_services::task_reports::follow::FollowHost::pending_work(&**send.tasks.host(), thread.as_str(), None).await;
+                Ok(session_control::status(thread.as_str(), &header, busy, agents_working, quota_resume))
+            }
             "cancel" => {
                 let aborted = self.parts.requests.interrupt(&thread).map_err(core)?;
                 Ok(json!({ "sessionId": thread.as_str(), "aborted": aborted }))

@@ -1147,7 +1147,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
             }
         }
         Err(error) => {
-            let mut executed = Executed::error(&call.id, error.message_for_model);
+            // A tool that fails gives the model `Error: <message>` (`execute-call.mjs:69`), once.
+            let mut executed = Executed::error(&call.id, crate::agent_tool::dispatch::error_line(&error.message_for_model));
             executed.message.tool_timing = Some(timing(execution_completed_at));
             executed.arg_failure = matches!(error.code, ToolErrorCode::InvalidArgs { .. });
             executed.conflict = matches!(error.code, ToolErrorCode::Conflict { matches } if matches >= 2);

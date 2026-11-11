@@ -25,7 +25,9 @@ const paths = {
   tmp: join(root, 'tmp'),
   workspace: join(root, 'ws'),
 };
-const userData = join(paths.appData, 'Mixdog');
+// The app's user-data folder is where the core keeps its own (`<data>/userdata` of the replay's core, replay.mjs): a path either side
+// shows (the unclassified workspace, cut short in a row's preview) is then the same text.
+const userData = join(root, 'core', 'data', 'userdata');
 for (const dir of [...Object.values(paths), userData]) mkdirSync(dir, { recursive: true });
 
 const model = createModel(c);
@@ -101,6 +103,8 @@ function nodeApp() {
       connect: () => (transport = new SessionTransport(moduleUrl, paths.workspace, null, Promise.resolve(), null)),
       sessionOptions: () => ({ userDataPath: userData, packaged: false, resourcesPath: join(exportDir, 'apps', 'desktop'), appPath: join(exportDir, 'apps', 'desktop') }),
     });
+    // A window opened again knows nothing of what the one before it was shown.
+    states.clear();
     await within(120_000, client.start(), 'the app to attach to its daemon');
     client.subscribeSessionStates((update) => {
       if (!update?.sessionId || !update.snapshot) return;
@@ -117,9 +121,15 @@ function nodeApp() {
       const outcome = await within(120_000, transport.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS), 'the in-tree daemon to stop');
       for (const pid of outcome.stopped ? [] : outcome.inTree) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { timeout: 60_000, windowsHide: true });
     },
+    // The process ended from outside (a crash, a killed process): nothing of it runs its own stop, so no report of it is sent then.
+    async kill(within) {
+      for (const pid of daemonPid()) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { timeout: 60_000, windowsHide: true });
+      await within(60_000, client.dispose(), 'the local connection to dispose');
+    },
     openHome: async (agentId) => (await client.openAgentHome(agentId)).sessionId,
     newTask: async (prompt, id) => (await client.submitNewTask(prompt, { displayText: prompt, id }, { route: { provider: 'custom-harness', model: 'harness-model' } })).sessionId,
     say: (sessionId, prompt, options = {}) => client.submitToSession(sessionId, prompt, { displayText: prompt, ...options }),
+    userData,
     watch: (ids) => client.setVisibleSessions(ids),
     busy: (sessionId) => states.get(sessionId)?.busy === true,
     snapshot: (sessionId) => states.get(sessionId) ?? null,
@@ -148,6 +158,13 @@ try {
 // nothing runs from its folders (or was started by a process that does, as Postgres's workers) any more, within a deadline; what still runs then is written as the evidence of the job's leftover.
 const onRoot = () =>
   spawnSync('powershell', ['-NoProfile', '-Command', `$all = Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -notin @(${process.pid}, ${process.ppid}, $PID) }; $on = @{}; foreach ($p in $all) { if ($p.CommandLine -like '*${root.replaceAll("'", "''")}*') { $on[[int]$p.ProcessId] = $true } }; do { $n = $on.Count; foreach ($p in $all) { if ($on.ContainsKey([int]$p.ParentProcessId)) { $on[[int]$p.ProcessId] = $true } } } while ($on.Count -ne $n); $all | Where-Object { $on.ContainsKey([int]$_.ProcessId) } | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" }`], { encoding: 'utf8', timeout: 60_000, windowsHide: true }).stdout.trim();
+// On a loaded machine the memory runtime's own stop can outlast the deadline: the case then stops the database it started, as its owner
+// does, with the runtime's own `pg_ctl` (a fast stop waits for every worker to end).
+const pgdata = join(paths.dataDir, 'pgdata');
+const pgRuntime = existsSync(join(paths.dataDir, 'runtime')) ? readdirSync(join(paths.dataDir, 'runtime')).find((name) => name.startsWith('runtime-pg')) : null;
+if (pgRuntime && existsSync(join(pgdata, 'postmaster.pid'))) {
+  spawnSync(join(paths.dataDir, 'runtime', pgRuntime, 'bin', 'pg_ctl.exe'), ['stop', '-D', pgdata, '-m', 'fast', '-w', '-t', '60'], { timeout: 90_000, windowsHide: true });
+}
 const settledBy = Date.now() + 60_000;
 let running = onRoot();
 while (running && Date.now() < settledBy) {

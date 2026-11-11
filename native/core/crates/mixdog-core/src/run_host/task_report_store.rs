@@ -43,7 +43,12 @@ impl SessionStore for DirectoryReportSessions {
     }
 
     async fn materialize(&self, session_id: &str) -> Result<Option<Arc<dyn RuntimeView>>, String> {
-        self.directory.report_runtime(&ThreadId::from(session_id)).await.map(Some).map_err(|error| format!("{error:?}"))
+        // `materializeSession` of a session that does not exist throws `session <id> is not available`
+        // (`session-loads.mjs:118`), the text a send's tool result carries.
+        self.directory.report_runtime(&ThreadId::from(session_id)).await.map(Some).map_err(|error| match error {
+            mixdog_core_api::CoreError::ThreadNotFound { .. } => format!("session {session_id} is not available"),
+            other => format!("{other:?}"),
+        })
     }
 
     async fn queued_submission_ids(&self, session_id: &str) -> Vec<String> {

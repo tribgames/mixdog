@@ -145,7 +145,7 @@ fn conversation() -> Vec<AgentMessage> {
 }
 
 fn request(messages: &[AgentMessage]) -> CompactRequest<'_> {
-    CompactRequest { messages, budget_tokens: 4_000, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false }
+    CompactRequest { messages, budget_tokens: 4_000, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: true }
 }
 
 #[test]

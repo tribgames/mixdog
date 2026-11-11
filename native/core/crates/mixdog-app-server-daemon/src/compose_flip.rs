@@ -2512,7 +2512,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Node's one `lastArchiveStamp`, which the host's archive and the rooms' share (`ArchiveStamps`).
     let archive_stamps: Arc<mixdog_core_session::session::thread_settings::ArchiveStamps> = Arc::default();
     let room_sessions = Arc::new(
-        mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
+        mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone())
+            .with_archive_stamps(archive_stamps.clone())
+            .with_routes(late_route_session.clone()),
     );
     let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
         summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
@@ -2890,6 +2892,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 now_ms: now_ms.clone(),
             }))
             .map_err(ComposeError::AlreadyBound)?;
+        // `recoverScheduleResults()` (`daemon.mjs:1221`): the results an earlier process left queued are posted now.
+        let queued_results = home_delivery.clone();
+        drop(mixdog_rt::spawn("routine-results-recover", mixdog_rt::TaskClass::Work, async move {
+            if let Err(error) = queued_results.recover().await {
+                mixdog_rt::node_stderr!("routine results recovery failed: {error}");
+            }
+        }));
         // `recover()`: every reporting turn an earlier process watched, and every quiet turn of a bot's it owned, re-attached.
         drop(mixdog_rt::spawn("task-report-recover", mixdog_rt::TaskClass::Work, async move {
             mixdog_services::task_reports::rearm::recover_task_watches(report_host, &process_token).await;

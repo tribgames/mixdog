@@ -220,6 +220,26 @@ fn truncate_tool_text(text: &str, max: usize) -> String {
     if utf16_len(text) > max { format!("{}...", slice_utf16(text, max)) } else { text.to_owned() }
 }
 
+/// `session action=status` of another session (`readSessionStatus`, `daemon-session-control.mjs:203`): its stored title quoted
+/// like a listed one, its route and cwd, whether a turn runs, whether agent work it handed off is pending, its quota resume.
+pub fn status(session_id: &str, header: &Map<String, Value>, busy: bool, agents_working: bool, quota_resume: Value) -> Value {
+    let text = |key: &str| header.get(key).filter(|v| truthy(Some(v))).map(|v| json!(value_to_string(v))).unwrap_or(Value::Null);
+    let title = header.get("title").filter(|t| truthy(Some(t))).map(|t| json!(escape_harness_tags(&truncate_tool_text(&value_to_string(t), TITLE_LIMIT))));
+    json!({
+        "sessionId": session_id,
+        "title": title.unwrap_or(Value::Null),
+        "cwd": text("cwd"),
+        "provider": text("provider"),
+        "model": text("model"),
+        "effort": text("effort"),
+        "autoEffort": header.get("autoEffort") != Some(&Value::Bool(false)),
+        "fast": header.get("fast") == Some(&Value::Bool(true)),
+        "busy": busy,
+        "agentsWorking": agents_working,
+        "quotaResume": quota_resume,
+    })
+}
+
 /// `quotedText(value, max)` (`bot-status.mjs`): one line, tag-shaped text escaped, bounded.
 pub(super) fn quoted_text(text: &str, max: usize) -> String {
     let text = escape_harness_tags(mixdog_js::js_trim(&collapse_space(text)));

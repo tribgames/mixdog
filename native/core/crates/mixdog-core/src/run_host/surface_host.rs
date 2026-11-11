@@ -939,7 +939,9 @@ impl LeadSurfaceHost {
         session["disallowedTools"] = json!(denied);
         session["workflow"] = workflow_meta(&target.summary);
         session["orchestrationMode"] = json!(target.orchestration_mode);
-        session["sessionMode"] = json!(session_mode_of(header));
+        // Resolved from the record with its id (`sessionModeOf(session)`): an agent home's or room member's id makes it an agent session.
+        let mode = session_mode_of(session.as_object().expect("the session record is an object"));
+        session["sessionMode"] = json!(mode);
         let standalone = internal_tools(&s.pool);
         // `filterModelToolsForProfile(modelStandaloneTools())`: a headless or heartbeat thread carries its runtime's
         // profile on the header, which fences the standalone tools. The connected servers' tools are added as

@@ -755,11 +755,11 @@ fn drain(stage: DrainStage) -> DrainRequest {
     DrainRequest { stage, max_priority: Priority::Next }
 }
 
-/// `ask-turn-steering-drain.mjs:44-58`: a mid-chain boundary takes queued input only while the
-/// queue holds task notifications alone; the terminal boundary takes it all, the prompts merged
-/// into one input and each completion on its own, and none of it starts a turn of its own.
+/// `session-flow/steering.mjs:204` (`drainPendingSteering`, the desktop host's queue): every boundary takes each queued
+/// prompt within its priority as an input of its own, never merged (session-send-world `recipient-queued`); the completion
+/// then left alone in the queue is taken at the same boundary (`ask-turn-steering-drain.mjs:44-58`). None of it starts a turn.
 #[tokio::test(start_paused = true)]
-async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
+async fn queued_prompts_are_taken_one_by_one_at_the_next_boundary() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
     let gate = Arc::new(tokio::sync::Notify::new());
@@ -796,15 +796,17 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let taken = lock(&taken).clone();
     assert_eq!(taken.len(), 2);
-    assert!(taken[0].is_empty(), "a queued prompt keeps the mid-chain boundary from the queue");
-    let terminal = &taken[1];
-    assert_eq!(terminal.len(), 2);
-    assert_eq!(terminal[0].mode, SteerMode::Prompt);
-    assert_eq!(terminal[0].content, "first\nsecond");
-    let ids: Vec<&str> = terminal[0].queued_ids.iter().map(|id| id.as_str()).collect();
-    assert_eq!(ids, [first["queuedId"].as_str().unwrap(), second["queuedId"].as_str().unwrap()]);
-    assert_eq!(terminal[1].mode, SteerMode::TaskNotification);
-    assert_eq!(terminal[1].content, "job-7 finished.");
+    let next = &taken[0];
+    assert_eq!(next.len(), 3);
+    for (input, (content, queued)) in next.iter().zip([("first", &first), ("second", &second)]) {
+        assert_eq!(input.mode, SteerMode::Prompt);
+        assert_eq!(input.content, content);
+        let ids: Vec<&str> = input.queued_ids.iter().map(|id| id.as_str()).collect();
+        assert_eq!(ids, [queued["queuedId"].as_str().unwrap()]);
+    }
+    assert_eq!(next[2].mode, SteerMode::TaskNotification);
+    assert_eq!(next[2].content, "job-7 finished.");
+    assert!(taken[1].is_empty(), "the terminal boundary finds the queue empty");
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &handle.id), 1, "taken input starts no turn");
     assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));

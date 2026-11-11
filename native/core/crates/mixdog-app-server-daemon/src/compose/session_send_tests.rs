@@ -173,7 +173,8 @@ async fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_h
             if !sent_runtime.busy() && messages.iter().any(|m| m["role"] == "assistant" && m["content"].to_string().contains(&final_text)) {
                 break;
             }
-            next_change(&mut sent_changes, "the sent turn to end on the recorded final answer").await;
+            let what = format!("the sent turn to end on the recorded final answer (busy: {}, messages: {messages:?})", sent_runtime.busy());
+            next_change(&mut sent_changes, &what).await;
         }
         // Its report reaches the bot's home chat, carrying that final answer (the bot's own reply to it says something else).
         loop {
@@ -181,7 +182,7 @@ async fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_h
             if home.iter().any(|m| m["content"].to_string().contains(&final_text)) {
                 break;
             }
-            next_change(&mut home_changes, "the report to reach the bot's home chat").await;
+            next_change(&mut home_changes, &format!("the report to reach the bot's home chat (messages: {home:?})")).await;
         }
     };
     use futures::FutureExt;
