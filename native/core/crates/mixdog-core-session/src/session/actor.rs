@@ -4873,19 +4873,9 @@ impl SessionActor {
         if listener && self.projected.status_pending {
             return;
         }
-        // The first pass of a thread created here publishes its route and context windows with the agent status
-        // (context-state.mjs `routeState` with `agentStatusState`): what the runtime held from its start.
-        if !listener && self.projected.status_pending {
-            let (before_route, before_context) = (self.projected.route(), self.projected.context());
+        if !listener {
             self.projected.status_pending = false;
             self.acked.status_pending = false;
-            let (route, context) = (self.projected.route(), self.projected.context());
-            if route != before_route {
-                self.accept_view(Change::Section(Section::Route(route)), Vec::new());
-            }
-            if context != before_context {
-                self.accept_view(Change::Section(Section::Context(context)), Vec::new());
-            }
         }
         if self.projected.sections.agents.clone().unwrap_or_default() != agents {
             self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
