@@ -212,21 +212,29 @@ function absent(err) {
 // the log: a new log is a new id).
 const SCAN_RESUME_LIMIT = 256;
 const _scans = new Map(); // path → { ino, offset, guard, first, persisted, replay }
+// The scans that keep the facts of every message hold more than a header: fewer
+// of them are kept (the rest go on from their checkpoint, or from the start).
+const FACT_SCAN_RESUME_LIMIT = 48;
+const _factScans = new Map();
+const scanTable = (key) => (key.startsWith('facts-') ? _factScans : _scans);
 
 // The scan of `path` to resume on a file whose bigint stat is `st`, taken out
 // of the table for as long as it is being applied to (a scan of the same path
 // started meanwhile starts over); null to scan from the start.
 function takeScan(path, st) {
-  const held = _scans.get(path);
-  _scans.delete(path);
+  const table = scanTable(path);
+  const held = table.get(path);
+  table.delete(path);
   return held && held.ino === st.ino && st.size >= BigInt(held.offset) ? held : null;
 }
 
 function keepScan(path, st, entry) {
   // A damaged log is replayed whole each time: its end is not a place to go on from.
   if (entry.replay.damage) return;
-  _scans.set(path, { ino: st.ino, ...entry });
-  while (_scans.size > SCAN_RESUME_LIMIT) _scans.delete(_scans.keys().next().value);
+  const table = scanTable(path);
+  table.set(path, { ino: st.ino, ...entry });
+  const limit = table === _scans ? SCAN_RESUME_LIMIT : FACT_SCAN_RESUME_LIMIT;
+  while (table.size > limit) table.delete(table.keys().next().value);
 }
 
 // The place a checkpoint holds, for a log whose bigint stat is `st`; null when
@@ -393,7 +401,7 @@ function scanSessionLogSync(path, { checkpoints = null, facts = null } = {}) {
   try {
     fd = openSync(path, 'r');
   } catch (err) {
-    _scans.delete(key);
+    scanTable(key).delete(key);
     if (absent(err)) {
       if (checkpoints) dropScanCheckpoint(checkpoints, path, checkpointKind(facts));
       return null;
@@ -446,7 +454,7 @@ async function scanSessionLog(path, { checkpoints = null, facts = null } = {}) {
   try {
     handle = await open(path, 'r');
   } catch (err) {
-    _scans.delete(key);
+    scanTable(key).delete(key);
     if (absent(err)) {
       if (checkpoints) dropScanCheckpoint(checkpoints, path, checkpointKind(facts));
       return null;

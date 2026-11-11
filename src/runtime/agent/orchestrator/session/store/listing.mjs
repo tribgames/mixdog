@@ -31,6 +31,7 @@ import {
   _openSummaryScanWindow,
   _setSummaryRowsCache,
   _scanStoredSessionSummaryRowsAsync,
+  REFRESH_FACTS_MIN_BYTES,
   _summaryRowsCache,
 } from './summary-cache.mjs';
 import { STORED_SESSION_UNREADABLE, _ensureLifecycleFields } from './serialize.mjs';
@@ -227,7 +228,11 @@ async function _refreshSummariesFromStorage() {
   const releaseAppends = _holdSummaryAppends();
   const scanWindow = _openSummaryScanWindow();
   try {
-    const { rows, invalidStorageIds, changed } = await _scanStoredSessionSummaryRowsAsync();
+    const { rows, invalidStorageIds, changed } = await _scanStoredSessionSummaryRowsAsync({
+      resumable: true,
+      minBytes: REFRESH_FACTS_MIN_BYTES,
+      offload: true,
+    });
     // A data dir switched mid-scan: these rows describe the old one, so they
     // may neither become the new dir's cache nor be written into its index.
     if (getPluginData() !== dataDir) return { rows, invalidStorageIds };
