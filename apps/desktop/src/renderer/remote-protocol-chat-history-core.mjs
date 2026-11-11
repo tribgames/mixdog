@@ -528,7 +528,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         target: { id: 'core' },
         connector: createWsConnector(async () => endpoint),
         clientInfo: { name: 'mixdog-phone', title, version: '1.4.5', kind: 'tui' },
-        capabilities: { optOutNotificationMethods: [], experimentalApi: false },
+        capabilities: { optOutNotificationMethods: [], experimentalApi: false, feedRanges: true },
         threadReducer: sessionReducer,
         clock: { sleep: () => Promise.reject(new Error('the phone dropped its connection')) },
         random: Math.random,
@@ -536,7 +536,9 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       clients.push(client);
       if (TRACE && viewing) {
         const heard = client.onNotification.bind(client);
-        client.onNotification = (n) => { trace(`note ${n.method} ${JSON.stringify(n.params).slice(0, 160)}`); heard(n); };
+        client.onNotification = (n) => { trace(`note ${n.method} ${JSON.stringify(n.params).slice(0, 600)}`); heard(n); };
+        const asked = client.onServerRequest?.bind(client);
+        if (asked) client.onServerRequest = (r) => { trace(`request ${r.method} ${JSON.stringify(r.params).slice(0, 300)}`); return asked(r); };
       }
       // The phone shows the thread's states as Node's frames published them (one per `thread/frame`).
       if (viewing) {

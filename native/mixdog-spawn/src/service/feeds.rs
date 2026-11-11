@@ -86,6 +86,7 @@ impl FeedView for StateView {
                 id: self.id.clone(),
                 epoch: at.epoch,
                 seq: at.seq,
+                from: None,
             },
         )
     }
@@ -134,6 +135,7 @@ impl FramePublisher {
                     id: self.id.clone(),
                     epoch: position.epoch,
                     seq,
+                    from: None,
                 },
             ),
         };
