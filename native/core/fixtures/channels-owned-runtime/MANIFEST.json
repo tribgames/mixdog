@@ -1,0 +1,56 @@
+{
+  "command": "node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-channels-owned-runtime.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the collaborators behind module boundaries (config file load, WebhookServer, EventPipeline, status snapshot writer, provider init, runtime-paths advert/lock files, scheduler): each only appends its name and arguments to the call log, as the Node test does; advert and ownership files are Node-only",
+    "runs": "createOwnedRuntime (owned-runtime.mjs) with its owned-runtime/ phases: startOwnedRuntime, stopOwnedRuntime, startAutomationRuntime, reloadRuntimeConfig, over the same dependency bag worker.mjs hands it (getters/setters, notify, scheduler, logOwnership)"
+  },
+  "exclusions": "none: every logged call of every step is in the golden",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6552,
+      "path": "golden.json",
+      "sha256": "7630114d8ea0af0375732d306e1b53fc4bc2b618da1663cca5caa4a855f9e66b"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "de8f079c13ab4ddf851f60089c8745abf900afcfd9c8c3fb113a725f2df2bfa0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "ownership line pid": "the process id after \"pid=\" is replaced by <pid> (differs per run)"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-channels-owned-runtime.mjs",
+  "recorderSha256": "a22496fa096ccdbe4ce096549e9f3dcf9e622659100432dd1a6b11ee2adc95ec",
+  "replay": "mixdog-services channels: ch/runtime.rs start_bridge_turn, stop_owned_runtime, reload_runtime/reload_turn and the automation start, driven with a recording scheduler/webhook/pipeline; compares per case the ordered call list (names and arguments, notify method+state, scheduler.reload restart flag, webhook.reload autoStart), the end state and the stderr lines. Rust has no advert/lock files and no snapshot writer: those entries are the Node-only calls (advert, advert.clear, locks.release, snapshot.*) a replay maps or drops by name",
+  "set": "channels-owned-runtime",
+  "totalBytes": 6552
+}
