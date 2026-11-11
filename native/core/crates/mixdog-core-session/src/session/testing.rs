@@ -314,6 +314,18 @@ impl MemStore {
 /// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
 type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
 
+/// Waits for a gate's release on a lane job that runs inline on a runtime worker: on a multi-thread runtime the worker's
+/// queued tasks (the actor a test drives meanwhile) move to another thread while it waits, so the wait holds back only
+/// the gated job.
+fn wait_for_release(go: &std::sync::mpsc::Receiver<()>) {
+    let multi = tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    if multi {
+        tokio::task::block_in_place(|| drop(go.recv()));
+    } else {
+        drop(go.recv());
+    }
+}
+
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
@@ -332,7 +344,7 @@ impl SessionLog for MemLog {
         let gate = lock(&self.commit_gate).take();
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
-            let _ = go.recv();
+            wait_for_release(&go);
         }
         if self.fail_next.swap(false, Ordering::SeqCst) {
             return Err(BarrierError::Failed {
@@ -343,7 +355,7 @@ impl SessionLog for MemLog {
         let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
-            let _ = go.recv();
+            wait_for_release(&go);
         }
         let mut log = lock(&self.log);
         let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
@@ -542,7 +554,7 @@ impl ThreadStore for MemStore {
         let gate = lock(&self.create_gate).take();
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
-            let _ = go.recv();
+            wait_for_release(&go);
         }
         let mut log = MemLog {
             log: self.log(id),
@@ -927,7 +939,7 @@ impl Feed for RecFeed {
         };
         if let Some((_, arrived, go)) = held {
             arrived.notify_one();
-            let _ = go.recv();
+            wait_for_release(&go);
         }
         if let Some(log) = lock(&self.timeline).clone() {
             let mut shown = lock(&self.shown);
