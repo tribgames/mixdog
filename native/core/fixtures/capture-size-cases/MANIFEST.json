@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2212,
+      "bytes": 22503,
       "path": "golden.json",
-      "sha256": "d5b1d7f4ba69d119a8698017e8ad32b1a15eb320f561ee72ae109faafad0a856"
+      "sha256": "993321391bb5674c30da3c4dc23fd198e6c43b5316819f34ebfbb8c0f3e76518"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "db4c434c9e5db314d766b0efecf3bc81d4a267abdb4eaf23e524bfa5b829a0d2"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,11 +63,26 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-capture-size-cases.mjs",
-  "recorderSha256": "b2853954461d28fcd5b3eab64adc79c8a9af9c5662bbda4a642d4b666fb3f7ea",
+  "recorderSha256": "34fdf6097213b8d8eeb5eb299424b649f2ccf1a491916a8fd51503ca465c5de2",
   "replay": {
-    "entry": "mixdog-computer capture size fit: compare each fitted size and the geometry error; the provider preparation case compares the sent dimensions and the absence of the rescale note",
-    "normalised": {}
+    "compare": "mixdog-computer capture size fit: compare each fitted size and the geometry error; the provider preparation case compares the prepared messages whole (image bytes included) and the metadata of the image sent",
+    "entry": "Drive these public items on o1: mixdog-agent/src/compact/image.rs:71 target_dimensions.",
+    "missingOnO1": [
+      "computerCaptureSize (fit to 1280 x 1568 and the 28 / 32 px patch budgets, error capture_geometry_invalid): not in the crates",
+      "preparation of an already bound computer frame without rescale: target_dimensions is the Anthropic image box of compaction, a different contract"
+    ],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 71,
+        "name": "target_dimensions",
+        "path": "native/core/crates/mixdog-agent/src/compact/image.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "capture-size-cases",
-  "totalBytes": 2212
+  "totalBytes": 22503,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
