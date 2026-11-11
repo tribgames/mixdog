@@ -129,14 +129,19 @@ fn code(file: &Path) -> String {
     read_string(file).lines().filter(|l| !l.trim().starts_with("//")).collect::<Vec<_>>().join("\n")
 }
 
-/// What the module walk reads of a Rust file: identifiers and keywords, string literals (their content) and single
-/// punctuation characters; comments, character literals and lifetimes' quotes are dropped.
+/// What the module walk reads of a Rust file: identifiers and keywords, raw identifiers (`r#mod` is a name, never the
+/// keyword), string literals (their content) and single punctuation characters; comments, character literals and
+/// lifetimes' quotes are dropped.
 #[derive(Debug, PartialEq)]
 enum Token {
     Word(String),
+    Raw(String),
     Text(String),
     Mark(char),
 }
+
+/// Keywords an expression can put before `!(`: `return !(a)` is a negation, not a macro call.
+const NOT_A_MACRO: [&str; 12] = ["return", "break", "if", "while", "match", "in", "else", "yield", "move", "await", "mut", "let"];
 
 fn tokens(text: &str) -> Vec<Token> {
     let chars: Vec<char> = text.chars().collect();
@@ -189,8 +194,13 @@ fn tokens(text: &str) -> Vec<Token> {
                 out.push(Token::Text(chars[open + 1..end.min(chars.len())].iter().collect()));
                 i = end + 1 + hashes;
             } else if hashes == 1 && chars.get(open).is_some_and(|c| word(*c)) {
-                // `r#type`: the identifier `type`, read as the word that follows.
-                i = open;
+                // `r#type`: the name `type`.
+                let mut end = open;
+                while end < chars.len() && word(chars[end]) {
+                    end += 1;
+                }
+                out.push(Token::Raw(chars[open..end].iter().collect()));
+                i = end;
             } else {
                 out.push(Token::Word("r".to_owned()));
                 i += 1;
@@ -229,7 +239,7 @@ fn tokens(text: &str) -> Vec<Token> {
 /// has one (also inside a `cfg_attr`), else `name.rs` or `name/mod.rs` where Rust looks for it; and each
 /// `include!`/`include_str!`/`include_bytes!` of a literal path. Followed through the Rust files they bring in.
 fn script_files(script: &Path) -> Vec<PathBuf> {
-    use Token::{Mark, Text, Word};
+    use Token::{Mark, Raw, Text, Word};
     let mut files = vec![canonical(script)];
     let mut at = 0;
     while at < files.len() {
@@ -276,7 +286,42 @@ fn script_files(script: &Path) -> Vec<PathBuf> {
                     i = end + 1;
                     continue;
                 }
-                [Word(keyword), Word(name), Mark(';'), ..] if keyword == "mod" => {
+                // A macro's definition or call: a `mod` among its tokens is written by the macro, wherever the expansion
+                // puts it, so the file it names cannot be found here. Its other tokens are walked as usual.
+                [Word(name), Mark('!'), rest @ ..] if !NOT_A_MACRO.contains(&name.as_str()) => {
+                    // `macro_rules! name { … }` has the macro's name before its body.
+                    let body = match rest {
+                        [Word(_) | Raw(_), tail @ ..] if name == "macro_rules" => tail,
+                        _ => rest,
+                    };
+                    if let [Mark(open @ ('(' | '[' | '{')), inside @ ..] = body {
+                        let close = match open {
+                            '(' => ')',
+                            '[' => ']',
+                            _ => '}',
+                        };
+                        let mut nesting = 1usize;
+                        for token in inside {
+                            match token {
+                                Mark(c) if c == open => nesting += 1,
+                                Mark(c) if *c == close => nesting -= 1,
+                                Word(word) if word == "mod" => {
+                                    panic!("{}: a `mod` inside the macro `{name}!` (a macro-generated module?) is not followed by this test", file.display())
+                                }
+                                _ => {}
+                            }
+                            if nesting == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    if let [Mark('('), Text(path), ..] = rest
+                        && ["include", "include_str", "include_bytes"].contains(&name.as_str())
+                    {
+                        files.push(canonical(dir.join(path)));
+                    }
+                }
+                [Word(keyword), Word(name) | Raw(name), Mark(';'), ..] if keyword == "mod" => {
                     let found = match path_attribute.take() {
                         Some(path) => {
                             assert!(inline.is_empty(), "{}: a `path` attribute on `mod {name};` inside an inline module is not followed by this test", file.display());
@@ -294,7 +339,7 @@ fn script_files(script: &Path) -> Vec<PathBuf> {
                     i += 3;
                     continue;
                 }
-                [Word(keyword), Word(name), Mark('{'), ..] if keyword == "mod" => {
+                [Word(keyword), Word(name) | Raw(name), Mark('{'), ..] if keyword == "mod" => {
                     assert!(path_attribute.take().is_none(), "{}: a `path` attribute on the inline module `{name}` is not followed by this test", file.display());
                     inline.push((name.clone(), depth));
                     depth += 1;
@@ -304,9 +349,6 @@ fn script_files(script: &Path) -> Vec<PathBuf> {
                 // Any other `mod` (one a macro writes: `mod $name;`) names a file this walk cannot find.
                 [Word(keyword), ..] if keyword == "mod" => {
                     panic!("{}: a `mod` that is not `mod name;` or `mod name {{` (a macro-generated module?) is not followed by this test", file.display())
-                }
-                [Word(keyword), Mark('!'), Mark('('), Text(path), ..] if ["include", "include_str", "include_bytes"].contains(&keyword.as_str()) => {
-                    files.push(canonical(dir.join(path)));
                 }
                 [Mark('{'), ..] => {
                     depth += 1;
@@ -341,7 +383,7 @@ fn the_module_walk_follows_nested_inline_and_attributed_modules() {
     };
     write(
         "build.rs",
-        "// mod commented;\nmod plain;\nmod r#type;\nmod outer { pub mod inner; mod deeper { mod leaf; } }\n#[cfg_attr(windows, path = \"elsewhere/attributed.rs\")]\nmod attributed;\nconst RULES: &str = include_str!(\"rules.yml\");\nfn main() { let _ = \"mod in_a_string;\"; }\n",
+        "// mod commented;\nmod plain;\nmod r#type;\nmod outer { pub mod inner; mod deeper { mod leaf; } }\n#[cfg_attr(windows, path = \"elsewhere/attributed.rs\")]\nmod attributed;\nconst RULES: &str = include_str!(\"rules.yml\");\nfn r#mod() -> bool { return !(false); }\nfn main() { let _ = \"mod in_a_string;\"; println!(\"{}\", r#mod()); }\n",
     );
     write("plain.rs", "mod child;\n");
     write("plain/child.rs", "");
@@ -363,6 +405,31 @@ fn the_module_walk_refuses_a_module_a_macro_writes() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("build.rs"), "macro_rules! m { ($n:ident) => { mod $n; } }\nm!(hidden);\nfn main() {}\n").unwrap();
+    script_files(&dir.join("build.rs"));
+}
+
+/// A macro that writes a literal `mod hidden;`, with `hidden.rs` beside the script: its definition is refused although the
+/// file exists.
+#[test]
+#[should_panic(expected = "inside the macro `macro_rules!`")]
+fn the_module_walk_refuses_a_literal_module_in_a_macro_definition() {
+    let dir = std::env::temp_dir().join(format!("native-mirrors-macro-literal-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("hidden.rs"), "").unwrap();
+    std::fs::write(dir.join("build.rs"), "macro_rules! m { () => { mod hidden; } }\nm!();\nfn main() {}\n").unwrap();
+    script_files(&dir.join("build.rs"));
+}
+
+/// The same module passed to a macro's call (`wrap! { mod hidden; }`).
+#[test]
+#[should_panic(expected = "inside the macro `wrap!`")]
+fn the_module_walk_refuses_a_module_in_a_macro_call() {
+    let dir = std::env::temp_dir().join(format!("native-mirrors-macro-call-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("hidden.rs"), "").unwrap();
+    std::fs::write(dir.join("build.rs"), "macro_rules! wrap { ($($t:tt)*) => { $($t)* } }\nwrap! { mod hidden; }\nfn main() {}\n").unwrap();
     script_files(&dir.join("build.rs"));
 }
 
