@@ -132,8 +132,10 @@ struct Scope {
     directory: PathBuf,
 }
 
-/// The record's editor-recovery store descriptors, validated; `None` when one is malformed.
-fn recovery_scopes(record: &WorktreeRecord) -> Option<Vec<Scope>> {
+/// The record's editor-recovery store descriptors, validated; `None` when one is malformed. A store is
+/// `<editor-recovery>/<digest of its root>`: Node's (`<userData>/editor-recovery`), or the core's own
+/// `journals` folder.
+fn recovery_scopes(record: &WorktreeRecord, journals: &Path) -> Option<Vec<Scope>> {
     let Some(stores) = record.extra.get("editorRecoveryStores") else { return Some(Vec::new()) };
     let list = stores.as_array().filter(|list| list.len() <= 64)?;
     let checkout = PathBuf::from(&record.path);
@@ -145,7 +147,7 @@ fn recovery_scopes(record: &WorktreeRecord) -> Option<Vec<Scope>> {
         let valid = root.is_absolute()
             && directory.is_absolute()
             && mixdog_workspace::pathguard::is_within(&checkout, &root)
-            && directory.parent().and_then(Path::file_name).is_some_and(|n| n == EDITOR_RECOVERY)
+            && directory.parent().is_some_and(|parent| parent.file_name().is_some_and(|n| n == EDITOR_RECOVERY) || parent == journals)
             && directory.file_name().is_some_and(|n| *n == *digest);
         if !valid {
             return None;
@@ -179,8 +181,8 @@ fn store_is_empty(scope: &Scope) -> bool {
 }
 
 /// The first retained store's root, `Err(path)` of the record when its descriptors are malformed.
-fn retained_store(record: &WorktreeRecord) -> Option<String> {
-    match recovery_scopes(record) {
+fn retained_store(record: &WorktreeRecord, journals: &Path) -> Option<String> {
+    match recovery_scopes(record, journals) {
         None => Some(record.path.clone()),
         Some(scopes) => scopes.iter().find(|scope| !store_is_empty(scope)).map(|scope| scope.root.to_string_lossy().into_owned()),
     }
@@ -305,18 +307,20 @@ impl Worktrees {
         let mut probe = record.clone();
         probe.extra.insert("editorRecoveryStores".into(), serde_json::json!([descriptor]));
         let unusable = || errors::file_recovery(record.id.clone(), record.path.clone(), record.path.clone());
-        if recovery_scopes(&probe).is_none() {
+        let journals = self.journals();
+        if recovery_scopes(&probe, &journals).is_none() {
             return Err(unusable());
         }
-        let Some(scopes) = recovery_scopes(&record) else { return Err(unusable()) };
+        let Some(scopes) = recovery_scopes(&record, &journals) else { return Err(unusable()) };
         let known = scopes.iter().any(|s| s.root == root && s.directory == directory);
         if !known {
             let mut stores = record.extra.get("editorRecoveryStores").and_then(|v| v.as_array().cloned()).unwrap_or_default();
             if stores.len() >= 64 {
                 // Only descriptors of verifiably empty or missing stores may be pruned.
                 let probe = record.clone();
+                let journals = journals.clone();
                 let kept = on_lane(self.scm().lane, cancel, move || {
-                    recovery_scopes(&probe)
+                    recovery_scopes(&probe, &journals)
                         .unwrap_or_default()
                         .into_iter()
                         .filter(|s| !store_is_empty(s))
@@ -336,13 +340,18 @@ impl Worktrees {
         run().await
     }
 
+    /// The core's own journal stores (`mixdog_workspace::recovery::JOURNALS_DIR` of the data dir).
+    fn journals(&self) -> PathBuf {
+        self.data_dir().join(mixdog_workspace::recovery::JOURNALS_DIR)
+    }
+
     /// `WORKTREE_FILE_RECOVERY` while retained editor-recovery records exist (force does not matter).
     pub async fn assert_recovery_stores_clear(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         if record.extra.get("editorRecoveryStores").is_none_or(|v| v.as_array().is_some_and(Vec::is_empty)) {
             return Ok(());
         }
-        let probe = record.clone();
-        match on_lane(self.scm().lane, cancel, move || retained_store(&probe)).await? {
+        let (probe, journals) = (record.clone(), self.journals());
+        match on_lane(self.scm().lane, cancel, move || retained_store(&probe, &journals)).await? {
             Some(root) => Err(errors::file_recovery(record.id.clone(), record.path.clone(), root)),
             None => Ok(()),
         }
@@ -433,12 +442,12 @@ mod tests {
         let store = dir.path().join("data").join(EDITOR_RECOVERY).join(digest);
         let mut record = crate::worktree::retention::test_record(&checkout);
         record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": store }]));
-        assert_eq!(retained_store(&record), None);
+        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), None);
         std::fs::create_dir_all(&store).unwrap();
-        assert_eq!(retained_store(&record), None, "an empty store is clear");
+        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), None, "an empty store is clear");
         std::fs::write(store.join("journal"), "x").unwrap();
-        assert!(retained_store(&record).is_some());
+        assert!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)).is_some());
         record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": dir.path() }]));
-        assert_eq!(retained_store(&record), Some(record.path.clone()), "a malformed descriptor retains");
+        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), Some(record.path.clone()), "a malformed descriptor retains");
     }
 }

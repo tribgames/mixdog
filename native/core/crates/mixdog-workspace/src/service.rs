@@ -266,6 +266,30 @@ pub struct WorkspaceService {
 #[async_trait::async_trait]
 pub trait ManagedProjects: Send + Sync {
     async fn owner(&self, path: &str) -> Option<(String, String)>;
+
+    /// The worktree branch of Node's `projectRecoveryDirectory` (`session-host.ts`): for an absolute `path` that names no
+    /// registered Project, the folder a recovery call works in when it lies in a managed worktree whose state is `ready`,
+    /// `deleting` or `recovery` and whose Project is registered. `None` keeps the registry's refusal.
+    async fn recovery_root(&self, path: &str) -> Option<PathBuf>;
+
+    /// Node's `withWorktreeRecoveryStore` (`manager.mjs`), which every recovery call ran under: inside a managed worktree it
+    /// records the journal store on the worktree and holds the repository lock through `run`; a restore needs a ready
+    /// worktree. Elsewhere `run` runs as is.
+    async fn recovery_store(
+        &self,
+        root: &Path,
+        directory: &Path,
+        action: RecoveryUse,
+        run: std::pin::Pin<Box<dyn std::future::Future<Output = WsResult<Value>> + Send>>,
+    ) -> WsResult<Value>;
+}
+
+/// What a recovery call does to a journal store, as Node's file host named it to the worktree manager.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryUse {
+    Inspect,
+    Restore,
+    Discard,
 }
 
 /// Reads the user's Markdown default view.
@@ -601,12 +625,32 @@ impl WorkspaceService {
 
     /// The folder a request works in. A local or SSH connection names any absolute folder (Node's
     /// `…In` operations take a root the window already resolved); a relay connection is held to
-    /// the registered projects (DS 4.2: origin rules are data).
+    /// the registered projects and their ready managed worktrees, as Node's relay resolved every
+    /// phone's project path through `SessionHost.projectDirectory` (DS 4.2: origin rules are data).
     async fn root_of(&self, origin: mixdog_protocol::Origin, params: &Value, key: &str) -> WsResult<PathBuf> {
         match origin {
-            mixdog_protocol::Origin::Relay => self.catalog.resolve(s(params, key)?).await,
+            mixdog_protocol::Origin::Relay => self.scope(s(params, key)?).await.map(|(project, worktree)| worktree.unwrap_or(project)),
             mixdog_protocol::Origin::Local | mixdog_protocol::Origin::Ssh => crate::pathguard::absolute_local_path(s(params, key)?),
         }
+    }
+
+    /// `projectFs/recovery`'s folder (Node's `projectRecoveryDirectory` on the phone's path): a relay connection's registered
+    /// Project, else the managed worktree folder [`ManagedProjects::recovery_root`] admits, else the registry's refusal.
+    async fn recovery_root(&self, origin: mixdog_protocol::Origin, params: &Value) -> WsResult<PathBuf> {
+        // Not `root`: Node's `projectRecoveryDirectory` tries the registered Project, then its own worktree rule (any of
+        // three states, the folder spelled from the checkout's real parent), never `projectScope`.
+        let refusal = match origin {
+            mixdog_protocol::Origin::Relay => match self.catalog.resolve(s(params, "root")?).await {
+                Ok(root) => return Ok(root),
+                Err(refusal) => refusal,
+            },
+            mixdog_protocol::Origin::Local | mixdog_protocol::Origin::Ssh => return self.root(origin, params).await,
+        };
+        let admitted = match (self.managed.get(), params.get("root").and_then(Value::as_str)) {
+            (Some(managed), Some(path)) => managed.recovery_root(path).await,
+            _ => None,
+        };
+        admitted.ok_or(refusal)
     }
 
     /// Files this service itself changed, as absolute paths (Node's cache invalidation of a tool
@@ -820,6 +864,16 @@ impl WorkspaceService {
             }
             "projectFs/readLocal" => {
                 let path = s(params, "path")?.to_owned();
+                if params.get("paged").and_then(Value::as_bool) == Some(true) {
+                    // The checks of the whole read, then the file held open as a transfer of this connection to page through.
+                    let (owner, t) = (Self::owner(req), self.transfers.clone());
+                    return value(run_fallible(self.lanes.interactive, &cancel, move || {
+                        let (file, name, _) = fsops::local_file(&path)?;
+                        let opened = t.begin_local_read(&owner, &file.to_string_lossy())?;
+                        Ok(json!({ "name": name, "size": opened.size, "mimeType": opened.mime_type, "transferId": opened.transfer_id, "version": opened.version }))
+                    })
+                    .await?);
+                }
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::read_local(&path)).await?))
             }
             "projectFs/statLocal" => {
@@ -959,21 +1013,36 @@ impl WorkspaceService {
                 value(json!({ "filesChanged": paths.len(), "replacements": plan.replacements, "paths": paths }))
             }
             "projectFs/recovery" => {
-                let root = self.root(req.ctx.origin, params).await?;
+                let root = self.recovery_root(req.ctx.origin, params).await?;
                 let action = Action::parse(s(params, "action")?, params.get("id").and_then(Value::as_str), params.get("revision").and_then(Value::as_str))?;
-                let mutating = !matches!(action, Action::List | Action::Inspect { .. });
+                let (mutating, store_use) = match action {
+                    Action::List | Action::Inspect { .. } => (false, RecoveryUse::Inspect),
+                    Action::Restore { .. } => (true, RecoveryUse::Restore),
+                    Action::Discard { .. } => (true, RecoveryUse::Discard),
+                };
                 let _claim = if mutating { Some(self.paths.acquire(vec![root.clone()]).await) } else { None };
                 let this2 = this.clone();
-                let lane_root = root;
-                let response = if mutating {
-                    let done = run_fallible(self.lanes.durability, &cancel, move || this2.fs.recovery.execute(&lane_root, action)).await?;
+                let lane_root = root.clone();
+                let (durability, interactive) = (self.lanes.durability, self.lanes.interactive);
+                let task_cancel = cancel.clone();
+                let run: std::pin::Pin<Box<dyn std::future::Future<Output = WsResult<Value>> + Send>> = Box::pin(async move {
+                    let job = move || this2.fs.recovery.execute(&lane_root, action);
+                    let response = if mutating {
+                        run_fallible(durability, &task_cancel, job).await?
+                    } else {
+                        run_fallible(interactive, &task_cancel, job).await?
+                    };
+                    Ok(json!(response))
+                });
+                let response = match self.managed.get() {
+                    Some(managed) => managed.recovery_store(&root, &self.fs.recovery.store_path(&root), store_use, run).await?,
+                    None => run.await?,
+                };
+                if mutating {
                     // A restore or discard may touch any file of the project.
                     self.note_anything();
-                    done
-                } else {
-                    run_fallible(self.lanes.interactive, &cancel, move || this2.fs.recovery.execute(&lane_root, action)).await?
-                };
-                value(json!(response))
+                }
+                value(response)
             }
             "fs/watch" => {
                 let id = s(params, "watchId")?.to_owned();
@@ -1268,6 +1337,23 @@ impl WorkspaceService {
                 // `resolveLocalPaths` / `attachmentOpen` of a paired device: the described path, with a one-file
                 // grant when it lies outside every project (a conversation's attachment always gets one).
                 let (grants, credential, connection) = self.phone_grants_for(req)?;
+                if params.get("attachmentId").is_some() {
+                    // `attachmentOpen` (remote-attachments.ts): the attachment this conversation names, staged as a named file in the
+                    // PC's temp folder (`stageSessionAttachment`) and opened through a one-file grant of that conversation.
+                    // Node's `requiredSessionId` first, then the attachment.
+                    let session = crate::transfer::required_session_id(params.get("sessionId"))?;
+                    let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
+                    let read = source.bytes(params, &cancel).await.map_err(crate::transfer::source_refusal)?;
+                    let id = s(params, "attachmentId")?.to_owned();
+                    let (bytes, name) = (read.bytes, read.name);
+                    let size = bytes.len();
+                    let path = run_fallible(self.lanes.durability, &cancel, move || crate::transfer::stage_attachment(&id, &name, &bytes)).await?;
+                    let token = grants.mint(&credential, connection, &path, &session).await?;
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let folder = path.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
+                    return value(json!({ "absolutePath": path.to_string_lossy(), "name": name, "dir": false, "size": size,
+                        "mimeType": read.mime_type, "projectPath": folder, "relPath": name, "accessToken": token }));
+                }
                 let path = s(params, "path")?.to_owned();
                 let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
