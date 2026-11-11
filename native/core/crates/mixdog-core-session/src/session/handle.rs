@@ -581,8 +581,8 @@ impl SessionHandle {
 fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
     const COMPACTION_CONFIG: [&str; 9] = ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
     // A copy still being made into the source is the source's; the heir's own reference set is given by the carry.
-    const NOT_CARRIED: [&str; 43] = [
-        "offloadInheriting",
+    const NOT_CARRIED: [&str; 44] = [
+        "offloadInheriting", "offloadInheritingBoot",
         "bp3Cursor", "closeProvenance", "lastCacheWriteTokens", "lastCachedReadTokens", "lastContextTokens", "lastContextTokensStaleAfterCompact",
         "lastContextTokensUpdatedAt", "lastInputTokens", "lastIterationIndex", "lastOutputTokens", "lastProviderSendAt", "lastTurnCompletedAt",
         "lastUncachedInputTokens", "reasoningUsage", "titleUpdatedAt", "todo", "todoCheck", "totalCacheWriteTokens", "totalCachedReadTokens",
