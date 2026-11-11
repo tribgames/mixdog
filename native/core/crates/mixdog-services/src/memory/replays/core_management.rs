@@ -223,7 +223,7 @@ pub(in crate::memory::replays) mod pg {
                         let text = format(&page);
                         fields.push(("result", page_value(&page)));
                         fields.push(("formatted", string(text.clone())));
-                        fields.push(("roundTrip", round_trip(&text, &page)));
+                        fields.push(("roundTrip", round_trip(&format!("{name}: {label}"), &text, &page)));
                     }
                     Err(error) => fields.push((
                         "error",
@@ -252,7 +252,8 @@ pub(in crate::memory::replays) mod pg {
 
     /// `parseMemoryCoreRows(formatted)` of the shipped TUI (`src/tui/app/input-parsers.mjs:50`, the reader of this text),
     /// run by Node over the core's formatted text and encoded with the recordings' encoder.
-    pub(in crate::memory::replays) fn parse_rows(formatted: &str) -> Exact {
+    /// The child is killed (with its tree) and reaped on every exit path: a write failure, the deadline, or a failure.
+    pub(in crate::memory::replays) fn parse_rows(what: &str, formatted: &str) -> Exact {
         use std::io::Write;
         let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().expect("repository root");
         let url = |relative: &str| {
@@ -267,30 +268,56 @@ pub(in crate::memory::replays) mod pg {
             url("src/tui/app/input-parsers.mjs"),
             url("benchmarks/rust-core/recorders/lib/exact.mjs"),
         );
-        let mut child = std::process::Command::new("node")
+        let mut command = std::process::Command::new("node");
+        command
             .args(["--input-type=module", "-e", &script])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .expect("node runs the TUI parser");
-        child.stdin.take().expect("stdin").write_all(formatted.as_bytes()).expect("write the formatted text");
+            .stderr(std::process::Stdio::piped());
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000); // CREATE_NO_WINDOW
+        let mut child = command.spawn().unwrap_or_else(|e| panic!("{what}: node runs the TUI parser: {e}"));
+        let pid = child.id();
+        let stdin = child.stdin.take().expect("stdin");
         let (done, waited) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = done.send(child.wait_with_output());
         });
-        let output = waited
-            .recv_timeout(std::time::Duration::from_secs(60))
-            .expect("the TUI parser did not answer within 60 s")
-            .expect("the TUI parser's output");
-        assert!(output.status.success(), "the TUI parser failed: {}", String::from_utf8_lossy(&output.stderr));
+        // Ends the parser's process tree and waits for the waiting thread to reap it, then fails naming the case.
+        let fail = |why: String| -> ! {
+            let mut kill = if cfg!(windows) {
+                let mut kill = std::process::Command::new("taskkill");
+                kill.args(["/PID", &pid.to_string(), "/T", "/F"]);
+                kill
+            } else {
+                let mut kill = std::process::Command::new("kill");
+                kill.args(["-KILL", &pid.to_string()]);
+                kill
+            };
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
+            let killed = kill.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+            let reaped = waited.recv_timeout(std::time::Duration::from_secs(10)).is_ok();
+            panic!("{what}: {why} (parser pid {pid} killed: {killed:?}, reaped: {reaped})");
+        };
+        let mut stdin = stdin;
+        if let Err(e) = stdin.write_all(formatted.as_bytes()) {
+            fail(format!("writing the formatted text to the TUI parser failed: {e}"));
+        }
+        drop(stdin);
+        let output = match waited.recv_timeout(std::time::Duration::from_secs(60)) {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => panic!("{what}: the TUI parser's output could not be read: {e}"),
+            Err(_) => fail("the TUI parser did not answer within 60 s".to_owned()),
+        };
+        assert!(output.status.success(), "{what}: the TUI parser failed: {}", String::from_utf8_lossy(&output.stderr));
         let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("the parser's JSON");
         Exact::decode(&value).expect("the parser's encoded rows")
     }
 
     /// The recorder's `roundTrip(formatted, entries)` over the core's formatted text and the core's listed entries.
-    pub(in crate::memory::replays) fn round_trip(formatted: &str, page: &crate::memory::core::list::Page) -> Exact {
-        let parsed = parse_rows(formatted);
+    pub(in crate::memory::replays) fn round_trip(what: &str, formatted: &str, page: &crate::memory::core::list::Page) -> Exact {
+        let parsed = parse_rows(what, formatted);
         let rows = parsed.as_array();
         let per_entry = page
             .entries
