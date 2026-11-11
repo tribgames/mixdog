@@ -39,7 +39,7 @@ const attempt = (fn) => {
   }
 };
 
-await rec.run('persist-validate-reset', `${SRC}:9`, { entry: { id: entry.id, contextWindow: entry.contextWindow, maxContextWindow: entry.maxContextWindow } }, () => {
+await rec.run('persist-validate-reset', `${SRC}:10`, { entry: { id: entry.id, contextWindow: entry.contextWindow, maxContextWindow: entry.maxContextWindow } }, () => {
   const dataDir = caseDir('ctx-persist');
   const out = { initial: localContextSettings(entry, dataDir).configuredContextWindow, saved: [] };
   for (const tokens of [16384, 32768, entry.maxContextWindow]) {

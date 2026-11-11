@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 40334,
+      "bytes": 40335,
       "path": "cases.json",
-      "sha256": "018e8b25506ed58465060ef2a27a47e4158680139abfe0a454e1f8330e063b98"
+      "sha256": "d6d7d426cc11f2e6f1515719ab99f789383f7186a9585b553f3007a34081e74f"
     }
   ],
   "inputs": [
@@ -67,9 +67,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-local-context-settings.mjs",
-  "recorderSha256": "3529ffb247080d9b4d35539eb4d62da0e78fce3b39549449e7261932b5572dc9",
+  "recorderSha256": "00d6c9587dfc0bf824f2dfe03081ea8d4370a0284dc3934c3ef7c2f7d9f8dd8c",
   "replay": "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
   "set": "provider-local-context-settings",
-  "totalBytes": 40334,
+  "totalBytes": 40335,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
