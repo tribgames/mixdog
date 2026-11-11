@@ -40,7 +40,10 @@ export async function startWsWorld({ tree }) {
   // `honorLookup`: a dial goes through the `lookup` function the client passed (the product's DNS cache over the resolver the recorder scripts) instead of straight to the loopback address.
   const world = { trace: [], dials: [], script: {}, conns: [], honorLookup: false, onNote: null };
   const waiters = new Set();
-  const note = (entry) => {
+  // `port` (not recorded: a non-enumerable `connectionPort`) is the client end of the connection the entry belongs to, for a recorder that
+  // must group the entries of independent connections whose interleaving races.
+  const note = (entry, port) => {
+    if (port !== undefined) Object.defineProperty(entry, 'connectionPort', { value: port, configurable: true });
     world.trace.push(entry);
     for (const w of [...waiters]) w();
     world.onNote?.();
@@ -80,14 +83,15 @@ export async function startWsWorld({ tree }) {
   wss.on('headers', (lines, req) => {
     const extra = world.script.upgradeHeaders?.(req);
     if (extra) for (const [n, v] of extra) lines.push(`${n}: ${v}`);
-    note({ event: 'upgrade-response', lines: [...lines] });
+    note({ event: 'upgrade-response', lines: [...lines] }, req.socket.remotePort);
   });
   server.on('upgrade', (req, socket, head) => {
-    note({ event: 'upgrade-request', method: req.method, target: req.url, httpVersion: req.httpVersion, headers: pairs(req.rawHeaders) });
+    const cp = req.socket.remotePort;
+    note({ event: 'upgrade-request', method: req.method, target: req.url, httpVersion: req.httpVersion, headers: pairs(req.rawHeaders) }, cp);
     const refusal = world.script.refuse?.(req, world.count((e) => e.event === 'upgrade-request'));
     if (refusal?.reset) {
       // The server resets the TCP connection instead of answering the upgrade (ECONNRESET at the client).
-      note({ event: 'upgrade-reset' });
+      note({ event: 'upgrade-reset' }, cp);
       socket.destroy();
       return;
     }
@@ -96,7 +100,7 @@ export async function startWsWorld({ tree }) {
       const bodyChunks = refusal.bodyChunks ?? [refusal.body ?? ''];
       const body = bodyChunks.join('');
       const head1 = `HTTP/1.1 ${refusal.status} ${refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? ''}`;
-      note({ event: 'upgrade-refused', status: refusal.status, statusText: refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? '', headers: refusal.headers ?? [], bodyChunks });
+      note({ event: 'upgrade-refused', status: refusal.status, statusText: refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? '', headers: refusal.headers ?? [], bodyChunks }, cp);
       socket.write(`${[head1, ...headerLines, `content-length: ${Buffer.byteLength(body)}`, 'connection: close'].join('\r\n')}\r\n\r\n`);
       // Each chunk is its own write; the next one is written when the previous write has been handed to the kernel (the write callback), with a deadline, so the client reads them as separate data events.
       (async () => {
@@ -107,7 +111,7 @@ export async function startWsWorld({ tree }) {
     }
     if (refusal === null) {
       // The server accepts the TCP connection and never answers the upgrade.
-      note({ event: 'upgrade-left-unanswered' });
+      note({ event: 'upgrade-left-unanswered' }, cp);
       world.conns.push({ ws: { terminate: () => socket.destroy() } });
       return;
     }
@@ -118,36 +122,36 @@ export async function startWsWorld({ tree }) {
         send: (frame) => {
           const isBinary = Buffer.isBuffer(frame);
           const data = isBinary || typeof frame === 'string' ? frame : JSON.stringify(frame);
-          note({ event: 'frame', dir: 'server->client', ...payload(typeof data === 'string' ? Buffer.from(data) : data, isBinary) });
+          note({ event: 'frame', dir: 'server->client', ...payload(typeof data === 'string' ? Buffer.from(data) : data, isBinary) }, cp);
           ws.send(data, { binary: isBinary });
         },
         close: (code, reason = '') => {
           serverInitiated = true;
-          note({ event: 'close-sent', by: 'server', code, reason });
+          note({ event: 'close-sent', by: 'server', code, reason }, cp);
           ws.close(code, reason);
         },
         terminate: () => {
           serverInitiated = true;
-          note({ event: 'terminate', by: 'server' });
+          note({ event: 'terminate', by: 'server' }, cp);
           // The connection ends without a close frame (the client sees 1006), but only after every frame already written has been flushed: `end()` queues the FIN behind them, where
           // `ws.terminate()` (destroy) can drop frames still in the server's write buffer.
           socket.end();
         },
         ping: (data = '') => {
-          note({ event: 'ping', dir: 'server->client', data: String(data) });
+          note({ event: 'ping', dir: 'server->client', data: String(data) }, cp);
           ws.ping(data);
         },
       };
       world.conns.push(conn);
       ws.on('message', (data, isBinary) => {
-        note({ event: 'frame', dir: 'client->server', ...payload(data, isBinary) });
+        note({ event: 'frame', dir: 'client->server', ...payload(data, isBinary) }, cp);
         world.script.onFrame?.(conn, isBinary ? data : JSON.parse(data.toString('utf8')), world.count((e) => e.event === 'frame' && e.dir === 'client->server'));
       });
-      ws.on('ping', (data) => note({ event: 'ping', dir: 'client->server', data: data.toString('utf8') }));
-      ws.on('pong', (data) => note({ event: 'pong', dir: 'client->server', data: data.toString('utf8') }));
-      ws.on('close', (code, reason) => note({ event: 'closed', serverInitiated, code, reason: reason.toString('utf8') }));
-      ws.on('error', (error) => note({ event: 'socket-error', message: error.message, code: error.code ?? null }));
-      note({ event: 'open' });
+      ws.on('ping', (data) => note({ event: 'ping', dir: 'client->server', data: data.toString('utf8') }, cp));
+      ws.on('pong', (data) => note({ event: 'pong', dir: 'client->server', data: data.toString('utf8') }, cp));
+      ws.on('close', (code, reason) => note({ event: 'closed', serverInitiated, code, reason: reason.toString('utf8') }, cp));
+      ws.on('error', (error) => note({ event: 'socket-error', message: error.message, code: error.code ?? null }, cp));
+      note({ event: 'open' }, cp);
       world.script.onOpen?.(conn);
     });
   });
@@ -155,10 +159,12 @@ export async function startWsWorld({ tree }) {
   const port = server.address().port;
   const realConnect = tls.connect;
   tls.connect = (options) => {
-    note({ event: 'dial', host: options.host ?? null, port: options.port ?? null, servername: options.servername ?? null });
+    const dial = { event: 'dial', host: options.host ?? null, port: options.port ?? null, servername: options.servername ?? null };
+    note(dial);
     world.dials.push({ host: options.host ?? null, port: options.port ?? null });
-    if (world.honorLookup) return net.connect({ host: options.host, port, lookup: options.lookup });
-    return net.connect({ host: '127.0.0.1', port });
+    const socket = world.honorLookup ? net.connect({ host: options.host, port, lookup: options.lookup }) : net.connect({ host: '127.0.0.1', port });
+    socket.once('connect', () => Object.defineProperty(dial, 'connectionPort', { value: socket.localPort, configurable: true }));
+    return socket;
   };
   world.close = () => {
     tls.connect = realConnect;
