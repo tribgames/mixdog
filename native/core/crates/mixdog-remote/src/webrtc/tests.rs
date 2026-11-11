@@ -240,7 +240,7 @@ async fn a_carrier_connects_on_a_machine_that_refuses_the_mdns_socket() {
     config.hooks.mdns_socket = Some(refused_mdns_join);
     let builds = Arc::clone(&config.hooks.builds);
     let (carrier, mut events) = CarrierConnection::spawn(config);
-    let path = tokio::time::timeout(BOUND, async {
+    let path = mixdog_rt::time::timeout(BOUND, async {
         let mut phone = Phone::new(false).await;
         carrier.offer(false);
         loop {
@@ -282,7 +282,7 @@ async fn a_build_that_fails_for_another_reason_fails_once_with_its_own_error() {
     let builds = Arc::clone(&config.hooks.builds);
     let (carrier, mut events) = CarrierConnection::spawn(config);
     carrier.offer(false);
-    let fault = tokio::time::timeout(BOUND, async {
+    let fault = mixdog_rt::time::timeout(BOUND, async {
         loop {
             match events.recv().await.expect("the carrier reports before it ends") {
                 CarrierEvent::Failed(fault) => break fault,
@@ -313,7 +313,7 @@ async fn carrier_connects_orders_events_and_moves_binary_both_ways() {
     let mut log: Vec<&'static str> = Vec::new();
     let mut messages_on_carrier: Vec<(CarrierChannel, Bytes)> = Vec::new();
     let mut offered = false;
-    let result = tokio::time::timeout(BOUND, async {
+    let result = mixdog_rt::time::timeout(BOUND, async {
         let mut opened = false;
         let mut written = false;
         loop {
@@ -419,7 +419,7 @@ async fn live_view_streams_vp8_that_decodes_answers_picture_loss_and_carries_inp
                 break;
             }
             shift = shift.wrapping_add(7);
-            tokio::time::sleep(Duration::from_millis(33)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(33)).await;
         }
     });
 
@@ -432,7 +432,7 @@ async fn live_view_streams_vp8_that_decodes_answers_picture_loss_and_carries_inp
     let mut sent_pli = false;
     let mut desktop_input = Vec::new();
 
-    let outcome = tokio::time::timeout(BOUND, async {
+    let outcome = mixdog_rt::time::timeout(BOUND, async {
         let mut decoded_frames = 0;
         loop {
             tokio::select! {
@@ -513,14 +513,14 @@ async fn live_view_streams_vp8_that_decodes_answers_picture_loss_and_carries_inp
     assert_eq!((after.width, after.height), (64, 48));
     // The selected candidate pair is reported by the stack a moment after media flows.
     let last = std::sync::Mutex::new(String::new());
-    let stats = tokio::time::timeout(BOUND, async {
+    let stats = mixdog_rt::time::timeout(BOUND, async {
         loop {
             let stats = live.stats().await.unwrap();
             if stats.candidate_pair.is_some() && stats.bytes_sent > 0 {
                 return stats;
             }
             *last.lock().unwrap() = format!("{stats:?}");
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
@@ -579,7 +579,7 @@ async fn a_phone_without_vp8_gets_no_offer() {
     let (_sink, source) = frame_feed(FrameSourceKind::Screen { display: 0 });
     let shared = SharedSource::start(Box::new(source));
     let (_live, mut events) = LiveViewConnection::spawn(loopback(), vec!["video/H264".to_owned()], Arc::clone(&shared), tokens.media_thread).unwrap();
-    let event = tokio::time::timeout(BOUND, events.recv()).await.unwrap().unwrap();
+    let event = mixdog_rt::time::timeout(BOUND, events.recv()).await.unwrap().unwrap();
     match event {
         LiveViewEvent::Failed(fault) => {
             assert_eq!(fault.reason, PeerFailure::Unsupported);
@@ -598,7 +598,7 @@ async fn a_carrier_whose_peer_never_answers_fails_at_the_setup_budget() {
     let (carrier, mut events) = CarrierConnection::spawn(loopback());
     carrier.offer(false);
     let started = tokio::time::Instant::now();
-    let fault = tokio::time::timeout(Duration::from_secs(120), async {
+    let fault = mixdog_rt::time::timeout(Duration::from_secs(120), async {
         loop {
             if let CarrierEvent::Failed(fault) = events.recv().await.expect("the carrier reports before it ends") {
                 break fault;
@@ -632,7 +632,7 @@ async fn max_framerate_and_bitrate_bind_the_encoder() {
             sink.push(PixelFormat::Bgrx, 64, 48, 256, Bytes::from(vec![pushed; 64 * 48 * 4]))
                 .unwrap();
             count += 1;
-            tokio::time::sleep(Duration::from_millis(33)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(33)).await;
         }
         (count, start.elapsed().as_secs_f64())
     }
@@ -643,7 +643,7 @@ async fn max_framerate_and_bitrate_bind_the_encoder() {
             if s.frames_captured > 0 && s.frames_encoded + s.frames_superseded >= s.frames_captured {
                 return s;
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         }
     }
     let (pushed, _) = run(&mut sink, 1000).await;
@@ -672,14 +672,14 @@ async fn feed(sink: &mut super::sources::FrameSink, count: u32) {
     for n in 0..count {
         let v = (n as u8).wrapping_mul(7);
         sink.push(PixelFormat::Bgrx, 64, 48, 256, Bytes::from(vec![v; 64 * 48 * 4])).unwrap();
-        tokio::time::sleep(Duration::from_millis(33)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(33)).await;
     }
 }
 
 /// Keeps the shared source producing until `done` holds: a loaded host supersedes frames, so a
 /// fixed number of pictures does not guarantee a fixed number of encodes.
 async fn feed_until(sink: &mut super::sources::FrameSink, done: impl Fn() -> bool) {
-    tokio::time::timeout(BOUND, async {
+    mixdog_rt::time::timeout(BOUND, async {
         while !done() {
             feed(sink, 1).await;
         }
@@ -705,7 +705,7 @@ async fn two_viewers_of_one_source_each_get_their_own_rate() {
     let start = std::time::Instant::now();
     feed(&mut sink, 90).await;
     let seconds = start.elapsed().as_secs_f64();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(300)).await;
     let (s, f) = (slow.stats(), fast.stats());
     assert!(s.frames_encoded as f64 <= seconds * 5.0 + 2.0, "slow viewer capped at 5 fps: {s:?}");
     assert!(f.frames_encoded > s.frames_encoded * 2, "the other viewer is not held to that cap: {f:?} vs {s:?}");
@@ -768,13 +768,13 @@ async fn a_viewer_that_never_reads_does_not_slow_the_other() {
             if s.frames_captured > 0 && s.frames_encoded + s.frames_superseded >= s.frames_captured {
                 return s;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
     };
-    let healthy_stats = tokio::time::timeout(BOUND, settle).await.expect("the healthy encoder settles");
+    let healthy_stats = mixdog_rt::time::timeout(BOUND, settle).await.expect("the healthy encoder settles");
     assert!(healthy_stats.frames_encoded >= 20, "{healthy_stats:?}");
     assert!(stalled.stats().frames_encoded >= 20, "its own encoder keeps running too");
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
     reading.abort();
     let delivered = delivered.load(std::sync::atomic::Ordering::Relaxed);
     assert!(delivered >= healthy_stats.frames_encoded - 4, "the healthy viewer got its pictures ({delivered})");

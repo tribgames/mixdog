@@ -4,7 +4,6 @@
 
 use std::time::Duration;
 use std::time::Instant;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_remote::pair_code::PairCodeEffects;
@@ -48,7 +47,7 @@ impl PairCodeEffects for ComposedPairCodeEffects {
         if let Some(earlier) = self.armed.take() {
             let _ = earlier.cancel();
         }
-        let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        let now_ms = mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
         let at = Instant::now() + Duration::from_millis(at_ms.saturating_sub(now_ms));
         let on_tick = self.on_tick.clone();
         self.armed = Some(self.ticker.register(at, move || on_tick()));

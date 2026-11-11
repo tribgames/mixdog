@@ -57,6 +57,9 @@ pub enum ThreadKind {
     WebrtcMedia,
     /// The single write connection of one SQLite database (RL §8).
     SqliteWriter,
+    /// The effort judge's own thread (one per judge model, as Node's judge worker) and the ONNX
+    /// Runtime threads its session starts.
+    EffortJudge,
 }
 
 /// The lane's queue is at capacity; the caller answers `overloaded` at once (RL §0.2).
@@ -152,6 +155,12 @@ impl QueuedJob {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
+    }
+
+    /// The same job with its body wrapped by `wrap` (the replay's clock counts it while it is queued or running).
+    #[cfg(feature = "virtual-clock")]
+    pub(crate) fn map_run(self, wrap: impl FnOnce(Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send>) -> Self {
+        Self { lane: self.lane, enqueued_at: self.enqueued_at, cancel: self.cancel, run: wrap(self.run) }
     }
 
     /// Runs the job on the calling lane thread, or drops it if it was cancelled while queued.

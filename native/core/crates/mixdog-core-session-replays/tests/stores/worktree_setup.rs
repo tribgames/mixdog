@@ -43,7 +43,6 @@ use mixdog_core_session::session::worktree::worktree_tests::run;
 use mixdog_core_session::session::worktree::*;
 use mixdog_rt::CancellationToken;
 use mixdog_scm::error::ScmFailure;
-use mixdog_scm::worktree::errors;
 use mixdog_scm::worktree::registry::WorktreeRecord;
 use mixdog_tools::git::SessionOp;
 use serde_json::json;

@@ -342,7 +342,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     {
         let paths = retirement_paths(&b.package_root, &b.data_dir, &|name| (b.env)(name).map(std::ffi::OsString::from));
         mixdog_core_base::support::on_lane(b.tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-            mixdog_core_config::workflow::retire::retire_seeded_copies(lane, &paths, &|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+            mixdog_core_config::workflow::retire::retire_seeded_copies(lane, &paths, &|| mixdog_rt::utc_now!().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
         })
         .await
         .map_err(|e| ComposeError::Config(format!("{e:?}")))?
@@ -1594,7 +1594,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         live: { let ids = live_ids.clone(); Arc::new(move || ids().into_iter().collect()) },
         sessions: late_workspaces.clone(), // bound right after `SessionWorkspaces` is built; in `verify_bound`
     }))));
-    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new()));
+    // The agent's `github` is the desktop's GitHub client (one write queue per repository), its raw results kept in the data directory.
+    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new(scm.github.clone(), Some(b.data_dir.clone()))));
     tool_pool.push(Arc::new(mixdog_tools::exec::TaskTool::new(b.exec.clone())));
     tool_pool.push(Arc::new(mixdog_tools::fs::GrepTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::GlobTool::new()));
@@ -1682,7 +1683,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         None => b.shell_control.clone(),
     };
     // The one archive retention (`desktop.retentionState`): `ThreadSettingsParts.retention` and `PurgeOwners.retention` (wp-session-33/-40).
-    let archive_retention = Arc::new(mixdog_core_session::session::thread_settings::ConfigArchiveRetention::new(config.clone(), Arc::new(|| chrono::Utc::now().timestamp_millis())));
+    let archive_retention = Arc::new(mixdog_core_session::session::thread_settings::ConfigArchiveRetention::new(config.clone(), Arc::new(|| mixdog_rt::utc_now!().timestamp_millis())));
     // flip-gaps-agent: the agent tool's `WorkerTurns` (the SAME value is `AgentParts.turns` and `PurgeOwners.worker_turns`); `changed` is `statusMayHaveChanged`.
     let worker_turns = mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns::new(
         Arc::new(mixdog_core::run_host::agent_inputs::LateTurnSource(late.clone())),
@@ -2043,6 +2044,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
+                session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
                 staged_originals: Arc::new(mixdog_core_session::session::staged_originals::StagedOriginals::new(&data_dir)),
                 feeds: Arc::new(mixdog_core_session::session::CoreThreadFeeds::new(&Default::default(), tokens.cpu_interactive)),
                 server_requests: features.0,
@@ -2163,7 +2165,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The ReadState 30-day sweep (Node `sweepStaleSnapshotScopes`), once at start, best effort, a maintenance-lane job (hang-lanes-143); not on the readiness path.
     {
         let (persist, lane) = (snapshot_persist.clone(), b.tokens.maintenance_io);
-        mixdog_rt::spawn("read-snapshot-sweep", mixdog_rt::TaskClass::Work, async move { persist.sweep_stale(lane, std::time::SystemTime::now()).await });
+        mixdog_rt::spawn("read-snapshot-sweep", mixdog_rt::TaskClass::Work, async move { persist.sweep_stale(lane, mixdog_rt::wall_clock!()).await });
     }
     // The eight inputs of `AgentHomeDelivery::new` (flip-home): one `LiveSurface` for the heartbeat tick, the doctor and the delivery; one delegated-approval host.
     let live_surface = mixdog_core::run_host::heartbeat_parts::DirectoryLiveSurface::new(directory.clone());

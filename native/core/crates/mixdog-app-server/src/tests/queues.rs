@@ -161,7 +161,7 @@ async fn a_slow_cleanup_of_one_key_does_not_hold_up_a_key_in_the_same_shard() {
             }),
         );
     });
-    let b_ran = tokio::time::timeout(std::time::Duration::from_secs(5), finished_b)
+    let b_ran = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), finished_b)
         .await
         .is_ok();
     unblock.send(()).unwrap();
@@ -212,7 +212,7 @@ async fn keys_that_keep_going_idle_lose_no_request_under_concurrent_enqueues() {
     }
     drop(ran);
     let mut count = 0;
-    let all = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    let all = mixdog_rt::time::timeout(std::time::Duration::from_secs(10), async {
         while receipts.recv().await.is_some() {
             count += 1;
         }

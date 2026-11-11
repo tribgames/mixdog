@@ -263,7 +263,7 @@ impl Replay {
         }
         let (mut last, mut same) = (String::new(), 0);
         while same < 5 {
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(25)).await;
             let now = self.fingerprint();
             same = if now == last { same + 1 } else { 0 };
             last = now;

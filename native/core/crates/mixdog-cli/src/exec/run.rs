@@ -367,7 +367,7 @@ pub async fn run_exec(opts: ExecOptions, host: Host<'_>, signal: Signal) -> i32 
         tokio::select! {
             result = running => Some(result),
             code = signal => {
-                if let Ok(Err(error)) = tokio::time::timeout(SIGNAL_CLEANUP_BUDGET, shutdown(&handles, sink.as_ref())).await {
+                if let Ok(Err(error)) = mixdog_rt::time::timeout(SIGNAL_CLEANUP_BUDGET, shutdown(&handles, sink.as_ref())).await {
                     sink.err(&format!("[mixdog-exec] cleanup failed: {error}\n"));
                 }
                 return code;

@@ -401,7 +401,7 @@ mod tests {
                 tokio::task::yield_now().await;
             }
         };
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), all_ended).await;
+        let _ = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), all_ended).await;
         assert_eq!(Arc::strong_count(&sessions), 1, "searches are still running");
         // All 30 are superseded but the last: one search published (an updated and a completed
         // frame), so a stale one did not.

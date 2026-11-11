@@ -302,11 +302,11 @@ pub async fn reclaim_stale(processes: &Processes, meta: &Value, model_path: &str
         return false;
     }
     kill_pid(processes, pid, false, cwd, proven_at).await;
-    tokio::time::sleep(KILL_SETTLE).await;
+    mixdog_rt::time::sleep(KILL_SETTLE).await;
     let reproven_at = crate::media::store::now_ms();
     if is_owned(processes, Some(pid), model, port, cwd).await {
         kill_pid(processes, pid, true, cwd, reproven_at).await;
-        tokio::time::sleep(KILL_SETTLE).await;
+        mixdog_rt::time::sleep(KILL_SETTLE).await;
     }
     true
 }

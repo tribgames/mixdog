@@ -363,7 +363,7 @@ impl Timers for TokioTimers {
     }
 
     fn sleep(&self, after: std::time::Duration) -> BoxFuture<()> {
-        Box::pin(tokio::time::sleep(after))
+        Box::pin(mixdog_rt::time::sleep(after))
     }
 
     fn run(&self, task: BoxFuture<()>) {
@@ -378,7 +378,7 @@ impl Timers for TokioTimers {
         let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let armed = cleared.clone();
         let task = tokio::spawn(async move {
-            tokio::time::sleep(after).await;
+            mixdog_rt::time::sleep(after).await;
             if !armed.load(std::sync::atomic::Ordering::SeqCst) {
                 callback();
             }

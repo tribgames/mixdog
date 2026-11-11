@@ -43,13 +43,20 @@ pub struct OutboundCard {
 
 impl OutboundCard {
     pub fn to_json(&self) -> Value {
+        // Node's detail lines come in `DETAIL_FIELDS` order (`requests.mjs`): mail headers, the payment, the delete, the
+        // trash card's messages and their remainder.
+        const ORDER: [&str; 11] = ["to", "cc", "subject", "merchant", "amount", "currency", "recurrence", "count", "size", "messages", "more"];
+        let rank = |name: &str| ORDER.iter().position(|known| *known == name).unwrap_or(ORDER.len());
+        let mut details: Vec<(&String, &String)> = self.details.iter().collect();
+        details.sort_by_key(|(name, _)| rank(name));
+        let details: Map<String, Value> = details.into_iter().map(|(name, value)| (name.clone(), Value::String(value.clone()))).collect();
         json!({
             "category": kind_name(self.category),
             "target": self.target,
             "account": self.account,
             "payload": self.payload,
             "editable": self.editable,
-            "details": self.details,
+            "details": details,
         })
     }
 

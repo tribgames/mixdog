@@ -849,7 +849,7 @@ impl ShellTool {
                 if enforce_limit {
                     std::future::pending::<()>().await;
                 } else {
-                    tokio::time::sleep(Duration::from_millis(hold)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(hold)).await;
                 }
             };
             tokio::select! {
@@ -875,7 +875,7 @@ impl ShellTool {
                 () = ctx.cancel.cancelled() => {
                     // A kill of a process that just exited is not an error.
                     let _ = ctx.processes.kill(&job.handle);
-                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
@@ -885,7 +885,7 @@ impl ShellTool {
                 () = job.settled() => {}
                 () = ctx.cancel.cancelled() => {
                     let _ = ctx.processes.kill(&job.handle);
-                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                 }
             }
             runtime.release(&job.id);
