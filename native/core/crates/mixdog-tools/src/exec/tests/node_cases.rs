@@ -53,8 +53,12 @@ struct Stepped {
     runs: Mutex<HashMap<ProcessHandle, Run>>,
     sources: Mutex<HashMap<ProcessHandle, PullSource>>,
     spawned: Mutex<Vec<(CommandSpec, EnvSpec, Option<std::time::Duration>)>>,
+    /// When each spawn happened (the test clock).
+    spawned_at: Mutex<Vec<tokio::time::Instant>>,
     answer: Box<dyn Fn(&CommandSpec) -> Vec<(Option<OutputStream>, Vec<u8>, i32)> + Send + Sync>,
     kill_ends: std::sync::atomic::AtomicBool,
+    /// Whether a spawn's run limit ends it (the process manager's own limit) when it expires.
+    limits: std::sync::atomic::AtomicBool,
 }
 
 impl Stepped {
@@ -64,8 +68,10 @@ impl Stepped {
             runs: Mutex::default(),
             sources: Mutex::default(),
             spawned: Mutex::default(),
+            spawned_at: Mutex::default(),
             answer: Box::new(answer),
             kill_ends: std::sync::atomic::AtomicBool::new(true),
+            limits: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -76,7 +82,8 @@ impl Stepped {
     fn emit(&self, handle: &str, event: impl FnOnce(u64) -> ProcessEvent) -> u64 {
         let mut runs = self.runs.lock().unwrap();
         let run = runs.get_mut(&ProcessHandle(handle.to_owned())).unwrap();
-        run.events.send(event(run.seq)).unwrap();
+        // A run whose job already took its exit has no reader left.
+        let _ = run.events.send(event(run.seq));
         run.seq += 1;
         run.seq
     }
@@ -118,6 +125,15 @@ impl ProcessManager for Stepped {
                 })
                 .unwrap();
             run.seq += 1;
+        }
+        self.spawned_at.lock().unwrap().push(tokio::time::Instant::now());
+        if let (true, Some(limit)) = (self.limits.load(SeqCst), request.time_limit) {
+            let (events, seq) = (run.events.clone(), run.seq);
+            tokio::spawn(async move {
+                tokio::time::sleep(limit).await;
+                let exit = ProcessExit { status: ExitStatus::Signal(9), killed: Some(KillReason::TimeLimit) };
+                let _ = events.send(ProcessEvent::Exited { seq, exit });
+            });
         }
         self.runs.lock().unwrap().insert(request.handle.clone(), run);
         self.sources.lock().unwrap().insert(request.handle.clone(), PullSource { events: rx, pulled: pulled_tx });
@@ -234,15 +250,348 @@ async fn the_shell_env_is_nodes_whole_env_for_each_daemon_env() {
     assert_eq!(JsonValue::Array(files), case["files"]);
 }
 
-/// `script-transport.slow.test.mjs`: a pipeline nested in a group (or behind a script block) gets no filter tee; a plain
-/// trailing filter pipeline does.
-#[test]
-fn filter_tee_plans_are_made_for_the_pipelines_node_plans() {
-    for case in scenario("filter-plan-groups")["cases"].as_array().unwrap() {
-        let command = case["command"].as_str().unwrap();
-        let plan = super::super::invocation::build_powershell_filter_tee_plan(command, "0123abcd", "C:\\t", '\\');
-        assert_eq!(JsonValue::from(plan.is_some()), case["planned"], "{command}");
+/// `script-transport.slow.test.mjs`' two filter-plan tests through the tool on Windows PowerShell: each command runs as Node's
+/// whole script (a pipeline nested in a group without the producer-exit tee, a trailing filter pipeline with it) and answers
+/// Node's text for a clean exit.
+#[tokio::test]
+async fn filter_pipelines_run_as_nodes_whole_script() {
+    let case = scenario("filter-plan");
+    let processes = Stepped::new(|_| vec![(None, Vec::new(), 0)]);
+    let (rig, shell, _) = stepped_rig(processes.clone(), |config| {
+        windows_powershell(config);
+        config.skill_runtime = Some(recorded_skill_runtime());
+    });
+    for (n, run) in case["cases"].as_array().unwrap().iter().enumerate() {
+        let command = run["command"].as_str().unwrap();
+        let text = body(shell.call(&ctx(&rig, &format!("f{n}")), serde_json::json!({"command": command})).await);
+        let ran = inline_neutral(&tee_neutral(&processes.script(n)));
+        assert_eq!(ran, inline_neutral(&tee_neutral(run["ran"].as_str().unwrap())), "{command}");
+        assert_eq!(text, run["result"].as_str().unwrap(), "{command}");
     }
+}
+
+/// A hoisted file's path (`<dir>/mixdog-inline-<id>`, either slash form, in whatever dir the run used).
+fn hoisted_file() -> regex::Regex {
+    regex::Regex::new(r#"[A-Za-z]:[\\/][^"'\s]*?mixdog-inline-[0-9a-f-]+"#).unwrap()
+}
+
+/// `text` with each hoisted file's path, up to its extension, as `<FILE>`.
+fn inline_neutral(text: &str) -> String {
+    hoisted_file().replace_all(text, "<FILE>").into_owned()
+}
+
+/// A command line as its words (double quotes group and are dropped).
+fn words(text: &str) -> Vec<String> {
+    regex::Regex::new(r#""([^"]*)"|(\S+)"#).unwrap().captures_iter(text).map(|c| c.get(1).or(c.get(2)).unwrap().as_str().to_owned()).collect()
+}
+
+/// `script-transport.slow.test.mjs`' two file-transport tests through the tool: each long inline command (and the short one
+/// that stays inline; the oversized PowerShell bodies are a named difference) runs as Node's whole text on Node's platform and
+/// shell, from a hoisted file holding Node's text, and answers Node's text. On Node's `linux` the bash transport carries the
+/// command in the environment, so that is the text compared.
+#[tokio::test]
+async fn long_commands_run_from_nodes_hoisted_files() {
+    for name in ["script-file-transport", "script-file-transport-linux"] {
+        let case = scenario(name);
+        let linux = case["platform"] == "linux";
+        for (n, run) in case["cases"].as_array().unwrap().iter().enumerate() {
+            let files = Arc::new(Mutex::new(Vec::new()));
+            let processes = {
+                let files = files.clone();
+                Stepped::new(move |spec| {
+                    let text = match spec {
+                        CommandSpec::Shell { script, .. } => script.clone(),
+                        CommandSpec::Argv { program, args } => format!("{program} {}", args.join(" ")),
+                    };
+                    let file = hoisted_file().find(&text).map(|path| {
+                        let ext = regex::Regex::new(r"^\.\w+").unwrap().find(&text[path.end()..]).unwrap();
+                        std::fs::read_to_string(path.as_str().to_owned() + ext.as_str()).unwrap()
+                    });
+                    files.lock().unwrap().push(file);
+                    vec![(None, Vec::new(), 0)]
+                })
+            };
+            let powershell = run["spec"] == "powershell";
+            let (rig, shell, _) = stepped_rig(processes.clone(), |config| {
+                if powershell {
+                    windows_powershell(config);
+                    config.skill_runtime = Some(recorded_skill_runtime());
+                } else if linux {
+                    config.shell = Arc::new(FixedShell("/bin/bash".into()));
+                } else {
+                    config.windows = true;
+                }
+            });
+            let command = run["command"].as_str().unwrap();
+            let call_ctx = ctx(&rig, &format!("h{n}"));
+            let call = shell.call(&call_ctx, serde_json::json!({"command": command}));
+            let text = body(until(&format!("{name} {n}: the call"), call).await);
+            let (spec, env, _) = processes.spawned.lock().unwrap()[0].clone();
+            let want = run["ran"].as_str().unwrap();
+            match spec {
+                // Rust starts a lone `node <file>` itself (no shell between): the program's name and its arguments are
+                // Node's command words.
+                CommandSpec::Argv { program, args } => {
+                    let stem = std::path::Path::new(&program).file_stem().unwrap().to_string_lossy().into_owned();
+                    let got: Vec<String> = std::iter::once(stem).chain(args).map(|w| inline_neutral(&w)).collect();
+                    assert_eq!(got, words(want), "{name} {n}");
+                }
+                CommandSpec::Shell { script, .. } => {
+                    let ran = if linux { env.set.iter().find(|(k, _)| k == "MIXDOG_SHELL_SCRIPT").unwrap().1.clone() } else { script };
+                    assert_eq!(inline_neutral(&ran), want, "{name} {n}");
+                }
+            }
+            // Node records `null` for a run that hoisted nothing.
+            assert_eq!(files.lock().unwrap()[0].as_deref(), run["file"].as_str(), "{name} {n}");
+            assert_eq!(text, run["result"].as_str().unwrap(), "{name} {n}");
+        }
+    }
+}
+
+/// `deadline-plan.test.mjs`, every recorded plan through the tool (a quiet process the manager ends at its run limit). Each of
+/// Node's fields is checked against what the tool does with the call: the run limit the spawn carries is `backgroundDeadlineMs`
+/// (with background tasks on) or `timeout` (off), and `timeout + promotedTimeoutMs` when a deadline is split; the call ends
+/// at `autoBackgroundMs` moved to the background when that comes before the foreground `timeout`, else at `timeout`,
+/// promoted as `promoteAtTimeout` says; with neither it never ends on its own.
+#[tokio::test(start_paused = true)]
+async fn every_deadline_plan_is_what_the_tool_does_with_the_call() {
+    const VARS: [&str; 3] = ["MIXDOG_SHELL_AUTO_BACKGROUND_MS", "BASH_MAX_TIMEOUT_MS", "MIXDOG_SHELL_BACKGROUND_MAX_MS"];
+    const NEVER: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
+    for (n, case) in scenario("deadline-plan")["cases"].as_array().unwrap().iter().enumerate() {
+        for name in VARS {
+            // SAFETY: the test runner (nextest) runs each test in a process of its own; nothing else reads the environment.
+            match case["env"][name].as_str() {
+                Some(value) => unsafe { std::env::set_var(name, value) },
+                None => unsafe { std::env::remove_var(name) },
+            }
+        }
+        let background = case["backgroundOnTimeout"].as_bool().unwrap();
+        // SAFETY: as above.
+        unsafe { std::env::set_var("MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS", if background { "0" } else { "1" }) };
+        let processes = Stepped::quiet();
+        processes.limits.store(true, SeqCst);
+        let (rig, shell, _) = stepped_rig(processes.clone(), |_| {});
+        let mut input = case["args"].clone();
+        input["command"] = "make".into();
+        let ended = tokio::time::timeout(NEVER, shell.call(&ctx(&rig, &format!("d{n}")), input)).await.ok().map(body);
+        let at = (tokio::time::Instant::now() - processes.spawned_at.lock().unwrap()[0]).as_millis() as u64;
+        let limit = processes.spawned.lock().unwrap()[0].2.map_or(0, |d| d.as_millis() as u64);
+        let got = serde_json::json!({
+            "limit": limit,
+            "endsAt": if ended.is_some() { at } else { 0 },
+            "promoted": ended.as_deref().is_some_and(|t| t.starts_with("background task\n")),
+        });
+        let plan = &case["plan"];
+        let num = |k: &str| plan[k].as_u64().unwrap();
+        let (hold, foreground, promote) = (num("autoBackgroundMs"), num("timeout"), plan["promoteAtTimeout"] == true);
+        let (ends_at, promoted) = if hold > 0 && (foreground == 0 || hold < foreground) {
+            (hold, true)
+        } else if foreground > 0 {
+            (foreground, promote)
+        } else {
+            (0, false)
+        };
+        let deadline = if background { num("backgroundDeadlineMs") } else { foreground };
+        let want = serde_json::json!({"limit": deadline, "endsAt": ends_at, "promoted": promoted});
+        assert_eq!(got, want, "{case}");
+        if num("promotedTimeoutMs") > 0 {
+            assert_eq!(limit, foreground + num("promotedTimeoutMs"), "{case}");
+        }
+        let _ = rig.manager.kill(&ProcessHandle(format!("task-d{n}")));
+    }
+}
+
+/// `failure-taxonomy.test.mjs` 'shell failure rendering preserves actual signals and runtime kill causes': each process end the
+/// Rust process manager can report (a signal death, a cancelled run, an expired run limit) answers Node's whole text.
+#[tokio::test(start_paused = true)]
+async fn each_process_end_answers_nodes_failure_text() {
+    for case in scenario("failure-status")["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let processes = Stepped::quiet();
+        processes.kill_ends.store(false, SeqCst);
+        let (rig, shell, _) = stepped_rig(processes.clone(), windows_powershell);
+        let c = ctx(&rig, name);
+        let id = format!("task-{name}");
+        let end = |status, killed| {
+            let processes = processes.clone();
+            let id = id.clone();
+            async move {
+                until("spawn", async { while processes.spawned.lock().unwrap().is_empty() { tokio::task::yield_now().await } }).await;
+                processes.exit(&id, status, killed);
+            }
+        };
+        let (call, cancel) = (shell.call(&c, serde_json::json!({"command": "x", "timeout_ms": 500})), c.cancel.clone());
+        let text = match name {
+            "signal" => tokio::join!(call, end(ExitStatus::Signal(9), None)).0,
+            "cancellation" => {
+                let ended = end(ExitStatus::Signal(15), Some(KillReason::Requested));
+                tokio::join!(call, async move {
+                    cancel.cancel();
+                    ended.await;
+                })
+                .0
+            }
+            "timeout" => tokio::join!(call, end(ExitStatus::Signal(15), Some(KillReason::TimeLimit))).0,
+            _ => continue,
+        };
+        assert_eq!(body(text), case["result"].as_str().unwrap(), "{name}");
+    }
+}
+
+/// Polls `check` until it holds, waiting real time between tries (file cleanup runs on the blocking pool).
+async fn eventually(what: &str, check: impl Fn() -> bool) {
+    for _ in 0..500 {
+        if check() {
+            return;
+        }
+        tokio::task::spawn_blocking(|| std::thread::sleep(std::time::Duration::from_millis(10))).await.unwrap();
+    }
+    panic!("{what}: not within 5 s");
+}
+
+/// The tee path a PowerShell filter script writes (`Tee-Object -FilePath '<path>'`).
+fn tee_file(spec: &CommandSpec) -> Option<String> {
+    let CommandSpec::Shell { script, .. } = spec else { return None };
+    script.split("-FilePath '").nth(1).and_then(|rest| rest.split('\'').next()).map(str::to_owned)
+}
+
+/// `queued-tee-lifecycle.test.mjs`: a command moved to the background (Node's queued run) keeps its tee capture while it runs
+/// and gives it up once it settled.
+#[tokio::test(start_paused = true)]
+async fn a_backgrounded_runs_tee_lives_until_it_settles() {
+    let case = scenario("queued-tee");
+    let paths = Arc::new(Mutex::new(Vec::new()));
+    let processes = {
+        let paths = paths.clone();
+        Stepped::new(move |spec| {
+            let path = tee_file(spec).unwrap();
+            std::fs::write(&path, "queued producer output").unwrap();
+            paths.lock().unwrap().push(path);
+            Vec::new()
+        })
+    };
+    let (rig, shell, _) = stepped_rig(processes.clone(), windows_powershell);
+    let text = body(shell.call(&ctx(&rig, "q1"), serde_json::json!({"command": case["command"], "background": true})).await);
+    assert!(text.starts_with("background task\n"), "{text}");
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    let path = std::path::PathBuf::from(paths.lock().unwrap()[0].clone());
+    let kept = path.exists();
+    processes.exit("task-q1", ExitStatus::Code(1), None);
+    eventually("the tee to go", || !path.exists()).await;
+    let got = serde_json::json!({"command": case["command"], "keptWhileRunning": kept, "keptAfterSettle": path.exists()});
+    assert_eq!(got, serde_json::json!({"command": case["command"], "keptWhileRunning": case["keptWhileRunning"], "keptAfterSettle": case["keptAfterSettle"]}));
+}
+
+/// `guardians-background.slow.test.mjs` 'a promoted non-zero command reports one consistent status on every surface': each
+/// end of a promoted `npm test` the Rust process manager can report notifies Node's whole completion, with Node's task status.
+#[tokio::test(start_paused = true)]
+async fn a_promoted_commands_end_notifies_nodes_completion() {
+    for case in scenario("status-surfaces")["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let end = match name {
+            "nonzero" => Some((ExitStatus::Code(3), None)),
+            "signal" => Some((ExitStatus::Signal(11), None)),
+            "timed-out" => Some((ExitStatus::Signal(9), Some(KillReason::TimeLimit))),
+            "running" => None,
+            _ => continue,
+        };
+        let processes = Stepped::quiet();
+        let (rig, shell, clock) = stepped_rig(processes.clone(), |_| {});
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut c = ctx(&rig, "s1");
+        c.options.notify = {
+            let seen = seen.clone();
+            Some(ToolNotify(Arc::new(move |text: &str, meta: &JsonValue| {
+                seen.lock().unwrap().push((text.to_owned(), meta.clone()));
+                true
+            })))
+        };
+        shell.call(&c, serde_json::json!({"command": "npm test", "background": true})).await.unwrap();
+        processes.output("task-s1", OutputStream::Stdout, b"running tests").await;
+        processes.output("task-s1", OutputStream::Stderr, b"3 failing").await;
+        let Some((status, killed)) = end else {
+            let listed = body(rig.task.call(&ctx(&rig, "l1"), serde_json::json!({"action": "list"})).await);
+            assert!(listed.lines().any(|l| l.starts_with("- task-s1 shell/shell ") && l.split(' ').nth(3) == case["taskStatus"].as_str()), "{listed}");
+            processes.exit("task-s1", ExitStatus::Code(0), None);
+            continue;
+        };
+        clock.store(golden_ms() + 1500, SeqCst);
+        processes.exit("task-s1", status, killed);
+        let spill = rig.runtime.config.spill_dir.to_string_lossy().into_owned();
+        until("the completion", async { while seen.lock().unwrap().is_empty() { tokio::task::yield_now().await } }).await;
+        let (text, meta) = seen.lock().unwrap()[0].clone();
+        let completion = &case["completion"];
+        // The capture path in either slash form (Rust writes `/`, Node's `path.join` `\`): both name the same file.
+        let want = completion["body"].as_str().unwrap().replace("<L>\\", "<L>/");
+        assert_eq!(text.replace(&spill.replace('\\', "/"), "<L>").replace(&spill, "<L>"), want, "{name}");
+        assert_eq!(meta["status"], completion["taskStatus"], "{name}");
+    }
+}
+
+/// `{started: …}` and `{logs: …}` of a task block as placeholders (the live run's clock and its capture path).
+fn task_block_neutral(text: &str) -> String {
+    let started = regex::Regex::new(r"(?m)^started: .*$").unwrap();
+    let logs = regex::Regex::new(r"(?m)^logs: .*$").unwrap();
+    logs.replace_all(&started.replace_all(text, "started: <T>"), "logs: <LOGS>").into_owned()
+}
+
+fn live_pwsh() -> (Rig, ShellTool, TaskTool) {
+    let mut rig = real_rig();
+    let mut config = rig.runtime.config.clone_for_test();
+    config.windows = true;
+    config.powershell = true;
+    config.shell = Arc::new(FixedShell("pwsh.exe".into()));
+    // A live run's elapsed time is the wall clock's.
+    config.now_ms = Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64);
+    rig.runtime = ExecRuntime::new(config);
+    let (shell, task) = (ShellTool::new(rig.runtime.clone()), TaskTool::new(rig.runtime.clone()));
+    (rig, shell, task)
+}
+
+/// `guardians-background.slow.test.mjs`, the pwsh entry of the two descendant tests and 'a finished command that left
+/// descendants is tracked and cancelled through the task tool', live with the process layer's survivor watch: the detaching
+/// command answers Node's warning and task block (the live ping output after it is not compared: its count of replies is
+/// timing), `task cancel` on it and the command whose descendants all exit answer Node's whole text.
+#[cfg(windows)]
+#[tokio::test]
+async fn live_descendants_are_tracked_and_cancelled_as_in_node() {
+    let case = scenario("descendants-live");
+    let mut rig = rig();
+    let tokens = mixdog_rt::testing::tokens();
+    let manager = mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
+    rig.manager = Arc::new(manager.clone());
+    let mut config = rig.runtime.config.clone_for_test();
+    config.windows = true;
+    config.powershell = true;
+    config.shell = Arc::new(FixedShell("pwsh.exe".into()));
+    config.survivors = Some(Arc::new(mixdog_spawn::survivors::ProcessSurvivors::new(manager)));
+    rig.runtime = ExecRuntime::new(config);
+    let (shell, task) = (ShellTool::new(rig.runtime.clone()), TaskTool::new(rig.runtime.clone()));
+    let left = body(shell.call(&ctx(&rig, "v1"), serde_json::json!({"command": case["detaching"]})).await);
+    let id = regex::Regex::new(r"(?m)^task_id: (\S+)$").unwrap().captures(&left).map(|c| c[1].to_owned()).unwrap_or_else(|| panic!("{left}"));
+    let head = |text: &str| task_block_neutral(text).split_once("started: <T>").map(|(h, _)| h.to_owned()).unwrap();
+    assert_eq!(head(&left.replace(&id, "<ID>")), head(case["left"].as_str().unwrap()));
+    let cancelled = body(task.call(&ctx(&rig, "v2"), serde_json::json!({"action": "cancel", "task_id": id})).await);
+    assert_eq!(cancelled.replace(&id, "<ID>"), case["cancelled"].as_str().unwrap());
+}
+
+/// `guardians-background.slow.test.mjs` 'a real auto-backgrounded command leaves through the background result path': the
+/// test's command live on pwsh with the recorded hold answers Node's background text (task id, start time, log path and the
+/// elapsed seconds as placeholders).
+#[cfg(windows)]
+#[tokio::test]
+async fn a_live_command_past_its_hold_answers_nodes_background_text() {
+    let case = scenario("auto-background-live");
+    // SAFETY: the test runner (nextest) runs each test in a process of its own.
+    unsafe { std::env::set_var("MIXDOG_SHELL_AUTO_BACKGROUND_MS", case["holdMs"].to_string()) };
+    let (rig, shell, task) = live_pwsh();
+    let text = body(shell.call(&ctx(&rig, "g1"), serde_json::json!({"command": case["command"]})).await);
+    task.call(&ctx(&rig, "g2"), serde_json::json!({"action": "cancel", "task_id": "task-g1"})).await.unwrap();
+    let neutral = |text: &str| {
+        let secs = regex::Regex::new(r"after the \d+s hold").unwrap();
+        secs.replace(&task_block_neutral(text), "after the <N>s hold").into_owned()
+    };
+    assert_eq!(neutral(&text.replace("task-g1", "<ID>")), neutral(case["result"].as_str().unwrap()));
 }
 
 /// The producer-exit tee's random token as `<T>` and its file's directory (the host temp dir) as `<TMP>`.

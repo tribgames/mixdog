@@ -1,25 +1,104 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-exec-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --work <temp dir>",
   "compared": {
+    "artifact-lifecycle": "not replayed: a difference (see excluded)",
+    "auto-background-live": "the whole background text (task id <ID>, start time, log path and the hold's elapsed seconds as placeholders); recorded and replayed with a 5 s hold instead of the test's 500 ms, which races pwsh's start",
+    "background-final": "not replayed: a difference (see excluded)",
     "bash-byte-identity": "the exit and stdout of each body, run through Rust's bash transport on the recorded Git Bash. Node's case runs below the tool (execShellCommand), so the tool's `cat` read-tool note line is removed from the Rust result before comparing",
-    "deadline-plan": "autoBackgroundMs against the hold, and the run limit (backgroundDeadlineMs with background tasks on, timeout without) against the time limit. Rust has one run limit the process manager enforces and no separate foreground timeout: promotedTimeoutMs and promoteAtTimeout are not compared; a run limit at or below the hold being enforced instead of promoted is the real-process test a_real_command_over_its_time_limit_is_killed_with_nodes_text",
+    "cancel-race": "not replayed: a difference (see excluded)",
+    "deadline-plan": "every field of every plan, through the shell tool (a quiet process its manager ends at its run limit): the spawn run limit is backgroundDeadlineMs (background tasks on) or timeout (off), and timeout + promotedTimeoutMs when a deadline is split; the call ends at autoBackgroundMs moved to the background when that comes before timeout, else at timeout promoted as promoteAtTimeout says, else never on its own",
+    "descendants-live": "the detaching run up to its start time (the live ping output after it is timing) and task cancel, whole. The finishing run is not replayed: a difference (see excluded)",
     "display-command": "the whole executed script (the tee token as <T>, its temp dir as <TMP>) and the task label",
-    "filter-plan-groups": "whether a plan is made; the plan text carries a random token",
+    "failure-status": "the whole result for the signal, cancellation and timeout ends",
+    "filter-plan": "through the shell tool: the whole executed script (tee token <T>, temp dir <TMP>) and the whole result",
     "integration-live": "the whole result text of each live run; the repo case runs in a repo the replay builds the same way",
     "output-silence": "the first two tests: each silence note against the job's task-list entry, each digest against the whole body of a task wait. Not recorded: 'an unreadable capture file means unknown silence…' (a difference: Rust reads silence from the output it received, held in memory, and has no capture file to fail) and 'agent status shows the waited job tool silence…' (the agent tool's status, mixdog-agent)",
     "powershell-live": "the whole result text of each live run on pwsh",
+    "queued-tee": "kept while the run lasts and after it settled; the Rust form of the run is a command moved to the background",
+    "script-file-transport": "through the shell tool on the recorded spec: the whole text the shell is handed (the hoisted path as <FILE>), the hoisted file read when the shell starts, the whole result",
+    "script-file-transport-linux": "the same on bash with Node platform linux; Rust carries the command to bash in MIXDOG_SHELL_SCRIPT, which is the text compared",
+    "spawn-enoent": "not replayed: a difference (see excluded)",
     "spawn-env": "both tests through the shell tool: the child's whole env per daemon env (<WORK> is the replay's directory), the daemon env unchanged, and the launcher files written",
+    "status-surfaces": "the whole completion notice (capture dir <L>; Rust writes the path with `/`, Node's path.join with `\\`, compared as the same file) and its status for the ends the Rust process manager reports; the running task's status in the task list",
     "wmic-note": "the result text and the hard limit; the executed text ends with the rewritten command (Rust puts its UTF-8 preamble before it in the same script, Node in execShellCommand)"
+  },
+  "excluded": {
+    "scripts/shellhardening/failure-process.slow.test.mjs": {
+      "cancellation racing with auto-background promotion is returned as cancelled (recorded as cancel-race)": "difference: Node rechecks the abort when the hold ends and answers the cancelled run; Rust picks whichever of hold end and cancellation its select polls first and can answer the background start",
+      "execShellCommand carries cancellation cause alongside process signal": "replayed by the recording shell-cancelled-foreground (tools/shell)",
+      "implicit test traces are isolated while ship failures remain queryable": "gone: Node's test-run trace mode"
+    },
+    "scripts/shellhardening/failure-taxonomy.test.mjs": {
+      "apply_patch taxonomy separates parse, context, verification, path and resource guards": "trace classification: replayed in mixdog-trace",
+      "asynchronous EACCES spawn errors remain shell tool failures": "not recordable here: the test needs a POSIX host (Node skips it on Windows, the recording host)",
+      "asynchronous ENOENT spawn errors remain shell tool failures (recorded as spawn-enoent)": "difference: Node answers `[spawn failed]\\n\\nENOENT: <OS message> (os error 2)`; Rust answers `[spawn failed]\\n\\nshell program not found: <path>`",
+      "committed or uncertain patch writes outrank lock and permission detail": "trace classification: replayed in mixdog-trace",
+      "shell failure rendering preserves actual signals and runtime kill causes (output-capture-error)": "difference: Rust keeps output in memory and has no capture file whose write can fail",
+      "shell failure rendering preserves actual signals and runtime kill causes (output-limit)": "difference: the Rust process manager has no output-limit kill",
+      "shell-quoted patch output stays a command exit, never a patch failure": "trace classification: replayed in mixdog-trace",
+      "tool-failures excludes session cancellations but retains real abort failures": "gone: Node diagnostic script scripts/tool-failures.mjs",
+      "tool-failures reclassifies historical patch rows without rewriting the source log": "gone: Node diagnostic script scripts/tool-failures.mjs",
+      "tool-failures report separates patch failures from command exits and absorbed preflights": "gone: Node diagnostic script scripts/tool-failures.mjs"
+    },
+    "scripts/shellhardening/guardians-background.slow.test.mjs": {
+      "Windows-sensitive Node re-execs keep their windows hidden": "gone: source text of Node re-execs (Rust spawns with CREATE_NO_WINDOW)",
+      "a command whose descendants all exit reports a plain completion (the finishing run of descendants-live)": "difference: Node answers `[exit code: 0]\\n\\n(no output)` (its process-table probe takes the console host as a witness, never a survivor); Rust's in-process manager looks at the job once when the root exits, so a console host still closing is reported as a descendant left running (the spawn helper waits EXIT_SETTLE first, the in-process survivor watch does not)",
+      "a naturally exited child is removed from the parent guardian registry": "gone: no guardian process",
+      "a promoted non-zero command reports one consistent status on every surface (exit 139 with SIGSEGV; failed with exit 0; failed with no exit)": "difference: a Rust process end is a code or a signal, never both, and there is no native failed status apart from the exit",
+      "child guardians re-exec Electron as Node without forwarding secrets": "gone: no guardian process (job objects end the tree with its owner)",
+      "child guardians share one broker without coupling child lifetimes": "gone: no guardian process",
+      "command-scoped child guardians can stop without killing a reusable child": "gone: no guardian process",
+      "git-bash and cmd entries of the two descendant tests": "difference: Rust's tool on Windows runs every command in the PowerShell family (the daemon's `powershell` flag); there is no Git Bash or cmd run of a command",
+      "host family comes from the real spawn executable, never from an argument shape": "difference (recorded as host-family): Node classifies the family by the executable; Rust's family is the runtime's `powershell` flag, which the daemon sets from the platform",
+      "the background result block renders its warning slot in order": "replayed by the recordings shell-survivors (with the warning) and tools/shell background start (without)"
+    },
+    "scripts/shellhardening/script-transport.slow.test.mjs": {
+      "Windows fresh pwsh spawn reports parse errors in UTF-8 and keeps exit codes (its parse-error command)": "difference: Node's fresh pwsh spawn runs the script through its UTF-8 standby bootstrap and prints `ParserError: <message>`; Rust has no warm standby (assigned to the tools-mcp-shell work) and prints pwsh's own error in the console code page",
+      "generic oversized PowerShell commands use a safe whole-script transport (both oversized commands)": "difference: Node runs the 30 KB `# padding` script from a .ps1 file (or inline when it names $PSScriptRoot) and answers its output; Rust's exec policy (`policy::exec` `classify` on the scanned target) does not return within 120 s, so the call never spawns"
+    },
+    "src/runtime/agent/orchestrator/tools/builtin/bash-tool/completed-result-survivors.test.mjs": {
+      "survivors a finished command left running do not hold the idle agent row waiting": "the Agents row's waiting state: not the exec module (agent pool progress)",
+      "the folder reservation handed to survivors is released once they are gone": "difference: Node holds a per-command folder reservation until the survivors are gone; Rust has no per-command reservation (a worktree change is refused while any shell job of the session runs, survivors tasks included: mixdog-core-session)"
+    },
+    "src/runtime/agent/orchestrator/tools/builtin/bash-tool/foreground-artifact-lifecycle.test.mjs": {
+      "a deferred hoisted script is removed at host exit when its tree never settles": "difference (recorded as artifact-host-exit): Rust removes a hoisted script when its command settles and has no exit hook; a tree that never settles leaves it in the temp dir",
+      "the first and third tests (recorded as artifact-lifecycle: hoisted script, tee capture of a killed tree)": "difference: Node removes them once the tree settles; Rust removes them through the maintenance lane with the cancelled call's token, which the lane refuses, so they stay in the temp dir"
+    },
+    "src/runtime/agent/orchestrator/tools/builtin/shell-output-silence.test.mjs": {
+      "agent status shows the waited job tool silence and flags a hung one in the diagnostic": "the agent tool's status: mixdog-agent",
+      "an unreadable capture file means unknown silence, never a warning from the other stream": "difference: Rust reads silence from output held in memory; no capture file can fail"
+    },
+    "src/runtime/agent/orchestrator/tools/builtin/shell-run-background-final.test.mjs": {
+      "a command that exits as its hold ends answers the final read (recorded as background-final)": "difference: Node answers `[exit code: 0]` with the final read (the split UTF-8 tail as U+FFFD); Rust can promote before its collector takes the exit and answers the background start with `ok ` so far"
+    },
+    "src/runtime/agent/orchestrator/tools/lib/shell-run-spawn.test.mjs": {
+      "a failed startup whose killed root leaves a descendant keeps the reservation until it is gone": "difference: as above; the job object ends the whole tree",
+      "a startup whose child termination is unconfirmed keeps the reservation until the child is gone": "difference: no per-command folder reservation in Rust; a spawn abandoned at startup is killed by the process manager (spawn/manager.rs)"
+    }
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 70024,
+      "bytes": 287986,
       "path": "golden.json",
-      "sha256": "01431bbba1031528633f94794b8d94cd7dc5ff8a8cca92acec278f916f571a71"
+      "sha256": "7f7cfe97c97a187905e5cf4c63879c2fb5fce09eeaf75c35e486454ebb5fac69"
     }
   ],
-  "node": "v22.20.0",
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+      "sha256": "fa3050809ac5062841f34949b691f887f45c4099962d9f1c47197d0450b411bf"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -38,6 +117,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cases.mjs",
+  "recorderSha256": "4bbd7633b319ada187b64a5769db70ad05926a52b74e168680c3924f77786fb6",
   "scenarios": [
     {
       "name": "deadline-plan",
@@ -48,7 +128,15 @@
       "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool-cwd-env.test.mjs"
     },
     {
-      "name": "filter-plan-groups",
+      "name": "script-file-transport",
+      "test": "scripts/shellhardening/script-transport.slow.test.mjs"
+    },
+    {
+      "name": "script-file-transport-linux",
+      "test": "scripts/shellhardening/script-transport.slow.test.mjs"
+    },
+    {
+      "name": "filter-plan",
       "test": "scripts/shellhardening/script-transport.slow.test.mjs"
     },
     {
@@ -74,26 +162,52 @@
     {
       "name": "wmic-note",
       "test": "scripts/shellhardening/failure-taxonomy.test.mjs"
-    }
-  ],
-  "scripts": [
-    {
-      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
-      "sha256": "fa3050809ac5062841f34949b691f887f45c4099962d9f1c47197d0450b411bf"
+      "name": "spawn-enoent",
+      "test": "scripts/shellhardening/failure-taxonomy.test.mjs"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/recording-scripts.mjs",
-      "sha256": "93cdc7eb433a476fd68a231b37ed9b138d9c87923cacb125bd6161fba6fa682d"
+      "name": "failure-status",
+      "test": "scripts/shellhardening/failure-taxonomy.test.mjs"
     },
     {
-      "path": "benchmarks/rust-core/recorders/record-exec-cases.mjs",
-      "sha256": "21117a4abcaed1efded1d0eedc59f30196f34a12b294f21bade5824fc276e6d6"
+      "name": "cancel-race",
+      "test": "scripts/shellhardening/failure-process.slow.test.mjs"
+    },
+    {
+      "name": "artifact-lifecycle",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/foreground-artifact-lifecycle.test.mjs"
+    },
+    {
+      "name": "artifact-host-exit",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/foreground-artifact-lifecycle.test.mjs"
+    },
+    {
+      "name": "queued-tee",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/queued-tee-lifecycle.test.mjs"
+    },
+    {
+      "name": "background-final",
+      "test": "src/runtime/agent/orchestrator/tools/shell-run-background-final.test.mjs"
+    },
+    {
+      "name": "host-family",
+      "test": "scripts/shellhardening/guardians-background.slow.test.mjs"
+    },
+    {
+      "name": "auto-background-live",
+      "test": "scripts/shellhardening/guardians-background.slow.test.mjs"
+    },
+    {
+      "name": "descendants-live",
+      "test": "scripts/shellhardening/guardians-background.slow.test.mjs"
+    },
+    {
+      "name": "status-surfaces",
+      "test": "scripts/shellhardening/guardians-background.slow.test.mjs"
     }
   ],
   "set": "exec-cases",
-  "totalBytes": 70024
+  "totalBytes": 287986
 }
