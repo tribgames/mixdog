@@ -135,7 +135,7 @@ impl ProviderWarmup {
         let deadline = tokio::time::Instant::now() + delay;
         let this = self.clone();
         drop(mixdog_rt::spawn("provider-warmup", mixdog_rt::TaskClass::Work, async move {
-            tokio::time::sleep_until(deadline).await;
+            mixdog_rt::time::sleep_until(deadline).await;
             let Some(bound) = this.bound.get() else { return };
             bound.gates.running(SLOT, true);
             this.state().pending = false;
