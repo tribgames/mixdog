@@ -921,6 +921,38 @@ const SCENARIOS = [
       ],
     }];
   })(),
+  // The real server's queue filled by a burst (`recordBurst`): 9 searches held in the open of a file under an oplock
+  // (8 at once, MIXDOG_SEARCH_SERVER_MAX_INFLIGHT, and the interactive reserve: serve_search/config.rs:139-160), then
+  // 2,060 greps, which the queue (2,048, config.rs:162-169) takes or refuses; then the holds are released.
+  {
+    name: 'search-queue-burst',
+    standin: true,
+    env: { MIXDOG_SEARCH_SERVER_MAX_INFLIGHT: '8' },
+    files: {
+      't/a.ts': 'needle one\n',
+      ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`h${i + 1}/f.ts`, 'needle held\n'])),
+    },
+    warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+    burst: { holds: 9, calls: 2_060, pattern: 'burst-' },
+  },
+  // A call whose search meets a cancel that did not take (`recordStalled`): 8 greps past their deadline, then a grep, a
+  // grep of two paths, a glob and a find, each failing with its server ended twice (NATIVE_SEARCH_CANCEL_STALLED).
+  {
+    name: 'search-cancel-stalled',
+    standin: true,
+    env: { MIXDOG_SEARCH_CANCEL_GRACE_MS: '1000' },
+    files: { 't/a.ts': 'needle one\n', 'u/d.ts': 'needle four\n' },
+    warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+    stalled: {
+      timeouts: Array.from({ length: 8 }, () => ({ tool: 'grep', input: { pattern: 'needle', path: 't' } })),
+      calls: [
+        { tool: 'grep', input: { pattern: 'needle', path: 't' } },
+        { tool: 'grep', input: { pattern: 'needle', path: ['t', 'u'], context: 0 } },
+        { tool: 'glob', input: { pattern: '*.ts', path: 't' } },
+        { tool: 'find', input: { query: 'a', path: 't' } },
+      ],
+    },
+  },
   // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
   // path dropped, a path array flattened one level with blank entries dropped and removed when nothing is left, then the
   // tool's guard; `grep` keeps a path array as its scopes; `edit` (`file_path`) has no guard; code_graph is answered by
@@ -985,10 +1017,15 @@ async function startStandin(realBin) {
   const { setTimeout: realSetTimeout, clearTimeout: realClearTimeout } = globalThis;
   const events = [];
   let control = null;
-  let wake = () => {};
+  // Every wait in progress, woken by each event the stand-in reports and by `poke` (a change the recorder sees itself).
+  const wakers = new Set();
+  const poke = () => {
+    for (const wake of wakers) wake();
+    wakers.clear();
+  };
   const push = (event) => {
     events.push(event);
-    wake();
+    poke();
   };
   await new Promise((resolve, reject) => {
     createServer((socket) => {
@@ -1005,26 +1042,32 @@ async function startStandin(realBin) {
     MIXDOG_SEARCH_SERVER_BIN: process.execPath,
     NODE_OPTIONS: `--import=${pathToFileURL(join(dirname(SELF), 'lib', 'search-server-standin.mjs')).href}`,
   });
-  // The `nth` event named `name` the stand-in reported since `from`; a stand-in that does not report it within
-  // STANDIN_WAIT_MS fails the recording, naming the event.
-  const until = async (name, from, nth = 1) => {
+  // `test`'s value once it is truthy, tried again at each event and poke; one that is not within STANDIN_WAIT_MS fails the
+  // recording, naming `what`.
+  const waitFor = async (test, what) => {
     let timer;
     const expired = new Promise((_, reject) => {
-      timer = realSetTimeout(() => reject(new Error(`the search stand-in did not report "${name}" #${nth} within ${STANDIN_WAIT_MS} ms`)), STANDIN_WAIT_MS);
+      timer = realSetTimeout(() => reject(new Error(`${what} not within ${STANDIN_WAIT_MS} ms`)), STANDIN_WAIT_MS);
     });
     try {
       for (;;) {
-        const hit = events.slice(from).filter((e) => e.event === name)[nth - 1];
+        const hit = test();
         if (hit) return hit;
-        await Promise.race([new Promise((resolve) => { wake = resolve; }), expired]);
+        await Promise.race([new Promise((resolve) => { wakers.add(resolve); }), expired]);
       }
     } finally {
       realClearTimeout(timer);
     }
   };
+  // The `nth` event named `name` the stand-in reported since `from`; a stand-in that does not report it within
+  // STANDIN_WAIT_MS fails the recording, naming the event.
+  const until = (name, from, nth = 1) =>
+    waitFor(() => events.slice(from).filter((e) => e.event === name)[nth - 1], `the search stand-in's report "${name}" #${nth}`);
   return {
     events,
     until,
+    waitFor,
+    poke,
     async script(script) {
       const from = events.length;
       control.write(`${JSON.stringify(script)}\n`);
@@ -1059,6 +1102,154 @@ async function silentServerCall(run, standin, from, beside) {
   } finally {
     mock.timers.reset();
   }
+}
+
+// Holds the batch oplocks of `recordBurst`'s held searches.
+const OPLOCK_HOLDER = join(dirname(SELF), 'lib', 'oplock-holder.ps1');
+// The pattern of the calls whose cancel ends a stuck server in `recordStalled`.
+const STALL_HELPER = 'stall-helper';
+
+/** A burst against the real search server's queue (`burst: { holds, calls, pattern }`), the stand-in only observing
+ *  (`observe`). Each of `holds` greps of a folder `h<n>` holds a search: the folder's one file is under a batch oplock
+ *  this recorder holds (lib/oplock-holder.ps1), so the server's open of it waits until the oplock is released. A hold
+ *  call is made once the one before it holds (its oplock was broken: the server is in that open). Then `calls` greps of
+ *  `t`, each with a pattern of its own (`pattern` and its number, so no answer is a cached one), are made one at a time,
+ *  each once its request reached the server: the server queues them, or refuses those its full queue cannot take. Then
+ *  the first hold is released and every queued call answers; then each other hold is released and answers in turn.
+ *  Recorded: each call's answer, and `answerOrder`, the calls (by index) in the order the server's answers passed the
+ *  stand-in. Node's clock is mocked throughout, so no client deadline passes. */
+async function recordBurst(scenario, standin, runOf, settle) {
+  const { holds, calls: count, pattern } = scenario.burst;
+  const { spawn } = await import('node:child_process');
+  const { createInterface } = await import('node:readline');
+  const { mock } = await import('node:test');
+  const holder = spawn('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', OPLOCK_HOLDER], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+    windowsHide: true,
+  });
+  const said = [];
+  createInterface({ input: holder.stdout }).on('line', (line) => {
+    said.push(line);
+    standin.poke();
+  });
+  const tell = async (command, answer) => {
+    holder.stdin.write(`${command}\n`);
+    await standin.waitFor(() => said.includes(answer), `${scenario.name}: the oplock holder's "${answer}"`);
+  };
+  for (let n = 1; n <= holds; n += 1) await tell(`hold ${n} ${join(process.env.RECORDER_WORKSPACE, `h${n}`, 'f.ts')}`, `held ${n}`);
+  await standin.script({ observe: true });
+  const from = standin.events.length;
+  const seen = (name) => standin.events.slice(from).filter((e) => e.event === name);
+  const calls = [];
+  const outcomes = [];
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
+  try {
+    for (let i = 1; i <= holds + count; i += 1) {
+      const call = i <= holds
+        ? { tool: 'grep', input: { pattern: 'needle', path: `h${i}` } }
+        : { tool: 'grep', input: { pattern: `${pattern}${i - holds}`, path: 't' } };
+      const index = calls.length;
+      calls.push(call);
+      outcomes.push(null);
+      settle(runOf(call), call.tool).then((outcome) => {
+        outcomes[index] = outcome;
+        standin.poke();
+      });
+      await standin.waitFor(() => seen('request').length >= i, `${scenario.name}: call #${index}'s request at the server`);
+      if (i <= holds) await standin.waitFor(() => said.includes(`broken ${i}`), `${scenario.name}: hold #${index}'s open at the server`);
+    }
+    await tell('release 1', 'released 1');
+    await standin.waitFor(() => outcomes.every((o, i) => o || (i > 0 && i < holds)), `${scenario.name}: every queued call's answer once the first hold is released`);
+    for (let hold = 1; hold < holds; hold += 1) {
+      await tell(`release ${hold + 1}`, `released ${hold + 1}`);
+      await standin.waitFor(() => outcomes[hold], `${scenario.name}: hold #${hold}'s answer`);
+    }
+  } finally {
+    mock.timers.reset();
+    holder.stdin.end();
+  }
+  // Each call made one request, the n-th request being the n-th call's; each was answered once.
+  const requests = seen('request');
+  if (requests.length !== calls.length) throw new Error(`${scenario.name}: ${requests.length} requests for ${calls.length} calls`);
+  const callOf = new Map(requests.map((r, i) => [r.id, i]));
+  const answerOrder = seen('answer').map((a) => callOf.get(a.id));
+  if (answerOrder.length !== calls.length || new Set(answerOrder).size !== calls.length) {
+    throw new Error(`${scenario.name}: ${answerOrder.length} answers for ${calls.length} calls`);
+  }
+  for (let hold = 0; hold < holds; hold += 1) {
+    if (!String(outcomes[hold].text ?? '').includes('needle held')) throw new Error(`${scenario.name}: hold #${hold} did not hold its read: ${JSON.stringify(outcomes[hold])}`);
+  }
+  return { answerOrder, calls: calls.map((call, i) => ({ ...call, ...outcomes[i] })) };
+}
+
+/** Node's answer to a call whose search ends with its server ended for a cancel that did not take
+ *  (`stalled: { timeouts, calls }`). Every server the client starts takes its searches and answers none (`silent`, also
+ *  for one started in place of an ended one: STANDIN_SCRIPT). Each of `timeouts` is a grep past its deadline: once its
+ *  request reached the server, the mock clock passes the client's deadline (17.5 s), the client cancels, and once the
+ *  cancel grace (1 s) has passed it ends the server (`armNativeCancellationWatchdog`, native-search-client.mjs:501-520).
+ *  The clock passes 31 s between two of them, so each is a first timeout (`noteSearchTimeout`).
+ *  Each of `calls` is made, then, each time one of its requests waits at a server, a grep of STALL_HELPER is made there
+ *  and its signal aborted: the client cancels that request, and its grace passing ends the server, which rejects the
+ *  call's request (`_teardown`, NATIVE_SEARCH_CANCEL_STALLED). The client sends a rejected request again once
+ *  (`requestNativeWithRestart`, :658-702), to a new server, where the same happens; the second rejection is the call's
+ *  failure. Recorded: each call's answer (with `returned`: the tool returned its text alone, no other field), and as
+ *  `helpers` the aborted greps' answers. */
+async function recordStalled(scenario, standin, runOf, settle) {
+  const { mock } = await import('node:test');
+  const silent = { silent: true };
+  process.env.STANDIN_SCRIPT = JSON.stringify(silent);
+  await standin.script(silent);
+  const calls = [];
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
+  try {
+    for (const [index, call] of scenario.stalled.timeouts.entries()) {
+      // Past the client's 30 s window of repeated timeouts (`noteSearchTimeout`, SEARCH_TIMEOUT_RECYCLE_WINDOW_MS), which
+      // would end the server at once: each timeout is a first one, ended by the cancel grace.
+      if (index > 0) mock.timers.tick(31_000);
+      const from = standin.events.length;
+      const answer = settle(runOf(call), call.tool);
+      await standin.until('request', from);
+      mock.timers.tick(17_500);
+      const outcome = await answer;
+      await standin.until('cancel', from);
+      mock.timers.tick(1_000);
+      await standin.until('closed', from);
+      calls.push({ ...call, ...outcome });
+    }
+    for (const call of scenario.stalled.calls) {
+      const from = standin.events.length;
+      const own = () => standin.events.slice(from).filter((e) => e.event === 'request' && !e.patterns.includes(STALL_HELPER));
+      let done = null;
+      settle(runOf(call), call.tool, true).then((outcome) => {
+        done = outcome;
+        standin.poke();
+      });
+      const helpers = [];
+      let waiting = 0;
+      for (;;) {
+        await standin.waitFor(() => done || own().length > waiting, `${scenario.name}: ${call.tool}'s answer or its next request`);
+        if (done) break;
+        waiting = own().length;
+        const at = standin.events.length;
+        const abort = new AbortController();
+        const helper = { tool: 'grep', input: { pattern: STALL_HELPER, path: 't' } };
+        const helped = settle(runOf(helper, { signal: abort.signal }), helper.tool);
+        await standin.waitFor(
+          () => standin.events.slice(at).some((e) => e.event === 'request' && e.patterns.includes(STALL_HELPER)),
+          `${scenario.name}: the helper's request`,
+        );
+        abort.abort();
+        helpers.push({ ...helper, ...(await helped) });
+        await standin.until('cancel', at);
+        mock.timers.tick(1_000);
+        await standin.until('closed', at);
+      }
+      calls.push({ ...call, ...done, helpers });
+    }
+  } finally {
+    mock.timers.reset();
+  }
+  return { calls };
 }
 
 if (process.argv[2] === '--child') {
@@ -1123,9 +1314,9 @@ if (process.argv[2] === '--child') {
     drainCodeGraphCache();
   }
   const calls = [];
-  const runOf = (call) => {
+  const runOf = (call, options = {}) => {
     const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
-    return () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd));
+    return () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd, options));
   };
   // Node's outcome of a call: an explicit failure, or a text its one classifier calls an error (a navigation miss is a
   // zero-match there, not a failure).
@@ -1135,6 +1326,21 @@ if (process.argv[2] === '--child') {
     const isError = env.explicitFailure || (!env.explicitSuccess && classifyResultKind(text, false, tool) === 'error');
     return { text: scrub(text), isError };
   };
+  // A call's outcome; with `shape`, also what the tool returned besides its text: `string` when it returned the text
+  // alone, else the returned object's keys.
+  const settle = (run, tool, shape = false) =>
+    run().then(
+      (raw) => ({ ...outcomeOf(raw, tool), ...(shape ? { returned: typeof raw === 'string' ? 'string' : Object.keys(raw).sort() } : {}) }),
+      (error) => ({ thrown: scrub(String(error?.message ?? error)) }),
+    );
+  if (scenario.burst) {
+    writeFileSync(process.env.RECORDER_RESULT, JSON.stringify(await recordBurst(scenario, standin, runOf, settle)));
+    process.exit(0);
+  }
+  if (scenario.stalled) {
+    writeFileSync(process.env.RECORDER_RESULT, JSON.stringify(await recordStalled(scenario, standin, runOf, settle)));
+    process.exit(0);
+  }
   for (const call of scenario.calls) {
     let outcome;
     let beside;
@@ -1243,8 +1449,8 @@ async function recordScenario(scenario) {
   const job = readJobReport(report);
   if (job.exitCode !== 0) throw new Error(`scenario ${scenario.name} failed (${job.exitCode}):\n${output}`);
   const { calls: _calls, resizerImages: _images, ...rest } = scenario;
-  const { calls, resizer } = JSON.parse(readFileSync(join(sandbox, 'result.json'), 'utf8'));
-  return { ...rest, ...(resizer ? { resizer } : {}), calls };
+  const { calls, resizer, ...recorded } = JSON.parse(readFileSync(join(sandbox, 'result.json'), 'utf8'));
+  return { ...rest, ...(resizer ? { resizer } : {}), ...recorded, calls };
 }
 
 let failure = null;
@@ -1265,6 +1471,8 @@ try {
       extra: {
         ...recorderProvenance(import.meta.url),
         graphBinary: { builtFrom: `${NODE_COMMIT}:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)`, sha256: sha256(readFileSync(graphBin)) },
+        // search-queue-burst's held searches: the batch oplocks this script holds (run by Windows PowerShell).
+        oplockHolder: { path: 'benchmarks/rust-core/recorders/lib/oplock-holder.ps1', sha256: sha256(readFileSync(OPLOCK_HOLDER)) },
         scenarios: recorded.map((s) => s.name),
         normalised: [
           'the workspace path (backslash and forward-slash forms) is <ROOT> in every text',
@@ -1274,7 +1482,8 @@ try {
           'what each scenario process left running at its exit (Node\'s resident search server) is ended with its job and not recorded',
           'the answers of a scenario\'s warmup calls (they start the search server; the replay runs them too and ignores them)',
           'in a stand-in call\'s `compare` (the real server\'s answer to each request beside the stand-in\'s, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call\'s comparisons, which are stored sorted, as its concurrent requests reach the server in any order',
-          'a comparison of the stand-in\'s saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal\'s fields as server.rs writes them, the scheduler telemetry taken from the real server\'s answer to the same request',
+          'a comparison of the stand-in\'s saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal\'s fields as server.rs writes them, the scheduler telemetry taken from the real server\'s answer to the same request; search-queue-burst fills the real server\'s queue and records its refusals and answer order',
+          'search-cancel-stalled `helpers`: the greps whose aborted requests make Node end the server a call\'s request waits at (twice per request), recorded and not replayed; the core has no server to end: it answers a search on a volume where 8 reads were given up at once with the answer Node gives a call its ended servers rejected twice (the same answer, sooner, without the wait)',
         ],
       },
     });

@@ -123,7 +123,7 @@ async fn walk_kept(
     let mut walk = ctx.files.walk(ctx.io.maintenance, request);
     let mut out = Vec::new();
     let mut capped = false;
-    let mut refused = false;
+    let mut refused = None;
     let end = pull_all(ctx, walk.as_mut(), |item| {
         match item {
             Ok(entry) => {
@@ -136,8 +136,7 @@ async fn walk_kept(
                     out.push(entry);
                 }
             }
-            Err(FsError { kind: FsErrorKind::Saturated, .. }) => refused = true,
-            Err(_) => {}
+            Err(FsError { kind, .. }) => refused = refused.take().or_else(|| refusal_reason(&kind)),
         }
         true
     })
@@ -147,8 +146,8 @@ async fn walk_kept(
         PullEnd::Deadline | PullEnd::Timer => false,
         PullEnd::Exhausted => true,
     };
-    if refused {
-        return Err(saturated());
+    if let Some(reason) = refused {
+        return Err(refusal(reason));
     }
     Ok(Walked { entries: out, complete, capped })
 }
@@ -159,13 +158,34 @@ async fn walk_kept(
 /// `rg failed for <root>: …` (search-glob-tool.mjs:287-298).
 const SATURATED: &str = "native search queue saturated";
 
-fn saturated() -> ToolError {
-    let text = format!("Error: {SATURATED}");
-    fail(ToolErrorCode::Failed { reason: SATURATED.to_owned() }, text)
+/// What Node's client throws for a request whose server it ended, twice, for a search that did not stop within the
+/// cancel grace (`_teardown` and `processFailure`, native-search-client.mjs:86-100 and :204-226; the watchdog's error,
+/// :501-520), which the tools answer as they answer a full queue (recorded: search-cancel-stalled).
+const STALLED_PREFIX: &str = "native search server exited (cancellation grace expired; NATIVE_SEARCH_CANCEL_STALLED: ";
+
+/// The reason a search was refused with, as Node's client words it; `None` for any other failure.
+fn refusal_reason(kind: &FsErrorKind) -> Option<String> {
+    match kind {
+        FsErrorKind::Saturated => Some(SATURATED.to_owned()),
+        FsErrorKind::CancelStalled { search, grace_ms } => {
+            Some(format!("{STALLED_PREFIX}native {search} search did not stop within {grace_ms}ms after cancellation)"))
+        }
+        _ => None,
+    }
 }
 
-fn is_saturated(error: &ToolError) -> bool {
-    matches!(&error.code, ToolErrorCode::Failed { reason } if reason == SATURATED)
+/// A refused search as the tools answer it: `Error: <reason>`, a failure.
+fn refusal(reason: String) -> ToolError {
+    let text = format!("Error: {reason}");
+    fail(ToolErrorCode::Failed { reason }, text)
+}
+
+/// The reason of a refusal ([`refusal`]).
+fn refused_with(error: &ToolError) -> Option<&str> {
+    match &error.code {
+        ToolErrorCode::Failed { reason } if reason == SATURATED || reason.starts_with(STALLED_PREFIX) => Some(reason),
+        _ => None,
+    }
 }
 
 /// Include/exclude sets for gitignore-style globs (`!` excludes).
@@ -563,8 +583,8 @@ impl Tool for GlobTool {
                 continue;
             }
             let (found, done, cut) = match glob_files(ctx, group_root, rels, include_noise, cap).await {
-                Err(e) if is_saturated(&e) => {
-                    errors.push(format!("rg failed for {label}: {SATURATED}"));
+                Err(e) if refused_with(&e).is_some() => {
+                    errors.push(format!("rg failed for {label}: {}", refused_with(&e).unwrap_or_default()));
                     continue;
                 }
                 found => found?,
@@ -1165,7 +1185,7 @@ impl GrepTool {
         let mut errors = 0usize;
         let mut bad_pattern = None;
         let mut timed_out = false;
-        let mut refused = false;
+        let mut refused = None;
         // The stream is read to its end, past the bound: the scan stops itself at its limit, and the deadline it may
         // report after its last match belongs to the answer (Node's server checks it once more after its scan).
         let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard), |item| {
@@ -1191,7 +1211,7 @@ impl GrepTool {
                 }
                 Err(e) => match e.kind {
                     FsErrorKind::InvalidPattern { message } => bad_pattern = Some(message),
-                    FsErrorKind::Saturated => refused = true,
+                    ref kind @ (FsErrorKind::Saturated | FsErrorKind::CancelStalled { .. }) => refused = refusal_reason(kind),
                     _ => {
                         errors += 1;
                         // A file whose search failed is not answered in part (Node's server drops its printed lines).
@@ -1216,8 +1236,8 @@ impl GrepTool {
                 return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
             }
         };
-        if refused {
-            return Err(saturated());
+        if let Some(reason) = refused {
+            return Err(refusal(reason));
         }
         // The parser's own text, as Node relays the search server's refusal.
         if let Some(message) = bad_pattern {

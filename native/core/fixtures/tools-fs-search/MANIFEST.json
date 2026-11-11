@@ -4,9 +4,10 @@
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)",
     "in a stand-in call's `compare` (the real server's answer to each request beside the stand-in's, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call's comparisons, which are stored sorted, as its concurrent requests reach the server in any order",
-    "a comparison of the stand-in's saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal's fields as server.rs writes them, the scheduler telemetry taken from the real server's answer to the same request"
+    "a comparison of the stand-in's saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal's fields as server.rs writes them, the scheduler telemetry taken from the real server's answer to the same request; search-queue-burst fills the real server's queue and records its refusals and answer order",
+    "search-cancel-stalled `helpers`: the greps whose aborted requests make Node end the server a call's request waits at (twice per request), recorded and not replayed; the core has no server to end: it answers a search on a volume where 8 reads were given up at once with the answer Node gives a call its ended servers rejected twice (the same answer, sooner, without the wait)"
   ],
-  "fileCount": 30,
+  "fileCount": 32,
   "files": [
     {
       "bytes": 5739,
@@ -154,6 +155,16 @@
       "sha256": "9f92c6db24533d394e3f15177f7effad16c8f20ac6caae2770a9ddc248ab482f"
     },
     {
+      "bytes": 7107,
+      "path": "search-cancel-stalled.json",
+      "sha256": "ac730c3d968cf19836ec1e509623d506ea977f7cfdde70b04084b5916a97d2f2"
+    },
+    {
+      "bytes": 365139,
+      "path": "search-queue-burst.json",
+      "sha256": "4f5a74cf74a953609870626557f3eaa8585931cc7ea680969233677532f73890"
+    },
+    {
       "bytes": 5364,
       "path": "search-saturated.json",
       "sha256": "94c52589f86123281fd6735eecefbbeab72be8886075a36d3a710b33aa109b3c"
@@ -182,6 +193,10 @@
     "the workspace path (backslash and forward-slash forms) is <ROOT> in every text",
     "a replay whose workspace lies under the home or Mixdog data folder reads that path's redacted spelling (~/…, <mixdog-data>/…) as <ROOT> too"
   ],
+  "oplockHolder": {
+    "path": "benchmarks/rust-core/recorders/lib/oplock-holder.ps1",
+    "sha256": "4c7c3ef152539ae1bc4e19effdbf9181e5cd89a2a3cd23fe64d9245b18bb1fd6"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -219,7 +234,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "a522fedc509f13f71f3a0f71fa44448ab7964d12ec0a1e896d49ff4b051e5d1a",
+  "recorderSha256": "f6b2ecc2af7f5959d79b0433334939a4b68ca41e82526e21e5527fb75f6d76b2",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -250,8 +265,10 @@
     "grep-timeout",
     "grep-heap",
     "search-saturated",
+    "search-queue-burst",
+    "search-cancel-stalled",
     "path-arg-shapes"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 3058671
+  "totalBytes": 3430917
 }
