@@ -1026,4 +1026,4 @@ fn land_prompt(session: &mut Value, mut composed: SessionPrompt, model: &str) ->
     Ok(())
 }
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
