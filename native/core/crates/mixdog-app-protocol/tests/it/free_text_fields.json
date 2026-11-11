@@ -1,5 +1,5 @@
 {
- "$comment": "Every string field of every client request, client notification and answer to a server request that is not a free-text field (src/free_text.rs FREE_TEXT): a lone surrogate there refuses the frame. `*` is any one segment, a trailing `**` any rest (an untyped value). A new string field fails the contract test until it is listed here or in FREE_TEXT.",
+ "$comment": "Every string field of every client request, client notification and answer to a server request that is not a free-text field (src/free_text.rs FREE_TEXT): a lone surrogate there refuses the frame. `*` is any one segment. `payloads` enumerates, for each value the schema leaves untyped, the string fields the code that reads it reads (`fields`, or the `schema` definition it deserialises into), with that code as `source`; `open` is JSON with no fixed fields a model or a tool's source wrote (free text below: FREE_TEXT has `path/**`); `opaque` is JSON with no fixed fields and no typed text, refused whole (`path/**` here), with its reason. `reasons` says, for every refused field whose name reads like text, why it cannot hold text a person typed. The contract test (tests/it/contract.rs every_string_field_is_free_text_or_named_as_refused) fails on a field in neither list, an untyped value with no declaration, and a text-like refused field without a reason.",
  "refused": {
   "request": {
    "initialize": [
@@ -32,7 +32,12 @@
     "/digest"
    ],
    "feedback/upload": [
-    "/input/**",
+    "/input/attachments/*/data",
+    "/input/attachments/*/mimeType",
+    "/input/attachments/*/name",
+    "/input/id",
+    "/input/kind",
+    "/input/replyTo",
     "/opId"
    ],
    "approval/provideSecret": [
@@ -41,14 +46,49 @@
     "/secret"
    ],
    "channel/call": [
-    "/args/**",
+    "/args/automationKind",
+    "/args/def/at",
+    "/args/def/attachments/*",
+    "/args/def/cwd",
+    "/args/def/days",
+    "/args/def/days/*",
+    "/args/def/executorAgentId",
+    "/args/def/name",
+    "/args/def/newName",
+    "/args/def/owner",
+    "/args/def/time",
+    "/args/def/timezone",
+    "/args/entry/at",
+    "/args/entry/attachments/*",
+    "/args/entry/cwd",
+    "/args/entry/days",
+    "/args/entry/days/*",
+    "/args/entry/executorAgentId",
+    "/args/entry/name",
+    "/args/entry/newName",
+    "/args/entry/owner",
+    "/args/entry/parser",
+    "/args/entry/secret",
+    "/args/entry/time",
+    "/args/entry/timezone",
+    "/args/name",
+    "/args/sessionId",
+    "/args/transcriptPath",
+    "/args/webhook/domain",
+    "/args/webhook/port",
     "/name",
     "/opId"
    ],
    "route/set": [
     "/agentId",
     "/opId",
-    "/route/**",
+    "/route/effort",
+    "/route/fallbacks/*/effort",
+    "/route/fallbacks/*/model",
+    "/route/fallbacks/*/provider",
+    "/route/model",
+    "/route/modelParameters/*",
+    "/route/provider",
     "/threadId"
    ],
    "fast/set": [
@@ -59,15 +99,12 @@
     "/draft/orchestrationMode",
     "/draft/projectPath",
     "/draft/route/effort",
-    "/draft/route/fallbacks/*/**",
     "/draft/route/model",
     "/draft/route/modelParameters/*",
     "/draft/route/provider",
     "/draft/workflowId",
-    "/draft/worktree/**",
     "/initialInput/options/clientSubmissionId",
     "/initialInput/options/context",
-    "/initialInput/options/goalCommand",
     "/initialInput/options/pastedImages/*/attachmentRef",
     "/initialInput/options/pastedImages/*/content",
     "/initialInput/options/pastedImages/*/filename",
@@ -107,7 +144,6 @@
    "thread/list": [
     "/cursor",
     "/cwd",
-    "/searchTerm",
     "/sortDirection",
     "/sortKey"
    ],
@@ -146,9 +182,6 @@
     "/opId",
     "/threadId"
    ],
-   "thread/search": [
-    "/query"
-   ],
    "thread/name/set": [
     "/opId",
     "/threadId"
@@ -167,7 +200,7 @@
     "/threadId"
    ],
    "thread/delete": [
-    "/ifIdle/**",
+    "/ifIdle/lastUsedAt",
     "/opId",
     "/threadId"
    ],
@@ -175,7 +208,9 @@
     "/intoThreadId",
     "/opId",
     "/route/effort",
-    "/route/fallbacks/*/**",
+    "/route/fallbacks/*/effort",
+    "/route/fallbacks/*/model",
+    "/route/fallbacks/*/provider",
     "/route/model",
     "/route/modelParameters/*",
     "/route/provider",
@@ -184,7 +219,9 @@
    "thread/continueInModel": [
     "/opId",
     "/route/effort",
-    "/route/fallbacks/*/**",
+    "/route/fallbacks/*/effort",
+    "/route/fallbacks/*/model",
+    "/route/fallbacks/*/provider",
     "/route/model",
     "/route/modelParameters/*",
     "/route/provider",
@@ -201,11 +238,9 @@
    ],
    "thread/compact/start": [
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "thread/queue/delete": [
-    "/currentText",
     "/opId",
     "/queuedId",
     "/submissionId",
@@ -218,11 +253,16 @@
    ],
    "thread/approval/answer": [
     "/approvalId",
-    "/result/**",
+    "/result/answers/*/selected/*",
+    "/result/remember",
+    "/result/response",
+    "/result/scope",
     "/threadId"
    ],
    "thread/goal/set": [
-    "/goal/**",
+    "/goal/action",
+    "/goal/duration",
+    "/goal/expectedGoalId",
     "/opId",
     "/threadId"
    ],
@@ -232,7 +272,10 @@
    ],
    "thread/goal/control": [
     "/action",
-    "/args/**",
+    "/args/action",
+    "/args/duration",
+    "/args/expectedGoalId",
+    "/args/time_limit_minutes",
     "/opId",
     "/threadId"
    ],
@@ -261,7 +304,6 @@
    "turn/start": [
     "/input/options/clientSubmissionId",
     "/input/options/context",
-    "/input/options/goalCommand",
     "/input/options/pastedImages/*/attachmentRef",
     "/input/options/pastedImages/*/content",
     "/input/options/pastedImages/*/filename",
@@ -303,19 +345,19 @@
     "/turnKey"
    ],
    "thread/contextStatus": [
-    "/options/**",
     "/threadId"
    ],
    "thread/getSessionUsage": [
-    "/options/**",
+    "/options/sessionIds/*",
     "/threadId"
    ],
    "thread/getSessionWorktreeWork": [
-    "/input/**",
+    "/input/sessionIds/*",
     "/threadId"
    ],
    "thread/inheritancePreflight": [
-    "/selection/**",
+    "/selection/model",
+    "/selection/provider",
     "/sourceThreadId",
     "/threadId"
    ],
@@ -338,12 +380,28 @@
     "/threadId"
    ],
    "thread/agentControl": [
-    "/args/**",
+    "/args/agent",
+    "/args/cacheKey",
+    "/args/cwd",
+    "/args/effort",
+    "/args/file",
+    "/args/model",
+    "/args/provider",
+    "/args/scope",
+    "/args/sessionId",
+    "/args/skillSelection",
+    "/args/tag",
+    "/args/taskType",
+    "/args/task_id",
+    "/args/term",
+    "/args/terminal",
+    "/args/type",
+    "/args/typeHint",
     "/opId",
     "/threadId"
    ],
    "thread/switchContext": [
-    "/input/**",
+    "/input/cwd",
     "/opId",
     "/threadId"
    ],
@@ -354,7 +412,6 @@
    ],
    "thread/setEffort": [
     "/opId",
-    "/options/**",
     "/threadId",
     "/value"
    ],
@@ -365,14 +422,14 @@
    ],
    "thread/setWorkflow": [
     "/opId",
-    "/options/**",
+    "/options/scope",
     "/threadId",
     "/workflowId"
    ],
    "thread/setOrchestrationMode": [
     "/mode",
     "/opId",
-    "/options/**",
+    "/options/scope",
     "/threadId"
    ],
    "thread/setOutputStyle": [
@@ -393,13 +450,13 @@
    ],
    "thread/revertTurnChanges": [
     "/checkpointId",
-    "/file/**",
+    "/file",
     "/opId",
     "/threadId"
    ],
    "thread/reapplyTurnChanges": [
     "/checkpointId",
-    "/file/**",
+    "/file",
     "/opId",
     "/threadId"
    ],
@@ -408,12 +465,14 @@
     "/threadId"
    ],
    "thread/stageAttachmentOriginal": [
-    "/input/**",
+    "/input/data",
     "/opId",
     "/threadId"
    ],
    "thread/resizeImage": [
-    "/input/**",
+    "/input/data",
+    "/input/filename",
+    "/input/mimeType",
     "/opId",
     "/threadId"
    ],
@@ -423,26 +482,30 @@
     "/threadId"
    ],
    "thread/requestWorktree": [
-    "/input/**",
+    "/input/carryChanges",
+    "/input/name",
+    "/input/txId",
     "/opId",
     "/threadId"
    ],
    "thread/mergeWorkspace": [
-    "/input/**",
+    "/input/target",
     "/opId",
     "/threadId"
    ],
    "thread/selectBranch": [
-    "/input/**",
+    "/input/branch",
+    "/input/txId",
     "/opId",
     "/threadId"
    ],
    "project/inspectProjectBranch": [
-    "/input/**",
+    "/input/branch",
+    "/input/projectPath",
     "/threadId"
    ],
    "project/getProjectBranchMenu": [
-    "/input/**",
+    "/input/projectPath",
     "/threadId"
    ],
    "project/getProjectConnectors": [
@@ -453,49 +516,56 @@
     "/threadId"
    ],
    "project/previewWorktreeCleanup": [
-    "/input/**",
+    "/input/repoCommonDir",
     "/threadId"
    ],
    "project/selectProjectBranch": [
-    "/input/**",
+    "/input/branch",
+    "/input/projectPath",
+    "/input/startPoint",
     "/opId",
     "/threadId"
    ],
    "project/mergeProjectBranch": [
-    "/input/**",
+    "/input/branch",
+    "/input/projectPath",
+    "/input/target",
     "/opId",
     "/threadId"
    ],
    "project/manageProjectBranch": [
-    "/input/**",
+    "/input/action",
+    "/input/branch",
+    "/input/commit",
+    "/input/projectPath",
+    "/input/startPoint",
+    "/input/target",
+    "/input/targetCommit",
     "/opId",
     "/threadId"
    ],
    "project/removeWorktree": [
-    "/input/**",
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "project/pruneWorktrees": [
-    "/input/**",
+    "/input/repoCommonDir",
     "/opId",
     "/threadId"
    ],
    "project/deleteWorktree": [
-    "/input/**",
+    "/input/entryId",
     "/opId",
     "/threadId"
    ],
    "project/setArchivedSessionWorktrees": [
-    "/input/**",
+    "/input/sessionIds/*",
     "/opId",
     "/threadId"
    ],
    "project/setProjectConnectorEnabled": [
     "/connectorId",
     "/opId",
-    "/options/**",
     "/projectPath",
     "/threadId"
    ],
@@ -548,8 +618,31 @@
    ],
    "agent/saveAgentDefinition": [
     "/opId",
-    "/options/**",
-    "/payload/**",
+    "/payload/avatar/accessory",
+    "/payload/avatar/color",
+    "/payload/avatar/data",
+    "/payload/avatar/expression",
+    "/payload/avatar/file",
+    "/payload/avatar/kind",
+    "/payload/avatar/species",
+    "/payload/avatar/states/*",
+    "/payload/avatar/states/*/data",
+    "/payload/avatar/states/*/poster",
+    "/payload/avatar/variant",
+    "/payload/connectors/*/id",
+    "/payload/connectors/*/tools/*",
+    "/payload/connectors/off/*",
+    "/payload/connectors/tools/*",
+    "/payload/expectedRevision",
+    "/payload/id",
+    "/payload/kind",
+    "/payload/route/effort",
+    "/payload/route/fallbacks/*/effort",
+    "/payload/route/fallbacks/*/model",
+    "/payload/route/fallbacks/*/provider",
+    "/payload/route/model",
+    "/payload/route/modelParameters/*",
+    "/payload/route/provider",
     "/threadId"
    ],
    "agent/deleteAgentDefinition": [
@@ -569,24 +662,24 @@
    ],
    "agent/setAgentConnectors": [
     "/agentId",
-    "/connectors/**",
+    "/connectors/*/id",
+    "/connectors/*/tools/*",
+    "/connectors/off/*",
+    "/connectors/tools/*",
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "agent/setAgentConnectorEnabled": [
     "/agentId",
     "/connectorId",
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "agent/setAgentConnectorToolPermission": [
     "/agentId",
     "/connectorId",
     "/opId",
-    "/options/**",
-    "/permission/**",
+    "/permission",
     "/threadId",
     "/toolName"
    ],
@@ -595,7 +688,6 @@
     "/agentId",
     "/mode",
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "agent/recordAgentApprovalAudit": [
@@ -619,11 +711,31 @@
    ],
    "agent/saveLeadIdentity": [
     "/opId",
-    "/payload/**",
+    "/payload/avatar/accessory",
+    "/payload/avatar/color",
+    "/payload/avatar/data",
+    "/payload/avatar/expression",
+    "/payload/avatar/file",
+    "/payload/avatar/kind",
+    "/payload/avatar/species",
+    "/payload/avatar/states/*",
+    "/payload/avatar/states/*/data",
+    "/payload/avatar/states/*/poster",
+    "/payload/avatar/variant",
     "/threadId"
    ],
    "agent/setLeadAppearance": [
-    "/avatar/**",
+    "/avatar/accessory",
+    "/avatar/color",
+    "/avatar/data",
+    "/avatar/expression",
+    "/avatar/file",
+    "/avatar/kind",
+    "/avatar/species",
+    "/avatar/states/*",
+    "/avatar/states/*/data",
+    "/avatar/states/*/poster",
+    "/avatar/variant",
     "/opId",
     "/threadId"
    ],
@@ -649,31 +761,32 @@
    "agent/memory/delete": [
     "/agentId",
     "/entryId",
-    "/indexRevision/**",
+    "/indexRevision",
     "/opId"
    ],
    "room/create": [
-    "/input/**",
+    "/input/members/*",
     "/opId"
    ],
    "room/update": [
-    "/input/**",
+    "/input/members/*",
+    "/input/roomId",
     "/opId"
    ],
    "room/continue": [
-    "/input/**",
+    "/input/roomId",
     "/opId"
    ],
    "room/leave": [
-    "/input/**",
+    "/input/roomId",
     "/opId"
    ],
    "room/reset": [
-    "/input/**",
+    "/input/roomId",
     "/opId"
    ],
    "room/remove": [
-    "/input/**",
+    "/input/roomId",
     "/opId"
    ],
    "instructions/listInstructionFiles": [
@@ -685,12 +798,14 @@
     "/threadId"
    ],
    "instructions/saveInstructionFile": [
-    "/input/**",
+    "/input/expectedRevision",
+    "/input/group",
+    "/input/id",
     "/opId",
     "/threadId"
    ],
    "instructions/resetInstructionFile": [
-    "/expectedRevision/**",
+    "/expectedRevision",
     "/group",
     "/id",
     "/opId",
@@ -706,7 +821,12 @@
     "/threadId"
    ],
    "connector/addConnectorAccount": [
-    "/input/**",
+    "/input/appPassword",
+    "/input/connector",
+    "/input/email",
+    "/input/key",
+    "/input/oauthClientId",
+    "/input/oauthClientSecret",
     "/opId",
     "/threadId"
    ],
@@ -765,11 +885,11 @@
     "/threadId"
    ],
    "config/getNetworkProxy": [
-    "/options/**",
+    "/options/provider",
     "/threadId"
    ],
    "config/testNetworkProxy": [
-    "/options/**",
+    "/options/provider",
     "/threadId"
    ],
    "config/getWorkflowPack": [
@@ -814,12 +934,13 @@
     "/threadId"
    ],
    "config/setAutoClear": [
-    "/input/**",
+    "/input/duration",
+    "/input/provider",
     "/opId",
     "/threadId"
    ],
    "config/setCompactionSettings": [
-    "/input/**",
+    "/input/summaryMode",
     "/opId",
     "/threadId"
    ],
@@ -829,7 +950,9 @@
     "/threadId"
    ],
    "config/setProfile": [
-    "/input/**",
+    "/input/experienceLevel",
+    "/input/lang",
+    "/input/language",
     "/opId",
     "/threadId"
    ],
@@ -838,18 +961,24 @@
     "/threadId"
    ],
    "config/setSystemShell": [
-    "/input/**",
+    "/input",
+    "/input/command",
     "/opId",
     "/threadId"
    ],
    "config/setTheme": [
     "/id",
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "config/setWebSearchRoute": [
-    "/next/**",
+    "/next/effort",
+    "/next/fallbacks/*/effort",
+    "/next/fallbacks/*/model",
+    "/next/fallbacks/*/provider",
+    "/next/model",
+    "/next/provider",
+    "/next/toolType",
     "/opId",
     "/threadId"
    ],
@@ -866,28 +995,31 @@
    "config/installBuiltinFeature": [
     "/name",
     "/opId",
-    "/options/**",
+    "/options/engines/*",
     "/threadId"
    ],
    "config/setWorktreeSettings": [
     "/opId",
-    "/patch/**",
+    "/patch/branchPrefix",
+    "/patch/newTaskDefault",
     "/threadId"
    ],
    "config/setNetworkProxy": [
     "/opId",
-    "/options/**",
-    "/patch/**",
+    "/patch/exceptions",
+    "/patch/exceptions/*",
+    "/patch/mode",
+    "/patch/url",
     "/threadId"
    ],
    "config/saveWorkflowPack": [
     "/opId",
-    "/payload/**",
+    "/payload/id",
     "/threadId"
    ],
    "config/createWorkflow": [
     "/opId",
-    "/payload/**",
+    "/payload/id",
     "/threadId"
    ],
    "config/deleteWorkflow": [
@@ -896,7 +1028,7 @@
     "/workflowId"
    ],
    "config/setModelPreferences": [
-    "/changes/**",
+    "/changes/*/model",
     "/opId",
     "/providerId",
     "/threadId"
@@ -907,12 +1039,25 @@
    ],
    "config/completeOnboarding": [
     "/opId",
-    "/payload/**",
+    "/payload/agentRoutes/*/effort",
+    "/payload/agentRoutes/*/model",
+    "/payload/agentRoutes/*/provider",
+    "/payload/defaultRoute/effort",
+    "/payload/defaultRoute/model",
+    "/payload/defaultRoute/provider",
+    "/payload/presets/*/id",
+    "/payload/version",
+    "/payload/visited/*",
+    "/payload/webSearchRoute/provider",
+    "/payload/webSearchRoute/toolType",
+    "/payload/workflowRoutes/*/effort",
+    "/payload/workflowRoutes/*/model",
+    "/payload/workflowRoutes/*/provider",
     "/threadId"
    ],
    "config/saveStarterGuideState": [
     "/opId",
-    "/state/**",
+    "/state/visited/*",
     "/threadId"
    ],
    "config/claimSetupRequest": [
@@ -925,7 +1070,6 @@
     "/id",
     "/opId",
     "/owner",
-    "/receipt/**",
     "/threadId"
    ],
    "config/setExtensionScope": [
@@ -952,7 +1096,6 @@
     "/opId"
    ],
    "channel/getChannelSettings": [
-    "/options/**",
     "/threadId"
    ],
    "channel/getChannelSetup": [
@@ -963,11 +1106,22 @@
    ],
    "channel/setWebhookConfig": [
     "/opId",
-    "/patch/**",
+    "/patch/domain",
+    "/patch/port",
     "/threadId"
    ],
    "channel/saveSchedule": [
-    "/entry/**",
+    "/entry/at",
+    "/entry/attachments/*",
+    "/entry/cwd",
+    "/entry/days",
+    "/entry/days/*",
+    "/entry/executorAgentId",
+    "/entry/name",
+    "/entry/newName",
+    "/entry/owner",
+    "/entry/time",
+    "/entry/timezone",
     "/opId",
     "/threadId"
    ],
@@ -1003,7 +1157,13 @@
     "/threadId"
    ],
    "channel/saveWebhook": [
-    "/entry/**",
+    "/entry/attachments/*",
+    "/entry/cwd",
+    "/entry/executorAgentId",
+    "/entry/name",
+    "/entry/owner",
+    "/entry/parser",
+    "/entry/secret",
     "/opId",
     "/threadId"
    ],
@@ -1018,26 +1178,32 @@
     "/threadId"
    ],
    "import/getConversationImportJobs": [
-    "/params/**",
+    "/params/jobId",
     "/threadId"
    ],
    "import/listImportableConversations": [
-    "/params/**",
+    "/params/cursor",
+    "/params/project",
+    "/params/source",
     "/threadId"
    ],
    "import/startConversationImport": [
     "/opId",
-    "/params/**",
+    "/params/requestId",
+    "/params/selection/excludeIds/*",
+    "/params/selection/ids/*",
+    "/params/selection/viewId",
     "/threadId"
    ],
    "import/cancelConversationImport": [
     "/opId",
-    "/params/**",
+    "/params/jobId",
     "/threadId"
    ],
    "import/registerConversationImportFile": [
     "/opId",
-    "/params/**",
+    "/params/path",
+    "/params/source",
     "/threadId"
    ],
    "media/getMediaDefault": [
@@ -1052,28 +1218,36 @@
     "/threadId"
    ],
    "media/listMediaAssets": [
-    "/options/**",
+    "/options/boardId",
+    "/options/kind",
     "/threadId"
    ],
    "media/listMediaBoards": [
     "/threadId"
    ],
    "media/listMediaLanes": [
-    "/options/**",
     "/threadId"
    ],
    "media/readMediaAsset": [
     "/id",
-    "/options/**",
+    "/options/variant",
     "/threadId"
    ],
    "media/resolveMediaFile": [
     "/id",
-    "/options/**",
+    "/options/variant",
     "/threadId"
    ],
    "media/startMediaJob": [
-    "/input/**",
+    "/input/account",
+    "/input/boardId",
+    "/input/kind",
+    "/input/lane",
+    "/input/model",
+    "/input/references/*/base64",
+    "/input/references/*/mime",
+    "/input/sessionId",
+    "/input/sourceType",
     "/opId",
     "/threadId"
    ],
@@ -1088,18 +1262,18 @@
     "/threadId"
    ],
    "media/deleteMediaAssets": [
-    "/filter/**",
+    "/filter/boardId",
+    "/filter/ids/*",
+    "/filter/kind",
     "/opId",
     "/threadId"
    ],
    "media/createMediaBoard": [
-    "/name",
     "/opId",
     "/threadId"
    ],
    "media/renameMediaBoard": [
     "/id",
-    "/name",
     "/opId",
     "/threadId"
    ],
@@ -1109,24 +1283,30 @@
     "/threadId"
    ],
    "media/setMediaAssetBoard": [
-    "/boardId/**",
+    "/boardId",
     "/ids/*",
     "/opId",
     "/threadId"
    ],
    "media/setMediaDefault": [
-    "/input/**",
+    "/input/kind",
+    "/input/lane",
+    "/input/model",
     "/opId",
     "/threadId"
    ],
    "media/setMediaPin": [
-    "/input/**",
+    "/input/account",
+    "/input/kind",
+    "/input/lane",
+    "/input/model",
     "/opId",
     "/threadId"
    ],
    "media/cacheMediaThumbnail": [
     "/id",
-    "/input/**",
+    "/input/base64",
+    "/input/mime",
     "/opId",
     "/threadId"
    ],
@@ -1146,19 +1326,41 @@
    ],
    "mcp/getMcpOAuthLoginStatus": [
     "/flowId",
-    "/options/**",
     "/threadId"
    ],
    "mcp/mcpStatus": [
     "/threadId"
    ],
    "mcp/addMcpServer": [
-    "/input/**",
+    "/input/appPassword",
+    "/input/args/*",
+    "/input/bearer_token_env_var",
+    "/input/command",
+    "/input/connector",
+    "/input/email",
+    "/input/env/*",
+    "/input/env_http_headers/*",
+    "/input/headers/*",
+    "/input/key",
+    "/input/name",
+    "/input/oauthClientId",
+    "/input/oauthClientSecret",
+    "/input/type",
+    "/input/url",
     "/opId",
     "/threadId"
    ],
    "mcp/saveMcpServer": [
-    "/input/**",
+    "/input/args/*",
+    "/input/bearer_token_env_var",
+    "/input/command",
+    "/input/env/*",
+    "/input/env_http_headers/*",
+    "/input/headers/*",
+    "/input/name",
+    "/input/originalName",
+    "/input/type",
+    "/input/url",
     "/opId",
     "/threadId"
    ],
@@ -1180,7 +1382,6 @@
    "mcp/beginMcpOAuthLogin": [
     "/name",
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "mcp/cancelMcpOAuthLogin": [
@@ -1200,13 +1401,19 @@
     "/threadId"
    ],
    "mcp/probeMcpServerAuth": [
-    "/cfg/**",
+    "/cfg/bearer_token_env_var",
+    "/cfg/env_http_headers/*",
+    "/cfg/headers/*",
+    "/cfg/type",
+    "/cfg/url",
     "/opId",
     "/threadId"
    ],
    "mcp/enablePluginMcp": [
     "/opId",
-    "/plugin/**",
+    "/plugin",
+    "/plugin/id",
+    "/plugin/name",
     "/threadId"
    ],
    "account/getOAuthProviderLoginStatus": [
@@ -1214,11 +1421,16 @@
     "/threadId"
    ],
    "account/listWebSearchModels": [
-    "/options/**",
     "/threadId"
    ],
    "account/getQuotaHistory": [
-    "/options/**",
+    "/options/account",
+    "/options/anchor",
+    "/options/endDay",
+    "/options/provider",
+    "/options/startDay",
+    "/options/view",
+    "/options/window",
     "/threadId"
    ],
    "account/authenticateProvider": [
@@ -1229,7 +1441,7 @@
    ],
    "account/beginOAuthProviderLogin": [
     "/opId",
-    "/options/**",
+    "/options/accountId",
     "/providerId",
     "/threadId"
    ],
@@ -1256,20 +1468,36 @@
     "/threadId"
    ],
    "account/updateProviderAccounts": [
-    "/change/**",
+    "/change/order/*",
+    "/change/policy",
+    "/change/rename/id",
+    "/change/selectedId",
     "/opId",
     "/providerId",
     "/threadId"
    ],
    "account/saveProviderApiKey": [
     "/opId",
-    "/options/**",
+    "/options/authMode",
     "/providerId",
     "/secret",
     "/threadId"
    ],
    "account/saveCustomProvider": [
-    "/input/**",
+    "/input/apiKey",
+    "/input/apiKeyEnv",
+    "/input/auth",
+    "/input/baseURL",
+    "/input/discovery",
+    "/input/extraApiKeys/*/apiKey",
+    "/input/extraApiKeys/*/id",
+    "/input/headers/*",
+    "/input/id",
+    "/input/modelWires/*",
+    "/input/protocol",
+    "/input/requestBody/*",
+    "/input/schemaVersion",
+    "/input/wires/*",
     "/opId",
     "/threadId"
    ],
@@ -1287,12 +1515,28 @@
    "account/updateCustomProviderModel": [
     "/modelId",
     "/opId",
-    "/patch/**",
+    "/patch/reasoning/levels/*",
+    "/patch/reasoning/replay",
+    "/patch/reasoning/wireFormat",
+    "/patch/reasoning/wireValues/*",
     "/providerId",
     "/threadId"
    ],
    "account/testCustomProvider": [
-    "/input/**",
+    "/input/apiKey",
+    "/input/apiKeyEnv",
+    "/input/auth",
+    "/input/baseURL",
+    "/input/discovery",
+    "/input/extraApiKeys/*/apiKey",
+    "/input/extraApiKeys/*/id",
+    "/input/headers/*",
+    "/input/id",
+    "/input/modelWires/*",
+    "/input/protocol",
+    "/input/requestBody/*",
+    "/input/schemaVersion",
+    "/input/wires/*",
     "/opId",
     "/threadId"
    ],
@@ -1302,7 +1546,20 @@
     "/threadId"
    ],
    "account/discoverCustomProviderModels": [
-    "/input/**",
+    "/input/apiKey",
+    "/input/apiKeyEnv",
+    "/input/auth",
+    "/input/baseURL",
+    "/input/discovery",
+    "/input/extraApiKeys/*/apiKey",
+    "/input/extraApiKeys/*/id",
+    "/input/headers/*",
+    "/input/id",
+    "/input/modelWires/*",
+    "/input/protocol",
+    "/input/requestBody/*",
+    "/input/schemaVersion",
+    "/input/wires/*",
     "/opId",
     "/threadId"
    ],
@@ -1313,7 +1570,8 @@
    ],
    "account/consumeCodexRateLimitResetCredit": [
     "/opId",
-    "/options/**",
+    "/options/expectedOfferRevision",
+    "/options/idempotencyKey",
     "/threadId"
    ],
    "account/refreshProviderSetup": [
@@ -1321,11 +1579,10 @@
     "/renewCredential"
    ],
    "localProvider/searchLocalProviderModels": [
-    "/query",
     "/threadId"
    ],
    "localProvider/inspectHuggingFaceModel": [
-    "/options/**",
+    "/options/repository",
     "/threadId"
    ],
    "localProvider/getLocalProviderModelDetails": [
@@ -1380,15 +1637,27 @@
     "/threadId"
    ],
    "usage/getUsageDashboard": [
-    "/options/**",
     "/threadId"
    ],
    "usage/getUsageStats": [
-    "/options/**",
+    "/options/anchor",
+    "/options/endDay",
+    "/options/endTime",
+    "/options/source",
+    "/options/startDay",
+    "/options/startTime",
+    "/options/view",
     "/threadId"
    ],
    "usage/getUsageRequests": [
-    "/options/**",
+    "/options/anchor",
+    "/options/cursor",
+    "/options/endDay",
+    "/options/endTime",
+    "/options/source",
+    "/options/startDay",
+    "/options/startTime",
+    "/options/view",
     "/threadId"
    ],
    "update/getUpdateStatus": [
@@ -1396,7 +1665,6 @@
    ],
    "update/checkForUpdate": [
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "update/runUpdateNow": [
@@ -1415,7 +1683,8 @@
     "/threadId"
    ],
    "voice/transcribeAudio": [
-    "/input/**",
+    "/input/data",
+    "/input/mimeType",
     "/opId",
     "/threadId"
    ],
@@ -1430,7 +1699,8 @@
     "/threadId"
    ],
    "skills/skillsStatus": [
-    "/options/**",
+    "/options/cwd",
+    "/options/projectPath",
     "/threadId"
    ],
    "skills/skillContent": [
@@ -1441,17 +1711,18 @@
     "/threadId"
    ],
    "skills/addSkill": [
-    "/input/**",
+    "/input/toolDependencies/*",
     "/opId",
     "/threadId"
    ],
    "skills/saveSkill": [
-    "/input/**",
+    "/input/originalName",
+    "/input/toolDependencies/*",
     "/opId",
     "/threadId"
    ],
    "skills/removeSkill": [
-    "/input/**",
+    "/input/name",
     "/opId",
     "/threadId"
    ],
@@ -1469,22 +1740,30 @@
    ],
    "plugins/addPlugin": [
     "/opId",
-    "/source/**",
+    "/source",
+    "/source/name",
+    "/source/source",
     "/threadId"
    ],
    "plugins/updatePlugin": [
     "/opId",
-    "/plugin/**",
+    "/plugin",
+    "/plugin/id",
+    "/plugin/name",
     "/threadId"
    ],
    "plugins/setPluginEnabled": [
     "/opId",
-    "/plugin/**",
+    "/plugin",
+    "/plugin/id",
+    "/plugin/name",
     "/threadId"
    ],
    "plugins/removePlugin": [
     "/opId",
-    "/plugin/**",
+    "/plugin",
+    "/plugin/id",
+    "/plugin/name",
     "/threadId"
    ],
    "plugins/reloadPlugins": [
@@ -1492,24 +1771,42 @@
     "/threadId"
    ],
    "tools/toolsStatus": [
-    "/query",
-    "/snapshotUserMessage",
     "/threadId"
    ],
    "memory/memoryControl": [
-    "/args/**",
+    "/args/agent_id",
+    "/args/category",
+    "/args/cwd",
+    "/args/format",
+    "/args/id",
+    "/args/index_revision",
+    "/args/memory_caller",
+    "/args/op",
+    "/args/project_id",
+    "/args/project_paths/*",
+    "/args/source",
+    "/args/target_cwd",
+    "/args/target_project_id",
     "/opId",
     "/threadId"
    ],
    "memory/recall": [
-    "/args/**",
+    "/args/category",
+    "/args/currentSessionId",
+    "/args/cursor",
+    "/args/cwd",
+    "/args/id",
+    "/args/memory_caller",
+    "/args/period",
+    "/args/projectScope",
+    "/args/sessionId",
+    "/args/session_id",
+    "/args/sort",
     "/opId",
-    "/query",
     "/threadId"
    ],
    "diagnostics/runDoctor": [
     "/opId",
-    "/options/**",
     "/threadId"
    ],
    "project/read": [
@@ -1524,7 +1821,6 @@
     "/path"
    ],
    "project/update": [
-    "/alias/**",
     "/opId",
     "/path"
    ],
@@ -1544,8 +1840,7 @@
    ],
    "project/codeGraph": [
     "/mode",
-    "/path",
-    "/query"
+    "/path"
    ],
    "projectFs/listDir": [
     "/rel",
@@ -1566,7 +1861,9 @@
     "/root"
    ],
    "projectFs/writeTextBatch": [
-    "/files/**",
+    "/files/*/expectedContent",
+    "/files/*/rel",
+    "/files/*/relPath",
     "/opId",
     "/root"
    ],
@@ -1619,12 +1916,14 @@
     "/path"
    ],
    "projectFs/searchText": [
-    "/options/**",
+    "/options/exclude",
+    "/options/include",
     "/root"
    ],
    "projectFs/replaceText": [
     "/opId",
-    "/options/**",
+    "/options/exclude",
+    "/options/include",
     "/relPaths/*",
     "/root"
    ],
@@ -1651,7 +1950,7 @@
     "/workspaceFile"
    ],
    "projectFs/workspaceFile/write": [
-    "/folders/**",
+    "/folders/*/path",
     "/opId",
     "/workspaceFile"
    ],
@@ -1702,7 +2001,6 @@
     "/source/accessToken",
     "/source/assetId",
     "/source/attachmentId",
-    "/source/input/**",
     "/source/kind",
     "/source/path",
     "/source/projectPath",
@@ -1768,6 +2066,7 @@
     "/rel"
    ],
    "transfer/grant/mint": [
+    "/attachmentId",
     "/path",
     "/sessionId"
    ],
@@ -1778,23 +2077,26 @@
     "/root"
    ],
    "lsp/document": [
-    "/document/**",
+    "/document/kind",
+    "/document/languageId",
+    "/document/relPath",
     "/projectPath",
     "/root"
    ],
    "lsp/request": [
     "/opId",
     "/projectPath",
-    "/request/**",
+    "/request/languageId",
+    "/request/method",
+    "/request/params/**",
+    "/request/relPath",
     "/root"
    ],
    "document/preview": [
-    "/options/**",
     "/rel",
     "/root"
    ],
    "document/previewPages": [
-    "/options/**",
     "/rel",
     "/root"
    ],
@@ -1969,8 +2271,7 @@
    ],
    "git/globalConfig/write": [
     "/key",
-    "/opId",
-    "/value"
+    "/opId"
    ],
    "git/cli/install": [
     "/opId"
@@ -1997,7 +2298,24 @@
    ],
    "github/request": [
     "/cwd",
-    "/input/**",
+    "/input/action",
+    "/input/base",
+    "/input/event",
+    "/input/head",
+    "/input/hostname",
+    "/input/inputs/*",
+    "/input/labels/*",
+    "/input/method",
+    "/input/organization",
+    "/input/owner",
+    "/input/ref",
+    "/input/repo",
+    "/input/sha",
+    "/input/state",
+    "/input/tag",
+    "/input/target",
+    "/input/visibility",
+    "/input/workflow",
     "/opId"
    ],
    "github/star": [
@@ -2008,11 +2326,11 @@
    ],
    "github/pr/view": [
     "/cwd",
-    "/value/**"
+    "/value"
    ],
    "github/pr/diff": [
     "/cwd",
-    "/value/**"
+    "/value"
    ],
    "github/pr/defaultBranch": [
     "/cwd"
@@ -2020,24 +2338,27 @@
    "github/pr/create": [
     "/cwd",
     "/opId",
-    "/value/**"
+    "/value/base",
+    "/value/head"
    ],
    "github/pr/checkout": [
     "/cwd",
     "/opId",
-    "/value/**"
+    "/value"
    ],
    "github/pr/merge": [
     "/cwd",
-    "/method/**",
+    "/method",
     "/opId",
-    "/value/**"
+    "/value"
    ],
    "review/diff/get": [
     "/checkpointId",
     "/cursor",
     "/cwd",
-    "/files/*/**",
+    "/files/*",
+    "/files/*/0",
+    "/files/*/path",
     "/known",
     "/oldPath",
     "/path",
@@ -2051,7 +2372,6 @@
     "/env/*",
     "/opId",
     "/outputMode",
-    "/owner/**",
     "/processHandle",
     "/shell"
    ],
@@ -2067,11 +2387,9 @@
    ],
    "terminal/ensure": [
     "/opId",
-    "/options/**",
     "/tabId"
    ],
    "terminal/attach": [
-    "/resumeFrom/**",
     "/tabId"
    ],
    "terminal/focus": [
@@ -2113,15 +2431,17 @@
     "/opId"
    ],
    "remoteAccess/settleOwedControllerKeys": [
-    "/input/**",
+    "/input/0/*",
     "/opId"
    ],
    "remoteAccess/deliverScreenControllerKey": [
-    "/input/**",
+    "/input",
     "/opId"
    ],
    "remoteAccess/registerPushSubscription": [
-    "/input/**",
+    "/input/endpoint",
+    "/input/keys/auth",
+    "/input/keys/p256dh",
     "/opId"
    ],
    "remoteAccess/removePushSubscription": [
@@ -2129,7 +2449,8 @@
     "/opId"
    ],
    "remoteAccess/registerNativePush": [
-    "/input/**",
+    "/input/platform",
+    "/input/token",
     "/opId"
    ],
    "remoteAccess/removeNativePush": [
@@ -2141,11 +2462,24 @@
    ],
    "browser/command": [
     "/action",
-    "/input/**"
+    "/input/button",
+    "/input/key",
+    "/input/phase",
+    "/input/type",
+    "/input/url"
    ],
    "visualize/command": [
     "/action",
-    "/input/**"
+    "/input/assets/*",
+    "/input/content/kind",
+    "/input/entry",
+    "/input/format",
+    "/input/renderId",
+    "/input/resource",
+    "/input/sessionId",
+    "/input/tabId",
+    "/input/targets/*",
+    "/input/url"
    ],
    "notify/test": [
     "/opId",
@@ -2168,30 +2502,22 @@
     "/value/*/goneOpens/*/tab",
     "/value/*/history/*/id",
     "/value/*/history/*/kind",
-    "/value/*/history/*/label",
     "/value/*/sessionId",
-    "/value/*/tabs/*/annotations/*/label",
     "/value/*/tabs/*/annotations/*/selector",
     "/value/*/tabs/*/cwd",
     "/value/*/tabs/*/id",
-    "/value/*/tabs/*/label",
     "/value/*/tabs/*/panes/*/inline/kind",
     "/value/*/tabs/*/panes/*/inline/source",
-    "/value/*/tabs/*/panes/*/inline/title",
     "/value/*/tabs/*/panes/*/kind",
-    "/value/*/tabs/*/panes/*/label",
     "/value/*/tabs/*/panes/*/path",
     "/value/*/tabs/*/panes/*/remoteRenderId",
     "/value/*/tabs/*/panes/*/remoteTarget",
     "/value/*/tabs/*/panes/*/root",
     "/value/*/tabs/*/panes/*/target",
     "/value/*/tabs/*/problems/*/kind",
-    "/value/*/tabs/*/problems/*/message",
     "/value/*/tabs/*/problems/*/source",
-    "/value/*/tabs/*/remoteLabel",
     "/value/*/tabs/*/restoreAssets/*",
     "/value/*/tabs/*/thumbnail",
-    "/value/*/tabs/*/versions/*/label",
     "/value/openUrl",
     "/value/sessionId",
     "/value/state/active",
@@ -2199,30 +2525,22 @@
     "/value/state/goneOpens/*/tab",
     "/value/state/history/*/id",
     "/value/state/history/*/kind",
-    "/value/state/history/*/label",
     "/value/state/sessionId",
-    "/value/state/tabs/*/annotations/*/label",
     "/value/state/tabs/*/annotations/*/selector",
     "/value/state/tabs/*/cwd",
     "/value/state/tabs/*/id",
-    "/value/state/tabs/*/label",
     "/value/state/tabs/*/panes/*/inline/kind",
     "/value/state/tabs/*/panes/*/inline/source",
-    "/value/state/tabs/*/panes/*/inline/title",
     "/value/state/tabs/*/panes/*/kind",
-    "/value/state/tabs/*/panes/*/label",
     "/value/state/tabs/*/panes/*/path",
     "/value/state/tabs/*/panes/*/remoteRenderId",
     "/value/state/tabs/*/panes/*/remoteTarget",
     "/value/state/tabs/*/panes/*/root",
     "/value/state/tabs/*/panes/*/target",
     "/value/state/tabs/*/problems/*/kind",
-    "/value/state/tabs/*/problems/*/message",
     "/value/state/tabs/*/problems/*/source",
-    "/value/state/tabs/*/remoteLabel",
     "/value/state/tabs/*/restoreAssets/*",
     "/value/state/tabs/*/thumbnail",
-    "/value/state/tabs/*/versions/*/label",
     "/value/tab",
     "/value/updated"
    ],
@@ -2231,10 +2549,16 @@
     "/token"
    ],
    "browser/webrtcSignal": [
-    "/signal/**"
+    "/signal/detail",
+    "/signal/documentId",
+    "/signal/fingerprints/*",
+    "/signal/reason",
+    "/signal/receiveCodecs/*",
+    "/signal/sdp",
+    "/signal/source",
+    "/signal/type"
    ],
    "browser/stream": [
-    "/request/**",
     "/sessionId"
    ],
    "modelProxy/run": [
@@ -2242,34 +2566,26 @@
     "/call/method",
     "/call/model",
     "/call/provider",
-    "/call/request/messages/*/assistantBlocks/**",
     "/call/request/messages/*/cacheTier",
-    "/call/request/messages/*/content",
     "/call/request/messages/*/content/*/filename",
     "/call/request/messages/*/content/*/mime_type",
-    "/call/request/messages/*/content/*/source/content/**",
     "/call/request/messages/*/content/*/source/data",
     "/call/request/messages/*/content/*/source/id",
     "/call/request/messages/*/content/*/source/kind",
     "/call/request/messages/*/content/*/source/media_type",
     "/call/request/messages/*/content/*/source/mime_type",
     "/call/request/messages/*/content/*/source/url",
-    "/call/request/messages/*/content/*/text",
-    "/call/request/messages/*/content/*/title",
     "/call/request/messages/*/content/*/type",
-    "/call/request/messages/*/nativeToolSearch/**",
+    "/call/request/messages/*/nativeToolSearch/provider",
+    "/call/request/messages/*/nativeToolSearch/toolReferences/*",
     "/call/request/messages/*/phase",
-    "/call/request/messages/*/providerReplay/*/items/**",
     "/call/request/messages/*/providerReplay/*/owner",
     "/call/request/messages/*/role",
     "/call/request/messages/*/source",
-    "/call/request/messages/*/thinkingBlocks/**",
     "/call/request/messages/*/toolCallId",
-    "/call/request/messages/*/toolCalls/*/arguments/**",
     "/call/request/messages/*/toolCalls/*/id",
     "/call/request/messages/*/toolCalls/*/name",
     "/call/request/messages/*/toolCalls/*/nativeType",
-    "/call/request/messages/*/turnReminder",
     "/call/request/model",
     "/call/request/options/effort",
     "/call/request/options/effortProjection/initialEffort",
@@ -2278,11 +2594,9 @@
     "/call/request/options/hostedTools/*/context_size",
     "/call/request/options/hostedTools/*/kind",
     "/call/request/options/hostedTools/*/tool_type",
-    "/call/request/options/hostedTools/*/user_location/city",
     "/call/request/options/hostedTools/*/user_location/country",
-    "/call/request/options/hostedTools/*/user_location/region",
     "/call/request/options/hostedTools/*/user_location/timezone",
-    "/call/request/options/modelParameters/**",
+    "/call/request/options/modelParameters/*",
     "/call/request/options/parentSessionId",
     "/call/request/options/promptCacheKey",
     "/call/request/options/promptCacheScope",
@@ -2294,8 +2608,6 @@
     "/call/request/options/toolChoice",
     "/call/request/options/verbosity",
     "/call/request/options/xaiResponsesCacheScope",
-    "/call/request/tools/*/description",
-    "/call/request/tools/*/inputSchema/**",
     "/call/request/tools/*/name",
     "/runId"
    ]
@@ -2318,18 +2630,15 @@
     "/state/**"
    ],
    "host/browser/surface": [
-    "/error",
     "/sessionId",
-    "/tabId",
-    "/title"
+    "/tabId"
    ],
    "host/browser/page": [
     "/documentId",
-    "/geometry/**",
     "/tabId"
    ],
    "host/browser/frame": [
-    "/frame/**",
+    "/frame/image/data",
     "/tabId"
    ],
    "browser/streamAck": [
@@ -2339,32 +2648,31 @@
     "/threadId"
    ],
    "model/proxy/event": [
-    "/event/call/arguments/**",
+    "/event/account_id",
     "/event/call/id",
     "/event/call/name",
     "/event/call/nativeType",
-    "/event/calls/*/arguments/**",
     "/event/calls/*/id",
     "/event/calls/*/name",
     "/event/calls/*/nativeType",
-    "/event/delta",
     "/event/id",
     "/event/item",
     "/event/kind",
-    "/event/message",
     "/event/model",
     "/event/name",
     "/event/phase",
     "/event/pricing_model",
-    "/event/replay/items/**",
+    "/event/provider",
     "/event/replay/owner",
+    "/event/route/model",
+    "/event/route/provider",
+    "/event/route/source",
+    "/event/route/wire",
+    "/event/session_account_id",
     "/event/state/**",
     "/event/stop/kind",
-    "/event/stop/value",
-    "/event/text",
     "/event/type",
     "/event/usage/raw/**",
-    "/event/value/**",
     "/requestId"
    ],
    "model/proxy/heartbeat": [
@@ -2385,20 +2693,14 @@
     "/browserId",
     "/sessionIds/*",
     "/visualizeSessionIds/*"
+   ],
+   "remote/connectionTimeline": [
+    "/text"
    ]
   },
   "answer": {
-   "host/browser/command": [
-    "/**"
-   ],
-   "host/browser/liveControl": [
-    "/**"
-   ],
    "host/capture/fileSnapshot": [
     "/dataUrl"
-   ],
-   "host/files/trashItem": [
-    "/**"
    ],
    "host/localPage/url": [
     ""
@@ -2413,52 +2715,35 @@
     "/**"
    ],
    "host/visualize/command": [
-    "/**"
+    "/path",
+    "/thumbnail"
    ],
    "item/browser/requestApproval": [
     "/answers/*/selected/*",
-    "/answers/*/text",
-    "/editedArgs/*",
-    "/reason",
     "/remember",
-    "/reply",
     "/response",
     "/scope"
    ],
    "item/computer/requestApproval": [
     "/answers/*/selected/*",
-    "/answers/*/text",
-    "/editedArgs/*",
-    "/reason",
     "/remember",
-    "/reply",
     "/response",
     "/scope"
    ],
    "item/permissions/requestApproval": [
     "/answers/*/selected/*",
-    "/answers/*/text",
-    "/editedArgs/*",
-    "/reason",
     "/remember",
-    "/reply",
     "/response",
     "/scope"
    ],
    "item/tool/requestApproval": [
     "/answers/*/selected/*",
-    "/answers/*/text",
-    "/editedArgs/*",
-    "/reason",
     "/remember",
-    "/reply",
     "/response",
     "/scope"
    ],
    "item/tool/requestUserInput": [
     "/answers/*/selected/*",
-    "/editedArgs/*",
-    "/reason",
     "/remember",
     "/response",
     "/scope"
@@ -2467,8 +2752,6 @@
     "/result/failure/code",
     "/result/failure/delivery",
     "/result/failure/kind",
-    "/result/failure/message",
-    "/result/failure/notices/*/message",
     "/result/failure/outcome/model",
     "/result/failure/outcome/outcome",
     "/result/failure/partialModel",
@@ -2481,7 +2764,6 @@
     "/result/failure/verificationUrl",
     "/result/models/*/aliasTarget",
     "/result/models/*/defaultReasoningLevel",
-    "/result/models/*/displayName",
     "/result/models/*/id",
     "/result/models/*/mode",
     "/result/models/*/name",
@@ -2491,18 +2773,14 @@
     "/result/models/*/picker/customReasoning/wireValues/*",
     "/result/models/*/picker/defaultModelParameters/*",
     "/result/models/*/picker/defaultServiceTier",
-    "/result/models/*/picker/description",
     "/result/models/*/picker/fastEfforts/*",
     "/result/models/*/picker/modelParameterOptions/*/id",
     "/result/models/*/picker/modelParameterOptions/*/kind",
-    "/result/models/*/picker/modelParameterOptions/*/label",
-    "/result/models/*/picker/modelParameterOptions/*/options/*/label",
     "/result/models/*/picker/modelParameterOptions/*/options/*/value",
     "/result/models/*/picker/parameterVariants/*/*",
     "/result/models/*/picker/reasoningOptions/*/type",
     "/result/models/*/picker/reasoningOptions/*/values/*",
     "/result/models/*/picker/releaseDate",
-    "/result/models/*/picker/serviceTiers/*/description",
     "/result/models/*/picker/serviceTiers/*/id",
     "/result/models/*/picker/serviceTiers/*/name",
     "/result/models/*/picker/tier",
@@ -2522,5 +2800,2028 @@
     "/result/route/wire"
    ]
   }
- }
+ },
+ "payloads": {
+  "request": {
+   "feedback/upload": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/feedback.rs normalize, normalize_attachments",
+     "fields": [
+      "/id",
+      "/kind",
+      "/message",
+      "/replyTo",
+      "/attachments/*/name",
+      "/attachments/*/mimeType",
+      "/attachments/*/data"
+     ]
+    }
+   },
+   "channel/call": {
+    "/args": {
+     "source": "native/core/crates/mixdog-services/src/channels/call.rs dispatch, tools.rs dispatch, setup.rs run, admin.rs save_schedule_row/save_webhook_row, ports.rs WebhookPatch::from_params",
+     "fields": [
+      "/sessionId",
+      "/transcriptPath",
+      "/name",
+      "/automationKind",
+      "/def/name",
+      "/def/newName",
+      "/def/instructions",
+      "/def/description",
+      "/def/time",
+      "/def/at",
+      "/def/timezone",
+      "/def/days",
+      "/def/days/*",
+      "/def/cwd",
+      "/def/attachments/*",
+      "/def/owner",
+      "/def/executorAgentId",
+      "/entry/name",
+      "/entry/newName",
+      "/entry/instructions",
+      "/entry/description",
+      "/entry/time",
+      "/entry/at",
+      "/entry/timezone",
+      "/entry/days",
+      "/entry/days/*",
+      "/entry/cwd",
+      "/entry/attachments/*",
+      "/entry/owner",
+      "/entry/executorAgentId",
+      "/entry/parser",
+      "/entry/secret",
+      "/webhook/domain",
+      "/webhook/port"
+     ]
+    }
+   },
+   "route/set": {
+    "/route": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/admin_route.rs required_model_selection",
+     "fields": [
+      "/provider",
+      "/model",
+      "/effort",
+      "/fallbacks/*/provider",
+      "/fallbacks/*/model",
+      "/fallbacks/*/effort",
+      "/modelParameters/*"
+     ]
+    }
+   },
+   "thread/start": {
+    "/draft/route/fallbacks/*": {
+     "source": "native/core/crates/mixdog-core-session/src/session/new_route.rs draft_pick (copies provider, model, effort; never reads fallbacks)",
+     "fields": []
+    },
+    "/draft/worktree": {
+     "source": "native/core/crates/mixdog-core-session/src/session/new_task.rs (a truthy check, replaced with {})",
+     "fields": []
+    }
+   },
+   "thread/delete": {
+    "/ifIdle": {
+     "source": "native/core/crates/mixdog-core-session/src/session/delete.rs idle_refusal",
+     "fields": [
+      "/lastUsedAt"
+     ]
+    }
+   },
+   "thread/fork": {
+    "/route/fallbacks/*": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/admin_route.rs required_model_selection",
+     "fields": [
+      "/provider",
+      "/model",
+      "/effort"
+     ]
+    }
+   },
+   "thread/continueInModel": {
+    "/route/fallbacks/*": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/admin_route.rs required_model_selection",
+     "fields": [
+      "/provider",
+      "/model",
+      "/effort"
+     ]
+    }
+   },
+   "thread/compact/start": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/turn_ops.rs compact_trigger, actor/turn_ops.rs compact_start (requireReduction, recoverAgent: booleans)",
+     "fields": []
+    }
+   },
+   "thread/approval/answer": {
+    "/result": {
+     "source": "native/core/crates/mixdog-core-base/src/approvals/mod.rs validate: serde_json::from_value::<ToolApprovalDecision>",
+     "schema": "server_request_methods.json#ToolApprovalDecision"
+    }
+   },
+   "thread/goal/set": {
+    "/goal": {
+     "source": "native/core/crates/mixdog-core-goal/src/goal/control.rs request, control, control_create; state.rs parse_user_command",
+     "fields": [
+      "",
+      "/command",
+      "/objective",
+      "/duration",
+      "/expectedGoalId",
+      "/action"
+     ]
+    }
+   },
+   "thread/goal/control": {
+    "/args": {
+     "source": "native/core/crates/mixdog-core-goal/src/goal/control.rs control, control_edit, control_resume, control_time",
+     "fields": [
+      "/command",
+      "/objective",
+      "/duration",
+      "/expectedGoalId",
+      "/time_limit_minutes",
+      "/action"
+     ]
+    }
+   },
+   "thread/contextStatus": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/thread_context.rs context_status (takes _options, reads nothing)",
+     "fields": []
+    }
+   },
+   "thread/getSessionUsage": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/session_usage.rs other_session_ids",
+     "fields": [
+      "/sessionIds/*"
+     ]
+    }
+   },
+   "thread/getSessionWorktreeWork": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs session_ids",
+     "fields": [
+      "/sessionIds/*"
+     ]
+    }
+   },
+   "thread/inheritancePreflight": {
+    "/selection": {
+     "source": "native/core/crates/mixdog-core-session/src/session/inheritance.rs (route provider, model)",
+     "fields": [
+      "/provider",
+      "/model"
+     ]
+    }
+   },
+   "thread/agentControl": {
+    "/args": {
+     "source": "native/core/crates/mixdog-tools/src/orch/agent dispatch.rs run, scope.rs Scope::of, flow/send.rs, flow/spawn.rs, resume.rs, model_select.rs",
+     "fields": [
+      "/type",
+      "/scope",
+      "/terminal",
+      "/term",
+      "/task_id",
+      "/tag",
+      "/sessionId",
+      "/agent",
+      "/cwd",
+      "/taskType",
+      "/typeHint",
+      "/cacheKey",
+      "/skillSelection",
+      "/model",
+      "/provider",
+      "/effort",
+      "/file",
+      "/prompt",
+      "/message",
+      "/context"
+     ]
+    }
+   },
+   "thread/switchContext": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs switch_context (desktopSession goes on unread: thread_switches.rs switch_context ignores it)",
+     "fields": [
+      "/cwd"
+     ]
+    }
+   },
+   "thread/setEffort": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs (sessionOnly: a boolean)",
+     "fields": []
+    }
+   },
+   "thread/setWorkflow": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs session_scope",
+     "fields": [
+      "/scope"
+     ]
+    }
+   },
+   "thread/setOrchestrationMode": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/thread_settings.rs session_scope",
+     "fields": [
+      "/scope"
+     ]
+    }
+   },
+   "thread/revertTurnChanges": {
+    "/file": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs mutate_changes (file.as_str)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "thread/reapplyTurnChanges": {
+    "/file": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs mutate_changes (file.as_str)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "thread/stageAttachmentOriginal": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/composer_image.rs stage_original_payload",
+     "fields": [
+      "/data"
+     ]
+    }
+   },
+   "thread/resizeImage": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/composer_image.rs resize_image",
+     "fields": [
+      "/data",
+      "/mimeType",
+      "/filename"
+     ]
+    }
+   },
+   "thread/requestWorktree": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs request_input",
+     "fields": [
+      "/name",
+      "/carryChanges",
+      "/prompt",
+      "/txId"
+     ]
+    }
+   },
+   "thread/mergeWorkspace": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs merge_input",
+     "fields": [
+      "/target"
+     ]
+    }
+   },
+   "thread/selectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/worktree_service.rs select_input",
+     "fields": [
+      "/branch",
+      "/txId"
+     ]
+    }
+   },
+   "project/inspectProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/branch"
+     ]
+    }
+   },
+   "project/getProjectBranchMenu": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath"
+     ]
+    }
+   },
+   "project/previewWorktreeCleanup": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs cleanup_options",
+     "fields": [
+      "/repoCommonDir"
+     ]
+    }
+   },
+   "project/selectProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/startPoint",
+      "/branch"
+     ]
+    }
+   },
+   "project/mergeProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/branch",
+      "/target"
+     ]
+    }
+   },
+   "project/manageProjectBranch": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/projectPath",
+      "/branch",
+      "/target",
+      "/action",
+      "/commit",
+      "/targetCommit",
+      "/startPoint"
+     ]
+    }
+   },
+   "project/removeWorktree": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs (force: a boolean, expectedRevision: a number)",
+     "fields": []
+    },
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs (force: a boolean)",
+     "fields": []
+    }
+   },
+   "project/pruneWorktrees": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs cleanup_options",
+     "fields": [
+      "/repoCommonDir"
+     ]
+    }
+   },
+   "project/deleteWorktree": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/entryId"
+     ]
+    }
+   },
+   "project/setArchivedSessionWorktrees": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs",
+     "fields": [
+      "/sessionIds/*"
+     ]
+    }
+   },
+   "project/setProjectConnectorEnabled": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-session/src/session/project/service.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "project/update": {
+    "/alias": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs project/update (a string or null)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "agent/saveAgentDefinition": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/service.rs no_widen (noWiden: a boolean)",
+     "fields": []
+    },
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/edit.rs plan_save, save_files, apply_manifest_edits; avatar.rs avatar_update; mod.rs (route)",
+     "fields": [
+      "/id",
+      "/name",
+      "/description",
+      "/body",
+      "/persona",
+      "/expectedRevision",
+      "/kind",
+      "/route/provider",
+      "/route/model",
+      "/route/effort",
+      "/route/fallbacks/*/provider",
+      "/route/fallbacks/*/model",
+      "/route/fallbacks/*/effort",
+      "/route/modelParameters/*",
+      "/avatar/kind",
+      "/avatar/file",
+      "/avatar/data",
+      "/avatar/color",
+      "/avatar/variant",
+      "/avatar/species",
+      "/avatar/accessory",
+      "/avatar/expression",
+      "/avatar/states/*",
+      "/avatar/states/*/data",
+      "/avatar/states/*/poster",
+      "/connectors/*/id",
+      "/connectors/*/tools/*",
+      "/connectors/off/*",
+      "/connectors/tools/*"
+     ]
+    }
+   },
+   "agent/setAgentConnectors": {
+    "/connectors": {
+     "source": "native/core/crates/mixdog-mcp/src/permissions.rs parse_connector_policy",
+     "fields": [
+      "/*/id",
+      "/*/tools/*",
+      "/off/*",
+      "/tools/*"
+     ]
+    },
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "agent/setAgentConnectorEnabled": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "agent/setAgentConnectorToolPermission": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs (noWiden: a boolean)",
+     "fields": []
+    },
+    "/permission": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/connector_api.rs set_tool_permission (Permission::parse)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "agent/setAgentPermission": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/service.rs (noWiden: a boolean)",
+     "fields": []
+    }
+   },
+   "agent/saveLeadIdentity": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/lead.rs save_lead_identity; avatar.rs avatar_update",
+     "fields": [
+      "/name",
+      "/avatar/kind",
+      "/avatar/file",
+      "/avatar/data",
+      "/avatar/color",
+      "/avatar/variant",
+      "/avatar/species",
+      "/avatar/accessory",
+      "/avatar/expression",
+      "/avatar/states/*",
+      "/avatar/states/*/data",
+      "/avatar/states/*/poster"
+     ]
+    }
+   },
+   "agent/setLeadAppearance": {
+    "/avatar": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/avatar.rs avatar_update",
+     "fields": [
+      "/kind",
+      "/file",
+      "/data",
+      "/color",
+      "/variant",
+      "/species",
+      "/accessory",
+      "/expression",
+      "/states/*",
+      "/states/*/data",
+      "/states/*/poster"
+     ]
+    }
+   },
+   "agent/memory/delete": {
+    "/indexRevision": {
+     "source": "native/core/crates/mixdog-core-agents/src/agents/home_api.rs (the revision token)",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "room/create": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs config_input, members_of",
+     "fields": [
+      "/name",
+      "/members/*"
+     ]
+    }
+   },
+   "room/update": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of, RoomPatch",
+     "fields": [
+      "/roomId",
+      "/name",
+      "/members/*"
+     ]
+    }
+   },
+   "room/continue": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "room/leave": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "room/reset": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "room/remove": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-rooms/src/rooms/service.rs room_id_of",
+     "fields": [
+      "/roomId"
+     ]
+    }
+   },
+   "instructions/saveInstructionFile": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/instructions.rs save",
+     "fields": [
+      "/body",
+      "/group",
+      "/id",
+      "/expectedRevision"
+     ]
+    }
+   },
+   "instructions/resetInstructionFile": {
+    "/expectedRevision": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/instructions.rs reset",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "connector/addConnectorAccount": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs add_connector_account; connector_model.rs",
+     "fields": [
+      "/connector",
+      "/email",
+      "/appPassword",
+      "/key",
+      "/oauthClientId",
+      "/oauthClientSecret"
+     ]
+    }
+   },
+   "config/getNetworkProxy": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/network_proxy.rs",
+     "fields": [
+      "/provider"
+     ]
+    }
+   },
+   "config/testNetworkProxy": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/network_proxy.rs",
+     "fields": [
+      "/provider"
+     ]
+    }
+   },
+   "config/setAutoClear": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_auto_clear",
+     "fields": [
+      "/provider",
+      "/duration"
+     ]
+    }
+   },
+   "config/setCompactionSettings": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_compaction_settings",
+     "fields": [
+      "/summaryMode"
+     ]
+    }
+   },
+   "config/setProfile": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_profile",
+     "fields": [
+      "/title",
+      "/name",
+      "/language",
+      "/lang",
+      "/experienceLevel"
+     ]
+    }
+   },
+   "config/setSystemShell": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_system_shell",
+     "fields": [
+      "",
+      "/command"
+     ]
+    }
+   },
+   "config/setTheme": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs set_theme (persist: a boolean)",
+     "fields": []
+    }
+   },
+   "config/setWebSearchRoute": {
+    "/next": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/search.rs plan",
+     "fields": [
+      "/provider",
+      "/toolType",
+      "/model",
+      "/effort",
+      "/fallbacks/*/provider",
+      "/fallbacks/*/model",
+      "/fallbacks/*/effort"
+     ]
+    }
+   },
+   "config/installBuiltinFeature": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/service.rs installBuiltinFeature",
+     "fields": [
+      "/engines/*"
+     ]
+    }
+   },
+   "config/setWorktreeSettings": {
+    "/patch": {
+     "source": "native/core/crates/mixdog-scm/src/worktree/settings.rs apply_patch",
+     "fields": [
+      "/newTaskDefault",
+      "/branchPrefix"
+     ]
+    }
+   },
+   "config/setNetworkProxy": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-config/src/config/network_proxy.rs",
+     "fields": []
+    },
+    "/patch": {
+     "source": "native/core/crates/mixdog-ai/src/netproxy/setting.rs",
+     "fields": [
+      "/mode",
+      "/url",
+      "/exceptions",
+      "/exceptions/*"
+     ]
+    }
+   },
+   "config/saveWorkflowPack": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/pack.rs save_pack",
+     "fields": [
+      "/id",
+      "/name",
+      "/description",
+      "/body"
+     ]
+    }
+   },
+   "config/createWorkflow": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/pack.rs create_pack, save_pack",
+     "fields": [
+      "/id",
+      "/name",
+      "/description",
+      "/body"
+     ]
+    }
+   },
+   "config/setModelPreferences": {
+    "/changes": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/prefs.rs",
+     "fields": [
+      "/*/model"
+     ]
+    }
+   },
+   "config/completeOnboarding": {
+    "/payload": {
+     "source": "native/core/crates/mixdog-core-config/src/workflow/onboarding.rs",
+     "fields": [
+      "/visited/*",
+      "/presets/*/id",
+      "/version",
+      "/defaultRoute/provider",
+      "/defaultRoute/model",
+      "/defaultRoute/effort",
+      "/webSearchRoute/provider",
+      "/webSearchRoute/toolType",
+      "/workflowRoutes/*/provider",
+      "/workflowRoutes/*/model",
+      "/workflowRoutes/*/effort",
+      "/agentRoutes/*/provider",
+      "/agentRoutes/*/model",
+      "/agentRoutes/*/effort"
+     ]
+    }
+   },
+   "config/saveStarterGuideState": {
+    "/state": {
+     "source": "native/core/crates/mixdog-core-config/src/config/settings.rs required_starter_guide",
+     "fields": [
+      "/visited/*"
+     ]
+    }
+   },
+   "config/completeSetupRequest": {
+    "/receipt": {
+     "source": "native/core/crates/mixdog-core-agents/src/setup/requests.rs complete",
+     "fields": [
+      "/error"
+     ]
+    }
+   },
+   "config/value/write": {
+    "/value": {
+     "source": "native/core/crates/mixdog-core-config/src/config/service.rs value_write, edit_of",
+     "opaque": "a setting value at any path, of any shape: the relay-writable paths (RELAY_SETTING_PATHS, service.rs) hold booleans and enums, the others ids and scopes; no setting the clients write is typed text"
+    }
+   },
+   "config/batchWrite": {
+    "/edits/*/value": {
+     "source": "native/core/crates/mixdog-core-config/src/config/service.rs batch, edit_of",
+     "opaque": "as config/value/write /value"
+    }
+   },
+   "channel/getChannelSettings": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/channels/admin.rs (includeStatus: a boolean)",
+     "fields": []
+    }
+   },
+   "channel/setWebhookConfig": {
+    "/patch": {
+     "source": "native/core/crates/mixdog-services/src/channels/ports.rs WebhookPatch::from_params",
+     "fields": [
+      "/domain",
+      "/port"
+     ]
+    }
+   },
+   "channel/saveSchedule": {
+    "/entry": {
+     "source": "native/core/crates/mixdog-services/src/channels/admin.rs save_schedule_row",
+     "fields": [
+      "/name",
+      "/newName",
+      "/instructions",
+      "/description",
+      "/time",
+      "/at",
+      "/timezone",
+      "/days",
+      "/days/*",
+      "/cwd",
+      "/attachments/*",
+      "/owner",
+      "/executorAgentId"
+     ]
+    }
+   },
+   "channel/saveWebhook": {
+    "/entry": {
+     "source": "native/core/crates/mixdog-services/src/channels/admin.rs save_webhook_row",
+     "fields": [
+      "/name",
+      "/parser",
+      "/instructions",
+      "/description",
+      "/secret",
+      "/cwd",
+      "/attachments/*",
+      "/owner",
+      "/executorAgentId"
+     ]
+    }
+   },
+   "import/getConversationImportJobs": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs",
+     "fields": [
+      "/jobId"
+     ]
+    }
+   },
+   "import/listImportableConversations": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs list_params",
+     "fields": [
+      "/query",
+      "/project",
+      "/cursor",
+      "/source"
+     ]
+    }
+   },
+   "import/startConversationImport": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs selection_ids",
+     "fields": [
+      "/requestId",
+      "/selection/ids/*",
+      "/selection/viewId",
+      "/selection/excludeIds/*"
+     ]
+    }
+   },
+   "import/cancelConversationImport": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs",
+     "fields": [
+      "/jobId"
+     ]
+    }
+   },
+   "import/registerConversationImportFile": {
+    "/params": {
+     "source": "native/core/crates/mixdog-services/src/import/service.rs",
+     "fields": [
+      "/source",
+      "/path"
+     ]
+    }
+   },
+   "media/listMediaAssets": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/service.rs",
+     "fields": [
+      "/kind",
+      "/boardId"
+     ]
+    }
+   },
+   "media/listMediaLanes": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/service.rs (reads nothing)",
+     "fields": []
+    }
+   },
+   "media/readMediaAsset": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/variants.rs",
+     "fields": [
+      "/variant"
+     ]
+    }
+   },
+   "media/resolveMediaFile": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/media/variants.rs",
+     "fields": [
+      "/variant"
+     ]
+    }
+   },
+   "media/startMediaJob": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/jobs.rs",
+     "fields": [
+      "/prompt",
+      "/account",
+      "/sessionId",
+      "/sourceType",
+      "/lane",
+      "/kind",
+      "/model",
+      "/boardId",
+      "/references/*/base64",
+      "/references/*/mime"
+     ]
+    }
+   },
+   "media/deleteMediaAssets": {
+    "/filter": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      "/ids/*",
+      "/kind",
+      "/boardId"
+     ]
+    }
+   },
+   "media/setMediaAssetBoard": {
+    "/boardId": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "media/setMediaDefault": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      "/kind",
+      "/lane",
+      "/model"
+     ]
+    }
+   },
+   "media/setMediaPin": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/store.rs",
+     "fields": [
+      "/kind",
+      "/lane",
+      "/model",
+      "/account"
+     ]
+    }
+   },
+   "media/cacheMediaThumbnail": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/media/variants.rs",
+     "fields": [
+      "/base64",
+      "/mime"
+     ]
+    }
+   },
+   "mcp/getMcpOAuthLoginStatus": {
+    "/options": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_glue.rs (reads no string)",
+     "fields": []
+    }
+   },
+   "mcp/addMcpServer": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs add_mcp_server, add_connector_account; mcp_server_input.rs",
+     "fields": [
+      "/connector",
+      "/email",
+      "/appPassword",
+      "/key",
+      "/oauthClientId",
+      "/oauthClientSecret",
+      "/name",
+      "/url",
+      "/type",
+      "/headers/*",
+      "/command",
+      "/args/*",
+      "/env/*",
+      "/bearer_token_env_var",
+      "/env_http_headers/*"
+     ]
+    }
+   },
+   "mcp/saveMcpServer": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs save_mcp_server; mcp_server_input.rs",
+     "fields": [
+      "/originalName",
+      "/name",
+      "/url",
+      "/type",
+      "/headers/*",
+      "/command",
+      "/args/*",
+      "/env/*",
+      "/bearer_token_env_var",
+      "/env_http_headers/*"
+     ]
+    }
+   },
+   "mcp/beginMcpOAuthLogin": {
+    "/options": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs begin_oauth_login (reads no string)",
+     "fields": []
+    }
+   },
+   "mcp/probeMcpServerAuth": {
+    "/cfg": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs probe_mcp_server_auth",
+     "fields": [
+      "/type",
+      "/url",
+      "/headers/*",
+      "/bearer_token_env_var",
+      "/env_http_headers/*"
+     ]
+    }
+   },
+   "mcp/enablePluginMcp": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/mcp_service.rs enable_plugin_mcp",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "account/listWebSearchModels": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/account.rs (force, refresh: booleans)",
+     "fields": []
+    }
+   },
+   "account/getQuotaHistory": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/quota.rs QuotaHistoryOptions",
+     "fields": [
+      "/provider",
+      "/account",
+      "/window",
+      "/view",
+      "/anchor",
+      "/startDay",
+      "/endDay"
+     ]
+    }
+   },
+   "account/beginOAuthProviderLogin": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs",
+     "fields": [
+      "/accountId"
+     ]
+    }
+   },
+   "account/updateProviderAccounts": {
+    "/change": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs parse_account_change",
+     "fields": [
+      "/selectedId",
+      "/order/*",
+      "/policy",
+      "/rename/id",
+      "/rename/label"
+     ]
+    }
+   },
+   "account/saveProviderApiKey": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs save_provider_api_key_inner",
+     "fields": [
+      "/authMode"
+     ]
+    }
+   },
+   "account/saveCustomProvider": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_admin.rs resolve, validate_transport_fields",
+     "fields": [
+      "/id",
+      "/apiKey",
+      "/apiKeyEnv",
+      "/auth",
+      "/protocol",
+      "/baseURL",
+      "/name",
+      "/schemaVersion",
+      "/discovery",
+      "/headers/*",
+      "/requestBody/*",
+      "/wires/*",
+      "/modelWires/*",
+      "/extraApiKeys/*/id",
+      "/extraApiKeys/*/apiKey"
+     ]
+    }
+   },
+   "account/updateCustomProviderModel": {
+    "/patch": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_admin.rs plain_patch (MODEL_PATCH_KEYS)",
+     "fields": [
+      "/name",
+      "/reasoning/levels/*",
+      "/reasoning/wireFormat",
+      "/reasoning/wireValues/*",
+      "/reasoning/replay"
+     ]
+    }
+   },
+   "account/testCustomProvider": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_probe.rs test, custom_admin.rs resolve_input",
+     "fields": [
+      "/id",
+      "/apiKey",
+      "/apiKeyEnv",
+      "/auth",
+      "/protocol",
+      "/baseURL",
+      "/name",
+      "/schemaVersion",
+      "/discovery",
+      "/headers/*",
+      "/requestBody/*",
+      "/wires/*",
+      "/modelWires/*",
+      "/extraApiKeys/*/id",
+      "/extraApiKeys/*/apiKey"
+     ]
+    }
+   },
+   "account/discoverCustomProviderModels": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/custom_probe.rs discover_models, custom_admin.rs resolve_input",
+     "fields": [
+      "/id",
+      "/apiKey",
+      "/apiKeyEnv",
+      "/auth",
+      "/protocol",
+      "/baseURL",
+      "/name",
+      "/schemaVersion",
+      "/discovery",
+      "/headers/*",
+      "/requestBody/*",
+      "/wires/*",
+      "/modelWires/*",
+      "/extraApiKeys/*/id",
+      "/extraApiKeys/*/apiKey"
+     ]
+    }
+   },
+   "account/consumeCodexRateLimitResetCredit": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/admin.rs consume_codex_reset_credit",
+     "fields": [
+      "/expectedOfferRevision",
+      "/idempotencyKey"
+     ]
+    }
+   },
+   "localProvider/inspectHuggingFaceModel": {
+    "/options": {
+     "source": "native/core/crates/mixdog-services/src/local_provider/hugging_face.rs",
+     "fields": [
+      "/repository"
+     ]
+    }
+   },
+   "usage/getUsageDashboard": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/dashboards.rs (booleans)",
+     "fields": []
+    }
+   },
+   "usage/getUsageStats": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/stats.rs UsageStatsOptions",
+     "fields": [
+      "/source",
+      "/view",
+      "/anchor",
+      "/startDay",
+      "/endDay",
+      "/startTime",
+      "/endTime"
+     ]
+    }
+   },
+   "usage/getUsageRequests": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_account/usage/mod.rs get_usage_requests",
+     "fields": [
+      "/source",
+      "/view",
+      "/anchor",
+      "/startDay",
+      "/endDay",
+      "/startTime",
+      "/endTime",
+      "/cursor"
+     ]
+    }
+   },
+   "update/checkForUpdate": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/update.rs (force: a boolean)",
+     "fields": []
+    }
+   },
+   "voice/transcribeAudio": {
+    "/input": {
+     "source": "native/core/crates/mixdog-services/src/voice/service.rs",
+     "fields": [
+      "/data",
+      "/mimeType"
+     ]
+    }
+   },
+   "skills/skillsStatus": {
+    "/options": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs requested_cwd",
+     "fields": [
+      "/projectPath",
+      "/cwd"
+     ]
+    }
+   },
+   "skills/addSkill": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs add_global_skill",
+     "fields": [
+      "/name",
+      "/description",
+      "/whenToUse",
+      "/instructions",
+      "/body",
+      "/toolDependencies/*"
+     ]
+    }
+   },
+   "skills/saveSkill": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs save_skill_document",
+     "fields": [
+      "/originalName",
+      "/name",
+      "/description",
+      "/whenToUse",
+      "/instructions",
+      "/body",
+      "/toolDependencies/*"
+     ]
+    }
+   },
+   "skills/removeSkill": {
+    "/input": {
+     "source": "native/core/crates/mixdog-mcp/src/skills_service.rs remove_global_skill",
+     "fields": [
+      "/name"
+     ]
+    }
+   },
+   "plugins/addPlugin": {
+    "/source": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs add_plugin, normalize_source",
+     "fields": [
+      "",
+      "/source",
+      "/name"
+     ]
+    }
+   },
+   "plugins/updatePlugin": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "plugins/setPluginEnabled": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "plugins/removePlugin": {
+    "/plugin": {
+     "source": "native/core/crates/mixdog-mcp/src/plugin_admin.rs",
+     "fields": [
+      "",
+      "/id",
+      "/name"
+     ]
+    }
+   },
+   "memory/memoryControl": {
+    "/args": {
+     "source": "native/core/crates/mixdog-services/src/memory/action.rs run, project_of, agent_of, edit_target",
+     "fields": [
+      "/op",
+      "/element",
+      "/summary",
+      "/category",
+      "/id",
+      "/index_revision",
+      "/project_id",
+      "/agent_id",
+      "/cwd",
+      "/target_project_id",
+      "/target_cwd",
+      "/source",
+      "/memory_caller",
+      "/project_paths/*",
+      "/format"
+     ]
+    }
+   },
+   "memory/recall": {
+    "/args": {
+     "source": "native/core/crates/mixdog-services/src/memory/recall/mod.rs recall_search_args",
+     "fields": [
+      "/query",
+      "/id",
+      "/period",
+      "/sort",
+      "/category",
+      "/cursor",
+      "/sessionId",
+      "/session_id",
+      "/cwd",
+      "/projectScope",
+      "/currentSessionId",
+      "/memory_caller"
+     ]
+    }
+   },
+   "diagnostics/runDoctor": {
+    "/options": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/diagnostics.rs (notice: a boolean)",
+     "fields": []
+    }
+   },
+   "projectFs/writeTextBatch": {
+    "/files": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs batch_files",
+     "fields": [
+      "/*/relPath",
+      "/*/rel",
+      "/*/content",
+      "/*/expectedContent"
+     ]
+    }
+   },
+   "projectFs/searchText": {
+    "/options": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs text_query",
+     "fields": [
+      "/query",
+      "/include",
+      "/exclude"
+     ]
+    }
+   },
+   "projectFs/replaceText": {
+    "/options": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs text_query",
+     "fields": [
+      "/query",
+      "/include",
+      "/exclude"
+     ]
+    }
+   },
+   "projectFs/workspaceFile/write": {
+    "/folders": {
+     "source": "native/core/crates/mixdog-workspace/src/editorcfg.rs write_workspace_file",
+     "fields": [
+      "/*/path",
+      "/*/name"
+     ]
+    }
+   },
+   "transfer/beginRead": {
+    "/source/input": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs transfer/beginRead (reads nothing of it)",
+     "fields": []
+    }
+   },
+   "lsp/document": {
+    "/document": {
+     "source": "native/core/crates/mixdog-workspace/src/lsp.rs DocumentInput::from_value",
+     "fields": [
+      "/kind",
+      "/languageId",
+      "/relPath",
+      "/content"
+     ]
+    }
+   },
+   "lsp/request": {
+    "/request": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs lsp/request, lsp.rs request",
+     "fields": [
+      "/relPath",
+      "/languageId",
+      "/method"
+     ],
+     "opaque": {
+      "/params": "the language-server request params, sent to the server process as they came (positions, URIs, symbol queries): a lone surrogate in them never reaches a language server Node wrote it to as an escape, so the request is refused"
+     }
+    }
+   },
+   "document/preview": {
+    "/options": {
+     "source": "native/core/crates/mixdog-exthost/src/document.rs document/preview (reads rel and root only)",
+     "fields": []
+    }
+   },
+   "document/previewPages": {
+    "/options": {
+     "source": "native/core/crates/mixdog-exthost/src/document.rs previewPages (page numbers)",
+     "fields": []
+    }
+   },
+   "github/request": {
+    "/input": {
+     "source": "native/core/crates/mixdog-scm/src/gh/contract.rs validate",
+     "fields": [
+      "/action",
+      "/repo",
+      "/hostname",
+      "/owner",
+      "/organization",
+      "/event",
+      "/sha",
+      "/base",
+      "/head",
+      "/ref",
+      "/tag",
+      "/target",
+      "/workflow",
+      "/inputs/*",
+      "/method",
+      "/state",
+      "/visibility",
+      "/labels/*",
+      "/title",
+      "/body",
+      "/description"
+     ]
+    }
+   },
+   "github/pr/view": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs gh_pr_view required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "github/pr/diff": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs gh_pr_diff required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "github/pr/create": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs create_args",
+     "fields": [
+      "/base",
+      "/head",
+      "/title",
+      "/body"
+     ]
+    }
+   },
+   "github/pr/checkout": {
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs gh_pr_checkout required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "github/pr/merge": {
+    "/method": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs merge_args",
+     "fields": [
+      ""
+     ]
+    },
+    "/value": {
+     "source": "native/core/crates/mixdog-scm/src/gh/pr.rs merge_args required_number",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "review/diff/get": {
+    "/files/*": {
+     "source": "native/core/crates/mixdog-scm/src/input.rs review_files, git_path",
+     "fields": [
+      "",
+      "/path",
+      "/0"
+     ]
+    }
+   },
+   "process/spawn": {
+    "/owner": {
+     "source": "no core handler reads it (the method has no service outside mixdog-app-protocol)",
+     "fields": []
+    }
+   },
+   "terminal/ensure": {
+    "/options": {
+     "source": "no core handler reads it (the method has no service outside mixdog-app-protocol)",
+     "fields": []
+    }
+   },
+   "terminal/attach": {
+    "/resumeFrom": {
+     "source": "no core handler reads it (the method has no service outside mixdog-app-protocol)",
+     "fields": []
+    }
+   },
+   "remoteAccess/settleOwedControllerKeys": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs settle_owed",
+     "fields": [
+      "/0/*"
+     ]
+    }
+   },
+   "remoteAccess/deliverScreenControllerKey": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs deliver_key",
+     "fields": [
+      ""
+     ]
+    }
+   },
+   "remoteAccess/registerPushSubscription": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs register_push (a Web Push subscription, stored as given)",
+     "fields": [
+      "/endpoint",
+      "/keys/p256dh",
+      "/keys/auth"
+     ]
+    }
+   },
+   "remoteAccess/registerNativePush": {
+    "/input": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/remote_access.rs register_native_push (stored as given)",
+     "fields": [
+      "/token",
+      "/platform"
+     ]
+    }
+   },
+   "browser/command": {
+    "/input": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs BrowserPage::dispatch (forwards it); the host reads it: apps/desktop/src/main/browser/page-surface-control.ts createPageInputDispatcher",
+     "fields": [
+      "/type",
+      "/url",
+      "/text",
+      "/key",
+      "/phase",
+      "/button"
+     ]
+    }
+   },
+   "visualize/command": {
+    "/input": {
+     "source": "native/core/crates/mixdog-exthost/src/domain_visualize.rs required_tab_command, reopen",
+     "fields": [
+      "/sessionId",
+      "/entry",
+      "/tabId",
+      "/format",
+      "/renderId",
+      "/error",
+      "/resource",
+      "/url",
+      "/assets/*",
+      "/label",
+      "/content/kind",
+      "/content/source",
+      "/content/title",
+      "/targets/*"
+     ]
+    }
+   },
+   "host/state/set": {
+    "/value": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/host.rs state_set (HostStateSetParams: browserTabs, browserImport, displayPreferences are the desktop's own JSON, published as given)",
+     "opaque": "the desktop's own state for keys other than visualize (browser tabs, import progress, display preferences), published to clients as given; it carries tab and page ids and URLs the core and the clients match, and no text a person typed"
+    }
+   },
+   "browser/webrtcSignal": {
+    "/signal": {
+     "source": "native/core/crates/mixdog-remote/src/webrtc/signal.rs ClientSignal::parse",
+     "fields": [
+      "/type",
+      "/receiveCodecs/*",
+      "/source",
+      "/sdp",
+      "/fingerprints/*",
+      "/documentId",
+      "/reason",
+      "/detail"
+     ]
+    }
+   },
+   "browser/stream": {
+    "/request": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view_streams.rs normalize_stream_options (numbers, fit: an object of numbers)",
+     "fields": []
+    }
+   },
+   "modelProxy/run": {
+    "/call/request/messages/*/assistantBlocks": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (forwarded to the provider)",
+     "open": "a model's earlier content blocks (text, thinking), forwarded to the provider and never compared"
+    },
+    "/call/request/messages/*/content/*/source/content": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs part_in (DocumentSource::Content)",
+     "open": "a document's content, forwarded to the provider"
+    },
+    "/call/request/messages/*/nativeToolSearch": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (provider compared with the request's)",
+     "fields": [
+      "/provider",
+      "/toolReferences/*"
+     ]
+    },
+    "/call/request/messages/*/providerReplay/*/items": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (forwarded; the owner compared is providerReplay/*/owner, outside the items)",
+     "open": "a model's reasoning items, forwarded to the provider"
+    },
+    "/call/request/messages/*/thinkingBlocks": {
+     "source": "native/core/crates/mixdog-ai/src/providers/anthropic/lowering.rs (forwarded unchanged)",
+     "open": "a model's thinking text, forwarded to the provider"
+    },
+    "/call/request/messages/*/toolCalls/*/arguments": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs message_in (forwarded as tool_use.input)",
+     "open": "tool-call arguments a model wrote, forwarded to the provider"
+    },
+    "/call/request/options/modelParameters": {
+     "source": "native/core/crates/mixdog-ai/src/providers (read by key: anthropic/codec.rs, google/serving.rs, compat/chat/options.rs)",
+     "fields": [
+      "/*"
+     ]
+    },
+    "/call/request/options/providerState": {
+     "source": "native/core/crates/mixdog-core-api/src/domain/provider.rs ProviderState; mixdog-ai/src/providers/google/adapter.rs (cache name compared)",
+     "opaque": "provider-owned continuation state (cache names, response ids, account ids) that the providers compare with their own; it never holds typed text"
+    },
+    "/call/request/tools/*/inputSchema": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs request_in (ToolDefinition.input_schema, forwarded)",
+     "open": "a tool's JSON schema (descriptions written in a tool's source), forwarded to the provider"
+    }
+   },
+   "transfer/grant/mint": {
+    "/attachmentId": {
+     "source": "native/core/crates/mixdog-workspace/src/transfer.rs grant mint (an attachment id)",
+     "fields": [
+      ""
+     ]
+    },
+    "/sessionId": {
+     "source": "native/core/crates/mixdog-workspace/src/transfer.rs grant mint (the conversation's id)",
+     "fields": [
+      ""
+     ]
+    }
+   }
+  },
+  "notification": {
+   "host/update/report": {
+    "/state": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/host.rs notify (published as given)",
+     "opaque": "the desktop updater's state (status, versions, download progress), published to clients as given; no text a person typed"
+    }
+   },
+   "host/browser/page": {
+    "/geometry": {
+     "source": "native/core/crates/mixdog-remote/src/webrtc/signal.rs Geometry::parse (numbers)",
+     "fields": []
+    }
+   },
+   "host/browser/frame": {
+    "/frame": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs frame_facts, picture",
+     "fields": [
+      "/image/data"
+     ]
+    }
+   },
+   "model/proxy/event": {
+    "/event/call/arguments": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "open": "tool-call arguments a model wrote"
+    },
+    "/event/calls/*/arguments": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "open": "tool-call arguments a model wrote"
+    },
+    "/event/replay/items": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "open": "a model's reasoning items"
+    },
+    "/event/state": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in",
+     "opaque": "provider-owned continuation state, as modelProxy/run /call/request/options/providerState"
+    },
+    "/event/usage/raw": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs usage_in",
+     "opaque": "a provider's raw usage object (counts and provider keys), kept as given"
+    },
+    "/event/value": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs event_in (citations, server tool blocks, thinking blocks)",
+     "open": "text a model or a web page wrote (citations, thinking)"
+    },
+    "/event/route": {
+     "source": "native/core/crates/mixdog-core-api/src/domain/provider.rs WirePin::from_route",
+     "fields": [
+      "/provider",
+      "/model",
+      "/wire",
+      "/source"
+     ]
+    }
+   }
+  },
+  "answer": {
+   "host/browser/command": {
+    "": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs (the answer is dropped: .map(|_| ()))",
+     "fields": []
+    }
+   },
+   "host/browser/liveControl": {
+    "": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs (the answer is dropped: .map(|_| ()))",
+     "fields": []
+    }
+   },
+   "host/files/trashItem": {
+    "": {
+     "source": "native/core/crates/mixdog-workspace/src/service.rs projectFs trash (the answer is dropped: .map(|_| ...))",
+     "fields": []
+    }
+   },
+   "host/screen/displays": {
+    "": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs (relayed to the phone as given)",
+     "opaque": "the desktop's display list (ids, geometry, the OS's monitor names), relayed to the asking phone as given; no text a person typed"
+    }
+   },
+   "host/update/command": {
+    "": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/update.rs update/desktop/command (the answer is the caller's reply)",
+     "opaque": "the desktop updater's state, answered to the asking client as given; no text a person typed"
+    }
+   },
+   "host/visualize/command": {
+    "": {
+     "source": "native/core/crates/mixdog-exthost/src/domain_visualize.rs call, thumbnail; mixdog-app-server-daemon/src/compose_domains/export.rs render",
+     "fields": [
+      "/path",
+      "/thumbnail"
+     ]
+    }
+   },
+   "model/proxy/execute": {
+    "/result/failure/partialUsage/raw": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs usage_in",
+     "opaque": "a provider's raw usage object, kept as given"
+    },
+    "/result/models/*/raw": {
+     "source": "native/core/crates/mixdog-core-domains/src/domains/ai_admin/model_proxy.rs",
+     "opaque": "a provider's raw model record, kept as given"
+    }
+   }
+  }
+ },
+ "reasons": [
+  {
+   "reason": "a record's key, not a label: the core finds the record by it or checks it is unique by it (a schedule, webhook, MCP server, plugin, built-in tool or feature, skill, environment variable), as Node did by the same string; the label a person reads is a separate field where one exists",
+   "fields": [
+    "request account/checkCustomProviderKeyEnv /name",
+    "request channel/call /args/def/name",
+    "request channel/call /args/def/newName",
+    "request channel/call /args/entry/name",
+    "request channel/call /args/entry/newName",
+    "request channel/call /args/name",
+    "request channel/call /name",
+    "request channel/deleteSchedule /name",
+    "request channel/deleteWebhook /name",
+    "request channel/retryRoutineDelivery /name",
+    "request channel/runScheduleNow /name",
+    "request channel/runWebhookNow /name",
+    "request channel/saveSchedule /entry/name",
+    "request channel/saveSchedule /entry/newName",
+    "request channel/saveWebhook /entry/name",
+    "request channel/setScheduleEnabled /name",
+    "request channel/setWebhookEnabled /name",
+    "request channel/testWebhook /name",
+    "request config/installBuiltinFeature /name",
+    "request config/setBuiltinToolEnabled /name",
+    "request config/setExtensionScope /name",
+    "request mcp/addMcpServer /input/name",
+    "request mcp/beginMcpOAuthLogin /name",
+    "request mcp/enablePluginMcp /plugin/name",
+    "request mcp/getMcpServerConfig /name",
+    "request mcp/reconnectMcp /name",
+    "request mcp/removeMcpServer /name",
+    "request mcp/saveMcpServer /input/name",
+    "request mcp/setMcpServerEnabled /name",
+    "request mcp/signOutMcpServer /name",
+    "request plugins/addPlugin /source/name",
+    "request plugins/removePlugin /plugin/name",
+    "request plugins/setPluginEnabled /plugin/name",
+    "request plugins/updatePlugin /plugin/name",
+    "request skills/removeSkill /input/name",
+    "request skills/saveSkill /input/originalName",
+    "request skills/skillContent /name"
+   ]
+  },
+  {
+   "reason": "a tool, model, provider or parameter id that the core matches against its catalog or tool list; the text a person reads beside it (displayName, description, label) is listed as free text",
+   "fields": [
+    "answer model/proxy/execute /result/models/*/name",
+    "answer model/proxy/execute /result/models/*/picker/modelParameterOptions/*/options/*/value",
+    "answer model/proxy/execute /result/models/*/picker/serviceTiers/*/name",
+    "answer model/proxy/execute /result/providers/*/name",
+    "notification model/proxy/event /event/call/name",
+    "notification model/proxy/event /event/calls/*/name",
+    "notification model/proxy/event /event/name",
+    "request modelProxy/run /call/request/messages/*/toolCalls/*/name",
+    "request modelProxy/run /call/request/tools/*/name"
+   ]
+  },
+  {
+   "reason": "a file's name: compared with a folder's entries before a file is made or opened, or the name of a file the client read from disk; a name holding a lone unit names no file Node would have found (decisions.md \"frame-lone-surrogate\")",
+   "fields": [
+    "request feedback/upload /input/attachments/*/name",
+    "request modelProxy/run /call/request/messages/*/content/*/filename",
+    "request projectFs/create /name",
+    "request projectFs/rename /newName",
+    "request thread/resizeImage /input/filename",
+    "request thread/start /initialInput/options/pastedImages/*/filename",
+    "request thread/start /initialInput/options/pastedTexts/*/filename",
+    "request thread/start /initialInput/prompt/*/filename",
+    "request transfer/beginWrite /name",
+    "request turn/start /input/options/pastedImages/*/filename",
+    "request turn/start /input/options/pastedTexts/*/filename",
+    "request turn/start /input/prompt/*/filename"
+   ]
+  },
+  {
+   "reason": "a git ref, commit, tag or config key, or a worktree name that becomes a branch and folder name: matched against the repository; git and Node's ref checks refuse a ref that is not well-formed text",
+   "fields": [
+    "request git/cherryPickCommit /value",
+    "request git/createTag /value",
+    "request git/deleteBranch /input/branch",
+    "request git/deleteTag /value",
+    "request git/globalConfig/write /key",
+    "request git/renameBranch /input/nextBranch",
+    "request git/resetToCommit /value",
+    "request git/revertCommit /value",
+    "request thread/requestWorktree /input/name",
+    "request thread/selectBranch /input/branch"
+   ]
+  },
+  {
+   "reason": "a pull-request number",
+   "fields": [
+    "request github/pr/checkout /value",
+    "request github/pr/diff /value",
+    "request github/pr/merge /value",
+    "request github/pr/view /value"
+   ]
+  },
+  {
+   "reason": "a duration, parsed into a number of milliseconds; text holding a lone unit is no duration and Node refused it in the same parser",
+   "fields": [
+    "request config/setAutoClear /input/duration",
+    "request thread/goal/control /args/duration",
+    "request thread/goal/set /goal/duration"
+   ]
+  },
+  {
+   "reason": "an executable path run as a process: a path, not text",
+   "fields": [
+    "request config/setSystemShell /input/command",
+    "request mcp/addMcpServer /input/command",
+    "request mcp/saveMcpServer /input/command"
+   ]
+  },
+  {
+   "reason": "a sign-in address or a secret sent to a service as it is: compared by that service, never shown as text",
+   "fields": [
+    "request account/saveCustomProvider /input/apiKey",
+    "request approval/provideSecret /secret",
+    "request connector/addConnectorAccount /input/appPassword",
+    "request connector/addConnectorAccount /input/email",
+    "request mcp/addMcpServer /input/email"
+   ]
+  },
+  {
+   "reason": "the client app's own name, a constant of the shipped client",
+   "fields": [
+    "request initialize /clientInfo/name",
+    "request initialize /clientInfo/title"
+   ]
+  },
+  {
+   "reason": "host-only (an agent queue entry's context): a connection's request carrying it is invalidParams before any check of its text",
+   "fields": [
+    "request thread/start /initialInput/options/context",
+    "request turn/start /input/options/context"
+   ]
+  },
+  {
+   "reason": "an image's bytes (base64) and the metadata line the resize wrote from it, not typed text",
+   "fields": [
+    "request thread/start /initialInput/options/pastedImages/*/content",
+    "request thread/start /initialInput/options/pastedImages/*/metadataText",
+    "request turn/start /input/options/pastedImages/*/content",
+    "request turn/start /input/options/pastedImages/*/metadataText"
+   ]
+  },
+  {
+   "reason": "an effort level or output style id from a fixed list",
+   "fields": [
+    "request thread/setEffort /value",
+    "request thread/setOutputStyle /value"
+   ]
+  },
+  {
+   "reason": "a close reason code the phone's WebRTC stack writes",
+   "fields": [
+    "request browser/webrtcSignal /signal/detail",
+    "request browser/webrtcSignal /signal/reason"
+   ]
+  },
+  {
+   "reason": "compared with the file's content on disk (the stale-content check): a lone unit there equalled nothing in Node; read as U+FFFD it would equal a real U+FFFD, so it is refused",
+   "fields": [
+    "request projectFs/backup/write /expectedContent",
+    "request projectFs/writeText /expectedContent",
+    "request projectFs/writeTextBatch /files/*/expectedContent"
+   ]
+  },
+  {
+   "reason": "a selector of files (glob or path), compared with file names",
+   "fields": [
+    "request projectFs/replaceText /options/exclude",
+    "request projectFs/replaceText /options/include",
+    "request projectFs/replaceText /relPaths/*",
+    "request projectFs/searchText /options/exclude",
+    "request projectFs/searchText /options/include"
+   ]
+  },
+  {
+   "reason": "a phone's machine-written account of a reconnect (phase, state and issue tokens); the core keeps only [A-Za-z0-9_=@:. -] of it for its log",
+   "fields": [
+    "notification remote/connectionTimeline /text"
+   ]
+  }
+ ]
 }
