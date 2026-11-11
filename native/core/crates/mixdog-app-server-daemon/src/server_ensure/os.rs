@@ -3,7 +3,6 @@
 
 use std::cell::RefCell;
 use std::fs;
-use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -25,7 +24,9 @@ use super::host::EnsureHost;
 use super::host::Launch;
 use super::host::ProcessImage;
 use super::host::ServerCore;
+use super::idle::ANSWER_IDLE;
 use super::idle::IdleWatch;
+use super::idle::STOP_IDLE;
 use super::layout::RemotePaths;
 use super::report::result_line;
 use crate::discovery;
@@ -47,6 +48,9 @@ use crate::verdict::ProcessTable;
 /// How long the loop that waits for the launched core to appear in discovery sleeps between
 /// looks. The exit of the launched process is observed, not timed.
 const BOOT_LOOK: Duration = Duration::from_millis(100);
+
+/// The grace `stopDaemon` gives a core that did not answer its `/stop` between SIGTERM and SIGKILL (`graceMs`).
+const TERMINATE_GRACE: Duration = Duration::from_secs(20);
 
 pub struct OsHost {
     home: PathBuf,
@@ -141,7 +145,7 @@ impl EnsureHost for OsHost {
 pub struct OsAccess {
     paths: RemotePaths,
     launched: RefCell<Option<Child>>,
-    /// The attachment probe's inactivity limit.
+    /// The inactivity limit of every request to the core.
     idle: Arc<IdleWatch>,
 }
 
@@ -158,12 +162,16 @@ impl OsAccess {
         Self { paths: RemotePaths::new(&host.home()), launched: RefCell::new(None), idle }
     }
 
-    fn call(core: &ServerCore, path: &str, body: &impl serde::Serialize) -> Result<StatusReply, EnsureError> {
+    /// `POST path` with `body`, its reply read under `limit` of inactivity (Node's `daemonRequest` timeout). `Ok(None)`
+    /// when the core stayed silent that long, as `daemonRequest` resolves `null`.
+    fn call(&self, core: &ServerCore, path: &str, body: &impl serde::Serialize, limit: Duration) -> Result<Option<StatusReply>, EnsureError> {
         let body = serde_json::to_vec(body).map_err(|e| failed("encoding the request", &e))?;
-        let mut stream = Self::send(core, "POST", path, &body)?;
-        let mut raw = Vec::new();
-        stream.read_to_end(&mut raw).map_err(|e| failed("reading the reply", &e))?;
-        Self::reply(&raw)
+        let exchange = self.idle.begin(limit);
+        let stream = Self::send(core, "POST", path, &body)?;
+        match self.idle.read_to_end(exchange, stream) {
+            Some(raw) => Self::reply(&raw.map_err(|e| failed("reading the reply", &e))?).map(Some),
+            None => Ok(None),
+        }
     }
 
     fn send(core: &ServerCore, method: &str, path: &str, body: &[u8]) -> Result<TcpStream, EnsureError> {
@@ -196,9 +204,17 @@ impl OsAccess {
         Err(EnsureError::Core(format!("{}: {}", refusal.code, refusal.message)))
     }
 
-    fn stop(core: &ServerCore, mode: StopMode, reason: StopReason, token: Option<&str>, replacement: Option<&ReplacementBuild>) -> Result<StatusReply, EnsureError> {
+    fn stop(&self, core: &ServerCore, mode: StopMode, reason: StopReason, token: Option<&str>, replacement: Option<&ReplacementBuild>) -> Result<Option<StatusReply>, EnsureError> {
         let request = StopRequest { mode, reason, confirm_token: token.map(str::to_owned), replacement: replacement.cloned() };
-        Self::call(core, STOP_PATH, &request)
+        self.call(core, STOP_PATH, &request, STOP_IDLE)
+    }
+
+    fn identity(core: &ServerCore) -> Result<ProcessIdentity, EnsureError> {
+        let start_ms = core
+            .process_start_time
+            .parse()
+            .map_err(|_| EnsureError::Core(format!("unreadable process start time {}", core.process_start_time)))?;
+        Ok(ProcessIdentity { pid: core.pid, start_ms })
     }
 }
 
@@ -253,36 +269,42 @@ impl CoreAccess for OsAccess {
     }
 
     fn answers(&self, core: &ServerCore) -> bool {
-        let exchange = self.idle.begin();
+        let exchange = self.idle.begin(ANSWER_IDLE);
         let Ok(stream) = Self::send(core, "GET", STATUS_PATH, &[]) else { return false };
         let Some(Ok(raw)) = self.idle.read_to_end(exchange, stream) else { return false };
         Self::reply(&raw).is_ok_and(|reply| reply.status.instance_id == core.instance_id)
     }
 
+    /// Hold is the first request of a replacement, so a core silent on it has not shown that it answers. Node stops only
+    /// a daemon whose `/health` answered and leaves one that does not (`wait`) running; so the run fails here and
+    /// nothing is stopped, signalled or launched.
     fn hold(&self, core: &ServerCore, on: bool) -> Result<(), EnsureError> {
-        Self::call(core, HOLD_PATH, &HoldRequest { on }).map(drop)
+        self.call(core, HOLD_PATH, &HoldRequest { on }, ANSWER_IDLE)?.map(drop).ok_or_else(|| {
+            EnsureError::Core(format!("the core (pid {}) accepted the hold request and sent nothing for {} ms", core.pid, ANSWER_IDLE.as_millis()))
+        })
     }
 
-    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason, replacement: Option<&ReplacementBuild>) -> Result<DrainReport, EnsureError> {
-        let status = Self::stop(core, StopMode::WhenIdle, reason, None, replacement)?;
+    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason, replacement: Option<&ReplacementBuild>) -> Result<Option<DrainReport>, EnsureError> {
+        let Some(status) = self.stop(core, StopMode::WhenIdle, reason, None, replacement)? else { return Ok(None) };
         let drain = status
             .status
             .drain
             .ok_or_else(|| EnsureError::Core("the core accepted the stop but reports no drain".to_owned()))?;
-        Ok(DrainReport { drain_id: drain.drain_id, running: status.status.running, confirm_token: drain.confirm_token })
+        Ok(Some(DrainReport { drain_id: drain.drain_id, running: status.status.running, confirm_token: drain.confirm_token }))
     }
 
-    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str, replacement: Option<&ReplacementBuild>) -> Result<(), EnsureError> {
-        Self::stop(core, StopMode::AbortConfirmed, reason, Some(confirm_token), replacement).map(drop)
+    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str, replacement: Option<&ReplacementBuild>) -> Result<bool, EnsureError> {
+        Ok(self.stop(core, StopMode::AbortConfirmed, reason, Some(confirm_token), replacement)?.is_some())
     }
 
     fn wait_exit(&self, core: &ServerCore) -> Result<(), EnsureError> {
-        let start_ms = core
-            .process_start_time
-            .parse()
-            .map_err(|_| EnsureError::Core(format!("unreadable process start time {}", core.process_start_time)))?;
-        crate::verdict::wait_for_exit(ProcessIdentity { pid: core.pid, start_ms })
-            .map_err(|e| EnsureError::Core(format!("waiting for the core to exit: {e}")))
+        crate::verdict::wait_for_exit(Self::identity(core)?).map_err(|e| EnsureError::Core(format!("waiting for the core to exit: {e}")))
+    }
+
+    fn terminate(&self, core: &ServerCore) -> Result<(), EnsureError> {
+        let ended = crate::verdict::terminate(Self::identity(core)?, TERMINATE_GRACE)
+            .map_err(|e| EnsureError::Core(format!("ending the core: {e}")))?;
+        if ended { Ok(()) } else { Err(EnsureError::DaemonStop(core.pid)) }
     }
 
     fn launch(&self, launch: &Launch) -> Result<(), EnsureError> {
