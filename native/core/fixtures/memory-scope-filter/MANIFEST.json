@@ -53,8 +53,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-scope-filter.mjs",
-  "recorderSha256": "b9f7a9a818bf5355013f0a3b87a2ad6eecfe02b12ed7d82c18387918325031c0",
-  "replay": "mixdog-services memory/recall/filters.rs: pub fn append_project_scope (:35); the projectScope argument is read by recall/plan.rs:95 and reaches it through the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay compares the predicate text/params the recorded scope inputs produce (clause, params, and the typing case of non-string scopes)",
+  "recorderSha256": "71694ad984e0a5558ba98f7983ff759fc0fedec86316d952a6f9eb1943ba7694",
+  "replay": "mixdog-services memory/recall/filters.rs: pub fn append_project_scope (:35), called by recall/browse.rs:60, :177 and :885 (the browse, session and core-row queries); the projectScope argument is read by recall/plan.rs:95 and reaches those calls through the `memory/recall` request (Recall::recall, recall/mod.rs:240). The hybrid search builds its own filters (recall/hybrid.rs, not append_project_scope). A replay compares the predicate text/params the recorded scope inputs produce (clause, params, and the typing case of non-string scopes)",
   "set": "memory-scope-filter",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 5674,
