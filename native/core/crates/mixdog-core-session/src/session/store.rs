@@ -529,6 +529,12 @@ impl StoreThreads {
         }
     }
 
+    /// Holds the index projections (as a rewrite does), for a test of what waits on them.
+    #[cfg(test)]
+    pub(super) fn hold_index(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
+        self.projector.hold()
+    }
+
     /// The read gate, shared for one lane job of a read (see [`ReadGate`]). Taken after any wait on the projector: a
     /// rewrite holds the projector while it waits for the gate.
     fn read_gate(&self) -> std::sync::RwLockReadGuard<'_, u64> {
@@ -1524,8 +1530,13 @@ impl ThreadStore for StoreThreads {
     }
 
     fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
-        let rewrites = self.rewrites.clone();
-        Box::pin(async move { rewrites.idle(super::thread_list::FENCE_BOUND).await })
+        let (rewrites, projector) = (self.rewrites.clone(), self.projector.clone());
+        Box::pin(async move {
+            rewrites.idle(super::thread_list::FENCE_BOUND).await;
+            // The read's job waits for the index again (on the lane, where it must hold); waited here first, that wait is
+            // already over when the job takes its thread. A failure is the job's to report.
+            let _ = projector.caught_up().await;
+        })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
