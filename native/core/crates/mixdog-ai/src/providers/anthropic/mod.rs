@@ -21,6 +21,7 @@ mod models;
 pub mod oauth;
 mod policy;
 mod reminders;
+pub mod replay_blocks;
 mod threads;
 
 #[cfg(test)]
