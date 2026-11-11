@@ -207,7 +207,14 @@ const remoteServer = createServer((_, response) => {
   remoteHits += 1;
   response.end('{"type":"string"}');
 });
-await new Promise((done) => remoteServer.listen(0, '127.0.0.1', done));
+await new Promise((done, fail) => {
+  const deadline = setTimeout(() => fail(new Error('the remote-$ref server did not start listening within 10 s')), 10_000);
+  remoteServer.once('error', fail);
+  remoteServer.listen(0, '127.0.0.1', () => {
+    clearTimeout(deadline);
+    done();
+  });
+});
 const REMOTE = `http://127.0.0.1:${remoteServer.address().port}`;
 const CASES = [
   {

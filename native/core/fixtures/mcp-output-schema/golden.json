@@ -7000,7 +7000,7 @@
             "type": "object",
             "properties": {
               "v": {
-                "$ref": "http://127.0.0.1:53995/schema.json"
+                "$ref": "http://127.0.0.1:63098/schema.json"
               }
             }
           }
@@ -7019,7 +7019,7 @@
           }
         ]
       },
-      "connect": "can't resolve reference http://127.0.0.1:53995/schema.json from id #",
+      "connect": "can't resolve reference http://127.0.0.1:63098/schema.json from id #",
       "outputs": [
         {
           "tool": "fine",
@@ -7027,7 +7027,7 @@
           "output": "Error: MCP server \"srv\" not connected"
         }
       ],
-      "remote": "http://127.0.0.1:53995",
+      "remote": "http://127.0.0.1:63098",
       "remoteHits": 0
     },
     {

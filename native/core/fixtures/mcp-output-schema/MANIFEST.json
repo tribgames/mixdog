@@ -5,7 +5,7 @@
     {
       "bytes": 220598,
       "path": "golden.json",
-      "sha256": "68cc752d46727e2c4fec81fc677bca4cae160a81ba90fd86645fedc262208923"
+      "sha256": "33b4348fa32baaa67dad96ef5173abd496a960741e5fab2ead0460d038626ad3"
     }
   ],
   "inputs": [
@@ -37,7 +37,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-output-schema.mjs",
-  "recorderSha256": "36b72e1351ad281c3b05d340e6cb43948d6cbf8ba23be5533361d84a6e466ad1",
+  "recorderSha256": "ff70b0d3121dbd01914b0591b49f493187e7c5ae23834166f49476a36a5ef206",
   "set": "mcp-output-schema",
   "totalBytes": 220598
 }
