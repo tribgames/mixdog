@@ -532,7 +532,7 @@ version: string, kind: ConnectionKind, build?: string, };
 /**
  * Client notifications (X11): they take no in-flight slot.
  */
-export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/browser/frame", "params": HostBrowserFrameParams } | { "method": "browser/streamAck", "params": BrowserStreamAckParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams };
+export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/browser/frame", "params": HostBrowserFrameParams } | { "method": "browser/streamAck", "params": BrowserStreamAckParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams } | { "method": "remote/connectionTimeline", "params": RemoteConnectionTimelineParams };
 
 export type ClientPerfLogParams = { line: string, };
 
@@ -2785,7 +2785,12 @@ export type ProjectFsReadEditorSettingsParams = { root: string, rel: string, wor
 /**
  * Params of `projectFs/readLocal`.
  */
-export type ProjectFsReadLocalParams = { path: string, };
+export type ProjectFsReadLocalParams = { path: string,
+/**
+ * The file's bytes are not in the answer, which names a transfer of them to page through
+ * (`transfer/readRange`, then `transfer/endRead`): a 20 MB file is more than one answer carries.
+ */
+paged?: boolean | null, };
 
 /**
  * Params of `projectFs/readText`.
@@ -3404,6 +3409,15 @@ browserFit: boolean,
  * The encrypted HTTP media lane.
  */
 mediaE2ee: boolean, };
+
+/**
+ * Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase,
+ * state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did
+ * (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as
+ * `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an
+ * attached relay connection is heard. No response.
+ */
+export type RemoteConnectionTimelineParams = { text: string, };
 
 /**
  * The `pairCode` member of the `remote` section (today's `DesktopRemotePairCode`):
@@ -4543,7 +4557,15 @@ export type TransferFinishReadParams = { transferId: TransferId, };
 /**
  * Params of `transfer/grant/mint`.
  */
-export type TransferGrantMintParams = { path: string, sessionId?: string, };
+export type TransferGrantMintParams = {
+/**
+ * The local path to describe; absent when `attachmentId` names a conversation's attachment instead.
+ */
+path?: string, sessionId?: JsonValue,
+/**
+ * A conversation's attachment (with `sessionId`), staged in the PC's temp folder and granted to that conversation.
+ */
+attachmentId?: JsonValue, };
 
 /**
  * One read or write transfer.
@@ -4815,7 +4837,12 @@ export type UiProviderModelsChangedParams = { origin: string, };
  * visualize panel (`hostState` key `remoteViewing`) only while attached, in the foreground and
  * with that session in `visualizeSessionIds` (Node's `clientViewsSessionLane`).
  */
-export type UiScreenSessionsChangedParams = { sessionIds: Array<string>, browserId?: string, visualizeSessionIds?: Array<string>, foreground?: boolean, };
+export type UiScreenSessionsChangedParams = {
+/**
+ * Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`):
+ * its last set stays. A UI's notification without it changes nothing.
+ */
+sessionIds?: Array<string>, browserId?: string, visualizeSessionIds?: Array<string>, foreground?: boolean, };
 
 /**
  * `ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached
@@ -16455,6 +16482,11 @@ export const methodTable = {
       "delivery": null,
       "method": "ui/screenSessions/changed",
       "params": "UiScreenSessionsChangedParams"
+    },
+    {
+      "delivery": null,
+      "method": "remote/connectionTimeline",
+      "params": "RemoteConnectionTimelineParams"
     }
   ],
   "serverNotifications": [

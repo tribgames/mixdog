@@ -2913,8 +2913,12 @@
       "list": "remote",
       "name": "readLocalFile",
       "target": {
-        "kind": "method",
-        "target": "projectFs/readLocal"
+        "kind": "methods",
+        "target": [
+          "projectFs/readLocal",
+          "transfer/readRange",
+          "transfer/endRead"
+        ]
       }
     },
     {
