@@ -4931,6 +4931,64 @@ async fn a_room_post_stores_each_message_once_and_shows_it() {
     }
 }
 
+/// A room post admitted while its log is released on close (Node: the post's save is dropped by the generation fence of the
+/// log's detach, and the fixed `commit` fails with `session <id> is not available`; recorded: `startup-interrupted-post-behind-detach`):
+/// the post is refused in Node's words and no row is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_admitted_while_its_log_is_released_on_close_is_refused_and_writes_nothing() {
+    struct NoShells;
+    impl super::shell_jobs::OwnedShells for NoShells {
+        fn cancel_owned(&self, _: &ThreadId) {}
+    }
+    struct NoProviders;
+    #[async_trait::async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
+        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            Err(format!("no {name}"))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            false
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders)));
+    let close = super::close::SessionClose::new(directory.clone(), providers, Arc::new(NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)));
+    let row = json!({
+        "role": "assistant",
+        "content": "interrupted",
+        "meta": { "source": "agent-room", "room": { "kind": "interrupted" }, "transcript": { "at": 5, "messageId": "row_1" } },
+    });
+    // The post's log is open (admitted) when the log's detach lands.
+    assert!(close.detach(id.as_str(), "test", false).await);
+    let refused = super::room_log::post_on_opened(&handle, vec![row]).await;
+    match refused {
+        Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), format!("session {id} is not available")),
+        other => panic!("{other:?}"),
+    }
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Value(value) = reread
+        .request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("messages")
+    else {
+        panic!("a value")
+    };
+    let texts: Vec<&str> = value["messages"].as_array().expect("messages").iter().filter_map(|m| m["content"].as_str()).collect();
+    assert!(!texts.contains(&"interrupted"), "the refused post wrote nothing: {texts:?}");
+}
+
 /// A hook's `transcript_path` over the real thread store: Node's `<id>.json` before the session
 /// has a model context, the refreshed `<id>.log.jsonl` after it, `null` for an id that names no
 /// session.

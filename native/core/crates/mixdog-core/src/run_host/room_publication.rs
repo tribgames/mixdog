@@ -160,10 +160,13 @@ mod tests {
         edge_stop: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
         /// A stop in front of the next presence check (the rooms' first load's member check).
         presence_stop: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
+        /// The next post into a room log finds the log released on close (`SessionClose::detach`) after it was admitted.
+        detach_next_post: std::sync::atomic::AtomicBool,
     }
     impl Agents {
         fn new(roster: Vec<(String, String)>) -> Self {
             Self {
+                detach_next_post: false.into(),
                 lookup_fails: false.into(),
                 roster,
                 deleted: std::sync::Mutex::default(),
@@ -1041,6 +1044,9 @@ mod tests {
                         // difference. The step's answer is the update's.
                         "restart-and-update" => {
                             let waiters = node["startup"].as_str().expect("the start-up's waiters");
+                            // Node's daemon detaches the room log (its earlier host's connection closed) while the recovery's post is
+                            // admitted: the core releases the log between the opening and the post.
+                            world.agents.detach_next_post.store(node["startupClaim"] == json!("post-behind-detach"), std::sync::atomic::Ordering::SeqCst);
                             let load = (waiters != "interrupted").then(|| world.saves.arm_load());
                             let (presence_open, presence) = world.agents.arm_presence();
                             let (next, started) = world.restart().await;
@@ -1124,7 +1130,12 @@ mod tests {
                             parts.iter().map(|part| part["error"].as_str().or(part.as_str()).expect("a text part").to_owned()).collect::<Vec<_>>().join(" ")
                         })
                         .collect();
-                    assert_eq!(std::mem::take(&mut *world.logged.lock().unwrap()), node_logged, "{what}: the rooms' log");
+                    // A room's id is random in each run (a log line names it, and its log session): named as the answers name it.
+                    let by_room = |line: &str, id: &str| if id.is_empty() { line.to_owned() } else { line.replace(id, "<room>") };
+                    let core_id = room_id.as_str().unwrap_or_default();
+                    let core_logged: Vec<String> = std::mem::take(&mut *world.logged.lock().unwrap()).iter().map(|line| by_room(line, core_id)).collect();
+                    let node_logged: Vec<String> = node_logged.iter().map(|line| by_room(line, &node_room)).collect();
+                    assert_eq!(core_logged, node_logged, "{what}: the rooms' log");
                     // Whether a first load ran in the step (a failed one is run again by the next call that awaits it), by its checks.
                     let node_checked: Vec<Value> = events.iter().filter(|e| e["kind"] == "prune-checked").map(|e| e["ids"].clone()).collect();
                     let checked: Vec<Value> = std::mem::take(&mut *world.agents.checked.lock().unwrap()).into_iter().map(|ids| json!(ids)).collect();
@@ -1497,6 +1508,27 @@ mod tests {
         composed_over(Arc::new(agents), mixdog_core_session::session::testing::DataDir::default(), SaveGate::default(), Arc::default()).await
     }
 
+    struct NoShells;
+    impl mixdog_core_session::session::shell_jobs::OwnedShells for NoShells {
+        fn cancel_owned(&self, _: &ThreadId) {}
+    }
+    struct NoProviders;
+    #[async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
+        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            Err(format!("no {name}"))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            false
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
     /// The core composed over the files in `data` (a new folder, or the one a core before it wrote).
     async fn composed_over(
         agents: Arc<Agents>,
@@ -1540,17 +1572,34 @@ mod tests {
         // directory, its catalog republish the summaries', bound once they exist (`late_room_summaries`).
         let late_summaries: Arc<std::sync::OnceLock<Arc<RoomSummaries>>> = Arc::default();
         let exchanges = Arc::new(HeldLabels::default());
+        let close = Arc::new(mixdog_core_session::session::close::SessionClose::new(
+            directory.clone(),
+            Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders))),
+            Arc::new(NoShells),
+            Arc::new(mixdog_tools::fs::ReadState::new(None)),
+        ));
+        let released = agents.clone();
         let live = mixdog_core_rooms::rooms::live::LiveRooms::new(
             rooms.clone(),
             mixdog_core_rooms::rooms::live::RoomPorts {
-                daemon: Arc::new(crate::run_host::room_daemon::DirectoryRoomDaemon::new(directory.clone(), {
-                    let late = late_summaries.clone();
-                    Arc::new(move || {
-                        if let Some(summaries) = late.get() {
-                            summaries.republish();
-                        }
+                daemon: Arc::new(
+                    crate::run_host::room_daemon::DirectoryRoomDaemon::new(directory.clone(), {
+                        let late = late_summaries.clone();
+                        Arc::new(move || {
+                            if let Some(summaries) = late.get() {
+                                summaries.republish();
+                            }
+                        })
                     })
-                })),
+                    .with_between_open_and_post(Arc::new(move |thread| {
+                        let (close, released) = (close.clone(), released.clone());
+                        Box::pin(async move {
+                            if released.detach_next_post.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                                assert!(close.detach(thread.as_str(), "no live session clients", false).await, "the room log is released");
+                            }
+                        })
+                    })),
+                ),
                 approvals: Arc::new(Unreached),
                 labels: exchanges.clone(),
                 files: Arc::new(Unreached),
