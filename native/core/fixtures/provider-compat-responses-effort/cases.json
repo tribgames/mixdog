@@ -5,7 +5,7 @@
   "cases": [
     {
       "id": "mode-resolution-by-model-and-options",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:75",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:105",
       "input": {},
       "result": {
         "responses": [
@@ -6315,7 +6315,7 @@
     },
     {
       "id": "pre-gpt6-and-builtin-gateways-keep-per-request-shape",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:268",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:273",
       "input": {},
       "result": {
         "requests": [
