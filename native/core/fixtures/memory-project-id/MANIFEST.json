@@ -1,0 +1,56 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-project-id.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "resolveProjectScope (explicit session cwd): no case of the test file",
+    "runs": "resolveProjectId (project-id-resolver.mjs) on real directories with a .mixdog/project.id of the given bytes"
+  },
+  "exclusions": "the last case (\"no marker in any ancestor\") depends on the temp base having no .mixdog/project.id above it: true on the recording PC; a replay must run in a base with none",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1893,
+      "path": "golden.json",
+      "sha256": "3f610d7df18041491270a2194c93e39340f3073c24465b9ec458f8b2ba8a16d4"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": "directories are temp; the recording holds marker bytes (hex) and the sub path, not absolute paths"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-project-id.mjs",
+  "recorderSha256": "637f3ce9fa5aed1ab00c7cc50a90d84239c12c44ef8e54bef2bbe45db0551974",
+  "replay": "mixdog-services memory: mem/project.rs holds_no_data + the marker read (project id from a directory); writes each case's markerBytesHex into a temp directory, resolves from the stated sub path, compares the id or null",
+  "set": "memory-project-id",
+  "totalBytes": 1893
+}
