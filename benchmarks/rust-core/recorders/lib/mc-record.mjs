@@ -1,7 +1,7 @@
 // Shared frame of the memory + channels recorders: the exact Node export (b6f10295a), the fixture set directory, and the
 // manifest every set carries. One golden file per set holds the cases in the order the Node test file lists them.
 import { join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, within } from './common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, writeText, within } from './common.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
 export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -36,13 +36,14 @@ export function begin() {
 }
 
 /** Writes `<set>/golden.json` and MANIFEST.json. `extra` carries entry, replay, exclusions, normalised (all required). */
-export function finish(ctx, { url, set, golden, extra, flags = '' }) {
+export function finish(ctx, { url, set, golden, extra, flags = '', files = {} }) {
   for (const key of ['entry', 'replay', 'exclusions', 'normalised']) {
     if (extra[key] === undefined) throw new Error(`${set}: manifest field ${key} missing`);
   }
   const final = join(FIXTURES_ROOT, set);
   const stage = stageSet(final);
   writeJson(join(stage, 'golden.json'), golden);
+  for (const [name, text] of Object.entries(files)) writeText(join(stage, name), text);
   const provenance = recorderProvenance(url);
   writeSetManifest(stage, {
     set,

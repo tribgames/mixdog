@@ -1,0 +1,76 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-embedding-tokenizer.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the model graph and pooling",
+    "runs": "loadUnigramTokenizer and UnsupportedTokenizerError (embedding-tokenizer.mjs) over the synthetic tokenizer.json files stored beside the golden; the reference library encodes every sample and the recorder stops on any difference"
+  },
+  "exclusions": "none",
+  "fileCount": 5,
+  "files": [
+    {
+      "bytes": 769924,
+      "path": "golden.json",
+      "sha256": "046621e61a65102875853ec09d4c3937f7d7c00f0fd5ab98aa74f7a98cd79009"
+    },
+    {
+      "bytes": 1337,
+      "path": "tokenizer-bpe.json",
+      "sha256": "c42b3ca92dfee26e99e027780390a8ae87966f19df9553259a9a0c1198eca2cf"
+    },
+    {
+      "bytes": 15805,
+      "path": "tokenizer-cut.json",
+      "sha256": "16e1f31b35053311def7a73cae07180b223707e96521ffdf95cf18d064e26648"
+    },
+    {
+      "bytes": 15797,
+      "path": "tokenizer-main.json",
+      "sha256": "06907d5ac579d3057c221f81bf2d85e7e2879a709c13bfb68dbf184448d4ec10"
+    },
+    {
+      "bytes": 1331,
+      "path": "tokenizer-wordpiece.json",
+      "sha256": "0e30477483c1668d1465961870142da2223d9c5451cc97c1b6bbf5adf4f218a6"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "429a1394f89fa0be97340eb4a018dfcdb84ddd50e75d7d1c8391d5a26d48c49d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "temp paths": "files are temp; the golden names the stored tokenizer files"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-tokenizer.mjs",
+  "recorderSha256": "1810b095c3239df2889cd3cbcc75f4f49ce8d4bf8291c9c166b90d54de27c05b",
+  "replay": "mixdog-services memory: mem/embed/tokenizer.rs load + encode over tokenizer-main.json / tokenizer-cut.json; compares ids for every sample, the window cut, and the unsupported-model refusal (Node message in `unsupported`).",
+  "set": "memory-embedding-tokenizer",
+  "totalBytes": 804194
+}
