@@ -436,16 +436,20 @@ async fn case6_writes_serialize_a_failed_write_is_never_replayed_and_does_not_po
         tokio::spawn(async move { client.execute(&input, &cwd(), &CancellationToken::new()).await })
     };
     let first = write("first");
-    within("the first write to start", started.notified()).await;
-    let second = write("second");
-    // The second write runs while the first is held: unserialized, it reaches `gh` at once (its answer is immediate); serialized,
-    // it waits behind the first. It is given a window to show which; the order read after it is compared with Node's.
-    let _ = tokio::time::timeout(Duration::from_millis(500), async {
-        while order.lock().unwrap().len() < 2 && !second.is_finished() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
+    within("the first write to reach gh", started.notified()).await;
+    // The client tells the moment a write starts waiting behind another write of its repository (`write-queue-hook`). Told
+    // only now, while the first write holds the turn, so what it reports is the second write.
+    let (queued_tx, queued_rx) = tokio::sync::oneshot::channel::<String>();
+    let queued_tx = Mutex::new(Some(queued_tx));
+    client.on_write_queued(move |key| {
+        if let Some(tx) = queued_tx.lock().unwrap().take() {
+            let _ = tx.send(key.to_owned());
         }
-    })
-    .await;
+    });
+    let second = write("second");
+    // Serialized, the second write queues behind the first; unserialized, it would reach `gh` and never queue.
+    let key = within("the second write to queue behind the first", queued_rx).await.expect("the hook is kept by the client");
+    assert_eq!(key, format!("github.com/{REPO}"), "the second write queues on its repository's key");
     let while_held: Vec<Exact> = order.lock().unwrap().iter().map(|title| s(title)).collect();
     release.notify_one();
     let first = joined("the first write to settle", first).await;
