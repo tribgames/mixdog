@@ -402,7 +402,7 @@ mod tests {
     /// which reads it as U+FFFD (the query is free text), fetches the same URL and answers as Node did.
     #[tokio::test]
     async fn a_query_holding_a_lone_surrogate_is_the_url_node_fetched() {
-        let text = include_str!("../../../../fixtures/lone-surrogate-wire/golden.json");
+        let text = mixdog_testkit::fixture!("../../fixtures/lone-surrogate-wire/golden.json");
         let golden: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text)).unwrap();
         let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "hf-search-lone").expect("the case");
         let fetched = Arc::new(Mutex::new(Vec::new()));

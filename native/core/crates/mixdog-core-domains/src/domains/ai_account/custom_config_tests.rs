@@ -11,7 +11,7 @@ use super::custom_config::normalize_input;
 /// as the frame decoder reads it (U+FFFD, and where each lone unit was), and the verdict is Node's for every body case.
 #[test]
 fn a_request_body_holding_lone_surrogates_is_measured_as_node_measures_it() {
-    let text = include_str!("../../../../../fixtures/lone-surrogate-wire/golden.json");
+    let text = mixdog_testkit::fixture!("../../fixtures/lone-surrogate-wire/golden.json");
     let golden: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text)).unwrap();
     let mut seen = 0;
     for case in golden["cases"].as_array().unwrap().iter().filter(|case| case["name"].as_str().unwrap().contains("-body-")) {

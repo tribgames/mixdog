@@ -32,6 +32,8 @@ const RECORDER_FILES = [
   'lib/phone-relay-core.mjs',
   'lib/phone-files-replay.mjs',
   'lib/phone-files-script.mjs',
+  'lib/core-stop.mjs',
+  'lib/process-job.mjs',
 ];
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
