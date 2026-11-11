@@ -20,7 +20,8 @@
     "Codex identity (installation id, user agent OS, beta features): the recording machine's, given to the replay as the recorder had it",
     "HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude, vertex-claude-cancel groups) states it; records keep the body served",
     "vertex-claude-cancel error name, message and code: the DOMException AbortError Node's fetch and withRetry throw; the core's send ends as Cancelled, compared as that pairing",
-    "vertex-claude-cancel/retry-wait retrySleeps delayMs: the jittered wait Node armed; the core's wait is shown entered (its send pending after the retry's discard, under a paused clock) and ended by the cancel before the clock moves, not measured"
+    "vertex-claude-cancel/retry-wait retrySleeps delayMs: the jittered wait Node armed; the core's wait is shown entered (its send pending after the retry's discard, under a paused clock) and ended by the cancel before the clock moves, not measured; that wait's deadline is 30 s of virtual time (the clock is paused, so a send that ignores the cancel runs it out at once: with the retry wait ignoring the cancel the replay fails on it in 0.1 s of real time, measured)",
+    "vertex-claude-cancel HEAD requests: none excluded; Node's Vertex provider runs no socket warm-up and its recording has no HEAD, and the replay compares every request the core sends, HEAD included, with the recorded list"
   ],
   "fileCount": 186,
   "files": [
@@ -988,7 +989,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "8ae38f59cba86d346a0cc0d3d902477f983bfbecb5302d56c36bd5e21d599f59",
+  "recorderSha256": "7cfddc815c3cbb87cec0f87b51c6fc6e2e4967c9fc646232710518693a048707",
   "set": "provider-wire",
   "totalBytes": 420951
 }
