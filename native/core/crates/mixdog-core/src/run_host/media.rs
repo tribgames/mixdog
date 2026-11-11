@@ -22,7 +22,7 @@ use mixdog_agent::message::AgentMessage;
 use mixdog_agent::compact::triggers::ToolMediaMeter;
 use mixdog_agent::text_only::MediaText;
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
-use mixdog_core_api::domain::ext::{DocumentText, PdfIntake};
+use mixdog_core_api::domain::ext::{DocumentText, ExtError, PdfIntake};
 use mixdog_core_api::domain::provider::{
     BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource, Message, ProviderError, Role,
 };
@@ -143,10 +143,12 @@ pub async fn pdf_intake_facts(
     if size_bytes > MAX_PDF_BYTES {
         return Err(format!("PDF exceeds the {} MiB input limit", MAX_PDF_BYTES / 1024 / 1024));
     }
-    let counts = docs
-        .pdf_counts(thread, data_base64)
-        .await
-        .map_err(|e| format!("PDF inspection failed: {e:?}"))?;
+    // A failed inspection fails the intake with the error's own message, as Node's intake throws it (the deadline's
+    // "PDF inspection timed out after 60000 ms" among them).
+    let counts = docs.pdf_counts(thread, data_base64).await.map_err(|e| match e {
+        ExtError::Failed { message, .. } => message,
+        other => format!("PDF inspection failed: {other:?}"),
+    })?;
     // The parser rejected the bytes: the message is exactly what Node\'s intake throws.
     let counts = match counts {
         PdfIntake::Counts(counts) => counts,
@@ -719,7 +721,6 @@ impl ImageIdentities for MediaLowering {
 }
 #[cfg(test)]
 mod tests {
-    use mixdog_core_api::domain::ext::ExtError;
     use serde_json::{json, Value};
 
     use super::*;

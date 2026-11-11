@@ -19,7 +19,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "process", "io-util", "macros"] }
+tokio = { workspace = true, features = ["rt", "sync", "process", "io-util", "macros", "time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
