@@ -29,10 +29,10 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
     ("random.rs", "NEXT", Reset("random::script(Vec::new())")),
     ("random.rs", "JITTER", Reset("random::script_jitter(Vec::new())")),
-    ("random.rs", "BYTES_INSTALLED", NotState("the count of threads holding a NEXT script, which follows NEXT's reset")),
-    ("random.rs", "JITTER_INSTALLED", NotState("the count of threads holding a JITTER script, which follows JITTER's reset")),
+    ("random.rs", "SCOPES", NotState("the source of fresh scope ids: a replay's scope is a new one each run")),
+    ("random.rs", "SCOPE", NotState("the scope a thread draws in, entered and left by `run_scoped` around each replay")),
     ("wall.rs", "CLOCK", Reset("wall::set(None)")),
-    ("wall.rs", "INSTALLED", NotState("the count of threads holding a CLOCK script, which follows CLOCK's reset")),
+    ("pid.rs", "PID", Reset("pid::set(None)")),
     ("providers/google/request.rs", "GEMINI_OWNER", NotState("a constant provider id")),
     ("providers/google/request.rs", "ANTIGRAVITY_OWNER", NotState("a constant provider id")),
     (

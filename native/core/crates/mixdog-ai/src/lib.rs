@@ -23,6 +23,7 @@ pub mod client_versions;
 pub mod effort;
 pub mod netproxy;
 pub mod oauth;
+pub mod pid;
 pub mod providers;
 pub mod random;
 pub mod registry;
@@ -47,11 +48,12 @@ pub fn reset_process_state() {
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();
     providers::grok::reset_process_state();
-    // This thread's scripts (the seams are per thread).
+    // The calling scope's scripts (the seams are per replay scope, `random::run_scoped`).
     random::script(Vec::new());
     random::script_jitter(Vec::new());
     wall::set(None);
     wall::follow(None);
+    pid::set(None);
     providers::openai::adapter::reset_zstd_latch();
     providers::google::adapter::reset_announced();
     providers::google::cache::registry::Registry::reset_shared();
