@@ -1070,6 +1070,8 @@ pub struct ExecRuntime {
     reaped: Mutex<HashMap<String, Vec<String>>>,
     /// Whether the expired logs of the spill directory were swept.
     swept: std::sync::atomic::AtomicBool,
+    /// That sweep while it runs, awaited at shutdown.
+    sweep: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
     /// a tree that never settled, at shutdown (`PENDING_ARTIFACT_PATHS`, `transport-artifacts.mjs`).
     artifacts: Mutex<Vec<PathBuf>>,
@@ -1097,13 +1099,18 @@ impl ExecRuntime {
             cycles: OnceLock::new(),
             reaped: Mutex::new(HashMap::new()),
             swept: std::sync::atomic::AtomicBool::new(false),
+            sweep: Mutex::new(None),
             artifacts: Mutex::new(Vec::new()),
         })
     }
 
     /// Shutdown: removes the shell snapshots this runtime made, and the hoisted scripts and tee
-    /// captures of commands that never settled (Node's exit hooks).
+    /// captures of commands that never settled (Node's exit hooks), once the log sweep has ended.
     pub async fn drain_snapshots(&self, cancel: &CancellationToken) {
+        let sweep = lock(&self.sweep).take();
+        if let Some(sweep) = sweep {
+            let _ = sweep.await;
+        }
         self.snapshots.drain(self.config.lanes.maintenance, cancel).await;
         let pending = std::mem::take(&mut *lock(&self.artifacts));
         for path in pending {
@@ -1190,12 +1197,17 @@ impl ExecRuntime {
         let cwd = request.cwd.as_path().to_string_lossy().into_owned();
         let stdout_log = self.config.spill_dir.join(format!("{task_id}.stdout.log"));
         let stderr_log = self.config.spill_dir.join(format!("{task_id}.stderr.log"));
-        // The expired logs of earlier runs go once per runtime, when its first job writes logs.
-        if !self.swept.swap(true, std::sync::atomic::Ordering::AcqRel) {
-            spill::sweep_expired(self.config.lanes.maintenance, cancel, &self.config.spill_dir).await;
-        }
         // A log that cannot be created is simply not offered to the model.
         spill::create_logs(self.config.lanes.maintenance, cancel, &stdout_log, &stderr_log).await;
+        // The expired logs of earlier runs go once per runtime, when its first job writes logs, beside the command and
+        // never on its path (`sweepExpiredShellOutput`, started unawaited); shutdown waits for it.
+        if !self.swept.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            let (lane, dir) = (self.config.lanes.maintenance, self.config.spill_dir.clone());
+            let sweep = mixdog_rt::spawn("shell-log-sweep", TaskClass::Work, async move {
+                spill::sweep_expired(lane, &CancellationToken::new(), &dir).await;
+            });
+            *lock(&self.sweep) = Some(sweep);
+        }
         processes.spawn(request).await?;
         let source = processes.subscribe(&handle, Some(0))?;
         let (settled, _) = watch::channel(false);

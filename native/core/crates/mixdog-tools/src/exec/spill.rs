@@ -33,14 +33,28 @@ pub async fn create_logs(lane: MaintenanceIo, cancel: &CancellationToken, out: &
 /// a session resumed days later may still read them.
 pub const RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
-/// Removes the files of `dir` last modified more than `RETENTION_MS` ago, by the system clock the
+/// Whether `name` is one of the logs a job writes (`<task id>.stdout.log`, `<task id>.stderr.log`, the task id
+/// `task-<call id>`): nothing else in the directory is the sweep's.
+fn is_job_log(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|name| name.starts_with("task-") && (name.ends_with(".stdout.log") || name.ends_with(".stderr.log")))
+}
+
+/// Removes the job logs of `dir` last modified more than `RETENTION_MS` ago, by the system clock the
 /// modification times are written with (`sweepExpiredShellOutput`). Best effort: a file that
-/// cannot be read or removed stays.
+/// cannot be read or removed stays. It runs before any job of this runtime is older than the retention, so
+/// no log one of them writes is old enough; a job of another process whose log has had nothing written for
+/// the retention keeps spilling, into a log its next append recreates ([`append`]).
 pub async fn sweep_expired(lane: MaintenanceIo, cancel: &CancellationToken, dir: &Path) {
+    #[cfg(test)]
+    sweep_gate::pass(dir).await;
     let dir = dir.to_owned();
     let Ok(handle) = lane.submit(cancel, move |_| {
         let cutoff = std::time::SystemTime::now() - std::time::Duration::from_millis(RETENTION_MS);
         for entry in std::fs::read_dir(&dir)?.flatten() {
+            if !is_job_log(&entry.file_name()) {
+                continue;
+            }
             if entry.metadata().and_then(|m| m.modified()).is_ok_and(|modified| modified < cutoff) {
                 let _ = std::fs::remove_file(entry.path());
             }
@@ -52,12 +66,40 @@ pub async fn sweep_expired(lane: MaintenanceIo, cancel: &CancellationToken, dir:
     let _ = handle.await;
 }
 
-/// Appends `bytes` to `path`. `false` when the log cannot be written, after which the caller
-/// stops spilling that stream.
+/// Holds the log sweep of one directory until released, so a test can show the command does not wait for it.
+#[cfg(test)]
+pub(crate) mod sweep_gate {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use tokio::sync::Notify;
+
+    static HELD: Mutex<Option<(PathBuf, Arc<Notify>)>> = Mutex::new(None);
+
+    /// The sweep of `dir` waits at its start until the returned signal is notified.
+    pub(crate) fn hold(dir: &Path) -> Arc<Notify> {
+        let gate = Arc::new(Notify::new());
+        *HELD.lock().unwrap() = Some((dir.to_owned(), Arc::clone(&gate)));
+        gate
+    }
+
+    pub(super) async fn pass(dir: &Path) {
+        let gate = HELD.lock().unwrap().as_ref().filter(|(held, _)| held == dir).map(|(_, gate)| Arc::clone(gate));
+        if let Some(gate) = gate {
+            gate.notified().await;
+        }
+    }
+}
+
+/// Appends `bytes` to `path`, recreating a log another process's sweep removed. `false` when the log
+/// cannot be written, after which the caller stops spilling that stream.
 pub async fn append(lane: MaintenanceIo, cancel: &CancellationToken, path: &Path, bytes: Vec<u8>) -> bool {
     let path = path.to_owned();
     let Ok(handle) = lane.submit(cancel, move |_| {
         std::fs::OpenOptions::new()
+            .create(true)
             .append(true)
             .open(&path)
             .and_then(|mut file| file.write_all(&bytes))
