@@ -21,34 +21,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           }
         ],
         "presented": {
@@ -101,34 +102,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -142,12 +144,17 @@
           {
             "do": "grants",
             "label": "after always",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": [
               {
+                "id": "grant_79233c12e3a753ea56c8f514",
                 "agentId": "*",
                 "action": "tool:shell",
                 "mode": "allow",
-                "scope": null
+                "device": "",
+                "at": 1800000000000
               }
             ]
           },
@@ -164,13 +171,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -185,13 +193,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -206,13 +215,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -227,13 +237,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "audit",
@@ -243,29 +254,54 @@
             },
             "rows": [
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "granted",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "approve",
-                "action": "tool:shell"
+                "device": ""
               }
             ]
           },
@@ -277,34 +313,64 @@
             },
             "rows": [
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "granted",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "approve",
-                "action": "tool:shell"
+                "device": ""
               }
             ]
           }
@@ -328,34 +394,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -382,16 +449,17 @@
                 "command": "safe"
               }
             },
-            "decision": {
-              "action": "modify",
-              "reason": "r",
-              "args": {
-                "command": "safe"
-              }
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "modify",
+                "reason": "r",
+                "args": {
+                  "command": "safe"
+                }
+              },
+              "request": null,
+              "gate": null
+            }
           }
         ]
       }
@@ -413,34 +481,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -454,6 +523,9 @@
           {
             "do": "grants",
             "label": "after session",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           },
           {
@@ -469,13 +541,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -490,34 +563,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_other",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_other",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -532,34 +606,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_home_lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_home_lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -576,34 +651,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:edit"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "edit",
-              "target": "",
-              "action": "tool:edit",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:edit"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "edit",
+                "target": "",
+                "action": "tool:edit",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "audit",
@@ -613,19 +689,34 @@
             },
             "rows": [
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "session-remembered",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "session-granted",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "approve",
-                "action": "tool:shell"
+                "device": ""
               }
             ]
           },
@@ -646,34 +737,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -688,34 +780,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -743,13 +836,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "advance",
@@ -768,34 +862,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           }
         ],
         "sessionGrantTtlMs": 43200000
@@ -818,34 +913,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:mcp__acme__write_it"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__acme__write_it",
-              "target": "",
-              "action": "tool:mcp__acme__write_it",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:mcp__acme__write_it"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__acme__write_it",
+                "target": "",
+                "action": "tool:mcp__acme__write_it",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -869,13 +965,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -890,34 +987,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:mcp__acme__write_other"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__acme__write_other",
-              "target": "",
-              "action": "tool:mcp__acme__write_other",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:mcp__acme__write_other"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__acme__write_other",
+                "target": "",
+                "action": "tool:mcp__acme__write_other",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -930,34 +1028,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:mcp__acme2__write_it"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__acme2__write_it",
-              "target": "",
-              "action": "tool:mcp__acme2__write_it",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:mcp__acme2__write_it"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__acme2__write_it",
+                "target": "",
+                "action": "tool:mcp__acme2__write_it",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -972,34 +1071,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -1016,34 +1116,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:edit"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "edit",
-              "target": "",
-              "action": "tool:edit",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:edit"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "edit",
+                "target": "",
+                "action": "tool:edit",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -1061,34 +1162,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "comment"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "comment",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "comment"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "comment",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -1115,13 +1217,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -1138,34 +1241,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:github"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "tool:github",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:github"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "tool:github",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -1182,34 +1286,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:github"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "tool:github",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:github"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "tool:github",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           }
         ],
         "toolActionOf": [
@@ -1268,24 +1373,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "setup",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "setup",
+                "target": ""
+              }
+            }
           },
           {
             "do": "answer",
@@ -1313,24 +1419,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "ask_user",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "ask_user",
+                "target": ""
+              }
+            }
           },
           {
             "do": "answer",
@@ -1358,24 +1465,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "handoff_user",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "handoff_user",
+                "target": ""
+              }
+            }
           },
           {
             "do": "answer",
@@ -1393,6 +1501,9 @@
           {
             "do": "grants",
             "label": "after",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           }
         ]
@@ -1417,24 +1528,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__stripe__create_payment",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__stripe__create_payment",
+                "target": ""
+              }
+            }
           },
           {
             "do": "answer",
@@ -1491,24 +1603,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__stripe__create_payment",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__stripe__create_payment",
+                "target": ""
+              }
+            }
           },
           {
             "do": "decide",
@@ -1525,24 +1638,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__drive__delete_permanently",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__drive__delete_permanently",
+                "target": ""
+              }
+            }
           },
           {
             "do": "answer",
@@ -1599,24 +1713,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__drive__delete_permanently",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__drive__delete_permanently",
+                "target": ""
+              }
+            }
           },
           {
             "do": "store.grant",
@@ -1639,24 +1754,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__stripe__create_payment",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__stripe__create_payment",
+                "target": ""
+              }
+            }
           },
           {
             "do": "config agent.developer.allowAllActions = true"
@@ -1676,24 +1792,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__stripe__create_payment",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__stripe__create_payment",
+                "target": ""
+              }
+            }
           },
           {
             "do": "decide",
@@ -1710,24 +1827,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__drive__delete_permanently",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__drive__delete_permanently",
+                "target": ""
+              }
+            }
           },
           {
             "do": "decide",
@@ -1742,13 +1860,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           }
         ]
       }
@@ -1773,34 +1892,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "comment"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "comment",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "comment"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "comment",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -1824,34 +1944,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -1877,24 +1998,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__stripe__create_payment",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__stripe__create_payment",
+                "target": ""
+              }
+            }
           },
           {
             "do": "decide",
@@ -1911,24 +2033,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__drive__delete_permanently",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__drive__delete_permanently",
+                "target": ""
+              }
+            }
           },
           {
             "do": "decide",
@@ -1945,34 +2068,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "email"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__gmail__send_email",
-              "target": "",
-              "action": "email",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "email"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__gmail__send_email",
+                "target": "",
+                "action": "email",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -1989,34 +2113,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:edit"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "edit",
-              "target": "",
-              "action": "tool:edit",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:edit"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "edit",
+                "target": "",
+                "action": "tool:edit",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           }
         ]
       }
@@ -2038,34 +2163,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -2097,30 +2223,31 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "mailer",
-              "remember": [
-                "once"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "mailer",
+                "remember": [
+                  "once"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -2162,34 +2289,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "store.grant",
@@ -2218,13 +2346,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           }
         ]
       }
@@ -2246,34 +2375,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -2342,6 +2472,9 @@
           {
             "do": "grants",
             "label": "after",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           },
           {
@@ -2357,34 +2490,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "audit",
@@ -2394,19 +2528,34 @@
             },
             "rows": [
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "deny",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "timeout",
-                "action": "tool:shell"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "lead",
+                "kind": "approval",
+                "action": "tool:shell",
+                "tool": "shell",
+                "target": "",
                 "decision": "timeout",
-                "action": "tool:shell"
+                "device": ""
               }
             ]
           }
@@ -2433,47 +2582,48 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
               },
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -2487,12 +2637,17 @@
           {
             "do": "grants",
             "label": "after always",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": [
               {
+                "id": "grant_e0502a5ecf33b648d69bebe6",
                 "agentId": "*",
                 "action": "email",
                 "mode": "allow",
-                "scope": null
+                "device": "",
+                "at": 1800000000000
               }
             ]
           },
@@ -2511,13 +2666,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -2534,13 +2690,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "decide",
@@ -2557,13 +2714,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "store.setMode",
@@ -2586,13 +2744,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "deny",
-              "reason": "This agent's permission blocks this action."
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "deny",
+                "reason": "This agent's permission blocks this action."
+              },
+              "request": null,
+              "gate": null
+            }
           }
         ],
         "harness2": {
@@ -2619,47 +2778,48 @@
                 "action": "ask",
                 "reason": "hook rule"
               },
-              "decision": {
-                "action": "ask",
-                "reason": "hook rule"
-              },
-              "request": {
-                "kind": "outbound",
-                "agentId": "mailer",
-                "outbound": {
-                  "category": "email",
-                  "target": "a@b.c",
-                  "account": "gmail",
-                  "payload": "hi",
-                  "editable": [
-                    "body",
-                    "subject"
-                  ],
-                  "details": {
-                    "to": "a@b.c",
-                    "subject": "s"
-                  }
+              "result": {
+                "decision": {
+                  "action": "ask",
+                  "reason": "hook rule"
                 },
-                "remember": [
-                  "once",
-                  "session",
-                  "always"
-                ]
-              },
-              "gate": {
-                "agentId": "mailer",
-                "kind": "outbound",
-                "action": "email",
-                "tool": "mcp__gmail__send_email",
-                "target": "a@b.c",
-                "sessionId": "sess_home_mailer",
-                "remember": [
-                  "once",
-                  "session",
-                  "always"
-                ]
-              },
-              "remembered": null
+                "request": {
+                  "kind": "outbound",
+                  "agentId": "mailer",
+                  "outbound": {
+                    "category": "email",
+                    "target": "a@b.c",
+                    "account": "gmail",
+                    "payload": "hi",
+                    "editable": [
+                      "body",
+                      "subject"
+                    ],
+                    "details": {
+                      "to": "a@b.c",
+                      "subject": "s"
+                    }
+                  },
+                  "remember": [
+                    "once",
+                    "session",
+                    "always"
+                  ]
+                },
+                "gate": {
+                  "agentId": "mailer",
+                  "kind": "outbound",
+                  "action": "email",
+                  "tool": "mcp__gmail__send_email",
+                  "target": "a@b.c",
+                  "sessionId": "sess_home_mailer",
+                  "remember": [
+                    "once",
+                    "session",
+                    "always"
+                  ]
+                }
+              }
             },
             {
               "do": "decide",
@@ -2675,12 +2835,14 @@
               "hook": {
                 "action": "allow"
               },
-              "decision": {
-                "action": "allow"
-              },
-              "request": null,
-              "gate": null,
-              "remembered": true
+              "result": {
+                "decision": {
+                  "action": "allow"
+                },
+                "request": null,
+                "gate": null,
+                "remembered": true
+              }
             }
           ]
         },
@@ -2702,47 +2864,48 @@
                 "action": "ask",
                 "reason": "hook rule"
               },
-              "decision": {
-                "action": "ask",
-                "reason": "hook rule"
-              },
-              "request": {
-                "kind": "outbound",
-                "agentId": "mailer",
-                "outbound": {
-                  "category": "email",
-                  "target": "a@b.c",
-                  "account": "gmail",
-                  "payload": "hi",
-                  "editable": [
-                    "body",
-                    "subject"
-                  ],
-                  "details": {
-                    "to": "a@b.c",
-                    "subject": "s"
-                  }
+              "result": {
+                "decision": {
+                  "action": "ask",
+                  "reason": "hook rule"
                 },
-                "remember": [
-                  "once",
-                  "session",
-                  "always"
-                ]
-              },
-              "gate": {
-                "agentId": "mailer",
-                "kind": "outbound",
-                "action": "email",
-                "tool": "mcp__gmail__send_email",
-                "target": "a@b.c",
-                "sessionId": "sess_home_mailer",
-                "remember": [
-                  "once",
-                  "session",
-                  "always"
-                ]
-              },
-              "remembered": null
+                "request": {
+                  "kind": "outbound",
+                  "agentId": "mailer",
+                  "outbound": {
+                    "category": "email",
+                    "target": "a@b.c",
+                    "account": "gmail",
+                    "payload": "hi",
+                    "editable": [
+                      "body",
+                      "subject"
+                    ],
+                    "details": {
+                      "to": "a@b.c",
+                      "subject": "s"
+                    }
+                  },
+                  "remember": [
+                    "once",
+                    "session",
+                    "always"
+                  ]
+                },
+                "gate": {
+                  "agentId": "mailer",
+                  "kind": "outbound",
+                  "action": "email",
+                  "tool": "mcp__gmail__send_email",
+                  "target": "a@b.c",
+                  "sessionId": "sess_home_mailer",
+                  "remember": [
+                    "once",
+                    "session",
+                    "always"
+                  ]
+                }
+              }
             },
             {
               "do": "choose",
@@ -2768,13 +2931,14 @@
                 "action": "ask",
                 "reason": "hook rule"
               },
-              "decision": {
-                "action": "allow",
-                "reason": "hook rule"
-              },
-              "request": null,
-              "gate": null,
-              "remembered": null
+              "result": {
+                "decision": {
+                  "action": "allow",
+                  "reason": "hook rule"
+                },
+                "request": null,
+                "gate": null
+              }
             },
             {
               "do": "decide",
@@ -2791,47 +2955,48 @@
                 "action": "ask",
                 "reason": "hook rule"
               },
-              "decision": {
-                "action": "ask",
-                "reason": "hook rule"
-              },
-              "request": {
-                "kind": "outbound",
-                "agentId": "scribe",
-                "outbound": {
-                  "category": "email",
-                  "target": "a@b.c",
-                  "account": "gmail",
-                  "payload": "hi",
-                  "editable": [
-                    "body",
-                    "subject"
-                  ],
-                  "details": {
-                    "to": "a@b.c",
-                    "subject": "s"
-                  }
+              "result": {
+                "decision": {
+                  "action": "ask",
+                  "reason": "hook rule"
                 },
-                "remember": [
-                  "once",
-                  "session",
-                  "always"
-                ]
-              },
-              "gate": {
-                "agentId": "scribe",
-                "kind": "outbound",
-                "action": "email",
-                "tool": "mcp__gmail__send_email",
-                "target": "a@b.c",
-                "sessionId": "sess_home_scribe",
-                "remember": [
-                  "once",
-                  "session",
-                  "always"
-                ]
-              },
-              "remembered": null
+                "request": {
+                  "kind": "outbound",
+                  "agentId": "scribe",
+                  "outbound": {
+                    "category": "email",
+                    "target": "a@b.c",
+                    "account": "gmail",
+                    "payload": "hi",
+                    "editable": [
+                      "body",
+                      "subject"
+                    ],
+                    "details": {
+                      "to": "a@b.c",
+                      "subject": "s"
+                    }
+                  },
+                  "remember": [
+                    "once",
+                    "session",
+                    "always"
+                  ]
+                },
+                "gate": {
+                  "agentId": "scribe",
+                  "kind": "outbound",
+                  "action": "email",
+                  "tool": "mcp__gmail__send_email",
+                  "target": "a@b.c",
+                  "sessionId": "sess_home_scribe",
+                  "remember": [
+                    "once",
+                    "session",
+                    "always"
+                  ]
+                }
+              }
             }
           ]
         }
@@ -2854,34 +3019,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -2908,34 +3074,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "comment"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "comment",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "comment"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "comment",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -2953,15 +3120,70 @@
             "rows": [
               {
                 "action": "comment",
-                "shared": true,
+                "mode": "allow",
                 "rememberable": true,
-                "mode": "allow"
+                "shared": true
+              },
+              {
+                "action": "review",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "message",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "email",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "publish",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "form",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "payment",
+                "mode": "ask",
+                "rememberable": false
+              },
+              {
+                "action": "delete",
+                "mode": "ask",
+                "rememberable": false
+              },
+              {
+                "action": "trash",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_submit",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_post",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_upload",
+                "mode": "ask",
+                "rememberable": true
               },
               {
                 "action": "tool:shell",
-                "shared": true,
+                "mode": "allow",
                 "rememberable": true,
-                "mode": "allow"
+                "shared": true
               }
             ]
           },
@@ -2972,15 +3194,70 @@
             "rows": [
               {
                 "action": "comment",
-                "shared": true,
+                "mode": "allow",
                 "rememberable": true,
-                "mode": "allow"
+                "shared": true
+              },
+              {
+                "action": "review",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "message",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "email",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "publish",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "form",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "payment",
+                "mode": "ask",
+                "rememberable": false
+              },
+              {
+                "action": "delete",
+                "mode": "ask",
+                "rememberable": false
+              },
+              {
+                "action": "trash",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_submit",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_post",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_upload",
+                "mode": "ask",
+                "rememberable": true
               },
               {
                 "action": "tool:shell",
-                "shared": true,
+                "mode": "allow",
                 "rememberable": true,
-                "mode": "allow"
+                "shared": true
               }
             ]
           },
@@ -2991,15 +3268,70 @@
             "rows": [
               {
                 "action": "comment",
-                "shared": true,
+                "mode": "allow",
                 "rememberable": true,
-                "mode": "allow"
+                "shared": true
+              },
+              {
+                "action": "review",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "message",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "email",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "publish",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "form",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "payment",
+                "mode": "ask",
+                "rememberable": false
+              },
+              {
+                "action": "delete",
+                "mode": "ask",
+                "rememberable": false
+              },
+              {
+                "action": "trash",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_submit",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_post",
+                "mode": "ask",
+                "rememberable": true
+              },
+              {
+                "action": "browser_upload",
+                "mode": "ask",
+                "rememberable": true
               },
               {
                 "action": "tool:shell",
-                "shared": true,
+                "mode": "allow",
                 "rememberable": true,
-                "mode": "allow"
+                "shared": true
               }
             ]
           },
@@ -3042,13 +3374,14 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "allow",
-              "reason": "hook rule"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "allow",
+                "reason": "hook rule"
+              },
+              "request": null,
+              "gate": null
+            }
           },
           {
             "do": "setAgentPermission scribe comment ask; mailer tool:shell ask"
@@ -3056,6 +3389,9 @@
           {
             "do": "grants",
             "label": "after both revoked",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           },
           {
@@ -3071,34 +3407,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -3116,34 +3453,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "comment"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "comment",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "comment"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "comment",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -3158,34 +3496,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "choose",
@@ -3202,6 +3541,9 @@
           {
             "do": "grants",
             "label": "after the remote revoke",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           }
         ],
@@ -3225,20 +3567,26 @@
         "results": [
           {
             "rejected": {
+              "$exact": "error",
               "name": "Error",
-              "message": "tool:shell can only be set back to ask"
+              "message": "tool:shell can only be set back to ask",
+              "props": {}
             }
           },
           {
             "rejected": {
+              "$exact": "error",
               "name": "Error",
-              "message": "tool:shell can only be set back to ask"
+              "message": "tool:shell can only be set back to ask",
+              "props": {}
             }
           },
           {
             "rejected": {
+              "$exact": "error",
               "name": "Error",
-              "message": "action must be one of comment, review, message, email, publish, form, payment, delete, trash, browser_submit, browser_post, browser_upload"
+              "message": "action must be one of comment, review, message, email, publish, form, payment, delete, trash, browser_submit, browser_post, browser_upload",
+              "props": {}
             }
           }
         ]
@@ -3251,6 +3599,9 @@
           {
             "do": "grants",
             "label": "after the three setMode calls",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           }
         ],
@@ -3294,34 +3645,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "comment"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "comment",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "comment"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "comment",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -3336,34 +3688,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:shell"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "shell",
-              "target": "",
-              "action": "tool:shell",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:shell"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "action": "tool:shell",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -3380,34 +3733,35 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ],
-              "grantAction": "tool:github"
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "github",
-              "target": "",
-              "action": "tool:github",
-              "sessionId": "sess_lead_coding",
-              "remember": [
-                "once",
-                "session",
-                "always"
-              ]
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ],
+                "grantAction": "tool:github"
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "github",
+                "target": "",
+                "action": "tool:github",
+                "sessionId": "sess_lead_coding",
+                "remember": [
+                  "once",
+                  "session",
+                  "always"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -3424,24 +3778,25 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "mcp__stripe__create_payment",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "mcp__stripe__create_payment",
+                "target": ""
+              }
+            }
           },
           {
             "do": "decide",
@@ -3454,32 +3809,37 @@
               "action": "ask",
               "reason": "hook rule"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "hook rule"
-            },
-            "request": {
-              "kind": "approval",
-              "agentId": "lead",
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "lead",
-              "kind": "approval",
-              "tool": "setup",
-              "target": ""
-            },
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "hook rule"
+              },
+              "request": {
+                "kind": "approval",
+                "agentId": "lead",
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "lead",
+                "kind": "approval",
+                "tool": "setup",
+                "target": ""
+              }
+            }
           }
         ],
         "grantActions": {
           "comment": "comment",
           "shell": "tool:shell",
           "merge": "tool:github",
-          "mcp__stripe__create_payment": null,
-          "setup": null
+          "mcp__stripe__create_payment": {
+            "$exact": "undefined"
+          },
+          "setup": {
+            "$exact": "undefined"
+          }
         }
       }
     }
