@@ -212,9 +212,12 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
         let base = (*rig.loaded.get()).clone();
         let base = &base;
         let mut in_place: Option<std::fs::File> = None;
-        // The last observation, and the rebuilds applied when it was taken.
-        let mut last = Value::Null;
+        // The rebuilds applied when the last observation was taken, and the credential another process writes while the first
+        // build runs.
         let mut applied_at = 0;
+        let mut during_build: Option<String> = None;
+        // What the first build returned to the read that made it, when another process wrote during that build.
+        let mut first_read: Option<Value> = None;
         // A config-change listener, subscribed after each observation as the test subscribes its own.
         let mut listener = rig.config.changes();
         for (index, step) in steps.iter().enumerate() {
@@ -222,11 +225,21 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
             // The snapshot is made at the first read, as Node's is.
             if step["op"] == "observe" && started.is_none() {
                 let initial = super::provider_sync::load_config(&rig.config, &rig.effective).await.unwrap();
+                // After the build read the credential file and before the sync that watches it began.
+                if let Some(text) = during_build.take() {
+                    foreign_write(&credentials, &text);
+                    first_read = Some(stored(base, &initial));
+                }
                 rig.loaded.replace(initial);
-                started = Some(spawn_provider_sync_on(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone(), pace.clone()));
+                let mut sync = spawn_provider_sync_on(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone(), pace.clone());
+                // The clock and the files move only once the sync has its first pass behind it and its expiry read.
+                within(&format!("{name}, step {index}: the sync's first pass"), sync.ready.wait_for(|ready| *ready)).await.unwrap();
+                started = Some(sync);
             }
             match step["op"].as_str().unwrap() {
                 "writeConfig" => foreign_write(&path, text),
+                // The first build's own loader writes the credential file: placed in the first observation's build.
+                "writeDuringBuild" => during_build = Some(text.to_owned()),
                 "writeCredential" => {
                     let target = if step["at"] == "nested" { nested_file.clone().unwrap() } else { credentials.clone() };
                     foreign_write(&target, text);
@@ -266,11 +279,14 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
                 }
                 // Another process writing the file in place, caught halfway, then completing it.
                 "writeConfigInPlace" => {
-                    // A torn file makes no notification (the reload fails and the config keeps its last good document), so the
-                    // pass over its first bytes cannot be awaited: declared in the manifest.
+                    // A torn file makes no `changes` notification (the reload fails and the config keeps its last good document):
+                    // the watch's pass over its first bytes is awaited through the pass counter.
+                    let mut passes = rig.config.watch_passes();
+                    passes.borrow_and_update();
                     let mut file = std::fs::File::create(&path).unwrap();
                     file.write_all(text.as_bytes()).unwrap();
                     file.sync_all().unwrap();
+                    within(&format!("{name}, step {index}: the config watch's pass over the first bytes"), passes.changed()).await.unwrap();
                     in_place = Some(file);
                 }
                 "appendConfig" => {
@@ -289,27 +305,34 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
                     assert_eq!(json!([agent.get("heartbeat")]), step["seen"], "{name}, step {index}: what the listener reads");
                 }
                 "observe" => {
-                    // The loaded config at Node's recorded moment: taken in by the rebuild the step causes, each rebuild
-                    // announced by the sync's own notification. A rebuild that changes nothing is another notification of
-                    // the same state; any other state is a wrong intermediate.
+                    // The loaded config at Node's recorded moment: the step is held until the rebuilds it causes (each announced by
+                    // the sync's own notification) have taken it in. One deadline for the whole wait; the states in between are
+                    // not judged, and the last one read is named when the wait runs out.
                     let want = &step["stored"];
                     let sync = started.as_mut().unwrap();
-                    loop {
-                        sync.applied.borrow_and_update();
-                        let got = stored(base, &rig.loaded.get());
-                        if got == *want {
-                            break;
-                        }
-                        // Declared in the manifest: another process's replace of the file can be read while the path is empty.
-                        // The first observation has no earlier one: the watch is still taking in the case's own setup writes.
-                        assert!(last.is_null() || got == last || got == json!([]), "{name}, step {index}: an intermediate state\n got: {got}\nlast: {last}\nwant: {want}");
-                        within(&format!("{name}, step {index}: the rebuild that takes the step in"), sync.applied.changed()).await.unwrap();
+                    // The read that built the snapshot got what it read before the write, whatever the sync has taken in since.
+                    if let Some(first) = first_read.take() {
+                        assert_eq!(first, *want, "{name}, step {index}: the build's own read");
+                        listener = rig.config.changes();
+                        continue;
                     }
-                    last = want.clone();
+                    let mut got = Value::Null;
+                    let reached = tokio::time::timeout(Duration::from_secs(5), async {
+                        loop {
+                            sync.applied.borrow_and_update();
+                            got = stored(base, &rig.loaded.get());
+                            if got == *want {
+                                return;
+                            }
+                            sync.applied.changed().await.unwrap();
+                        }
+                    })
+                    .await
+                    .is_ok();
+                    assert!(reached, "{name}, step {index}: waited 5 s for the rebuild that takes the step in\n last read: {got}\n want: {want}");
                     applied_at = *sync.applied.borrow();
                     listener = rig.config.changes();
-                }
-                other => panic!("{name}: step {other} has no replay"),
+                }                other => panic!("{name}: step {other} has no replay"),
             }
         }
         stop.cancel();
