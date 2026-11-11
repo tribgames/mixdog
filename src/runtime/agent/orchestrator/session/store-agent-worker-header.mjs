@@ -31,12 +31,15 @@ function pickFields(doc, fields) {
  * The `fields` of a worker session's header, the session named by its legacy
  * record path `jsonPath`, through the record seam: a header scan of its log,
  * or readTopLevelFields of its legacy json. Null when there is no record or
- * it holds no header; throws a failed read.
+ * it holds no header; throws a failed read. `checkpoints`: the directory the
+ * header scan of a log leaves its place in for the next thread or process
+ * (session-scan-checkpoint.mjs).
  */
-export function readWorkerRecordHeader(jsonPath, fields) {
+export function readWorkerRecordHeader(jsonPath, fields, { checkpoints = null } = {}) {
   const outcome = resolveSessionRecordSync({
     ...sessionRecordFilesOf(jsonPath),
     messages: false,
+    checkpoints,
     loadLegacy: (text) => readTopLevelFields(Buffer.from(text, 'utf8'), fields),
   });
   const session = recordSession(outcome, legacySessionId(jsonPath));
