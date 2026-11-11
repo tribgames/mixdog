@@ -85,12 +85,76 @@ fn millis(action: &serde_json::Value) -> Duration {
     Duration::from_secs_f64(action["ms"].as_f64().expect("ms") / 1000.0)
 }
 
+/// An unrefed timer or an interval the case's script clears, dropped by its `clearTimeout` at once.
+enum Held {
+    Sleep(std::pin::Pin<Box<time::Sleep>>),
+    Interval(time::Interval),
+}
+
+type HeldSlot = std::sync::Arc<std::sync::Mutex<Option<Held>>>;
+
+static HELD: std::sync::Mutex<Vec<(String, HeldSlot)>> = std::sync::Mutex::new(Vec::new());
+
+/// The next fire of the timer in `slot`; never, once it is cleared.
+async fn fired(slot: &HeldSlot) {
+    std::future::poll_fn(|cx| match &mut *slot.lock().expect("the held timer") {
+        Some(Held::Sleep(sleep)) => sleep.as_mut().poll(cx),
+        Some(Held::Interval(interval)) => interval.poll_tick(cx).map(drop),
+        None => std::task::Poll::Pending,
+    })
+    .await;
+}
+
+fn held(name: &str, timer: Held) -> HeldSlot {
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(timer)));
+    HELD.lock().expect("the held timers").push((name.to_owned(), slot.clone()));
+    slot
+}
+
+/// Whether the recorded action's timer is unrefed when it is cleared or fires (`unref`, and no `ref` after it).
+fn unrefed(action: &serde_json::Value) -> bool {
+    action["unref"] == true && action["ref"] != true
+}
+
 /// Runs a recorded script's actions in order, on the calling thread or task (a timer's callback).
 fn run_script(actions: &[serde_json::Value], cleared: &[String], class: TaskClass) {
     for action in actions {
         let then = action["then"].as_array().cloned().unwrap_or_default();
         let cleared_too = cleared.to_vec();
-        if let Some(name) = action["timeout"].as_str().map(str::to_owned) {
+        if let Some(name) = action["timeout"].as_str().map(str::to_owned).filter(|name| unrefed(action) && cleared.contains(name)) {
+            let slot = held(&name, Held::Sleep(Box::pin(time::sleep_unrefed(millis(action)))));
+            let class = next_class();
+            drop(mixdog_rt::spawn("timeout", class, async move {
+                fired(&slot).await;
+                event(&name);
+                run_script(&then, &cleared_too, class);
+            }));
+        } else if let Some(name) = action["interval"].as_str().map(str::to_owned).filter(|name| cleared.contains(name)) {
+            let period = millis(action);
+            let start = time::Instant::now() + period;
+            let interval = if unrefed(action) { time::interval_at_unrefed(start, period) } else { time::interval_at(start, period) };
+            let times = action["times"].as_u64().expect("times");
+            let slot = held(&name, Held::Interval(interval));
+            let class = next_class();
+            drop(mixdog_rt::spawn("interval", class, async move {
+                for fire in 1..=times {
+                    fired(&slot).await;
+                    event(&name);
+                    if fire == times {
+                        drop(slot.lock().expect("the held timer").take());
+                    }
+                    run_script(&then, &cleared_too, class);
+                }
+            }));
+        } else if let Some(name) = action["immediate"].as_str().map(str::to_owned) {
+            let immediate = time::immediate();
+            let class = next_class();
+            drop(mixdog_rt::spawn("immediate", class, async move {
+                immediate.await;
+                event(&name);
+                run_script(&then, &cleared_too, class);
+            }));
+        } else if let Some(name) = action["timeout"].as_str().map(str::to_owned) {
             if cleared.contains(&name) {
                 let fire = name.clone();
                 let handle = mixdog_rt::ticker().register(std::time::Instant::now() + millis(action), move || {
@@ -99,7 +163,7 @@ fn run_script(actions: &[serde_json::Value], cleared: &[String], class: TaskClas
                 });
                 CLEARABLE.lock().expect("the clearable timers").push((name, handle));
             } else {
-                let sleep = time::sleep(millis(action));
+                let sleep = if unrefed(action) { time::sleep_unrefed(millis(action)) } else { time::sleep(millis(action)) };
                 let class = next_class();
                 drop(mixdog_rt::spawn("timeout", class, async move {
                     sleep.await;
@@ -110,7 +174,8 @@ fn run_script(actions: &[serde_json::Value], cleared: &[String], class: TaskClas
         } else if let Some(name) = action["interval"].as_str().map(str::to_owned) {
             let period = millis(action);
             let times = action["times"].as_u64().expect("times");
-            let mut interval = time::interval_at(time::Instant::now() + period, period);
+            let start = time::Instant::now() + period;
+            let mut interval = if unrefed(action) { time::interval_at_unrefed(start, period) } else { time::interval_at(start, period) };
             let class = next_class();
             drop(mixdog_rt::spawn("interval", class, async move {
                 for _ in 0..times {
@@ -119,6 +184,8 @@ fn run_script(actions: &[serde_json::Value], cleared: &[String], class: TaskClas
                     run_script(&then, &cleared_too, class);
                 }
             }));
+        } else if let Some(slot) = action["clear"].as_str().and_then(|name| HELD.lock().expect("the held timers").iter().find(|(held, _)| held == name).map(|(_, slot)| slot.clone())) {
+            drop(slot.lock().expect("the held timer").take());
         } else if let Some(name) = action["clear"].as_str() {
             let mut clearable = CLEARABLE.lock().expect("the clearable timers");
             let at = clearable.iter().position(|(armed, _)| armed == name).unwrap_or_else(|| panic!("{name} is not armed"));

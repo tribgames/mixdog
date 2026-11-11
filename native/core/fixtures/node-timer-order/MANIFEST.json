@@ -1,15 +1,22 @@
 {
   "attempts": {
     "a-promise-queued-before-a-tick": 1,
-    "a-requeued-list-after-an-older-list": 1,
+    "a-rearmed-unrefed-watchdog-joins-its-old-list": 1,
+    "a-requeued-list-after-an-older-list": 2,
+    "a-timer-armed-by-an-immediate": 1,
+    "an-immediate-from-the-start-before-a-1ms-timer": 1,
     "an-interval-rearms-after-its-callback": 1,
     "armed-inside-a-timer-for-an-instant-already-queued": 1,
     "clearing-a-refed-timer-recreates-its-list": 1,
-    "clearing-an-unrefed-timer-keeps-its-list": 1,
-    "clearing-due-timers-from-an-earlier-one": 3,
+    "clearing-a-reref-ed-timer-recreates-its-list": 1,
+    "clearing-an-unrefed-interval-keeps-its-list": 1,
+    "clearing-an-unrefed-timer-keeps-its-list": 3,
+    "clearing-due-timers-from-an-earlier-one": 1,
     "fractions-of-a-millisecond-are-cut": 1,
-    "immediates-after-all-timers-of-a-turn": 1,
-    "many-lists-due-at-once": 1,
+    "immediates-after-all-timers-of-a-turn": 2,
+    "immediates-of-two-lists-in-the-order-queued": 1,
+    "immediates-queued-by-immediates-run-a-loop-turn-later": 1,
+    "many-lists-due-at-once": 2,
     "reviewer-with-first100": 1,
     "reviewer-without-first100": 1,
     "same-due-armed-in-order": 1,
@@ -19,16 +26,14 @@
   },
   "command": "node benchmarks/rust-core/recorders/record-node-timer-order.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "exclusions": {
-    "a-promise-queued-before-a-tick": "process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them",
-    "clearing-an-unrefed-timer-keeps-its-list": "an unrefed timer cleared from its list leaves the list (and its place) in the queue; the core has no unrefed timers",
-    "immediates-after-all-timers-of-a-turn": "setImmediate runs after every timer of the turn; the core has no check phase (a task a timer spawns runs before the next timer)"
+    "a-promise-queued-before-a-tick": "process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them, and no core code is a counterpart of process.nextTick (Node b6f10295a calls it nowhere in src/ outside tests)"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 14160,
+      "bytes": 20405,
       "path": "golden.json",
-      "sha256": "d2f15fa39ce63a1237f487b2c9570363e6d4958a45c7116399b2f346ea5fbb96"
+      "sha256": "bec77db168eea3512c4f1263550f276710e37b5563ead42907d21ed004e319b8"
     }
   ],
   "inputs": [
@@ -80,7 +85,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-node-timer-order.mjs",
-  "recorderSha256": "da5ea0aa4f24b624e78e421ff7e1ae3e259ee467a412bc2930d76bef07c9976e",
+  "recorderSha256": "2a409f9501f5c6cd10f2f2256a77be489aaefea5cd0901ff1b018550b2694f95",
   "set": "node-timer-order",
-  "totalBytes": 14160
+  "totalBytes": 20405
 }

@@ -61,6 +61,39 @@ mod off_virtual_clock {
     pub fn interval_at(start: Instant, period: Duration) -> Interval {
         tokio::time::interval_at(start, period)
     }
+
+    /// `tokio::time::sleep`: what is unrefed differs only on a replay's clock.
+    #[inline]
+    #[track_caller]
+    pub fn sleep_unrefed(duration: Duration) -> Sleep {
+        tokio::time::sleep(duration)
+    }
+
+    /// `tokio::time::sleep_until`: what is unrefed differs only on a replay's clock.
+    #[inline]
+    #[track_caller]
+    pub fn sleep_until_unrefed(deadline: Instant) -> Sleep {
+        tokio::time::sleep_until(deadline)
+    }
+
+    /// `tokio::time::interval_at`: what is unrefed differs only on a replay's clock.
+    #[inline]
+    #[track_caller]
+    pub fn interval_at_unrefed(start: Instant, period: Duration) -> Interval {
+        tokio::time::interval_at(start, period)
+    }
+
+    /// `tokio::task::yield_now()`: a check phase exists only on a replay's clock.
+    #[inline]
+    pub async fn immediate() {
+        tokio::task::yield_now().await;
+    }
+
+    /// Ready at once: a check phase exists only on a replay's clock.
+    #[inline]
+    pub fn check_phase() -> std::future::Ready<()> {
+        std::future::ready(())
+    }
 }
 
 #[cfg(feature = "virtual-clock")]
@@ -85,16 +118,66 @@ mod on_virtual_clock {
 
     /// `tokio::time::sleep`; on the replay's clock, Node's `setTimeout(f, duration)`.
     pub fn sleep(duration: Duration) -> Sleep {
+        sleep_for(duration, true)
+    }
+
+    /// [`sleep`] for a Node timer that is `unref()`ed: on the replay's clock, clearing it (a drop) leaves its timer list queued,
+    /// as Node's `unenroll` does, so the next timer of its duration joins that list.
+    pub fn sleep_unrefed(duration: Duration) -> Sleep {
+        sleep_for(duration, false)
+    }
+
+    fn sleep_for(duration: Duration, refed: bool) -> Sleep {
         let now = Instant::now();
         // As tokio: a deadline past the clock's range is about 30 years away.
         let deadline = now.checked_add(duration).unwrap_or_else(|| now + Duration::from_secs(86_400 * 365 * 30));
-        let inner = if virtual_clock::active() { Inner::from(virtual_clock::wake_after(duration)) } else { Inner::new(deadline) };
-        Sleep { deadline, inner }
+        let inner = if virtual_clock::active() { Inner::from(virtual_clock::wake_after(duration, refed)) } else { Inner::new(deadline, refed) };
+        Sleep { deadline, refed, inner }
     }
 
     /// `tokio::time::sleep_until`; on the replay's clock, a timer for the deadline's distance, ready at once when that is none.
     pub fn sleep_until(deadline: Instant) -> Sleep {
-        Sleep { deadline, inner: Inner::new(deadline) }
+        Sleep { deadline, refed: true, inner: Inner::new(deadline, true) }
+    }
+
+    /// [`sleep_until`] for a Node timer that is `unref()`ed ([`sleep_unrefed`]).
+    pub fn sleep_until_unrefed(deadline: Instant) -> Sleep {
+        Sleep { deadline, refed: false, inner: Inner::new(deadline, false) }
+    }
+
+    /// Node's `await new Promise((resolve) => setImmediate(resolve))`: on the replay's clock, ready in the check phase after the
+    /// loop turn that made it (after every timer of that turn), in the order immediates were made; without one,
+    /// `tokio::task::yield_now()`. Queued when made, not when first polled.
+    pub fn immediate() -> Immediate {
+        Immediate(if virtual_clock::active() { Queued::Check(virtual_clock::immediate()) } else { Queued::Yield(Box::pin(tokio::task::yield_now())) })
+    }
+
+    /// Node's `setImmediate(f)` for an `f` a new task runs: await this first. On the replay's clock, [`immediate`]; without one,
+    /// ready at once.
+    pub fn check_phase() -> Immediate {
+        Immediate(if virtual_clock::active() { Queued::Check(virtual_clock::immediate()) } else { Queued::Ready })
+    }
+
+    /// [`immediate`], [`check_phase`].
+    #[must_use = "futures do nothing unless you `.await` or poll them"]
+    pub struct Immediate(Queued);
+
+    enum Queued {
+        Check(Arc<Slot>),
+        Yield(Pin<Box<dyn Future<Output = ()> + Send>>),
+        Ready,
+    }
+
+    impl Future for Immediate {
+        type Output = ();
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            match &mut self.get_mut().0 {
+                Queued::Check(slot) => slot.poll(cx),
+                Queued::Yield(yielding) => yielding.as_mut().poll(cx),
+                Queued::Ready => Poll::Ready(()),
+            }
+        }
     }
 
     /// `tokio::time::timeout`.
@@ -115,6 +198,12 @@ mod on_virtual_clock {
         Interval { period, sleep: sleep_until(start), missed: MissedTickBehavior::Burst, fired_at: None }
     }
 
+    /// [`interval_at`] for a Node interval that is `unref()`ed ([`sleep_unrefed`]).
+    pub fn interval_at_unrefed(start: Instant, period: Duration) -> Interval {
+        assert!(period > Duration::ZERO, "`period` must be non-zero.");
+        Interval { period, sleep: sleep_until_unrefed(start), missed: MissedTickBehavior::Burst, fired_at: None }
+    }
+
     /// `tokio::time::interval`: the first tick at once.
     pub fn interval(period: Duration) -> Interval {
         interval_at(Instant::now(), period)
@@ -126,9 +215,9 @@ mod on_virtual_clock {
     }
 
     impl Inner {
-        fn new(deadline: Instant) -> Self {
+        fn new(deadline: Instant, refed: bool) -> Self {
             if virtual_clock::active() {
-                Self::from(virtual_clock::wake_at(deadline))
+                Self::from(virtual_clock::wake_at(deadline, refed))
             } else {
                 Self::Tokio(Box::pin(tokio::time::sleep_until(deadline)))
             }
@@ -151,6 +240,8 @@ mod on_virtual_clock {
     #[must_use = "futures do nothing unless you `.await` or poll them"]
     pub struct Sleep {
         deadline: Instant,
+        /// Not `unref()`ed: on the replay's clock, clearing it may delete its timer list.
+        refed: bool,
         inner: Inner,
     }
 
@@ -173,7 +264,7 @@ mod on_virtual_clock {
             this.deadline = deadline;
             match &mut this.inner {
                 Inner::Tokio(sleep) => sleep.as_mut().reset(deadline),
-                queued @ Inner::Virtual { .. } => *queued = Inner::new(deadline),
+                queued @ Inner::Virtual { .. } => *queued = Inner::new(deadline, this.refed),
             }
         }
     }
@@ -263,11 +354,16 @@ mod on_virtual_clock {
 
     impl Interval {
         pub async fn tick(&mut self) -> Instant {
+            std::future::poll_fn(|cx| self.poll_tick(cx)).await
+        }
+
+        /// `tokio::time::Interval::poll_tick`.
+        pub fn poll_tick(&mut self, cx: &mut Context<'_>) -> Poll<Instant> {
             if let Some(start) = self.fired_at.take() {
-                self.sleep.inner = Inner::from(virtual_clock::wake_from(start, self.period));
+                self.sleep.inner = Inner::from(virtual_clock::wake_from(start, self.period, self.sleep.refed));
                 self.sleep.deadline += self.period;
             }
-            (&mut self.sleep).await;
+            std::task::ready!(Pin::new(&mut self.sleep).poll(cx));
             let at = self.sleep.deadline();
             match &mut self.sleep.inner {
                 Inner::Virtual { due, .. } => self.fired_at = Some(*due),
@@ -292,7 +388,7 @@ mod on_virtual_clock {
                     sleep.as_mut().reset(next);
                 }
             }
-            at
+            Poll::Ready(at)
         }
 
         pub fn period(&self) -> Duration {

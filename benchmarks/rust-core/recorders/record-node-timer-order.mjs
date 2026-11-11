@@ -25,10 +25,11 @@ import { recorderProvenance } from './lib/provenance.mjs';
 const ATTEMPTS = 10;
 
 // A script is a list of actions run in order inside a callback (or at the case's start):
-//   { timeout, ms, then?, unref? }   setTimeout(ms); when it fires: log `timeout`, run `then`
-//   { interval, ms, times, then? }   setInterval(ms); each fire: log, run `then`; clearInterval after `times` fires
+//   { timeout, ms, then?, unref?, ref? }   setTimeout(ms), `unref()`ed, then `ref()`ed again; when it fires: log, run `then`
+//   { interval, ms, times, then?, unref? } setInterval(ms); each fire: log, run `then`; clearInterval after `times` fires
 //   { clear }                        clearTimeout of the timer named `clear`
-//   { tick } / { promise } / { immediate }   process.nextTick / Promise.resolve().then / setImmediate, each logging its name
+//   { immediate, then? }             setImmediate; when it runs: log, run `then`
+//   { tick } / { promise }           process.nextTick / Promise.resolve().then, each logging its name
 // `core` says whether the core's timers can express the case (`mixdog_rt::time` and the ticker, a spawned task for a tick or
 // a promise job) and, when not, why: the replay runs exactly the cases with `core: true`.
 const t = (timeout, ms, then = [], extra = {}) => ({ timeout, ms, then, ...extra });
@@ -45,12 +46,19 @@ const CASES = [
   { name: 'zero-and-one-ms-inside-a-timer', core: true, script: [t('a', 100, [t('n0', 0), t('n1', 1), t('n2', 2)]), t('x101', 101), t('y102', 102)] },
   { name: 'armed-inside-a-timer-for-an-instant-already-queued', core: true, script: [t('a', 100, [t('b', 10)]), t('c', 110), t('d', 110)] },
   { name: 'ticks-and-promises-between-timers', core: true, script: [t('a', 10, [{ tick: 'a-tick' }, { promise: 'a-promise' }]), t('b', 10, [{ tick: 'b-tick' }]), t('c', 20)] },
-  { name: 'a-promise-queued-before-a-tick', core: 'process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them', script: [t('a', 10, [{ promise: 'a-promise' }, { tick: 'a-tick' }]), t('b', 10)] },
-  { name: 'immediates-after-all-timers-of-a-turn', core: 'setImmediate runs after every timer of the turn; the core has no check phase (a task a timer spawns runs before the next timer)', script: [t('a', 10, [{ immediate: 'a-immediate' }, { tick: 'a-tick' }]), t('b', 10), t('c', 11)] },
+  { name: 'a-promise-queued-before-a-tick', core: 'process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them, and no core code is a counterpart of process.nextTick (Node b6f10295a calls it nowhere in src/ outside tests)', script: [t('a', 10, [{ promise: 'a-promise' }, { tick: 'a-tick' }]), t('b', 10)] },
+  { name: 'immediates-after-all-timers-of-a-turn', core: true, script: [t('a', 10, [{ immediate: 'a-immediate' }, { tick: 'a-tick' }]), t('b', 10), t('c', 11)] },
+  { name: 'immediates-queued-by-immediates-run-a-loop-turn-later', core: true, script: [t('a', 10, [{ immediate: 'i1', then: [{ immediate: 'i2', then: [t('n1', 1)] }] }, t('n0', 1)]), t('b', 10, [{ immediate: 'ib' }]), t('c', 11)] },
+  { name: 'an-immediate-from-the-start-before-a-1ms-timer', core: true, script: [t('a', 1), { immediate: 'i0' }] },
+  { name: 'immediates-of-two-lists-in-the-order-queued', core: true, script: [t('x', 10, [{ immediate: 'ix' }]), t('y', 5, [t('z', 5, [{ immediate: 'iz' }])])] },
+  { name: 'a-timer-armed-by-an-immediate', core: true, script: [t('a', 10, [{ immediate: 'i', then: [t('n0', 0)] }]), t('b', 11)] },
   { name: 'an-interval-rearms-after-its-callback', core: true, script: [{ interval: 'i', ms: 50, times: 3, then: [t('j50', 50)] }, t('t100', 100), t('t150', 150)] },
   { name: 'clearing-due-timers-from-an-earlier-one', core: true, script: [t('a', 100, [{ clear: 'b' }, { clear: 'w' }]), t('b', 100), t('c', 100), t('x', 10, [t('w', 90)])] },
   { name: 'unref-keeps-the-order', core: true, script: [t('a', 100, [], { unref: true }), t('b', 100)] },
-  { name: 'clearing-an-unrefed-timer-keeps-its-list', core: 'an unrefed timer cleared from its list leaves the list (and its place) in the queue; the core has no unrefed timers', script: [t('u', 100, [], { unref: true }), t('k', 10, [{ clear: 'u' }, t('v', 100)]), t('r', 20, [t('s', 90)])] },
+  { name: 'clearing-an-unrefed-timer-keeps-its-list', core: true, script: [t('u', 100, [], { unref: true }), t('k', 10, [{ clear: 'u' }, t('v', 100)]), t('r', 20, [t('s', 90)])] },
+  { name: 'clearing-a-reref-ed-timer-recreates-its-list', core: true, script: [t('u', 100, [], { unref: true, ref: true }), t('k', 10, [{ clear: 'u' }, t('v', 100)]), t('r', 20, [t('s', 90)])] },
+  { name: 'a-rearmed-unrefed-watchdog-joins-its-old-list', core: true, script: [t('w1', 100, [], { unref: true }), t('k', 10, [{ clear: 'w1' }, t('w2', 100, [], { unref: true })]), t('r', 20, [t('s', 90)])] },
+  { name: 'clearing-an-unrefed-interval-keeps-its-list', core: true, script: [{ interval: 'w', ms: 50, times: 99, unref: true }, t('k', 60, [{ clear: 'w' }, t('v', 50)]), t('r', 70, [t('s', 40)])] },
   { name: 'clearing-a-refed-timer-recreates-its-list', core: true, script: [t('a', 100), t('k', 10, [{ clear: 'a' }, t('b', 100)]), t('m', 20, [t('c', 90)])] },
   { name: 'fractions-of-a-millisecond-are-cut', core: true, script: [t('a', 1.7), t('b', 1), t('c', 0.4)] },
 ];
@@ -67,6 +75,8 @@ function runCase(spec) {
   const handles = new Map();
   let start = 0;
   let current = 0;
+  // The case's immediates queued and not yet run.
+  let immediates = 0;
   const log = (name) => events.push([name, current - start]);
   const due = (handle) => handle._idleStart + Math.trunc(handle._repeat ?? handle._idleTimeout);
   const armed = (name, handle) => {
@@ -85,6 +95,7 @@ function runCase(spec) {
           run(action.then);
         }, action.ms);
         if (action.unref) handle.unref();
+        if (action.ref) handle.ref();
         armed(action.timeout, handle);
       } else if ('interval' in action) {
         let fires = 0;
@@ -92,18 +103,30 @@ function runCase(spec) {
           fired(action.interval, handle);
           fires += 1;
           if (fires === action.times) clearInterval(handle);
-          run(action.then);
+          run(action.then ?? []);
         }, action.ms);
+        if (action.unref) handle.unref();
         armed(action.interval, handle);
       } else if ('clear' in action) clearTimeout(handles.get(action.clear));
       else if ('tick' in action) process.nextTick(() => log(action.tick));
       else if ('promise' in action) Promise.resolve().then(() => log(action.promise));
-      else if ('immediate' in action) setImmediate(() => log(action.immediate));
-      else throw new Error(`unknown action ${JSON.stringify(action)}`);
+      else if ('immediate' in action) {
+        immediates += 1;
+        setImmediate(() => {
+          immediates -= 1;
+          log(action.immediate);
+          run(action.then ?? []);
+        });
+      } else throw new Error(`unknown action ${JSON.stringify(action)}`);
     }
   };
-  // Blocks until the loop's clock reaches the head list's expiry, then lets the loop turn; once no list is left, ends.
+  // Blocks until the loop's clock reaches the head list's expiry, then lets the loop turn; once no list is left, ends. While
+  // the case's immediates are queued it only queues itself behind them, so they run (and log) in the turn they belong to.
   const turn = () => {
+    if (immediates > 0) {
+      setImmediate(turn);
+      return;
+    }
     const head = timerListQueue.peek();
     if (!head) {
       process.stdout.write(`${JSON.stringify(misses.length ? { misses } : { events })}\n`);
