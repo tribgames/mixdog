@@ -495,13 +495,14 @@ impl World {
         }
     }
 
-    /// What a refused send must leave as it was: the log's rows, the routed requests, the stored room and the attachment
-    /// store's files.
+    /// What a refused send must leave as it was: the log's rows, the routed requests, every row of the room records' database
+    /// and of the log's index databases, and the data folder's files.
     async fn state(&self) -> Value {
         json!({
             "rows": self.read_back(&[]).await,
             "routed": *self.routed.lock().unwrap(),
-            "room": self.stored_room().await,
+            "stateTables": mixdog_store::state::dump_tables(&self.state_dir.path().join("core.sqlite")),
+            "databases": self.log.database_tables(),
             "files": self.log.stored_files(),
             "dataBytes": self.log.data_files().into_iter().map(|(name, bytes)| json!([name, bytes])).collect::<Vec<_>>(),
             "catalogRepublished": self.republished.load(Ordering::SeqCst),
@@ -603,6 +604,15 @@ async fn a_send_whose_save_failed_is_acknowledged_when_retried_and_posted_once()
     assert_eq!(rows, [json!("sub-save")], "posted once");
     assert_eq!(world.routed.lock().unwrap().len(), 1, "routed once");
     assert_eq!(world.stored_room().await["submissions"], json!(["sub-save"]), "the id is stored by the next save");
+}
+
+/// The refusal check compares the whole stored state: a row changed in a table no room field lives in is seen.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_state_compared_for_a_refusal_holds_every_row_of_the_databases() {
+    let world = plan_room().await;
+    let before = world.state().await;
+    world.core().state.write(|tx| tx.put_meta("probe", "1")).await.expect("a meta row");
+    assert_ne!(world.state().await, before, "a row of the state database changed");
 }
 
 /// `room/send`'s arguments as Node's `submitToSession` handlers check them (`requiredSessionId`, `requiredPromptContent`,
@@ -758,20 +768,21 @@ async fn every_other_way_a_param_could_name_a_target_reaches_nothing() {
     std::fs::write(&secret, "SECRET-MARKER-9f3a1c").unwrap();
     let path = secret.to_string_lossy().into_owned();
     let none = "0".repeat(64);
-    let named = json!({
-        "threadId": log,
-        "prompt": [
-            { "type": "text", "text": "see 1 and 2" },
-            { "type": "file", "data": "ZG9j", "mimeType": "application/msword", "path": path, "url": path, "attachmentRef": none },
-            { "type": "image", "data": "cG5n", "mimeType": "image/png", "path": path, "file": path },
-        ],
-        "options": {
-            "clientSubmissionId": "sub-path",
-            "pastedImages": { "1": { "id": "1", "path": path, "attachmentRef": none, "mimeType": "image/png" } },
-            "pastedTexts": { "1": { "id": "1", "path": path, "source": "file", "name": "secret.txt" } },
-        },
-    });
-    let _ = world.input(named).await;
+    // One request per target: a refusal of one leaves the others unexercised, so each is sent alone and its answer asserted.
+    let part = |part: Value, id: &str| json!({ "threadId": log, "prompt": [{ "type": "text", "text": "see 1" }, part], "options": { "clientSubmissionId": id } });
+    let option = |key: &str, value: Value, id: &str| json!({ "threadId": log, "prompt": "see 1", "options": { "clientSubmissionId": id, key: value } });
+    let targets: Vec<(&str, Value)> = vec![
+        ("a file part's path", part(json!({ "type": "file", "data": "ZG9j", "mimeType": "application/msword", "path": path }), "sub-p1")),
+        ("a file part's url", part(json!({ "type": "file", "data": "ZG9j", "mimeType": "application/msword", "url": path }), "sub-p2")),
+        ("a file part's attachmentRef", part(json!({ "type": "file", "data": "ZG9j", "mimeType": "application/msword", "attachmentRef": none }), "sub-p3")),
+        ("an image part's path", part(json!({ "type": "image", "data": "cG5n", "mimeType": "image/png", "path": path }), "sub-p4")),
+        ("an image part's file", part(json!({ "type": "image", "data": "cG5n", "mimeType": "image/png", "file": path }), "sub-p5")),
+        ("a pasted image's path", option("pastedImages", json!({ "1": { "id": "1", "path": path, "attachmentRef": none, "mimeType": "image/png" } }), "sub-p6")),
+        ("a pasted text's path", option("pastedTexts", json!({ "1": { "id": "1", "path": path, "source": "file", "name": "secret.txt" } }), "sub-p7")),
+    ];
+    for (name, input) in targets {
+        assert_eq!(outcome(world.input(input).await), json!({ "returned": true }), "{name}");
+    }
     let seen = serde_json::to_string(&world.state().await).unwrap();
     assert!(!seen.contains("SECRET-MARKER-9f3a1c") && !seen.contains("U0VDUkVULU1BUktFUi05ZjNhMWM"), "the file's bytes stay out of the room: {seen}");
     for (name, bytes) in world.log.data_files() {
