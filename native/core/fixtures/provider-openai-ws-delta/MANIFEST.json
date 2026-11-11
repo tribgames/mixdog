@@ -11,15 +11,15 @@
   "entry": "openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (over a real loopback WebSocket; _agentTraceFn collects the trace rows); Not run: the seams of the Node test (:316-318); the real acquire, send and stream run instead, openai-compat-stream.mjs isInvalidToolArgsMarker.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 88416,
+      "bytes": 88636,
       "path": "cases.json",
-      "sha256": "c473ac9fd504391ed8f8f68e6034f4fcc7a65e16662c0ca77ef15df985064226"
+      "sha256": "57abb543ccf558262345824c816ec3f70b6361660c46d0b5e86a22cb525b75a4"
     }
   ],
   "inputs": [
@@ -41,11 +41,67 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "tool-search-malformed-args-marker",
+      "level": "pure",
+      "rust": "RUST WORK: no public Rust parser of the tool_search arguments (looked in openai/input.rs and openai/decoder.rs: the arguments are decoded inside ResponsesDecoder, not a public function)"
+    },
+    {
+      "id": "tool-search-valid-object-empty-preserved",
+      "level": "pure",
+      "rust": "RUST WORK: no public Rust parser of the tool_search arguments (looked in openai/input.rs and openai/decoder.rs: the arguments are decoded inside ResponsesDecoder, not a public function)"
+    },
+    {
+      "id": "default-delta-falls-back-on-request-property-mismatch",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "ws-delta-previous-response-id-safe-fallbacks",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "message-mismatch-diagnostics-hash-content",
+      "level": "pure",
+      "rust": "openai/delta.rs:84 logical_item_match (pub) decides the mismatch; the diagnostic content hashes are trace fields with no Rust counterpart (looked in openai/delta.rs: no hash fn)"
+    },
+    {
+      "id": "diagnostic-hashes-normalize-equivalent-forms",
+      "level": "pure",
+      "rust": "RUST WORK: diagnostic hashes of normalized request forms have no Rust counterpart (looked in openai/delta.rs and openai/cache_key.rs)"
+    },
+    {
+      "id": "mismatch-diagnostics-reach-trace-rows",
+      "level": "wire"
+    },
+    {
+      "id": "native-tool-search-output-replays-canonically",
+      "level": "pure",
+      "rust": "RUST WORK: the canonical replay of a native tool-search output is part of the private input lowering (openai/input.rs), reached only through the codec encode (wire)"
+    },
+    {
+      "id": "canonical-full-frame-key-order",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "canonical-delta-frame-key-order",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "cache-observation-warm-zero-and-retreats",
+      "level": "pure",
+      "rust": "RUST WORK: cache observation / continuity reset reasons are trace fields of the Node sender; no public Rust function (looked in openai/cache_key.rs, openai/continuation.rs)"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +123,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-delta.mjs",
-  "recorderSha256": "66795265a799af48f323cf3e047982fc77ca44b0640aa88568550f0488da9ffe",
-  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
+  "recorderSha256": "8711e8ac8264348a6b91bec4bfec453e1bb4f31abf0baa6982c2a57384f4c3e4",
+  "replay": "PURE cases, per `levels`: mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180 (the delta chain and frame builders). WIRE case (mismatch-diagnostics-reach-trace-rows): the OpenAI WS send through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback WebSocket. Cases marked RUST WORK have no public Rust function of the same input and output.",
   "set": "provider-openai-ws-delta",
-  "totalBytes": 88416,
+  "totalBytes": 88636,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
