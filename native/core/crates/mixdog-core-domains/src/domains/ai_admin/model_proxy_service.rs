@@ -108,6 +108,35 @@ struct Bounds {
 
 const MIB: usize = 1024 * 1024;
 
+/// `JSON.stringify(value).length`: the UTF-16 length of the value's compact JSON text as JavaScript writes it, counted without
+/// building the text. It is what Node's host measures of the string a server claimed (`payload.length`, `admitPayload`): the
+/// text of a call the server's JavaScript wrote is exactly this, and a Rust sender's differs from it in no way that matters
+/// (the whitespace it leaves out, and its number forms, which JavaScript spells its own way: `1e+21`, a whole 1e20 in full).
+pub fn claimed_chars(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(true) => 4,
+        Value::Bool(false) => 5,
+        // A JSON number is a double to JavaScript, whose `String(number)` is the text.
+        Value::Number(number) => mixdog_js::number_to_string(number.as_f64().expect("a JSON number is finite")).len(),
+        Value::String(text) => quoted_len(text),
+        Value::Array(items) => 2 + items.len().saturating_sub(1) + items.iter().map(claimed_chars).sum::<usize>(),
+        Value::Object(fields) => 2 + fields.len().saturating_sub(1) + fields.iter().map(|(key, field)| quoted_len(key) + 1 + claimed_chars(field)).sum::<usize>(),
+    }
+}
+
+/// The length of a string as `JSON.stringify` writes it: quoted, with `"`, `\` and the control characters escaped.
+fn quoted_len(text: &str) -> usize {
+    2 + text
+        .chars()
+        .map(|c| match c {
+            '"' | '\\' | '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' => 2,
+            c if c < ' ' => 6,
+            c => c.len_utf16(),
+        })
+        .sum::<usize>()
+}
+
 /// The payload a run holds until it ends; dropping it gives the share back.
 struct Held<'a> {
     service: &'a ModelProxyService,
@@ -137,6 +166,12 @@ impl ModelProxyService {
     /// The bound of all calls in flight together, in payload characters (Node's `maxInflightBytes` option).
     pub fn with_inflight_bound(mut self, max_inflight: usize) -> Self {
         self.bounds.max_inflight = max_inflight;
+        self
+    }
+
+    /// The bound of one call, in payload characters (Node's `maxRequestBytes` option).
+    pub fn with_request_bound(mut self, max_request: usize) -> Self {
+        self.bounds.max_request = max_request;
         self
     }
 
@@ -188,9 +223,10 @@ impl DomainService for ModelProxyService {
         let Caller::Connection(to) = req.ctx.caller else {
             return Err(invalid("caller", "a connection: the events of the run go to it"));
         };
+        // The payload is sized as the server claimed it (`payload.length`), not as the typed call it decodes to, which leaves out
+        // what the type does not read; before the run is registered or any provider is looked up.
+        let chars = req.params.get("call").map_or(0, claimed_chars);
         let ModelProxyRunParams { run_id, call, allowed_providers } = serde_json::from_value(req.params).map_err(|e| invalid("params", &e.to_string()))?;
-        // The payload is sized in the characters of the call's JSON (`payload.length`), before the run is registered or any provider is looked up.
-        let chars = serde_json::to_string(&call).expect("a typed call serializes").encode_utf16().count();
         let _held = match self.admit(chars) {
             Ok(held) => held,
             Err(failure) => return Ok(Reply::Value(serde_json::to_value(ModelProxyResult { result: w::ProxyAnswer::Failed { failure } }).expect("a typed result serializes"))),
