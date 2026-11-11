@@ -8,7 +8,7 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the watchdog cases advance the virtual clock (`rec.clock`) with the product's real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.",
+  "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the four watchdog cases that end in the reader's own timeout (no output at the first-output deadline, semantic idle after output, the reopened stream, the retry after output) call the stream reader `_streamResponse` (the entry the Node test calls) over a real client socket to the loopback server, so the first error is the outcome; the watchdog cases advance the virtual clock (`rec.clock`) with the product's real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.",
   "exclusions": [
     "result.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
@@ -18,9 +18,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 288348,
+      "bytes": 268961,
       "path": "cases.json",
-      "sha256": "4fb0da5048c7fbd353743a3275f2b5dbe7fbc768eacdc92bae91f399311cf4b7"
+      "sha256": "5b61aa152bd5e6cd09b9d01fe1585271be9484d07162909b30c50225638d4fa2"
     }
   ],
   "inputs": [
@@ -142,12 +142,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
-  "recorderSha256": "c57982ccc28067584ccfa31390f651d5da951cae66d5b8134f1ac5a1ee302bc7",
+  "recorderSha256": "aeaf9b6b9a146b859d752ca21b7c83f47172b2129e79b35382b7a01f334387d5",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-ws-stream",
-  "totalBytes": 288348,
+  "totalBytes": 268961,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
