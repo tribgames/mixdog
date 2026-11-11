@@ -179,6 +179,167 @@
       }
     },
     {
+      "case": "MCP tools filter by server scope intersected with the owning plugin scope",
+      "kind": "mcpTools",
+      "config": {
+        "mcp": {
+          "UnityMCP": [
+            "C:\\work\\beta"
+          ],
+          "plugin-unity-editor": [
+            "C:\\work\\alpha",
+            "C:\\work\\beta"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "C:\\work\\alpha"
+          ]
+        }
+      },
+      "tools": [
+        {
+          "name": "read"
+        },
+        {
+          "name": "mcp__UnityMCP__manage_scene"
+        },
+        {
+          "name": "mcp__plugin-unity-editor__run",
+          "mcpPluginId": "unity"
+        },
+        {
+          "name": "mcp__plugin-unity-tools__run"
+        },
+        {
+          "name": "mcp__demo__tool"
+        }
+      ],
+      "recorded": {
+        "checks": [
+          {
+            "server": "UnityMCP",
+            "cwd": "C:\\work\\alpha",
+            "pluginId": null,
+            "allowed": false
+          },
+          {
+            "server": "UnityMCP",
+            "cwd": "C:\\work\\beta",
+            "pluginId": null,
+            "allowed": true
+          },
+          {
+            "server": "plugin-unity-editor",
+            "cwd": "C:\\work\\beta",
+            "pluginId": "unity",
+            "allowed": false
+          },
+          {
+            "server": "plugin-unity-editor",
+            "cwd": "C:\\work\\alpha",
+            "pluginId": "unity",
+            "allowed": true
+          }
+        ],
+        "filters": [
+          {
+            "cwd": "C:\\work\\alpha",
+            "names": [
+              "read",
+              "mcp__plugin-unity-editor__run",
+              "mcp__plugin-unity-tools__run",
+              "mcp__demo__tool"
+            ]
+          },
+          {
+            "cwd": "C:\\work\\beta",
+            "names": [
+              "read",
+              "mcp__UnityMCP__manage_scene",
+              "mcp__plugin-unity-tools__run",
+              "mcp__demo__tool"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata",
+      "kind": "live",
+      "servers": [
+        {
+          "name": "UnityMCP",
+          "tools": [
+            "manage_scene"
+          ],
+          "cfg": null
+        },
+        {
+          "name": "plugin-unity-tools",
+          "tools": [
+            "run"
+          ],
+          "cfg": {
+            "_mixdogPlugin": {
+              "id": "unity",
+              "key": "tools"
+            }
+          }
+        },
+        {
+          "name": "demo",
+          "tools": [
+            "tool"
+          ],
+          "cfg": null
+        }
+      ],
+      "config": {
+        "extensionScopes": {
+          "mcp": {
+            "UnityMCP": [
+              "C:\\work\\beta"
+            ]
+          },
+          "plugins": {
+            "unity": [
+              "C:\\work\\beta"
+            ]
+          }
+        }
+      },
+      "recorded": {
+        "filters": [
+          {
+            "cwd": "C:\\work\\alpha",
+            "scoped": true,
+            "names": [
+              "mcp__demo__tool"
+            ]
+          },
+          {
+            "cwd": "C:\\work\\beta\\Assets",
+            "scoped": true,
+            "names": [
+              "mcp__UnityMCP__manage_scene",
+              "mcp__demo__tool",
+              "mcp__plugin-unity-tools__run"
+            ]
+          },
+          {
+            "cwd": "C:\\work\\alpha",
+            "scoped": false,
+            "names": [
+              "mcp__UnityMCP__manage_scene",
+              "mcp__demo__tool",
+              "mcp__plugin-unity-tools__run"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "case": "withExtensionScope replaces one entry and clears it with an empty list",
       "kind": "set",
       "config": {

@@ -1,16 +1,13 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-extension-scopes-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compared": "normalize: the whole normalized scopes and each lookup's roots; within: each answer; skills: each answer; set: each step's whole config and the unknown-kind error",
-  "excluded": {
-    "MCP tools filter by server scope intersected with the owning plugin scope": "GAP (gaps-rest.md section 2): the MCP tool filter by owner metadata is a listed gap, not part of this replay",
-    "a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata": "GAP (gaps-rest.md section 2): the live registry cascade is a listed gap, not part of this replay"
-  },
+  "compared": "normalize: the whole normalized scopes and each lookup's roots; within: each answer; skills: each answer; set: each step's whole config and the unknown-kind error; mcpTools: each server answer, and each filter's MCP tool names in order through the core's live hub (`McpHub::tools_for_cwd`, the session's MCP tools; the test's non-MCP `read` passes Node's filter untouched and never enters the core's MCP filter, core run_host/session_tools.rs:302); live: each filter's whole sorted name list through the live hub",
+  "excluded": {},
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5892,
+      "bytes": 9621,
       "path": "golden.json",
-      "sha256": "2fc2cc38a254876cffb709f8ec9768a70ebf894685115a2a5307592016045233"
+      "sha256": "80e7fabb5fdf66cbe361bc7d9053dd5cef2ca0110410b8a64aa86e6f06a50777"
     }
   ],
   "inputs": [
@@ -42,7 +39,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-extension-scopes-cases.mjs",
-  "recorderSha256": "f380bcc509a9709b365b73d1979c80e938527cd220c04147eb737957d0d5b17d",
+  "recorderSha256": "322949535884f6dde4213b9b4af63017d13448b4213b4a737e2e7774c52dc077",
   "set": "extension-scopes-cases",
-  "totalBytes": 5892
+  "totalBytes": 9621
 }
