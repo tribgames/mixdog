@@ -465,14 +465,19 @@ test('reads are answered together, in order, from the control session whatever s
     [
       { method: 'config/getAutoClear', params: { threadId: 'control-1' } },
       { method: 'mcp/mcpStatus', params: { threadId: 'control-1' } },
+      // A read that failed is sent once more on a new control thread (Node's invokeControlResult), and failed again here.
+      { method: 'mcp/mcpStatus', params: { threadId: 'control-2' } },
       { method: 'skills/skillsStatus', params: { threadId: 'control-1', options: { cwd: '/w' } } },
     ].sort(byMethod)
   );
   // Node's readCapabilities never reads a request's sessionId, and a read reads no state; only the MCP read is addressed
-  // to the control thread (as Node's MCP carrier does), which it starts.
+  // to the control thread (as Node's MCP carrier does), which it starts, and starts again for the read it sends once more.
   assert.deepEqual(
     all.filter((call) => call.method === 'thread/start'),
-    [{ method: 'thread/start', params: { kind: 'control' } }]
+    [
+      { method: 'thread/start', params: { kind: 'control' } },
+      { method: 'thread/start', params: { kind: 'control' } },
+    ]
   );
   assert.deepEqual(all.filter((call) => call.method !== 'thread/start'), calls);
 });
@@ -856,4 +861,50 @@ test('resolveToolApproval answers the server request the card shows with the cor
   emit({ type: 'serverRequestResolved', params: { requestId: 7 } });
   assert.equal(await lane.resolveToolApproval('pane-1', '7', { approved: true }), false);
   assert.equal(calls.length, 2);
+});
+
+// `fixtures/mcp-oauth-control-session-cases/golden.json`: an MCP sign-in begun, polled and pasted while Node's desktop replaced its control
+// session (record-mcp-oauth-control-session-cases.mjs, b6f10295a). The lane is the product's replacement code; the test injects the
+// failed read and the refused paste into the fake core, and compares the control sessions the lane then started and what it answered.
+test('a failed control call drops the control thread and a read is sent once more on a new one, as Node recorded', async () => {
+  const recording = JSON.parse(
+    readFileSync(new URL('../../../../../native/core/fixtures/mcp-oauth-control-session-cases/golden.json', import.meta.url), 'utf8')
+  ).cases[0].observed;
+  const refusal = recording.invalidPaste.threw.message;
+  let failNextRead = false;
+  const { calls, world, lane } = recordingLane(async (method, params) => {
+    if (method === 'mcp/mcpStatus' && failNextRead) {
+      failNextRead = false;
+      throw new Error('status unavailable');
+    }
+    if (method === 'mcp/completeMcpOAuthLogin' && params.callbackUrl === 'garbage') throw new Error(refusal);
+    if (method === 'mcp/mcpStatus') return recording.statusRead.value.value;
+    return { ok: true };
+  });
+  await lane.invoke('signOutMcpServer', ['fixture']);
+  await lane.invoke('beginMcpOAuthLogin', ['fixture', { openBrowser: false }]);
+  const began = world.starts;
+  failNextRead = true;
+  const [status] = await lane.read([{ capability: 'mcpStatus' }]);
+  assert.deepEqual(status, { ok: true, value: recording.statusRead.value.value }, 'the status read');
+  assert.equal(world.starts !== began, recording.controlSessionReplaced, 'the control session was replaced');
+  assert.equal(world.starts, recording.runtimesAfterFailedRead, 'the session runtimes after the failed read');
+  await lane.invoke('getMcpOAuthLoginStatus', ['flow-1']);
+  await assert.rejects(lane.invoke('completeMcpOAuthLogin', ['flow-1', 'garbage']), (error) => error.message === refusal, 'the refused paste');
+  assert.equal(calls.filter((call) => call.method === 'mcp/completeMcpOAuthLogin').length, 1, 'a mutation is not sent again');
+  await lane.invoke('getMcpOAuthLoginStatus', ['flow-1']);
+  assert.equal(world.starts, recording.runtimesAfterInvalidPaste, 'the session runtimes after the invalid paste');
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.params.threadId]),
+    [
+      ['mcp/signOutMcpServer', 'control-1'],
+      ['mcp/beginMcpOAuthLogin', 'control-1'],
+      ['mcp/mcpStatus', 'control-1'],
+      ['mcp/mcpStatus', 'control-2'],
+      ['mcp/getMcpOAuthLoginStatus', 'control-2'],
+      ['mcp/completeMcpOAuthLogin', 'control-2'],
+      ['mcp/getMcpOAuthLoginStatus', 'control-3'],
+    ],
+    'each call is addressed to the control thread the lane then held'
+  );
 });

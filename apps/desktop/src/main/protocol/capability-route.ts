@@ -11,6 +11,7 @@ import {
 } from '../../../../../packages/protocol-client/src/index.ts';
 import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
 import { resolveAction } from '../../../../../src/standalone/protocol-session/action-route.mjs';
+import { SESSION_READ_ACTION_SET } from '../../../../../src/standalone/session-protocol.mjs';
 import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/method-args.generated.mjs';
 import type {
   DesktopCapability,
@@ -230,7 +231,20 @@ export function createCapabilityLane({
     });
     return pending;
   };
+  /** A call of the control session (`invokeControlResult`, session-host-transport.ts): one that fails drops the control thread, and
+   *  a read (the session read set) is sent once more on a new one; a mutation is not (it may have committed before its reply failed). */
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
+    if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args)) return sendOnce(capability, args, sessionId);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await sendOnce(capability, args, sessionId);
+      } catch (error) {
+        control = null;
+        if (!SESSION_READ_ACTION_SET.has(capability) || attempt > 0) throw error;
+      }
+    }
+  };
+  const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
     // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; Node's
     // session-api wrapper answers it `{ ok: true }`.
     if (capability === 'noteUserInput') {
