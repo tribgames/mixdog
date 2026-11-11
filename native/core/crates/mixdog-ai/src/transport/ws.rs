@@ -336,6 +336,26 @@ pub async fn connect_pinned(
 #[derive(Debug, Clone, Default)]
 pub struct CallerHeaders(pub Vec<(String, String)>);
 
+/// The `Sec-WebSocket-Key` a test scripts for one upgrade (the recorded key of Node's `ws`, whose random draw the
+/// recording fixed), carried as a request extension. Compiled for tests and the `test-support` feature only; without it
+/// the key is drawn as in production.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug, Clone)]
+pub struct ScriptedKey(pub String);
+
+#[cfg(any(test, feature = "test-support"))]
+fn upgrade_key(request: &tungstenite::handshake::client::Request) -> String {
+    request
+        .extensions()
+        .get::<ScriptedKey>()
+        .map_or_else(tungstenite::handshake::client::generate_key, |key| key.0.clone())
+}
+
+#[cfg(not(any(test, feature = "test-support")))]
+fn upgrade_key(_: &tungstenite::handshake::client::Request) -> String {
+    tungstenite::handshake::client::generate_key()
+}
+
 /// What `ws` itself puts on an upgrade, in its order (`websocket.js:783-790`), and the names the caller may not set.
 const RESERVED: [&str; 6] = ["host", "connection", "upgrade", "sec-websocket-version", "sec-websocket-key", "sec-websocket-extensions"];
 
@@ -381,7 +401,7 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
     request: &tungstenite::handshake::client::Request,
 ) -> Result<(Response<Option<Vec<u8>>>, Vec<u8>, Option<Extension>), ConnectError> {
     let io_fault = |e: std::io::Error| ConnectError::Transport(fault_from_io(&e, false));
-    let key = tungstenite::handshake::client::generate_key();
+    let key = upgrade_key(request);
     io.write_all(&upgrade_bytes(request, &key)).await.map_err(io_fault)?;
     io.flush().await.map_err(io_fault)?;
     let mut buf = Vec::new();
