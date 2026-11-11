@@ -21,43 +21,44 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "comment",
-                "target": "o/r#1",
-                "account": "github.com",
-                "payload": "LGTM",
-                "editable": [
-                  "body"
-                ],
-                "details": {}
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "comment",
-              "tool": "github:pr.comment",
-              "target": "o/r#1",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "comment",
+                  "target": "o/r#1",
+                  "account": "github.com",
+                  "payload": "LGTM",
+                  "editable": [
+                    "body"
+                  ],
+                  "details": {}
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#1",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -96,12 +97,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "decide",
@@ -118,12 +121,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "decide",
@@ -140,12 +145,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "decide",
@@ -159,47 +166,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -214,43 +222,44 @@
             },
             "sessionId": "sess_rmem_room123abc_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "comment",
-                "target": "o/r#1",
-                "account": "github.com",
-                "payload": "LGTM",
-                "editable": [
-                  "body"
-                ],
-                "details": {}
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "comment",
-              "tool": "github:pr.comment",
-              "target": "o/r#1",
-              "sessionId": "sess_rmem_room123abc_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "comment",
+                  "target": "o/r#1",
+                  "account": "github.com",
+                  "payload": "LGTM",
+                  "editable": [
+                    "body"
+                  ],
+                  "details": {}
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#1",
+                "sessionId": "sess_rmem_room123abc_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -265,47 +274,51 @@
             },
             "sessionId": "sess_home_scribe",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "scribe",
-              "outbound": {
-                "category": "comment",
-                "target": "o/r#1",
-                "account": "github.com",
-                "payload": "LGTM",
-                "editable": [
-                  "body"
-                ],
-                "details": {}
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "scribe",
-              "kind": "outbound",
-              "action": "comment",
-              "tool": "github:pr.comment",
-              "target": "o/r#1",
-              "sessionId": "sess_home_scribe",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "scribe",
+                "outbound": {
+                  "category": "comment",
+                  "target": "o/r#1",
+                  "account": "github.com",
+                  "payload": "LGTM",
+                  "editable": [
+                    "body"
+                  ],
+                  "details": {}
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "scribe",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#1",
+                "sessionId": "sess_home_scribe",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "grants",
             "label": "after",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           },
           {
@@ -320,29 +333,54 @@
             },
             "rows": [
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "third/site#9",
                 "decision": "session-remembered",
-                "action": "comment"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "other/repo#9",
                 "decision": "session-remembered",
-                "action": "comment"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#9",
                 "decision": "session-remembered",
-                "action": "comment"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#1",
                 "decision": "session-granted",
-                "action": "comment"
+                "device": "PC"
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#1",
                 "decision": "approve",
-                "action": "comment"
+                "device": "PC"
               }
             ]
           }
@@ -367,47 +405,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -433,12 +472,17 @@
           {
             "do": "grants",
             "label": "after agent allow",
+            "filter": {
+              "agentId": "mailer"
+            },
             "grants": [
               {
+                "id": "grant_5daaacd28c7d911a9eed1b29",
                 "agentId": "mailer",
                 "action": "email",
                 "mode": "allow",
-                "scope": null
+                "device": "",
+                "at": 1800000000000
               }
             ]
           },
@@ -456,12 +500,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "audit",
@@ -471,19 +517,34 @@
             },
             "rows": [
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
                 "decision": "remembered",
-                "action": "email"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
                 "decision": "granted",
-                "action": "email"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
                 "decision": "approve",
-                "action": "email"
+                "device": ""
               }
             ]
           },
@@ -503,47 +564,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           }
         ],
         "grantAction": "email"
@@ -565,47 +627,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -646,12 +709,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "advance",
@@ -671,47 +736,48 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -727,47 +793,48 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           }
         ],
         "sessionGrantTtlMs": 43200000
@@ -792,47 +859,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -869,12 +937,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "reset session life",
@@ -894,47 +964,48 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "scenario ended"
@@ -951,47 +1022,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -1028,12 +1100,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "end session life (null)",
@@ -1053,47 +1127,48 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "scenario a session that cannot be read at all (life is null)"
@@ -1110,47 +1185,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -1186,47 +1262,48 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           }
         ]
       }
@@ -1239,9 +1316,7 @@
         "before": "5:0",
         "afterClear": "5:77",
         "afterClose": null,
-        "unknown": null,
-        "beforeTruthy": true,
-        "clearedDiffers": true
+        "unknown": null
       }
     },
     {
@@ -1260,47 +1335,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -1345,45 +1421,46 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "store.grant",
@@ -1405,12 +1482,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "allow"
-            },
-            "request": null,
-            "gate": null,
-            "remembered": true
+            "result": {
+              "decision": {
+                "action": "allow"
+              },
+              "request": null,
+              "gate": null,
+              "remembered": true
+            }
           },
           {
             "do": "decide",
@@ -1425,41 +1504,42 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "comment",
-                "target": "o/r#1",
-                "account": "github.com",
-                "payload": "LGTM",
-                "editable": [
-                  "body"
-                ],
-                "details": {}
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "comment",
-              "tool": "github:pr.comment",
-              "target": "o/r#1",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "comment",
+                  "target": "o/r#1",
+                  "account": "github.com",
+                  "payload": "LGTM",
+                  "editable": [
+                    "body"
+                  ],
+                  "details": {}
+                },
+                "remember": [
+                  "once",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#1",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -1498,43 +1578,44 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "comment",
-                "target": "o/r#2",
-                "account": "github.com",
-                "payload": "LGTM",
-                "editable": [
-                  "body"
-                ],
-                "details": {}
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "comment",
-              "tool": "github:pr.comment",
-              "target": "o/r#2",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "comment",
+                  "target": "o/r#2",
+                  "account": "github.com",
+                  "payload": "LGTM",
+                  "editable": [
+                    "body"
+                  ],
+                  "details": {}
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "comment",
+                "tool": "github:pr.comment",
+                "target": "o/r#2",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           }
         ]
       }
@@ -1555,41 +1636,42 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "payment",
-                "target": "Notion",
-                "account": "stripe",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "merchant": "Notion",
-                  "amount": "5",
-                  "currency": "USD"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "payment",
-              "tool": "mcp__stripe__create_payment",
-              "target": "Notion",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "payment",
+                  "target": "Notion",
+                  "account": "stripe",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "merchant": "Notion",
+                    "amount": "5",
+                    "currency": "USD"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "payment",
+                "tool": "mcp__stripe__create_payment",
+                "target": "Notion",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -1619,7 +1701,10 @@
               "action": "payment",
               "tool": "mcp__stripe__create_payment",
               "target": "Notion",
-              "sessionId": "sess_home_mailer"
+              "sessionId": "sess_home_mailer",
+              "remember": {
+                "$exact": "undefined"
+              }
             },
             "approval": {
               "approved": true,
@@ -1640,41 +1725,42 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "payment",
-                "target": "Notion",
-                "account": "stripe",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "merchant": "Notion",
-                  "amount": "5",
-                  "currency": "USD"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "payment",
-              "tool": "mcp__stripe__create_payment",
-              "target": "Notion",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "payment",
+                  "target": "Notion",
+                  "account": "stripe",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "merchant": "Notion",
+                    "amount": "5",
+                    "currency": "USD"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "payment",
+                "tool": "mcp__stripe__create_payment",
+                "target": "Notion",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -1688,39 +1774,40 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "delete",
-                "target": "a",
-                "account": "drive",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "count": "1"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "delete",
-              "tool": "mcp__drive__delete_permanently",
-              "target": "a",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "delete",
+                  "target": "a",
+                  "account": "drive",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "count": "1"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "delete",
+                "tool": "mcp__drive__delete_permanently",
+                "target": "a",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -1750,7 +1837,10 @@
               "action": "delete",
               "tool": "mcp__drive__delete_permanently",
               "target": "a",
-              "sessionId": "sess_home_mailer"
+              "sessionId": "sess_home_mailer",
+              "remember": {
+                "$exact": "undefined"
+              }
             },
             "approval": {
               "approved": true,
@@ -1771,43 +1861,47 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "delete",
-                "target": "a",
-                "account": "drive",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "count": "1"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "delete",
-              "tool": "mcp__drive__delete_permanently",
-              "target": "a",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "delete",
+                  "target": "a",
+                  "account": "drive",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "count": "1"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "delete",
+                "tool": "mcp__drive__delete_permanently",
+                "target": "a",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           },
           {
             "do": "grants",
             "label": "after",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           },
           {
@@ -1825,41 +1919,42 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "payment",
-                "target": "Notion",
-                "account": "stripe",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "merchant": "Notion",
-                  "amount": "5",
-                  "currency": "USD"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "payment",
-              "tool": "mcp__stripe__create_payment",
-              "target": "Notion",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "payment",
+                  "target": "Notion",
+                  "account": "stripe",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "merchant": "Notion",
+                    "amount": "5",
+                    "currency": "USD"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "payment",
+                "tool": "mcp__stripe__create_payment",
+                "target": "Notion",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -1873,39 +1968,40 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "delete",
-                "target": "a",
-                "account": "drive",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "count": "1"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "delete",
-              "tool": "mcp__drive__delete_permanently",
-              "target": "a",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "delete",
+                  "target": "a",
+                  "account": "drive",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "count": "1"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "delete",
+                "tool": "mcp__drive__delete_permanently",
+                "target": "a",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           }
         ],
         "offered": [
@@ -1946,41 +2042,42 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "payment",
-                "target": "Notion",
-                "account": "stripe",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "merchant": "Notion",
-                  "amount": "5",
-                  "currency": "USD"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "payment",
-              "tool": "mcp__stripe__create_payment",
-              "target": "Notion",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "payment",
+                  "target": "Notion",
+                  "account": "stripe",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "merchant": "Notion",
+                    "amount": "5",
+                    "currency": "USD"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "payment",
+                "tool": "mcp__stripe__create_payment",
+                "target": "Notion",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           },
           {
             "do": "decide",
@@ -1996,39 +2093,40 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "delete",
-                "target": "a",
-                "account": "drive",
-                "payload": "",
-                "editable": [],
-                "details": {
-                  "count": "1"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "delete",
-              "tool": "mcp__drive__delete_permanently",
-              "target": "a",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "delete",
+                  "target": "a",
+                  "account": "drive",
+                  "payload": "",
+                  "editable": [],
+                  "details": {
+                    "count": "1"
+                  }
+                },
+                "remember": [
+                  "once"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "delete",
+                "tool": "mcp__drive__delete_permanently",
+                "target": "a",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once"
+                ]
+              }
+            }
           }
         ],
         "granted": [
@@ -2093,47 +2191,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -2175,13 +2274,14 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "deny",
-              "reason": "This agent's permission blocks this action."
-            },
-            "request": null,
-            "gate": null,
-            "remembered": null
+            "result": {
+              "decision": {
+                "action": "deny",
+                "reason": "This agent's permission blocks this action."
+              },
+              "request": null,
+              "gate": null
+            }
           }
         ]
       }
@@ -2202,47 +2302,48 @@
             },
             "sessionId": "sess_home_mailer",
             "hook": null,
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "answer",
@@ -2311,6 +2412,9 @@
           {
             "do": "grants",
             "label": "after",
+            "filter": {
+              "$exact": "undefined"
+            },
             "grants": []
           },
           {
@@ -2327,47 +2431,48 @@
             "hook": {
               "action": "allow"
             },
-            "decision": {
-              "action": "ask",
-              "reason": "This sends or posts outside Mixdog; it needs your approval."
-            },
-            "request": {
-              "kind": "outbound",
-              "agentId": "mailer",
-              "outbound": {
-                "category": "email",
-                "target": "a@b.c",
-                "account": "gmail",
-                "payload": "hi",
-                "editable": [
-                  "body",
-                  "subject"
-                ],
-                "details": {
-                  "to": "a@b.c",
-                  "subject": "s"
-                }
+            "result": {
+              "decision": {
+                "action": "ask",
+                "reason": "This sends or posts outside Mixdog; it needs your approval."
               },
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "gate": {
-              "agentId": "mailer",
-              "kind": "outbound",
-              "action": "email",
-              "tool": "mcp__gmail__send_email",
-              "target": "a@b.c",
-              "sessionId": "sess_home_mailer",
-              "remember": [
-                "once",
-                "session",
-                "agent"
-              ]
-            },
-            "remembered": null
+              "request": {
+                "kind": "outbound",
+                "agentId": "mailer",
+                "outbound": {
+                  "category": "email",
+                  "target": "a@b.c",
+                  "account": "gmail",
+                  "payload": "hi",
+                  "editable": [
+                    "body",
+                    "subject"
+                  ],
+                  "details": {
+                    "to": "a@b.c",
+                    "subject": "s"
+                  }
+                },
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              },
+              "gate": {
+                "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
+                "sessionId": "sess_home_mailer",
+                "remember": [
+                  "once",
+                  "session",
+                  "agent"
+                ]
+              }
+            }
           },
           {
             "do": "audit",
@@ -2377,19 +2482,34 @@
             },
             "rows": [
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
                 "decision": "deny",
-                "action": "email"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
                 "decision": "timeout",
-                "action": "email"
+                "device": ""
               },
               {
+                "at": 1800000000000,
                 "agentId": "mailer",
+                "kind": "outbound",
+                "action": "email",
+                "tool": "mcp__gmail__send_email",
+                "target": "a@b.c",
                 "decision": "timeout",
-                "action": "email"
+                "device": ""
               }
             ]
           }
