@@ -18,6 +18,7 @@ mod regex_error;
 mod text;
 pub mod time;
 pub mod token_estimate;
+pub mod uv_error;
 
 pub use array_sort::js_sort_by;
 pub use json::ordered_keys as js_object_keys;

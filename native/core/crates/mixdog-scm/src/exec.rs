@@ -253,11 +253,14 @@ fn spawn_failure(error: ProcessError, program: &str) -> ScmFailure {
         ProcessError::ProgramNotFound { .. } => ScmFailure::Unavailable {
             capability: program.to_owned(),
         },
-        // CreateProcess answers ERROR_BAD_EXE_FORMAT (193) or ERROR_EXE_MACHINE_TYPE_MISMATCH (216, what this Windows answers for a
-        // text file named git.exe) for a file the loader cannot run; libuv has no name for either.
-        ProcessError::Io { os_code: Some(193 | 216) } if cfg!(windows) => ScmFailure::Spawn { code: "UNKNOWN" },
-        ProcessError::Io { os_code } => ScmFailure::Io {
-            os_code,
+        // Node rejects a start the operating system refused with `spawn <code>`, the code libuv names the OS error with: a file
+        // the loader cannot run is EFTYPE (ERROR_BAD_EXE_FORMAT) or UNKNOWN (ERROR_EXE_MACHINE_TYPE_MISMATCH), an executable that
+        // needs elevation EACCES.
+        ProcessError::Io { os_code: Some(code) } => ScmFailure::Spawn { code: mixdog_js::uv_error::os_name(code) },
+        // The manager folds the access-denied OS error into its own variant: libuv names it EPERM on Windows, EACCES elsewhere.
+        ProcessError::PermissionDenied => ScmFailure::Spawn { code: if cfg!(windows) { "EPERM" } else { "EACCES" } },
+        ProcessError::Io { os_code: None } => ScmFailure::Io {
+            os_code: None,
             message: format!("could not start {program}"),
         },
         other => ScmFailure::Io {
