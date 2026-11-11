@@ -135,7 +135,7 @@ impl ConsoleClient {
              Add-Type -Name C -Namespace W -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern bool FreeConsole(); [DllImport(\"kernel32.dll\")] public static extern bool AttachConsole(uint p);'; \
              [void][W.C]::FreeConsole(); $o.WriteLine([W.C]::AttachConsole({root})); $o.Flush(); [void]$i.ReadLine()"
         );
-        let mut child = std::process::Command::new("powershell")
+        let child = std::process::Command::new("powershell")
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -144,9 +144,17 @@ impl ConsoleClient {
             .current_dir(std::env::temp_dir())
             .spawn()
             .unwrap();
-        let mut line = String::new();
-        std::io::BufReader::new(child.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
-        let client = Self(child);
+        // Owned before anything can fail, so a failure below still ends it (`Drop`).
+        let mut client = Self(child);
+        let stdout = client.0.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        // The read ends with the client's stdout, which its kill closes.
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+            let _ = tx.send(line);
+        });
+        let line = rx.recv_timeout(WAIT).expect("the client reports whether it attached");
         assert_eq!(line.trim(), "True", "the client attached to the root's console");
         client
     }
