@@ -101,7 +101,7 @@
         "maxSnapshotEntries / advertised / rounds / claims": "no snapshot exists on the typed protocol: each call is its own modelProxy/run request (mixdog-app-protocol/src/methods.rs:4338, class C2), at most inflight.c2 = 8 in flight per connection (mixdog-app-protocol/src/limits.rs:134, admitted by mixdog-app-server/src/server.rs:346); tested by a_peer_holds_at_most_its_in_flight_runs_each_one_bounded_frame"
       },
       "payloads past the aggregate in-flight limit are refused, and so are oversized event replies": {
-        "maxInflightBytes / payloadChars / secondCall": "the aggregate bound is inflight.c2 (8) runs x maxInboundFrameBytes (256 KiB, limits.rs:118) per connection: a frame past it is refused before it is parsed (mixdog-app-protocol/src/rpc.rs:142, applied at mixdog-app-server/src/server.rs:194); a 9th concurrent run is refused -32001 inflightLimit, not MODEL_PROXY_BUSY",
+        "maxInflightBytes / payloadChars / secondCall": "the aggregate bound is inflight.c2 (8) runs x maxInboundFrameBytes (256 KiB, limits.rs:118) per connection: a frame past it is refused before it is parsed (mixdog-app-protocol/src/rpc.rs:142, applied at mixdog-app-server/src/server.rs:194); a 9th concurrent run is refused -32001 inflightLimit, not MODEL_PROXY_BUSY: sent as nine modelProxy/run requests to the server in mixdog-app-server tests/admission.rs a_ninth_model_proxy_run_is_refused_as_in_flight_limit; the frame past the bound in a_peer_holds_at_most_its_in_flight_runs_each_one_bounded_frame",
         "oversizedReply / hostOperations": "a run sends notifications and asks the peer nothing (model_proxy_service.rs RunEvents::emit), so there is no peer reply to bound; any inbound frame is under the same frame bound"
       },
       "a burst of sends all run, with no rate or concurrency refusal": {
@@ -114,7 +114,7 @@
         "stages[reconnecting].attempt / max": "unrepresentable: the core's account pool states a message only (AccountStage::Switching, mixdog-core-api/src/domain/provider.rs:135; key_pool.rs:287); Node's real pool states none either (account-pool.mjs reconnecting: { message }), the counters are the recorder's scripted provider",
         "excluded[] {name, index, pointer, reason, message}": "ProxyEvent::ToolExcluded (v2/model_proxy.rs:653), each string redacted",
         "deltas (onStreamDelta of a 200-char string)": "unrepresentable: onStreamDelta's kind is the ProxyProgress enum (v2/model_proxy.rs:596), never free text",
-        "result.content": "the textDelta events of the run, folded",
+        "result.content": "the textDelta events of the run, folded; the provider is scripted with the recorder's own 'ok', and the run's whole ordered event list is compared (declared order: toolExcluded events first, as an adapter reports them while encoding, then the stages; the scripted stream's completed event closes the list)",
         "result.secretHookKnown / secretHookCalled": "unrepresentable: a typed request (ProxyOptions, v2/model_proxy.rs:194) carries no callback, so a provider cannot learn of one",
         "allowlistedCallbacks": "the CALLBACKS table of the replay test: each Node callback and the ProxyEvent variants that carry it, keys compared in order",
         "secretShapedInput": "a note of the recorder"

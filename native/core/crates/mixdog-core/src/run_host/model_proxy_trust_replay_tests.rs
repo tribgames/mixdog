@@ -283,16 +283,16 @@ async fn a_reference_the_server_could_not_inline_is_the_unavailable_text_node_ga
 }
 
 /// Cases 2 and 3: the typed protocol's bounds on what a peer can make this core hold. There is no snapshot of
-/// advertised ids: each call is its own `modelProxy/run` request (class C2), at most `inflight.c2` in flight per
-/// connection, each in one frame of at most `maxInboundFrameBytes`; a run streams notifications and asks the peer
-/// nothing, so no reply of the peer is ever read.
+/// advertised ids: each call is its own `modelProxy/run` request (class C2), each in one frame of at most
+/// `maxInboundFrameBytes`; a run streams notifications and asks the peer nothing, so no reply of the peer is ever read.
+/// The in-flight bound is the server's: a ninth `modelProxy/run` of one connection is refused `-32001 inflightLimit`,
+/// sent in mixdog-app-server `tests/admission.rs` `a_ninth_model_proxy_run_is_refused_as_in_flight_limit`.
 #[test]
 fn a_peer_holds_at_most_its_in_flight_runs_each_one_bounded_frame() {
     let node = observed("payloads past the aggregate in-flight limit are refused, and so are oversized event replies");
     let limits = Limits::default();
     let spec = mixdog_app_protocol::client_method_spec("modelProxy/run").expect("a method of the table");
     assert_eq!(spec.class, RequestClass::C2);
-    assert_eq!(limits.inflight.cap(RequestClass::C2), 8);
     // Node's 2,000-character payload is one frame; one past the bound is refused before it is parsed.
     let frame = |chars: usize| json!({ "jsonrpc": "2.0", "id": 1, "method": "modelProxy/run", "params": { "runId": "r", "call": { "method": "send", "provider": "openai", "request": { "pad": "x".repeat(chars) } } } }).to_string();
     let small = frame(node["payloadChars"].as_u64().unwrap() as usize);
@@ -310,7 +310,9 @@ async fn a_burst_of_runs_all_answer() {
     let (service, notes) = service(script).await;
     let hi = request(vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))]);
     let runs = (0..sends).map(|i| answered(&service, run(&format!("r{i}"), &hi)));
-    let answers = futures::future::join_all(runs).await;
+    let answers = tokio::time::timeout(std::time::Duration::from_secs(30), futures::future::join_all(runs))
+        .await
+        .expect("all 30 concurrent modelProxy/run calls to answer");
     let results: Vec<Value> = (0..sends)
         .map(|i| {
             assert_eq!(answers[i]["result"], "sent");
@@ -340,16 +342,22 @@ async fn reports_reach_the_server_projected_and_the_account_id_stays_on_this_pc(
         p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "openai".into(), account_id: "pc-acct-42".into(), at: 7 }),
         p::StreamEvent::AccountStage(p::AccountStage::Switching { message: secret.into() }),
     ];
-    events.extend(answer(node["result"]["content"].as_str().unwrap()));
+    // The recorder's scripted `send` returns `{ content: 'ok' }`: the provider is scripted from that, never from the
+    // recorded result, whose content the core's own events must fold to.
+    events.extend(answer("ok"));
     let (service, notes) = service(script(vec![excluded], events)).await;
     let hi = request(vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))]);
     assert_eq!(answered(&service, run("r5", &hi)).await["result"], "sent");
     let got = notes.events("r5");
     let (stages, excluded) = typed_of_node(node["stages"].as_array().unwrap(), node["excluded"].as_array().unwrap());
-    let of = |keep: fn(&w::ProxyEvent) -> bool| got.iter().filter(|e| keep(e)).cloned().collect::<Vec<_>>();
-    assert_eq!(of(|e| matches!(e, w::ProxyEvent::AccountChanged { .. } | w::ProxyEvent::AccountSwitching { .. })), stages);
-    assert_eq!(of(|e| matches!(e, w::ProxyEvent::ToolExcluded { .. })), excluded);
-    assert_eq!(content(&got), node["result"]["content"].as_str().unwrap());
+    // The whole ordered list of the run: an adapter reports the tools it left out while it encodes, before its stream
+    // (Node's scripted send called `onToolExcluded` after the stages), then the stages, the text, and the end the
+    // scripted stream names.
+    let mut want = excluded;
+    want.extend(stages);
+    want.push(w::ProxyEvent::TextDelta { text: node["result"]["content"].as_str().unwrap().to_owned() });
+    want.push(w::ProxyEvent::Completed { stop: Some(w::ProxyStop::EndTurn), pricing_model: None, request_ms: None });
+    assert_eq!(got, want);
     let wire = serde_json::to_string(&got).unwrap();
     assert!(!wire.contains("pc-acct-42") && !wire.contains("sk-DUMMY-"), "{wire}");
     // Node's server callbacks and the typed events that carry each (`replay.fieldMap.callbacks`).
