@@ -111,11 +111,23 @@ pub struct TestCompaction {
     pub heir_fails: std::sync::atomic::AtomicBool,
     /// Each `prune_offloads`: the thread and the transcripts it was given.
     pub pruned: Mutex<Vec<(String, String)>>,
-    /// The sidecar directory: every `.txt` file in it is a candidate, and a prune deletes the candidates whose
-    /// file name the transcripts do not name. None lists nothing.
+    /// The data dir whose `tool-results/<thread>` sidecars the host's own listing and prune
+    /// (`ToolResultArtifacts::prune_candidates`, `prune`) work on. None lists nothing.
     pub offloads: Mutex<Option<std::path::PathBuf>>,
     /// The next listing tells `.0` it arrived, then waits for `.1`.
     pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+}
+
+/// The host's tool-result store of `thread` under the data dir `data`.
+pub fn offload_store(data: &std::path::Path, thread: &ThreadId) -> mixdog_core_run::run_host::artifact::ToolResultArtifacts {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+    mixdog_core_run::run_host::artifact::ToolResultArtifacts::new(io, data, thread.as_str())
+}
+
+#[allow(clippy::disallowed_methods, reason = "the store ages sidecars by their real modification time")]
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[async_trait::async_trait]
@@ -139,23 +151,19 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     async fn post_compact(&self, _: &ThreadId, trigger: &str) {
         lock(&self.calls).push(format!("post {trigger}"));
     }
-    #[allow(clippy::disallowed_methods, reason = "test engine lists its fixture directory")]
-    async fn offload_candidates(&self, _: &ThreadId) -> Vec<std::path::PathBuf> {
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
         let gate = lock(&self.listing_gate).take();
         if let Some((arrived, release)) = gate {
             arrived.notify_one();
             release.notified().await;
         }
-        let Some(dir) = lock(&self.offloads).clone() else { return Vec::new() };
-        std::fs::read_dir(dir).map(|entries| entries.flatten().map(|entry| entry.path()).collect()).unwrap_or_default()
+        let Some(data) = lock(&self.offloads).clone() else { return Vec::new() };
+        offload_store(&data, thread).prune_candidates(now_ms()).await
     }
-    #[allow(clippy::disallowed_methods, reason = "test engine deletes its fixture files")]
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
-        for path in candidates {
-            let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-            if !transcripts.contains(&name) {
-                let _ = std::fs::remove_file(path);
-            }
+        let data = lock(&self.offloads).clone();
+        if let Some(data) = data {
+            offload_store(&data, thread).prune(candidates, transcripts.clone(), now_ms()).await;
         }
         lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }

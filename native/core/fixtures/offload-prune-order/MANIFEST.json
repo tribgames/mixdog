@@ -1,0 +1,62 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-offload-prune-order.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the patch> --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch",
+  "exclusions": {
+    "paths": "a sidecar is recorded by its role (kept, queued, stray), not by its path: the names are content hashes of the recorder's texts and the data dir is a temporary one",
+    "summary": "the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 646,
+      "path": "golden.json",
+      "sha256": "394cc2fa92d741362b9424c94ea857a528d47ed9faa4faf87ef66bc77c8e765f"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+        "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs"
+      ],
+      "sha256": "e98b0f2fc8073a553ada97d0f3043aea19d7ba893db0895b53bd3815ac4a5f05"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 3
+    },
+    "srcSha256": "302168f4604690aff3b12337e33cfbb936eb3c3a9147887c9af3d8db5ab932de",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-offload-prune-order.mjs",
+  "recorderSha256": "292d7d550ebe4d4dec1108eabf9db0ce519d17be94b8d4455371aa52c6a5e329",
+  "set": "offload-prune-order",
+  "tests": [
+    "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs (added by the patch)",
+    "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs (pruneCompactedOffloads)",
+    "src/runtime/agent/orchestrator/session/tool-result-offload.mjs (pruneOffloadSession)"
+  ],
+  "totalBytes": 646
+}

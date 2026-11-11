@@ -1,0 +1,274 @@
+diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
+new file mode 100644
+index 0000000..48b4133
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
+@@ -0,0 +1,156 @@
++// A manual compaction deletes the tool-result sidecars its result no longer names only once that result is saved: a
++// process that stops before the save restarts from the stored transcript, which still names them. The prune keeps
++// its idle check: a turn started before it leaves every sidecar to the next prune of the idle session.
++//
++// The point between the compaction and its save is the commit's timing line (`recordCompactionTiming`), written once
++// the compacted transcript is adopted and before `compactSessionMessages` saves it.
++import assert from 'node:assert/strict';
++import { spawnSync } from 'node:child_process';
++import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { fileURLToPath } from 'node:url';
++
++const CHILD = process.env.MIXDOG_PRUNE_AFTER_SAVE_CHILD === '1';
++const dataDir = CHILD ? process.env.MIXDOG_DATA_DIR : mkdtempSync(join(tmpdir(), 'mixdog-prune-after-save-'));
++process.env.MIXDOG_DATA_DIR = dataDir;
++const manager = await import('../manager.mjs');
++const { drainSessionStore, evictLiveSession, loadSession, saveSessionAsync } = await import('../store.mjs');
++const { persistToolResultArtifactSync } = await import('../tool-result-offload.mjs');
++const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
++
++const HOUR_AGO = new Date(Date.now() - 3_600_000);
++
++function summaryNaming(path) {
++  return [
++    '## Goal',
++    '- keep the work',
++    '## Constraints & Preferences',
++    '- (none)',
++    '## Progress',
++    '### Done',
++    '- older turns summarized',
++    '### In Progress',
++    '- (none)',
++    '### Blocked',
++    '- (none)',
++    '## Key Decisions',
++    '- (none)',
++    '## Next Steps',
++    '- continue',
++    '## Critical Context',
++    `- the kept result is at ${path}`,
++    '## Relevant Files',
++    '- (none)',
++  ].join('\n');
++}
++
++// A stored session with three old sidecars: `kept` the summary will name, `queued` a queued message may name, and
++// `stray` only the first request names (the compaction drops it).
++async function storedSession(tag) {
++  const sessionId = `sess_prune_after_save_${tag}_${process.pid}`;
++  const sidecar = (role) => {
++    const { path } = persistToolResultArtifactSync({ sessionId, toolCallId: `call_${role}`, content: `${role} output of ${tag}` });
++    utimesSync(path, HOUR_AGO, HOUR_AGO);
++    return path;
++  };
++  const files = { kept: sidecar('kept'), queued: sidecar('queued'), stray: sidecar('stray') };
++  const messages = [
++    { role: 'system', content: 'system rules stay exact' },
++    { role: 'user', content: `the first result is at ${files.stray}` },
++    { role: 'assistant', content: 'noted' },
++  ];
++  for (let turn = 0; turn < 30; turn += 1) {
++    messages.push(
++      { role: 'user', content: `request ${turn} ${'context '.repeat(400)}` },
++      { role: 'assistant', content: `answer ${turn} ${'detail '.repeat(400)}` }
++    );
++  }
++  const session = {
++    id: sessionId,
++    provider: 'anthropic',
++    model: 'fake-model',
++    owner: 'agent',
++    contextWindow: 100_000,
++    compactBoundaryTokens: 100_000,
++    messages,
++    tools: [],
++    generation: 0,
++    closed: false,
++    compaction: { conversationThresholdTokens: 1 },
++  };
++  await saveSessionAsync(session);
++  return { sessionId, files };
++}
++
++// `compactSessionMessages` with a summary naming `kept`; `between` runs after the compaction is adopted and before
++// it is saved.
++async function compact({ sessionId, files }, between = () => {}) {
++  const write = process.stderr.write;
++  process.stderr.write = function (chunk, ...rest) {
++    if (String(chunk).startsWith(`compaction session=${sessionId} `)) between();
++    return write.call(this, chunk, ...rest);
++  };
++  const provider = { name: 'anthropic', send: async () => ({ content: summaryNaming(files.kept) }) };
++  try {
++    return await _withRegisteredProviderForTestAsync('anthropic', provider, () => manager.compactSessionMessages(sessionId));
++  } finally {
++    process.stderr.write = write;
++  }
++}
++
++const left = (files) =>
++  Object.entries(files)
++    .filter(([, path]) => existsSync(path))
++    .map(([role]) => role);
++
++if (CHILD) {
++  const seeded = await storedSession('crash');
++  await compact(seeded, () => process.exit(0));
++  process.exit(1);
++} else {
++  test.after(async () => {
++    drainSessionStore();
++    rmSync(dataDir, { recursive: true, force: true });
++  });
++
++  test('a process that stops between the compaction and its save keeps every sidecar the stored transcript names', () => {
++    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
++      env: { ...process.env, MIXDOG_PRUNE_AFTER_SAVE_CHILD: '1', MIXDOG_DATA_DIR: dataDir },
++      encoding: 'utf8',
++      timeout: 60_000,
++    });
++    assert.equal(child.status, 0, `the child stopped between the compaction and its save: ${child.stderr}`);
++    const sessionId = `sess_prune_after_save_crash_${child.pid}`;
++    evictLiveSession(sessionId);
++    const stored = loadSession(sessionId);
++    assert.ok(stored, 'the stored session');
++    const dir = join(dataDir, 'tool-results', sessionId);
++    const named = [...new Set(JSON.stringify(stored.messages).match(/\b[a-f0-9]{64}\.txt\b/g) || [])];
++    assert.ok(named.length > 0, 'the stored transcript names a sidecar');
++    assert.deepEqual(
++      named.filter((name) => !readdirSync(dir).includes(name)),
++      [],
++      'sidecars the stored transcript names are missing'
++    );
++  });
++
++  test('a message queued before the save keeps the sidecar it names', async () => {
++    const seeded = await storedSession('queued');
++    const result = await compact(seeded, () => manager.enqueuePendingMessage(seeded.sessionId, { content: `look at ${seeded.files.queued}` }));
++    assert.equal(result.changed, true, JSON.stringify(result));
++    assert.deepEqual(left(seeded.files), ['kept', 'queued']);
++  });
++
++  test('a turn started before the save stops the prune; the next prune of the idle session deletes what it left', async () => {
++    const seeded = await storedSession('turn');
++    const result = await compact(seeded, () => manager.markSessionAskStart(seeded.sessionId));
++    assert.equal(result.changed, true, JSON.stringify(result));
++    assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray'], 'a session that is not idle is not pruned');
++    manager.markSessionDone(seeded.sessionId);
++    const next = await compact(seeded);
++    assert.equal(next.error ?? null, null, JSON.stringify(next));
++    assert.deepEqual(left(seeded.files), ['kept']);
++  });
++}
+diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
+index 923faae..5135975 100644
+--- a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
++++ b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
+@@ -467,11 +467,14 @@ async function compareTranscriptEncodings(before, after) {
+ 
+ // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
+ // lets an in-flight turn's sidecars survive until a later compaction/close.
+-async function pruneCompactedOffloads(session, sessionId) {
++// Called once the compacted transcript is saved: before that, the stored
++// transcript still names what the compaction dropped, and a process that
++// stops restarts from it. `transcript` reads what the session holds then.
++export async function pruneCompactedOffloads(session, sessionId, transcript = () => session.messages) {
+   if (isSessionCompactionBlocked(sessionId)) return;
+   try {
+     await pruneOffloadSession(sessionId, () => [
+-      session.messages,
++      transcript(),
+       session.liveTurnMessages,
+       _getPendingMessagesForSession(sessionId),
+     ]);
+@@ -697,7 +700,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
+   // change re-roots the system prompt now and needs no notice any more.
+   if (changed) applyPendingWorkspaceReroot(session);
+   if (changed) resetReadStateAfterCompaction(resolvedSessionId);
+-  await pruneCompactedOffloads(session, resolvedSessionId);
+   if (changed) session.providerState = undefined;
+   session.compaction = compactionRecord(plan, {
+     stage: mode === 'auto' ? 'post_turn' : 'manual',
+diff --git a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
+index ca19c4c..3f2b708 100644
+--- a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
++++ b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
+@@ -11,7 +11,7 @@ import {
+ } from '../store.mjs';
+ import { listStoredSessionSummariesAsync } from '../store/listing.mjs';
+ import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
+-import { runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
++import { pruneCompactedOffloads, runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
+ import {
+   currentContextEstimateTokens,
+   invalidateContextUsageSnapshot,
+@@ -157,6 +157,9 @@ function clearedTokenAccounting(now) {
+ async function compactBeforeClear(session, sessionId, clearOptions) {
+   let messages = Array.isArray(session.messages) ? session.messages : [];
+   let clearCompactError = null;
++  // Whether a compaction was adopted: its offloads are pruned after the save
++  // that stores it.
++  let compacted = false;
+   if (messages.length >= 3) {
+     try {
+       // The clear right after discards this compaction's display too, so it
+@@ -167,6 +170,7 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+         sessionId,
+         archive: false,
+       });
++      compacted = Boolean(compactResult && !compactResult.error && !compactResult.skipped);
+       if (compactResult?.error) clearCompactError = new Error(compactResult.error);
+     } catch (err) {
+       clearCompactError = err;
+@@ -174,11 +178,11 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+     }
+     messages = Array.isArray(session.messages) ? session.messages : [];
+   }
+-  if (clearOptions.requireCompactSuccess !== true) return { messages, clearCompactError };
++  if (clearOptions.requireCompactSuccess !== true) return { messages, clearCompactError, compacted };
+   if (!clearCompactError && !messages.some(isCompactSummaryMessage)) {
+     clearCompactError = new Error('compact produced no retained summary');
+   }
+-  if (!clearCompactError) return { messages, clearCompactError };
++  if (!clearCompactError) return { messages, clearCompactError, compacted };
+   const now = Date.now();
+   session.compaction = {
+     ...(session.compaction || {}),
+@@ -190,6 +194,7 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+   };
+   session.updatedAt = now;
+   await saveSessionAsync(session, { expectedGeneration: session.generation });
++  if (compacted) await pruneCompactedOffloads(session, sessionId);
+   throw new Error(`auto-clear compact failed; conversation kept: ${session.compaction.lastClearCompactError}`);
+ }
+ 
+@@ -313,9 +318,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+   const compact = clearOptions.compact === true && !archiveAs;
+   const currentMessages = Array.isArray(session.messages) ? session.messages : [];
+   const beforeMessageTokens = estimateMessagesTokens(currentMessages);
+-  const { messages, clearCompactError } = compact
++  const { messages, clearCompactError, compacted } = compact
+     ? await compactBeforeClear(session, sessionId, clearOptions)
+-    : { messages: currentMessages, clearCompactError: null };
++    : { messages: currentMessages, clearCompactError: null, compacted: false };
+   const keep = retainedMessagesAfterClear(messages, compact && clearOptions.keepCompactSummary !== false);
+   const tokens = clearTokenAccounting(session, messages, keep, beforeMessageTokens);
+   const now = Date.now();
+@@ -379,6 +384,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+   }
+   session.updatedAt = now;
+   await saveSessionAsync(session, { expectedGeneration: session.generation });
++  // What the compaction kept (the cleared transcript's fork holds it) keeps
++  // its sidecars, as when the prune ran inside the compaction.
++  if (compacted) await pruneCompactedOffloads(session, sessionId, () => messages);
+   return session;
+ }
+ export async function compactSessionMessages(sessionId, options = {}) {
+@@ -414,6 +422,7 @@ export async function compactSessionMessages(sessionId, options = {}) {
+   }
+   session.updatedAt = Date.now();
+   await saveSessionAsync(session, { expectedGeneration: session.generation });
++  if (!result.error) await pruneCompactedOffloads(session, sessionId);
+   return result;
+ }
+ export async function updateSessionStatus(id, status) {
