@@ -177,6 +177,7 @@ fn options_out(o: &p::RequestOptions) -> w::ProxyOptions {
             .collect(),
         shared_cache_prefix_count: o.shared_cache_prefix_count.map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
         provider_state: o.provider_state.as_ref().map(p::ProviderState::to_json),
+        forked_transport_scope: o.transport_scope.is_some(),
     }
 }
 
@@ -1000,7 +1001,12 @@ impl ProxyRunner {
             }
             w::ProxyCall::Send { provider, request } => {
                 let adapter = self.adapter(&provider).await?;
+                let forked = request.options.forked_transport_scope;
                 let mut request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
+                // A request the server forked from a session gets a scope allocated here (`forkTransportScope(sessionId || name,
+                // 'proxy')`), released when it ends whatever the outcome (`disposeTransportScope`).
+                let scope = forked.then(|| format!("{}#proxy:{}", request.options.session_id.as_deref().filter(|id| !id.is_empty()).unwrap_or(&provider), uuid::Uuid::new_v4()));
+                request.options.transport_scope.clone_from(&scope);
                 // The server's tools this PC's adapter leaves out go back to the server (Node's `onToolExcluded`).
                 let (excluded, reports) = std::sync::mpsc::channel();
                 request.options.on_tool_excluded = Some(p::ToolExclusionSink(Arc::new(move |report| {
@@ -1011,6 +1017,9 @@ impl ProxyRunner {
                 let send = SendRequest { request: Arc::new(request), lane, admission: AdmissionRequest::default() };
                 let mut sink = EventSink { events, excluded: reports };
                 let sent = self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await;
+                if let Some(scope) = &scope {
+                    adapter.release_transport_scope(scope);
+                }
                 sink.flush_excluded();
                 match sent {
                     Ok(attempts) => Ok(w::ProxyAnswer::Sent { attempts }),

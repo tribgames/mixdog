@@ -103,6 +103,8 @@ impl HostChannel for Pc {
 }
 
 fn server(pc: &Arc<Pc>) -> (HostProxyProviders, Arc<Epoch>) {
+    // The read spawns its watcher on the runtime backend, which a test installs.
+    let _ = mixdog_rt::testing::tokens();
     let epoch = Arc::new(Epoch(tokio::sync::watch::channel(1).0));
     (HostProxyProviders::new(pc.clone(), epoch.clone(), Arc::new(|| 1_000_000)), epoch)
 }

@@ -406,6 +406,9 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn native_documents(&self) -> Option<bool> {
         self.pool.primary.native_documents()
     }
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.pool.primary.input_excludes_cache()
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
         self.pool.primary.first_response_budget(model, parameters)
     }

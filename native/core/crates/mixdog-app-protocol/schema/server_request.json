@@ -911,6 +911,11 @@
         "fast": {
           "type": "boolean"
         },
+        "forkedTransportScope": {
+          "default": false,
+          "description": "The server forked this request from a session (a side question) and gave it a transport scope of its own (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and releases it when the request ends.",
+          "type": "boolean"
+        },
         "hostedTools": {
           "items": {
             "$ref": "#/definitions/ProxyHostedTool"

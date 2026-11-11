@@ -212,6 +212,11 @@ pub struct ProxyOptions {
     pub hosted_tools: Vec<ProxyHostedTool>,
     pub shared_cache_prefix_count: Option<u32>,
     pub provider_state: Option<JsonValue>,
+    /// The server forked this request from a session (a side question) and gave it a transport scope of its own
+    /// (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and
+    /// releases it when the request ends.
+    #[serde(default)]
+    pub forked_transport_scope: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

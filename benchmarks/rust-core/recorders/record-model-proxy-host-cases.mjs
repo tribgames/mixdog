@@ -103,12 +103,17 @@ async function realInstance(name, entry) {
   }
   throw new RecorderError(`no provider class for ${name}`);
 }
-function pcModules(available, keys = {}) {
+const { developerOptionEnabled, developerOptionForProvider } = await set.load(`${R}shared/developer-options.mjs`);
+/** `providerAvailable(name)` (provider-availability.mjs) with the stored Developer options passed in: the product's `isOAuthProviderAvailable` reads them from the config file. */
+const providerAvailableWith = (developer) => (name) => { const option = developerOptionForProvider(name); return !option || developerOptionEnabled(option.id, developer); };
+function pcModules(available, keys = {}, developer = {}) {
   const live = new Map();
   const keyReads = [];
   const inits = [];
+  const providerAvailable = providerAvailableWith(developer);
   const modules = {
-    keyReads, probeAuth: () => 'present', inits, live,
+    // `oauthCredentialProbeState`: a dev-gated provider whose Developer option is off always reads 'absent'; every other credential is present (the scripted external store).
+    keyReads, probeAuth: (name) => (providerAvailable(name) ? 'present' : 'absent'), inits, live,
     loadConfig: (options) => { if (JSON.stringify(options) !== '{"secrets":"presence"}') throw new RecorderError(`loadConfig options ${JSON.stringify(options)}`); return { providers: structuredClone(available) }; },
     // registry.mjs `_initProvidersUnsynchronized`, over the real classes: the enabled entries build (a custom provider
     // whose config does not build is skipped); a registered OAuth instance the config does not explicitly disable and
@@ -119,6 +124,8 @@ function pcModules(available, keys = {}) {
       const next = new Map();
       for (const [name, entry] of Object.entries(config)) {
         if (entry.enabled !== true) continue;
+        // registry.mjs `_initProvidersUnsynchronized`: a dev-gated provider whose Developer option is off is never admitted, even from a config that still says enabled:true.
+        if (!providerAvailable(name)) continue;
         const custom = entry.type === 'custom' && name.startsWith('custom-');
         const instance = await realInstance(name, entry).catch((error) => { if (custom) return null; throw error; });
         if (!instance) continue;
@@ -484,12 +491,14 @@ await run('forced and short-budget reads do not join an older request or let it 
   await Promise.all([long, short]);
   return { log };
 });
-await run('all built-in provider families and custom protocols use the same PC catalog and send path', async () => {
+/** Case 24 under the stored Developer options `developer`: `{}` (the default, every dev-gated provider off) or the three that gate a family in the case. */
+const familiesCase = (developer) => async () => {
+  const providerAvailable = providerAvailableWith(developer);
   // `opencode-go-oauth`, the family's registered name: b6f's registry builds no `opencode-go` (registry.mjs:222).
   const names = ['openai', 'anthropic', 'gemini', 'deepseek', 'xai', 'opencode-go-oauth', 'openrouter', 'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth', 'mimo-oauth', 'cursor-oauth', 'antigravity-oauth', 'mixdog-local'];
   const custom = ['openai-chat', 'openai-responses', 'anthropic'].flatMap((protocol, i) => ['key', 'none'].map((auth, j) => ({ id: `custom-00000000-0000-4000-8000-0000000000${i}${j}`, protocol, auth })));
   const available = Object.fromEntries([...names.map((id) => [id, { enabled: true }]), ...custom.map(({ id, ...config }) => [id, { ...config, type: 'custom', enabled: true, name: id, baseURL: 'https://gateway.example/v1' }])]);
-  const modules = pcModules(available);
+  const modules = pcModules(available, {}, developer);
   const init = modules.initProviders;
   modules.initProviders = async (config) => { await init(config); for (const [name, provider] of modules.live) provider.listModels = async () => [{ id: `${name}-model` }]; };
   let clock = 0;
@@ -499,10 +508,14 @@ await run('all built-in provider families and custom protocols use the same PC c
   for (const name of Object.keys(available)) {
     clock += 60_000;
     const proxy = new ModelProxyProvider(name, {}, channel);
+    // A provider the PC does not run (its Developer option is off) is refused, not served.
+    if (!providerAvailable(name)) { perProvider.push({ name, advertised: advertised.providers[name], refused: await rejected(proxy.listModels()) }); continue; }
     perProvider.push({ name, advertised: advertised.providers[name], models: await proxy.listModels(), sendResult: await proxy.send([], `${name}-model`, [], {}) });
   }
-  return { available, advertised, perProvider };
-});
+  return { developer, available, advertised, perProvider };
+};
+await run('all built-in provider families and custom protocols use the same PC catalog and send path', familiesCase({}));
+await run('all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on', familiesCase({ antigravityOAuth: true, cursorOAuth: true, mimoOAuth: true }));
 await run('proxy readiness distinguishes missing credentials, transient probes, and explicit disables', async () => {
   const available = { 'openai-oauth': { enabled: true } };
   const modules = pcModules(available);

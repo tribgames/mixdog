@@ -240,7 +240,7 @@ fn takes_images(name: &str) -> bool {
 /// What the live adapter declares for the server's stand-in (`providerConfig`'s `modelProxy` traits).
 fn traits_of(name: &str, adapter: &dyn p::ProviderAdapter) -> Value {
     let mut traits = Map::new();
-    traits.insert("inputExcludesCache".into(), Value::Bool(input_excludes_cache(name)));
+    traits.insert("inputExcludesCache".into(), Value::Bool(adapter.input_excludes_cache().unwrap_or_else(|| input_excludes_cache(name))));
     traits.insert("nativePdf".into(), Value::Bool(adapter.native_pdf()));
     if consumes_read_windows(name) {
         traits.insert("consumesReadWindows".into(), Value::Bool(true));
