@@ -1,0 +1,210 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "the quiet cue is lenient: a turn reads quiet only after the cue window without counted progress",
+      "observed": {
+        "cueWindowMs": 120000,
+        "quietProgress": [
+          {
+            "input": {
+              "progressAt": 999880001,
+              "stage": "streaming",
+              "now": 1000000000
+            },
+            "result": null
+          },
+          {
+            "input": {
+              "progressAt": 999880000,
+              "stage": "requesting",
+              "now": 1000000000
+            },
+            "result": {
+              "since": 999880000,
+              "wait": "provider"
+            }
+          },
+          {
+            "input": {
+              "progressAt": 0,
+              "stage": "requesting",
+              "now": 1000000000
+            },
+            "result": null
+          }
+        ],
+        "quietWaitKind": [
+          {
+            "stage": "tool_running",
+            "kind": "tool"
+          },
+          {
+            "stage": "resource_wait",
+            "kind": "slot"
+          },
+          {
+            "stage": "idle",
+            "kind": ""
+          }
+        ]
+      }
+    },
+    {
+      "case": "the quiet state is frozen for a silence and escalates only at the watchdog warn point",
+      "observed": {
+        "quiet": {
+          "since": 1000,
+          "wait": "tool",
+          "tool": "shell"
+        },
+        "warnMs": 300000,
+        "early": {
+          "quietMs": 180000,
+          "minutes": 3,
+          "wait": "tool",
+          "tool": "shell",
+          "escalated": false
+        },
+        "earlyLabel": "quiet for 3m · running shell",
+        "late": {
+          "quietMs": 300000,
+          "minutes": 5,
+          "wait": "tool",
+          "tool": "shell",
+          "escalated": true
+        },
+        "nullParts": null,
+        "noWarn": {
+          "quietMs": 125000,
+          "minutes": 2,
+          "wait": "provider",
+          "tool": "",
+          "escalated": false
+        },
+        "noWarnLabel": "quiet for 2m · waiting on provider"
+      }
+    },
+    {
+      "case": "a sent request waiting for its headers is the model-thinking stage until transport arrives",
+      "observed": {
+        "modelThinkingStage": "model_thinking",
+        "stages": [
+          {
+            "input": {
+              "stage": "requesting",
+              "requestSentAt": 100,
+              "lastTransportAt": 0
+            },
+            "awaiting": true,
+            "displayStage": "model_thinking"
+          },
+          {
+            "input": {
+              "stage": "requesting",
+              "requestSentAt": 100,
+              "lastTransportAt": 50
+            },
+            "awaiting": true,
+            "displayStage": "model_thinking"
+          },
+          {
+            "input": {
+              "stage": "requesting",
+              "requestSentAt": 100,
+              "lastTransportAt": 150
+            },
+            "awaiting": false,
+            "displayStage": "requesting"
+          },
+          {
+            "input": {
+              "stage": "requesting",
+              "requestSentAt": 0
+            },
+            "awaiting": false,
+            "displayStage": "requesting"
+          },
+          {
+            "input": {
+              "stage": "streaming",
+              "requestSentAt": 100,
+              "lastTransportAt": 0
+            },
+            "awaiting": false,
+            "displayStage": "streaming"
+          }
+        ],
+        "waitKindOfThinking": "thinking",
+        "thinkingLabel": "quiet for 2m · model thinking",
+        "poolRowFromSentEntry": {
+          "sessionId": "run",
+          "agent": "worker",
+          "status": "running",
+          "progressAt": 90,
+          "progressStage": "model_thinking",
+          "progressTool": null,
+          "stallWarnMs": 300000
+        }
+      }
+    },
+    {
+      "case": "progress is counted from the same stamps as the stall watchdog",
+      "observed": {
+        "stamps": {
+          "lastProgressAt": 5,
+          "lastStreamDeltaAt": 9,
+          "toolStartedAt": 7,
+          "askStartedAt": 1
+        },
+        "lastProgressAt": 9,
+        "nullEntry": 0
+      }
+    },
+    {
+      "case": "running pool rows carry their turn progress, stage and warn point; settled rows pass through",
+      "observed": {
+        "entry": {
+          "stage": "tool_running",
+          "lastToolCall": "shell",
+          "lastProgressAt": 50,
+          "toolStartedAt": 40,
+          "controller": {}
+        },
+        "rows": [
+          {
+            "sessionId": "run",
+            "agent": "worker",
+            "status": "running"
+          },
+          {
+            "sessionId": "rest",
+            "agent": "worker",
+            "status": "idle"
+          }
+        ],
+        "decorated": [
+          {
+            "sessionId": "run",
+            "agent": "worker",
+            "status": "running",
+            "progressAt": 50,
+            "progressStage": "tool_running",
+            "progressTool": "shell",
+            "stallWarnMs": 300000
+          },
+          {
+            "sessionId": "rest",
+            "agent": "worker",
+            "status": "idle"
+          }
+        ],
+        "settledRowIsTheSameObject": true,
+        "workerWarnSeconds": 300
+      }
+    }
+  ]
+}

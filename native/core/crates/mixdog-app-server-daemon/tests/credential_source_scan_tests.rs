@@ -80,7 +80,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_REFERENCE_TREE", "test harness: the reference Node tree, not a credential"),
     ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_LEASE_CHILD", "test harness: marks the child process of the replay, not a credential"),
     ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_OPENAI_REQ_ZSTD", "the request-compression switch"),
-    ("mixdog-ai/src/providers/openai/body.rs", "&|name| config.context.var(name)", "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)"),
+    ("mixdog-ai/src/providers/openai/body.rs", "|name: &str| config.context.var(name)", "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)"),
     ("mixdog-ai/src/providers/openai/cache_key.rs", "std::env::var(name).ok()", "process_var: the cache-key switches for a caller with no injected environment"),
     // The Anthropic wire's process settings (Node's `process.env` reads of the Anthropic transport): switches, none a credential.
     ("mixdog-ai/src/providers/anthropic/adapter.rs", "settings: Arc::new(|name| std::env::var(name).ok())", "the adapter's settings reader over the process environment (the request-gzip switch MIXDOG_ANTHROPIC_REQ_GZIP, the keep-alive time)"),

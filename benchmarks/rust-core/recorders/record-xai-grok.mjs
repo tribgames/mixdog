@@ -56,7 +56,7 @@ await rec.run('xai-responses-fingerprint-payload', `${SRC}:66`, { sessionId: 'se
     const provider = new GrokOAuthProvider({ preconnect: false });
     provider.tokens = { access_token: 'tok-fixture', refresh_token: 'refresh-fixture', expires_at: Date.parse('2030-01-01T00:00:00Z'), user_id: 'user-fixture' };
     const sent = await clock.followRetries(provider.send([{ role: 'user', content: 'hi' }], 'grok-4.6', [], { sessionId: 'session-a', providerState: { xaiResponses: { store: false, seenMessageCount: 6 } } }).then((result) => ({ result }), (error) => ({ error })));
-    const rows = () => (existsSync(tracePath) ? readFileSync(tracePath, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
+    const rows = () => rec.own('reading the local trace file', () => (existsSync(tracePath) ? readFileSync(tracePath, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []));
     // The local trace is spooled and written by the product's flush timer (virtual clock): once the timer is armed by the append, the clock moves to it and the row reaches the file.
     const flushTimer = () => clock.pendingFrom(/_appendLocalTrace/)[0];
     await clock.advance(0, { until: () => flushTimer() !== undefined, what: 'the trace flush timer armed' });

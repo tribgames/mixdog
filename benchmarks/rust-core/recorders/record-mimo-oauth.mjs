@@ -25,7 +25,7 @@ await rec.run('lists-models-with-bearer-and-source-header', `${SRC}:16`, { crede
 });
 await rec.run('send-without-credentials-asks-sign-in', `${SRC}:41`, { credential: null }, async () => {
   const { rmSync } = await import('node:fs');
-  rmSync(process.env.MIMO_OAUTH_CREDENTIALS_PATH, { force: true });
+  rec.own('removing the credentials file', () => rmSync(process.env.MIMO_OAUTH_CREDENTIALS_PATH, { force: true }));
   return new MimoOAuthProvider({ preconnect: false }).send([], 'mimo-v2.6-pro', [], {});
 });
 await rec.finish();

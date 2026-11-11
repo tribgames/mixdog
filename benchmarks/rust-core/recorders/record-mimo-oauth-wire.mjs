@@ -70,10 +70,10 @@ const streamOk = (_req, _body, res) => {
 const credentialsPath = process.env.MIMO_OAUTH_CREDENTIALS_PATH;
 // Each write gets its own fixed modification time (the product keys its token cache on mtime, so successive writes must differ).
 let signIns = 0;
-const signIn = (baseUrl, apiKey = 'sk-wire') => {
+const signIn = (baseUrl, apiKey = 'sk-wire') => rec.own('writing the credentials file', () => {
   writeFileSync(credentialsPath, JSON.stringify({ apiKey, uid: 'u', baseUrl }));
   utimesSync(credentialsPath, 1_700_000_000 + ++signIns, 1_700_000_000 + signIns);
-};
+});
 const newProvider = (config = {}) => new MimoOAuthProvider({ preconnect: false, ...config });
 const chatRequests = (gw) => gw.requests.filter((r) => r.url.endsWith('/chat/completions'));
 const attempt = async (promise) => {
@@ -372,7 +372,7 @@ await rec.run('deleted-token-file-signs-out', `${SRC}:662`, {}, () => withGatewa
   signIn(gw.baseUrl);
   const provider = newProvider();
   await provider.send(hi, 'mimo-v2.6-pro', [], {});
-  rmSync(credentialsPath);
+  rec.own('removing the credentials file', () => rmSync(credentialsPath));
   const after = await attempt(provider.send(hi, 'mimo-v2.6-pro', [], {}));
   return { after, tokens: provider.tokens, available: await provider.isAvailable() };
 }));

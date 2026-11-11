@@ -1,0 +1,80 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-sequence.mjs --tree <tree>",
+  "entry": "Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord) and manager/session-close.mjs (closeSession) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.",
+  "exclusions": [
+    "session ids drop the test's process id (sess_sequence_<tag>_<n>)",
+    "the unlink plan is computed by the test's `predict` oracle (copied here only to place the injected failures); the recorded outcomes are Node's own",
+    "every timer the store arms is recorded, the derived summary index's 1000 ms retry included (store-summary-index.mjs:518). A case ends on events, not on a count of event-loop turns: the recorder waits (10 s deadline) for the product's own settleSummaryIndexWrites(), and when the retry timer is armed the recorder ticks the mock clock by its delay (a recorded step in the case's clockSteps); the wait runs again after drainSessionStore()",
+    "the recorded stored record is the whole readDurableSessionRecord result and the whole directory listing of the sessions dir (the OS's order), the log file is its exact text",
+    "the random op lists come from the test's seeded generator (seed * 7919), recorded as inputs",
+    "the temp data dir is a path under the OS temp dir: it is not recorded; a recorded string that holds it is a defect of the recording (the recorder fails on it)",
+    "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\"",
+    "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
+    "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
+    "BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production",
+    "BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store's own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed",
+    "BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)",
+    "BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 214678,
+      "path": "recording.json",
+      "sha256": "4e3f28bb53fd30ef95239d6995b9acd627630705f66a79af051da50415e42cea"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "3bbd21f382d6762424a1305dc976f5babc2a6836cd631d6fce898125c61240cb"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-sequence.mjs",
+  "recorderSha256": "c93e6d2fce65b9f24b1b8419c54809b7f7ac305074679385a37f07bb39dbea2e",
+  "replay": "mixdog-core-session actor ordering (S/close.rs detach/close, S/delete.rs delete_session, the item-commit barrier) driven by the same op list per case with the case's unlink failures injected in the store writer: compare each op's result, the lifecycle commit error, the stored record (messages, generation, closed) and the log file (normalised) whole.",
+  "set": "session-sequence",
+  "testFile": "src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs",
+  "totalBytes": 214678,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

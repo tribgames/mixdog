@@ -19,7 +19,7 @@ import { exact } from './exact.mjs';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
 import { installDeterministicWorld } from './deterministic-world.mjs';
 import { recorderProvenance } from './provenance.mjs';
-import { RecorderError } from './recorder-error.mjs';
+import { RecorderError, refuseRecorderErrors } from './recorder-error.mjs';
 import { startWsWorld } from './ws-world.mjs';
 
 export { RecorderError };
@@ -219,6 +219,28 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
 }`;
   register(`data:text/javascript,${encodeURIComponent(hooks)}`);
 
+  // A failure of the recorder's own machinery while a case runs (the helper's encoding and logging, the network guard, the scripted endpoint's
+  // own script): kept here as a RecorderError and raised by `run` once the callback has settled, outside the catch that records its answer, so
+  // it can never be stored as one; it is also returned, for a guard that must reject with something.
+  let caseFailure = null;
+  const recorderFailure = (what, error) => {
+    const failure = new RecorderError(`recorder: ${what}: ${error?.message ?? error}`);
+    caseFailure ??= failure;
+    return failure;
+  };
+  /** A step of the recorder itself (its own file reads, parsing, encoding, stand-ins), sync or async: any failure of it is a RecorderError. */
+  const own = (what, step) => {
+    const fail = (error) => {
+      throw error instanceof RecorderError ? error : new RecorderError(`recorder: ${what}: ${error?.message ?? error}`);
+    };
+    let value;
+    try {
+      value = step();
+    } catch (error) {
+      fail(error);
+    }
+    return value && typeof value.then === 'function' ? value.then((v) => v, fail) : value;
+  };
   const direct = new Set();
   const hub = { records: [], reply: null };
   let server = null;
@@ -247,7 +269,14 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       req.socket.once('close', clock.notify);
       hub.records.push(record);
       clock.notify();
-      const reply = hub.reply?.(record, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
+      let reply;
+      try {
+        reply = hub.reply?.(record, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
+      } catch (error) {
+        recorderFailure('the scripted endpoint\'s reply', error);
+        req.socket.destroy();
+        return;
+      }
       record.reply = reply;
       if (reply.destroy) {
         // The endpoint resets the connection instead of answering (the client sees a network error).
@@ -285,12 +314,13 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
   }
 
   if (!net) {
-    // No scripted endpoint in this recording: a fetch to anything but the recorder's own loopback fails at once - the real network is never reached.
+    // No scripted endpoint in this recording: a fetch to anything but the recorder's own loopback is the recorder's failure, never an
+    // answer - the real network is never reached, and the run stops with it (see `recorderFailure`).
     const realFetch = globalThis.fetch;
     globalThis.fetch = (input, init) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (direct.has(url.port)) return realFetch(input, init);
-      return Promise.reject(Object.assign(new Error(`recorder: real network is not allowed (net: false): ${url.origin}`), { code: 'ERECORDERNONET' }));
+      return Promise.reject(recorderFailure('the network guard', new Error(`real network is not allowed (net: false): ${url.origin}`)));
     };
   }
 
@@ -334,7 +364,26 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     }
     return v;
   };
-  const logCall = (entry, args) => void current?.push({ entry, args: args.map(argView) });
+  // The helper's own steps inside a case (encoding the arguments and instances it logs) never throw into the case: a failure is kept and
+  // raised by `run` after the callback, outside the catch that records the answer.
+  const logCall = (entry, args) => {
+    if (!current) return;
+    try {
+      refuseRecorderErrors(args, `the arguments of ${entry}`);
+      current.push({ entry, args: args.map(argView) });
+    } catch (error) {
+      recorderFailure(`encoding the arguments of ${entry}`, error);
+    }
+  };
+  const describeInstance = (name, args, instance, proxy) => {
+    try {
+      const description = { $instance: name, constructedWith: args.map(argView) };
+      described.set(instance, description);
+      described.set(proxy, description);
+    } catch (error) {
+      recorderFailure(`encoding the construction of ${name}`, error);
+    }
+  };
   const wrappedCache = new WeakMap();
   const isClass = (fn) => /^class\b/.test(Function.prototype.toString.call(fn));
   const wrapInstance = (name, instance) => new Proxy(instance, {
@@ -347,7 +396,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
   const wrapExport = (name, fn) => {
     if (wrappedCache.has(fn)) return wrappedCache.get(fn);
     const wrapped = isClass(fn)
-      ? new Proxy(fn, { construct(target, args, newTarget) { logCall(`new ${name}`, args); const instance = Reflect.construct(target, args, newTarget === wrapped ? target : newTarget); const proxy = wrapInstance(name, instance); const description = { $instance: name, constructedWith: args.map(argView) }; described.set(instance, description); described.set(proxy, description); return proxy; } })
+      ? new Proxy(fn, { construct(target, args, newTarget) { logCall(`new ${name}`, args); const instance = Reflect.construct(target, args, newTarget === wrapped ? target : newTarget); const proxy = wrapInstance(name, instance); describeInstance(name, args, instance, proxy); return proxy; } })
       : Object.assign(Object.defineProperty(function (...args) { logCall(name, args); return Reflect.apply(fn, this, args); }, 'name', { value: fn.name }), fn);
     wrappedCache.set(fn, wrapped);
     return wrapped;
@@ -362,6 +411,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     net: hub,
     secrets,
     view,
+    own,
     T0,
     describe,
     /** Registers the port of a loopback server the recorder itself started: fetches to it are not redirected to the scripted endpoint. */
@@ -382,43 +432,49 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     raw: (rel) => import(pathToFileURL(join(tree, 'src/runtime', rel)).href),
     load: async (rel) => wrapModule(rel, await import(pathToFileURL(join(tree, rel)).href)),
     P: async (rel) => wrapModule(`src/runtime/${rel}`, await import(pathToFileURL(join(tree, 'src/runtime', rel)).href)),
-    write: (name, text) => {
+    write: (name, text) => own(`writing ${name} in the data directory`, () => {
       mkdirSync(join(dataDir, name, '..'), { recursive: true });
       writeFileSync(join(dataDir, name), text);
-    },
+    }),
     async run(id, source, input, fn) {
       if (only && only !== id) return;
       hub.records = [];
       hub.reply = null;
       clock.trace.length = 0;
-      const row = { id, source, input: view(input) };
+      const row = { id, source, input: own(`case ${id}: encoding its input`, () => view(input)) };
       const calls = [];
       current = calls;
+      caseFailure = null;
       let timer;
       const deadline = new Promise((_, reject) => {
         timer = realSetTimeout(() => reject(new RecorderError(`recorder: case ${id} did not settle within ${CASE_DEADLINE_MS} ms`)), CASE_DEADLINE_MS);
       });
-      // Only what `fn` itself returns or throws is the case's answer. Every recorder-side failure (the case deadline, a clock step's deadline, a
-      // ws-world wait, a recorder's own setup or teardown failure, which a recorder throws as RecorderError) stops the recording; so does a value
-      // the helper cannot hold (`view` throws outside the answer's try).
+      // The answer is what Node's code under test returns or throws from the recorded call, and nothing else, by construction:
+      // - the catch below holds only the callback; a RecorderError (a deadline, a wait, a step the recorder ran through `own`) passes through it;
+      // - the helper's own steps during the callback (encoding, logging, the network guard, the endpoint's script) never throw into it: their
+      //   failure is raised here, after the callback, before anything is stored;
+      // - every value is refused if it holds a RecorderError at any depth (refuseRecorderErrors), and is encoded outside the catch.
       let outcome;
       try {
-        outcome = { result: await Promise.race([fn({ net: hub, clock }), deadline]) };
+        outcome = { result: await Promise.race([fn({ net: hub, clock, own }), deadline]) };
       } catch (error) {
         if (error instanceof RecorderError) throw error;
         outcome = { error };
       } finally {
         realClearTimeout(timer);
+        current = null;
       }
-      if ('result' in outcome) row.result = view(outcome.result);
-      else row.error = view(outcome.error);
-      current = null;
+      if (caseFailure) throw caseFailure;
+      refuseRecorderErrors(outcome, `case ${id}`);
+      refuseRecorderErrors(hub.records, `case ${id}: the requests`);
+      if ('result' in outcome) row.result = own(`case ${id}: encoding its result`, () => view(outcome.result));
+      else row.error = own(`case ${id}: encoding its error`, () => view(outcome.error));
       if (calls.length) row.calls = calls;
       // Declared real-clock paths (the recorder's `maskRow`, each named in its manifest exclusions) are replaced by a marker here, never by a global rewrite.
       maskRow?.(row);
       if (clock.trace.length) row.clock = clock.trace.map((x) => ({ ...x }));
       if (hub.records.length) {
-        row.requests = hub.records.map((r) => view(r));
+        row.requests = own(`case ${id}: encoding its requests`, () => hub.records.map((r) => view(r)));
         // Declared normalisation (see the manifest exclusions): the three SDK headers that carry the recording host's OS, architecture and Node version.
         for (const request of row.requests) for (const pair of request.headers ?? []) if (/^x-stainless-(os|arch|runtime-version)$/i.test(pair[0])) pair[1] = `<recording host ${pair[0].toLowerCase()}>`;
       }
@@ -426,6 +482,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     },
     /** Writes `cases.json` + MANIFEST.json of `<set>` and stops the loopback endpoint. */
     async finish(extra = {}) {
+      if (caseFailure) throw caseFailure;
       server?.close();
       wsWorld?.close();
       // The level of every case (the decided rule): `wire` = the case went through a socket (the request or the upgrade as it arrived is recorded); `pure` = only for a case

@@ -41,11 +41,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "943f721e9658f8eed8cacc854a53a0444e43d9d39e1dde978ebfcb4260689ebd"
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
-      "sha256": "ca2aba4fd278a0a7c9bce57b40c5470d7811acb5f895cba2524dc21c960f1ddc"
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
@@ -93,7 +93,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-local-context-settings.mjs",
-  "recorderSha256": "63a84195eb57fee03ca72a00070d57060a211c47a2259c79b1b9a7eb6b09e6b5",
+  "recorderSha256": "027eacf74bb3620747d9542063ca9c0c8a8ad42f7d71b273ce1b48bcc8b857e0",
   "replay": "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
   "set": "provider-local-context-settings",
   "totalBytes": 46640,

@@ -241,14 +241,16 @@ await withJob('provider-admin-dev-providers daemon', async (job) => {
     return out;
   };
   const steps = [{ cursorOAuth: true }, { mimoOAuth: true }, { mimoOAuth: true, cursorOAuth: true, devinOAuth: true, antigravityOAuth: true }, { mimoOAuth: false, cursorOAuth: false, antigravityOAuth: true }, { mimoOAuth: false, cursorOAuth: false, antigravityOAuth: false }];
-  await rec.run('dev-oauth-providers-follow-developer-flags', `${SRC}:33`, { developerSteps: [null, ...steps], known: KNOWN }, async () => {
+  // The daemon's answers are the HTTP exchanges, stored as values; nothing the callback throws is an answer: every step of it (the exchanges'
+  // transport, the parse of an answer, the config file reads, the waits) is the recorder's own, so the whole callback runs through `rec.own`.
+  await rec.run('dev-oauth-providers-follow-developer-flags', `${SRC}:33`, { developerSteps: [null, ...steps], known: KNOWN }, () => rec.own('the desktop requests to the daemon', async () => {
     const created = await call('session.create', { cwd: rec.dataDir });
     // The daemon attaches the host's scope to the new session asynchronously: its update on the events stream comes before the next request.
     await untilUpdate(() => updates.some((u) => u.sessionId === sessionId && fields(u).agentScope), 'the session update attaching the host scope');
     const out = [await step(null)];
     for (const developer of steps) out.push(await step(developer));
     return { created, steps: out };
-  });
+  }));
   await exchange('POST', '/shutdown', { 'X-Mixdog-Daemon-Token': discovery.token }, {});
   const ended = await withDeadline(daemonRun, 'the daemon exiting after POST /shutdown and its job emptying');
   if (ended.timedOut) throw new RecorderError(`recorder: the daemon outlived its ${DAEMON_LIFE_MS} ms`);

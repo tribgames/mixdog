@@ -28,12 +28,16 @@ const localProviderCatalogStatus = (options) => {
 const { downloadVerifiedLocalAsset } = await rec.P('local-provider/asset-installer.mjs');
 const { resolveSessionContextMeta } = await rec.P('agent/orchestrator/session/manager/context-meta.mjs');
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
-const caseDir = (name) => {
+// The recorder's own file steps (case directories, the partial files a case starts from, reading back what the installer left) run through
+// `rec.own`: a failure of them stops the recording, it is never a case's answer.
+const caseDir = (name) => rec.own(`creating the case directory ${name}`, () => {
   const dir = join(rec.dataDir, name);
   mkdirSync(dir, { recursive: true });
   return dir;
-};
-const filesOf = (dir) => Object.fromEntries(readdirSync(dir).map((name) => [name, { $bytesHex: readFileSync(join(dir, name)).toString('hex') }]));
+});
+const filesOf = (dir) => rec.own(`reading the files under ${dir}`, () => Object.fromEntries(readdirSync(dir).map((name) => [name, { $bytesHex: readFileSync(join(dir, name)).toString('hex') }])));
+const writePart = (path, bytes) => rec.own(`writing ${path}`, () => writeFileSync(path, bytes));
+const exists = (path) => rec.own(`checking ${path}`, () => existsSync(path));
 const attempt = async (promise) => {
   try {
     return { result: await promise };
@@ -77,7 +81,7 @@ await rec.run('resume-partial-publish-after-sha256', `${SRC}:106`, { payload: 'v
   const prefix = payload.subarray(0, 9);
   const progress = [];
   rec.net.reply = serveFile(payload);
-  writeFileSync(`${destination}.part`, prefix);
+  writePart(`${destination}.part`, prefix);
   const out = await attempt(downloadVerifiedLocalAsset(asset(payload), destination, { onProgress: (v) => progress.push(v) }));
   return { ...out, progress, files: filesOf(dir) };
 });
@@ -87,7 +91,7 @@ await rec.run('digest-mismatch-not-published', `${SRC}:140`, { payload: 'tampere
   const payload = Buffer.from('tampered');
   rec.net.reply = serveFile(payload);
   const out = await attempt(downloadVerifiedLocalAsset({ ...asset(payload), sha256: '0'.repeat(64) }, destination, {}));
-  return { ...out, destinationExists: existsSync(destination), partExists: existsSync(`${destination}.part`), files: filesOf(dir) };
+  return { ...out, destinationExists: exists(destination), partExists: exists(`${destination}.part`), files: filesOf(dir) };
 });
 await rec.run('runtime-capacity-bounds-picker-and-restored-selection', `${SRC}:171`, { selectedContextWindows: [262144, 8192], hardware: { gpu: { vendor: 'NVIDIA', memoryBytes: 24 * 1024 ** 3 } } }, () => {
   const status = localProviderCatalogStatus({ dataDir: caseDir('catalog-capacity'), hardware: { gpu: { vendor: 'NVIDIA', memoryBytes: 24 * 1024 ** 3 } } });
@@ -100,7 +104,7 @@ await rec.run('partial-download-allowed-when-remaining-bytes-fit', `${SRC}:188`,
   const destination = join(dir, 'asset.bin');
   const payload = Buffer.from('a model which is mostly downloaded');
   const prefix = payload.subarray(0, 25);
-  writeFileSync(`${destination}.part`, prefix);
+  writePart(`${destination}.part`, prefix);
   rec.net.reply = serveFile(payload);
   const spaceChecks = [];
   const first = await attempt(downloadVerifiedLocalAsset(asset(payload, { url: 'https://assets.example/model' }), destination, {
@@ -115,15 +119,15 @@ await rec.run('server-declining-range-cannot-bypass-disk-check', `${SRC}:226`, {
   const dir = caseDir('dl-range');
   const destination = join(dir, 'asset.bin');
   const payload = Buffer.from('model payload');
-  writeFileSync(`${destination}.part`, payload.subarray(0, 5));
+  writePart(`${destination}.part`, payload.subarray(0, 5));
   // The server declines the range (200, whole file) and keeps the body open: the installer must close the connection.
   rec.net.reply = () => ({ status: 200, contentType: 'application/octet-stream', chunks: [], hold: true });
   const spaceChecks = [];
   const out = await attempt(downloadVerifiedLocalAsset(asset(payload, { url: 'https://assets.example/model' }), destination, {
     checkDiskSpace: (_path, bytes) => { spaceChecks.push(bytes); if (bytes === payload.length) throw new Error('disk space changed'); },
   }));
-  await rec.net.records[0].whenClientClosed;
-  return { ...out, spaceChecks, clientClosedTheConnection: true, destinationExists: existsSync(destination), files: filesOf(dir) };
+  await rec.own('the first request\'s connection closing', () => rec.net.records[0].whenClientClosed);
+  return { ...out, spaceChecks, clientClosedTheConnection: true, destinationExists: exists(destination), files: filesOf(dir) };
 });
 await rec.run('cancellation-closes-stream-preserves-partial-for-resume', `${SRC}:263`, { payload: 'cancel and resume this model', prefixBytes: 8, enqueued: [8, 12] }, async () => {
   const dir = caseDir('dl-cancel');
@@ -131,7 +135,7 @@ await rec.run('cancellation-closes-stream-preserves-partial-for-resume', `${SRC}
   const payload = Buffer.from('cancel and resume this model');
   const controller = new AbortController();
   const a = asset(payload, { url: 'https://assets.example/model' });
-  writeFileSync(`${destination}.part`, payload.subarray(0, 8));
+  writePart(`${destination}.part`, payload.subarray(0, 8));
   const progress = [];
   // The server answers the ranged request with bytes 8-11 and keeps the body open until the client closes the connection.
   rec.net.reply = () => ({ status: 206, contentType: 'application/octet-stream', headers: { 'content-range': `bytes 8-${payload.length - 1}/${payload.length}` }, chunks: [payload.subarray(8, 12)], hold: true });
@@ -139,8 +143,8 @@ await rec.run('cancellation-closes-stream-preserves-partial-for-resume', `${SRC}
     signal: controller.signal,
     onProgress: (v) => { progress.push(v); controller.abort(new Error('user cancelled download')); },
   }));
-  await rec.net.records[0].whenClientClosed;
-  const afterCancel = { clientClosedTheConnection: true, destinationExists: existsSync(destination), partialBytes: readFileSync(`${destination}.part`).length, files: filesOf(dir) };
+  await rec.own('the first request\'s connection closing', () => rec.net.records[0].whenClientClosed);
+  const afterCancel = { clientClosedTheConnection: true, destinationExists: exists(destination), partialBytes: rec.own('reading the partial file', () => readFileSync(`${destination}.part`).length), files: filesOf(dir) };
   rec.net.reply = serveFile(payload);
   const resumed = await attempt(downloadVerifiedLocalAsset(a, destination, {}));
   return { cancelledRun, progress, afterCancel, resumed, files: filesOf(dir) };

@@ -1,0 +1,66 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-channels-config-reload-order.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the config loader of case 92 (scripted, settled by the recorder), the scheduler and the webhook/event services (call recorders)",
+    "runs": "createConfigReloadWatch (config-reload-watch.mjs) subscribed to the real shared config change feed (shared/config.mjs subscribeConfigChange, a real directory watcher) in a private data dir; writes by updateSection in-process and, for case 55, by a real child process; the real createConfigReloader (owned-runtime/config-reload.mjs) for case 92"
+  },
+  "exclusions": "none. NOTE for the Rust side: cases 55 and 75 are not recorded by branch gaps-memory-channels (its channels fixtures are channel-remote-intent and webhook-late-reload), so this set holds them",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 49424,
+      "path": "golden.json",
+      "sha256": "74ca5d9556509a568745741d9b41343fff13eccf527cc064967f35ca029b79fa"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "backup directory names": "scope-<hash> written <scope>, the ISO time in <time>-<sequence>-<kind> written <time> (files are listed by path, the directory order)",
+    "file texts": "the private data dir path, UUIDs (the instance id) and ISO timestamps inside the files are written <data-dir>, <instance-id>, <time>",
+    "private root": "temp, not recorded; paths are relative to the data dir / backup root"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-channels-config-reload-order.mjs",
+  "recorderSha256": "c609ce3d236bba81ae598be65deeaeb46afd2b549fa3f6a69bb7e444d4b50136",
+  "replay": "Rust: the config watcher is mixdog-core-config config/watch.rs:84 (it reloads the config file on a change) and the change feed is config/mod.rs:370 (pub fn changes). The channel reload entries are ChannelLifecycle::reload_config (mixdog-services channels/runtime.rs:393, trait channels/tools.rs:15, called from tools.rs:93 and from ServiceChannels::reload, daemon domain_seams/agent_effects.rs:60) -> ChannelRuntime::reload_runtime (runtime.rs:316, serialised by reload_gate :318). Checked by search of the daemon and services crates: NO consumer of config.changes() reloads the channel runtime on an external write (compose_flip.rs:801 passes the feed to the agents section, not to channels), so cases 55 and 75 (every external write reloads; only channels/voice sections reload) are work for the Rust side (rustWork). Case 92 cannot be driven as recorded (see rustWork): the replay compares the final config and the announcements after two writes. The files recorded are Node's config.json bytes for the Rust writer to equal",
+  "rustWork": "Case 92 cannot be driven in Rust: Node lets two loads settle in reverse order (load #2 applies, load #1 is discarded), while the Rust core serialises reloads (mixdog-services channels/runtime.rs:318 reload_runtime, reload_gate), so load #2 cannot finish before load #1. What a client observes in Node, and what the replay compares: two writes (revision 101, then 102) start two loads in that order; when #2 resolves first, the config becomes {revision: 2} and exactly one set of announcements follows, in this order: setConfig({revision: 2}), scheduler.reloadConfig(schedules [], {restart: true}), syncWebhookAndEventRuntime({reload: true}); when #1 resolves last nothing is announced and the config stays {revision: 2}. So the newest write wins and is announced once, the older result is never applied. The Rust replay compares the final config and the announcements after both writes, not the interleaving",
+  "set": "channels-config-reload-order",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 49424,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

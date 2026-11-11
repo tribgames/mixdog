@@ -1,0 +1,581 @@
+{
+  "domain": "session-address",
+  "recorder": "benchmarks/rust-core/recorders/record-session-address.mjs",
+  "testFile": "src/session-runtime/session-address.test.mjs",
+  "cases": [
+    {
+      "name": "address-binds-once-is-idempotent-and-refuses-a-re-key",
+      "testLine": 24,
+      "input": {
+        "initialRt": {
+          "addressedSessionId": null,
+          "admission": "open",
+          "lifecycleGeneration": 0
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "bindSessionAddress(sess_a)",
+            "ok": "sess_a",
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "bindSessionAddress(sess_a) again",
+            "ok": "sess_a",
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "bindSessionAddress(sess_b)",
+            "error": {
+              "$exact": "error",
+              "name": "SessionAddressError",
+              "message": "runtime is addressed as sess_a; it cannot be re-keyed to sess_b (use a new session entry)",
+              "props": {
+                "name": "SessionAddressError",
+                "sessionId": "sess_a"
+              }
+            },
+            "instanceOf": {
+              "SessionAddressError": true,
+              "SessionClosedError": false
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "assertNotAddressed(newSession)",
+            "error": {
+              "$exact": "error",
+              "name": "SessionAddressError",
+              "message": "newSession would re-key addressed session sess_a; create a new session entry instead",
+              "props": {
+                "name": "SessionAddressError",
+                "sessionId": "sess_a"
+              }
+            },
+            "instanceOf": {
+              "SessionAddressError": true,
+              "SessionClosedError": false
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "assertResumeTarget(sess_b)",
+            "error": {
+              "$exact": "error",
+              "name": "SessionAddressError",
+              "message": "runtime is addressed as sess_a; it cannot resume sess_b (use a new session entry)",
+              "props": {
+                "name": "SessionAddressError",
+                "sessionId": "sess_a"
+              }
+            },
+            "instanceOf": {
+              "SessionAddressError": true,
+              "SessionClosedError": false
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "assertResumeTarget(sess_a)",
+            "ok": {
+              "$exact": "undefined"
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "close-fences-before-the-manager-close-and-goes-terminal-after-a-durable-close",
+      "testLine": 35,
+      "input": {
+        "session": {
+          "id": "sess_a"
+        },
+        "manager": "closeSession returns true"
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "closeCanonicalSession",
+            "ok": true,
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "terminal",
+              "lifecycleGeneration": 1
+            },
+            "currentSession": null,
+            "managerCalls": [
+              {
+                "admission": "closing",
+                "args": [
+                  "sess_a",
+                  "canonical-session-close",
+                  {
+                    "tombstone": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "step": "closeCanonicalSession again (terminal)",
+            "ok": true,
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "terminal",
+              "lifecycleGeneration": 1
+            },
+            "currentSession": null,
+            "managerCalls": [
+              {
+                "admission": "closing",
+                "args": [
+                  "sess_a",
+                  "canonical-session-close",
+                  {
+                    "tombstone": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "failed-durable-close-restores-admission-and-keeps-the-session",
+      "testLine": 65,
+      "input": {
+        "session": {
+          "id": "sess_a"
+        },
+        "manager": [
+          "closeSession returns false",
+          "closeSession throws Error(boom)"
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "closeCanonicalSession (manager returns false)",
+            "ok": false,
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            },
+            "currentSession": {
+              "id": "sess_a"
+            },
+            "managerCalls": [
+              {
+                "admission": "closing",
+                "args": [
+                  "sess_a",
+                  "canonical-session-close",
+                  {
+                    "tombstone": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "step": "closeCanonicalSession (manager throws boom)",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "boom",
+              "props": {}
+            },
+            "instanceOf": {
+              "SessionAddressError": false,
+              "SessionClosedError": false
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            },
+            "currentSession": {
+              "id": "sess_a"
+            },
+            "managerCalls": [
+              {
+                "admission": "closing",
+                "args": [
+                  "sess_a",
+                  "canonical-session-close",
+                  {
+                    "tombstone": true
+                  }
+                ]
+              },
+              {
+                "admission": "closing",
+                "args": [
+                  "sess_a",
+                  "canonical-session-close",
+                  {
+                    "tombstone": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "closed-owner-keeps-the-completion-for-listeners-but-never-queues-or-wakes",
+      "testLine": 108,
+      "input": {
+        "sessionId": "sess_a",
+        "completionText": "<task-notification><task-id>shell_1</task-id><status>cancelled</status></task-notification>",
+        "meta": {
+          "execution_id": "shell_1",
+          "status": "cancelled",
+          "execution_surface": "shell"
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "notify(SHELL_DONE, shell_1) while open",
+            "ok": true,
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            },
+            "lastSeenMeta": {
+              "execution_id": "shell_1",
+              "status": "cancelled",
+              "execution_surface": "shell",
+              "caller_session_id": "sess_a"
+            },
+            "seenCount": 1,
+            "enqueuedCount": 0,
+            "wakeCount": 0
+          },
+          {
+            "step": "beginCanonicalClose",
+            "ok": "open",
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "closing",
+              "lifecycleGeneration": 0
+            },
+            "lastSeenMeta": {
+              "execution_id": "shell_1",
+              "status": "cancelled",
+              "execution_surface": "shell",
+              "caller_session_id": "sess_a"
+            },
+            "seenCount": 1,
+            "enqueuedCount": 0,
+            "wakeCount": 0
+          },
+          {
+            "step": "notify(shell_2) while closing",
+            "ok": true,
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "closing",
+              "lifecycleGeneration": 0
+            },
+            "lastSeenMeta": {
+              "execution_id": "shell_2",
+              "status": "cancelled",
+              "execution_surface": "shell",
+              "caller_session_id": "sess_a",
+              "owner_closed": true
+            },
+            "seenCount": 2,
+            "enqueuedCount": 0,
+            "wakeCount": 0
+          },
+          {
+            "step": "finishCanonicalClose(open, true)",
+            "ok": {
+              "$exact": "undefined"
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "terminal",
+              "lifecycleGeneration": 1
+            },
+            "lastSeenMeta": {
+              "execution_id": "shell_2",
+              "status": "cancelled",
+              "execution_surface": "shell",
+              "caller_session_id": "sess_a",
+              "owner_closed": true
+            },
+            "seenCount": 2,
+            "enqueuedCount": 0,
+            "wakeCount": 0
+          },
+          {
+            "step": "notify(shell_3) while terminal",
+            "ok": true,
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "terminal",
+              "lifecycleGeneration": 1
+            },
+            "lastSeenMeta": {
+              "execution_id": "shell_3",
+              "status": "cancelled",
+              "execution_surface": "shell",
+              "caller_session_id": "sess_a",
+              "owner_closed": true
+            },
+            "seenCount": 3,
+            "enqueuedCount": 0,
+            "wakeCount": 0
+          },
+          {
+            "step": "notifySessionCompletion(shell_4) while terminal",
+            "ok": true,
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "terminal",
+              "lifecycleGeneration": 1
+            },
+            "lastSeenMeta": {
+              "execution_id": "shell_4",
+              "status": "cancelled",
+              "execution_surface": "shell",
+              "caller_session_id": "sess_a",
+              "owner_closed": true
+            },
+            "seenCount": 4,
+            "enqueuedCount": 0,
+            "wakeCount": 0
+          }
+        ],
+        "enqueued": [],
+        "woke": [],
+        "seen": [
+          {
+            "execution_id": "shell_1",
+            "status": "cancelled",
+            "execution_surface": "shell",
+            "caller_session_id": "sess_a"
+          },
+          {
+            "execution_id": "shell_2",
+            "status": "cancelled",
+            "execution_surface": "shell",
+            "caller_session_id": "sess_a",
+            "owner_closed": true
+          },
+          {
+            "execution_id": "shell_3",
+            "status": "cancelled",
+            "execution_surface": "shell",
+            "caller_session_id": "sess_a",
+            "owner_closed": true
+          },
+          {
+            "execution_id": "shell_4",
+            "status": "cancelled",
+            "execution_surface": "shell",
+            "caller_session_id": "sess_a",
+            "owner_closed": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "closed-owner-with-no-listener-reports-not-delivered",
+      "testLine": 140,
+      "input": {
+        "sessionId": "sess_bare",
+        "completionText": "<task-notification><task-id>shell_1</task-id><status>cancelled</status></task-notification>",
+        "meta": {
+          "execution_id": "shell_1",
+          "status": "cancelled",
+          "execution_surface": "shell"
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "finishCanonicalClose(beginCanonicalClose(sess_bare), true)",
+            "ok": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "step": "notifySessionCompletion",
+            "ok": false,
+            "rt": {
+              "addressedSessionId": "sess_bare",
+              "admission": "terminal",
+              "lifecycleGeneration": 1
+            }
+          },
+          {
+            "step": "notifySession('plain text')",
+            "ok": false,
+            "rt": {
+              "addressedSessionId": "sess_bare",
+              "admission": "terminal",
+              "lifecycleGeneration": 1
+            }
+          }
+        ],
+        "enqueued": [],
+        "woke": []
+      }
+    },
+    {
+      "name": "callback-captured-under-an-earlier-generation-is-closed",
+      "testLine": 150,
+      "input": {
+        "sessionId": "sess_bare",
+        "setLifecycleGeneration": 5
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "notify after lifecycleGeneration = 5",
+            "ok": false,
+            "rt": {
+              "addressedSessionId": "sess_bare",
+              "admission": "open",
+              "lifecycleGeneration": 5
+            }
+          }
+        ],
+        "enqueued": [],
+        "woke": []
+      }
+    },
+    {
+      "name": "completion-wake-refuses-a-fenced-owner-at-request-time-and-in-the-delayed-callback",
+      "testLine": 160,
+      "input": {
+        "sessionId": "sess_a",
+        "executionIds": [
+          "x1",
+          "x2"
+        ],
+        "turnApi": "ask records its arguments"
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "wake({sessionId: sess_a, executionId: x1})",
+            "ok": true,
+            "immediateArmed": 1
+          },
+          {
+            "step": "beginCanonicalClose",
+            "ok": "open",
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "closing",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "run the delayed callback",
+            "ok": {
+              "$exact": "undefined"
+            },
+            "asks": []
+          },
+          {
+            "step": "wake({sessionId: sess_a, executionId: x2})",
+            "ok": false,
+            "immediateArmed": 0
+          }
+        ],
+        "asks": []
+      }
+    },
+    {
+      "name": "fenced-admission-raises-session-closed-error",
+      "testLine": 178,
+      "input": {
+        "sessionId": "sess_a"
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "assertAdmissionOpen (open)",
+            "ok": {
+              "$exact": "undefined"
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "open",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "beginCanonicalClose",
+            "ok": "open",
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "closing",
+              "lifecycleGeneration": 0
+            }
+          },
+          {
+            "step": "assertAdmissionOpen (closing)",
+            "error": {
+              "$exact": "error",
+              "name": "SessionClosedError",
+              "message": "Session \"sess_a\" closed: session is closed to new work",
+              "props": {
+                "name": "SessionClosedError",
+                "sessionId": "sess_a",
+                "cancelled": true,
+                "reason": "canonical-close"
+              }
+            },
+            "instanceOf": {
+              "SessionAddressError": false,
+              "SessionClosedError": true
+            },
+            "rt": {
+              "addressedSessionId": "sess_a",
+              "admission": "closing",
+              "lifecycleGeneration": 0
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

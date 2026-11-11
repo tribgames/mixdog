@@ -39,11 +39,11 @@ await rec.run('empty-reasoning-through-tool-history', `${SRC}:32`, { replies: [f
     session: { id: 'empty-reasoning-fixture', owner: 'agent', agent: 'worker', contextWindow: 200000, rawContextWindow: 200000, compaction: { auto: false } },
     onAssistantMessageCommitted: (message) => committed.push(message),
   });
-  const persisted = JSON.parse(JSON.stringify([...history, { role: 'assistant', content: result.content, reasoningContent: result.reasoningContent }]));
+  const persisted = rec.own('the JSON round trip of the persisted history', () => JSON.parse(JSON.stringify([...history, { role: 'assistant', content: result.content, reasoningContent: result.reasoningContent }])));
   return {
     result,
     committed,
-    committedHasReasoningContent: Object.hasOwn(committed[0], 'reasoningContent'),
+    committedHasReasoningContent: rec.own('reading the committed message', () => Object.hasOwn(committed[0], 'reasoningContent')),
     replayDeepseek: toOpenAIMessages(persisted, 'deepseek', { replaysReasoningContent: true }),
     replayOpenrouter: toOpenAIMessages(persisted, 'openrouter'),
   };
