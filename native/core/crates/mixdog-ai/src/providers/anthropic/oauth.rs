@@ -201,7 +201,8 @@ fn token_request(url: &str, body: Value, cli_version: &str) -> WireRequest {
         method: "POST".to_owned(),
         url: url.to_owned(),
         headers: vec![
-            ("content-type".to_owned(), "application/json".to_owned()),
+            // `tokenEndpointHeaders` (anthropic-oauth-credentials.mjs:272) spells it as written here.
+            ("Content-Type".to_owned(), "application/json".to_owned()),
             ("anthropic-dangerous-direct-browser-access".to_owned(), "true".to_owned()),
             ("user-agent".to_owned(), format!("claude-cli/{cli_version} (external, sdk-cli)")),
         ],

@@ -100,7 +100,7 @@ fn retry_after(headers: &[(String, String)]) -> Option<Duration> {
 
 /// `anthropicQuotaError`'s message (`anthropic-oauth-request/initial-status.mjs`): the text a
 /// cache warm's refused POST fails with on the subscription wire.
-pub(super) fn quota_error_text(response: &ErrorResponse) -> String {
+pub(super) fn quota_error_text(response: &ErrorResponse, secrets: &[&str]) -> String {
     let retry = retry_after(&response.headers).map_or_else(String::new, |after| {
         let ms = after.as_millis();
         let shown = if ms >= 60_000 && ms % 60_000 == 0 {
@@ -112,8 +112,9 @@ pub(super) fn quota_error_text(response: &ErrorResponse) -> String {
         };
         format!(" retryAfter={shown}")
     });
-    // Node scrubs the body (`provider.scrubTokens`) before the quota error cuts it to 200 characters.
-    let body = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), &[]);
+    // Node scrubs the body (`provider.scrubTokens`, which names the credential the request carried) before the quota
+    // error cuts it to 200 characters.
+    let body = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), secrets);
     let detail = if body.is_empty() { String::new() } else { format!(": {}", mixdog_js::slice_utf16(&body, 200)) };
     let quota = ["anthropic-ratelimit-unified-representative-claim", "anthropic-ratelimit-unified-overage-status"]
         .iter()
