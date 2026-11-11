@@ -654,7 +654,7 @@ async fn case14_results_that_cannot_be_clamped_by_strings_still_fit_the_output_c
         wide.insert(format!("k{index}"), json!(index));
     }
     let page = tool(Scripted::fixed(&json_text(&json!([Value::Object(wide), {"number": 2}]))), None, json!({"action": "issue.list", "repo": REPO, "limit": 2}), None).await;
-    let actual = o(vec![("capBytes", number(super::reduce::OUTPUT_MAX_BYTES as u64)), ("releaseView", view), ("wideList", page)]);
+    let actual = o(vec![("capBytes", number(super::reduce::output_max_bytes() as u64)), ("releaseView", view), ("wideList", page)]);
     Masks::default().compare(&actual, &expected, "case 14");
 }
 
