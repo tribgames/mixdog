@@ -82,7 +82,7 @@ await run('a session grant covers the action kind on every site and target, noth
   await h.grants('after');
   h.log.push({ do: 'modeFor mailer comment', mode: await h.store.modeFor({ agentId: 'mailer', action: 'comment' }) });
   await h.audit('mailer', { agentId: 'mailer' });
-  return { normalizedRemember: normalized.remember, roomSession };
+  return { normalized, roomSession };
 });
 await run('"always" stays a saved, revocable allow and is audited like the session one', async (h) => {
   const first = await h.decide(EMAIL, HOME);
@@ -149,7 +149,7 @@ await run('payments and permanent deletes are never offered, granted or remember
   const offered = [];
   for (const call of [PAYMENT, PERMANENT_DELETE]) {
     const out = await h.decide(call, HOME);
-    offered.push({ tool: call.name, listsMoreStillOnce: humanRequestFields({ ...out.request, remember: ['once', 'session', 'agent'] }).remember });
+    offered.push({ tool: call.name, listsMoreStillOnce: humanRequestFields({ ...out.request, remember: ['once', 'session', 'agent'] }) });
     await h.answer({ ...out.gate, remember: ['once', 'session', 'agent'] }, { approved: true, remember: 'session' });
     await h.answer({ ...out.gate, remember: undefined }, { approved: true, remember: 'agent' });
     await h.decide(call, HOME, { action: 'allow' });
@@ -184,7 +184,7 @@ await run('a timeout or a denial stores no decision, whatever scope came with it
   await h.grants('after');
   await h.decide(EMAIL, HOME, { action: 'allow' });
   await h.audit('mailer', { agentId: 'mailer' });
-  return { timedOutRemember: timedOut.remember };
+  return { timedOut };
 });
 await run('secret, takeover, connector and permission requests are answered once, whatever they list', async () => {
   const listed = ['once', 'session', 'agent', 'always'];
@@ -198,10 +198,10 @@ await run('secret, takeover, connector and permission requests are answered once
     requests: requests.map((input) => {
       const fields = humanRequestFields({ ...input, remember: listed });
       const presented = { kind: input.kind, ...fields };
-      return { input, remember: fields.remember, normalized: listed.map((remember) => ({ remember, result: normalizeHumanResponse(presented, true, { remember, scope: 'auto' }).remember })) };
+      return { input, fields, presented, normalized: listed.map((remember) => ({ remember, response: normalizeHumanResponse(presented, true, { remember, scope: 'auto' }) })) };
     }),
-    permissionRemember: humanRequestFields({ kind: 'permission', remember: listed }).remember,
-    approvalWithoutKindRemember: humanRequestFields({ kind: 'approval', remember: listed }).remember,
+    permissionFields: humanRequestFields({ kind: 'permission', remember: listed }),
+    approvalWithoutKindFields: humanRequestFields({ kind: 'approval', remember: listed }),
   };
 });
 await run('the session registry is bounded: oldest first, expired entries pruned on read', async () => {

@@ -385,7 +385,11 @@
             ]
           }
         ],
-        "normalizedRemember": "session",
+        "normalized": {
+          "approved": true,
+          "response": "approve",
+          "remember": "session"
+        },
         "roomSession": "sess_rmem_room123abc_mailer"
       }
     },
@@ -2007,15 +2011,43 @@
         "offered": [
           {
             "tool": "mcp__stripe__create_payment",
-            "listsMoreStillOnce": [
-              "once"
-            ]
+            "listsMoreStillOnce": {
+              "remember": [
+                "once"
+              ],
+              "agentId": "mailer",
+              "outbound": {
+                "category": "payment",
+                "target": "Notion",
+                "account": "stripe",
+                "payload": "",
+                "editable": [],
+                "details": {
+                  "merchant": "Notion",
+                  "amount": "5",
+                  "currency": "USD"
+                }
+              }
+            }
           },
           {
             "tool": "mcp__drive__delete_permanently",
-            "listsMoreStillOnce": [
-              "once"
-            ]
+            "listsMoreStillOnce": {
+              "remember": [
+                "once"
+              ],
+              "agentId": "mailer",
+              "outbound": {
+                "category": "delete",
+                "target": "a",
+                "account": "drive",
+                "payload": "",
+                "editable": [],
+                "details": {
+                  "count": "1"
+                }
+              }
+            }
           }
         ],
         "sessionGrantsGrantPaymentThenDelete": [
@@ -2514,7 +2546,11 @@
             ]
           }
         ],
-        "timedOutRemember": "once"
+        "timedOut": {
+          "approved": false,
+          "response": "deny",
+          "remember": "once"
+        }
       }
     },
     {
@@ -2535,25 +2571,71 @@
                 "requestId": "secret_abcdefgh"
               }
             },
-            "remember": [
-              "once"
-            ],
+            "fields": {
+              "remember": [
+                "once"
+              ],
+              "secret": {
+                "requestId": "secret_abcdefgh",
+                "surface": "browser",
+                "target": "",
+                "field": ""
+              },
+              "args": {
+                "surface": "browser",
+                "target": "",
+                "field": ""
+              }
+            },
+            "presented": {
+              "kind": "secret",
+              "remember": [
+                "once"
+              ],
+              "secret": {
+                "requestId": "secret_abcdefgh",
+                "surface": "browser",
+                "target": "",
+                "field": ""
+              },
+              "args": {
+                "surface": "browser",
+                "target": "",
+                "field": ""
+              }
+            },
             "normalized": [
               {
                 "remember": "once",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "provide-secret",
+                  "remember": "once"
+                }
               },
               {
                 "remember": "session",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "provide-secret",
+                  "remember": "once"
+                }
               },
               {
                 "remember": "agent",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "provide-secret",
+                  "remember": "once"
+                }
               },
               {
                 "remember": "always",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "provide-secret",
+                  "remember": "once"
+                }
               }
             ]
           },
@@ -2565,25 +2647,57 @@
                 "instructions": "sign in"
               }
             },
-            "remember": [
-              "once"
-            ],
+            "fields": {
+              "remember": [
+                "once"
+              ],
+              "takeover": {
+                "surface": "browser",
+                "instructions": "sign in"
+              }
+            },
+            "presented": {
+              "kind": "takeover",
+              "remember": [
+                "once"
+              ],
+              "takeover": {
+                "surface": "browser",
+                "instructions": "sign in"
+              }
+            },
             "normalized": [
               {
                 "remember": "once",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "done",
+                  "remember": "once"
+                }
               },
               {
                 "remember": "session",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "done",
+                  "remember": "once"
+                }
               },
               {
                 "remember": "agent",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "done",
+                  "remember": "once"
+                }
               },
               {
                 "remember": "always",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "done",
+                  "remember": "once"
+                }
               }
             ]
           },
@@ -2600,37 +2714,90 @@
                 ]
               }
             },
-            "remember": [
-              "once"
-            ],
+            "fields": {
+              "remember": [
+                "once"
+              ],
+              "connector": {
+                "server": "s",
+                "tool": "t",
+                "from": "disabled",
+                "requested": "auto",
+                "choices": [
+                  "auto"
+                ]
+              }
+            },
+            "presented": {
+              "kind": "connector",
+              "remember": [
+                "once"
+              ],
+              "connector": {
+                "server": "s",
+                "tool": "t",
+                "from": "disabled",
+                "requested": "auto",
+                "choices": [
+                  "auto"
+                ]
+              }
+            },
             "normalized": [
               {
                 "remember": "once",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "approve",
+                  "remember": "once",
+                  "scope": "auto"
+                }
               },
               {
                 "remember": "session",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "approve",
+                  "remember": "once",
+                  "scope": "auto"
+                }
               },
               {
                 "remember": "agent",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "approve",
+                  "remember": "once",
+                  "scope": "auto"
+                }
               },
               {
                 "remember": "always",
-                "result": "once"
+                "response": {
+                  "approved": true,
+                  "response": "approve",
+                  "remember": "once",
+                  "scope": "auto"
+                }
               }
             ]
           }
         ],
-        "permissionRemember": [
-          "once",
-          "agent"
-        ],
-        "approvalWithoutKindRemember": [
-          "once",
-          "agent"
-        ]
+        "permissionFields": {
+          "remember": [
+            "once",
+            "agent"
+          ],
+          "permission": {
+            "scopes": []
+          }
+        },
+        "approvalWithoutKindFields": {
+          "remember": [
+            "once",
+            "agent"
+          ]
+        }
       }
     },
     {
