@@ -1,0 +1,65 @@
+{
+  "0": {
+    "cueWindowMs": 120000.0,
+    "quietProgress": [
+      null,
+      {
+        "since": 999880000,
+        "wait": "provider"
+      },
+      null
+    ],
+    "quietWaitKind": [
+      "tool",
+      "slot",
+      ""
+    ]
+  },
+  "1": {
+    "published": {
+      "since": 1000,
+      "wait": "tool",
+      "tool": "shell",
+      "warnMs": 300000
+    }
+  },
+  "2": {
+    "modelThinkingStage": "model_thinking",
+    "stages": [
+      {
+        "awaiting": true,
+        "displayStage": "model_thinking"
+      },
+      {
+        "awaiting": true,
+        "displayStage": "model_thinking"
+      },
+      {
+        "awaiting": false,
+        "displayStage": "requesting"
+      },
+      {
+        "awaiting": false,
+        "displayStage": "requesting"
+      },
+      {
+        "awaiting": false,
+        "displayStage": "streaming"
+      }
+    ],
+    "waitKindOfThinking": "thinking",
+    "poolRowFromSentEntry": {
+      "sessionId": "run",
+      "agent": "worker",
+      "status": "running",
+      "progressAt": 90,
+      "progressStage": "model_thinking",
+      "progressTool": null,
+      "stallWarnMs": 300000
+    }
+  },
+  "3": {
+    "lastProgressAt": 9.0,
+    "nullEntry": 0.0
+  }
+}

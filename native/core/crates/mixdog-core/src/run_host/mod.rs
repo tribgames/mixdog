@@ -85,6 +85,7 @@ pub mod summary_routes;
 pub mod tail;
 pub mod unattended;
 pub mod tool_progress;
+pub mod quiet_watch;
 pub mod tool_pool;
 pub mod explorer_host;
 pub mod explorer_env;

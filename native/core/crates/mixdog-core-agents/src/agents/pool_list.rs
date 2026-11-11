@@ -30,6 +30,8 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use super::quiet_progress::{display_progress_stage, last_progress_at};
+
 type Row = Map<String, Value>;
 
 #[cfg(test)]
@@ -818,11 +820,9 @@ impl AgentPool {
         if to_number_of(liveness.get("taskWaits")) > 0.0 {
             row.insert("awaitingTask".into(), json!("wait"));
         }
-        let progress_at = number("lastProgressAt").max(number("lastStreamDeltaAt")).max(number("toolStartedAt")).max(ask_started);
+        let progress_at = last_progress_at(Some(liveness));
         row.insert("progressAt".into(), if progress_at == 0.0 { Value::Null } else { json_number(progress_at) });
-        let sent_at = number("requestSentAt");
-        let awaiting_model = stage == Some("requesting") && sent_at > 0.0 && (number("lastTransportAt").is_nan() || number("lastTransportAt") < sent_at);
-        row.insert("progressStage".into(), if awaiting_model { json!("model_thinking") } else { stage.map_or(Value::Null, |stage| json!(stage)) });
+        row.insert("progressStage".into(), display_progress_stage(Some(liveness)).map_or(Value::Null, Value::String));
         let tool = if stage == Some("tool_running") { or_null(&[liveness.get("lastToolCall")]) } else { Value::Null };
         row.insert("progressTool".into(), tool);
         row.insert("stallWarnMs".into(), json_number(self.live.stall_warn_ms(row.get("agent").and_then(Value::as_str))));
