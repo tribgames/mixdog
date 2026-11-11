@@ -10,7 +10,7 @@ const rec = await startRecording({
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/gemini-schema.mjs toGeminiContents(history, model) and antigravity-request.mjs buildAntigravityRequest(history, model, [], {}, "fixture").request.contents, plus lib/provider-replay.mjs createProviderReplay for the native-replay cases. Not run: any send, network or cache.',
   compare: 'mixdog-ai providers::google request builder (request.rs history lowering, signature repair at request.rs:302-327): feed `input.history` (and `input.providerReplay`) and compare `result` (the `contents` / model parts) whole; the history after the call equals `input.history` (the call does not mutate it).',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:71) and build_request (google/request.rs:638), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
 const { toGeminiContents } = await rec.P(`${P}gemini-schema.mjs`);
