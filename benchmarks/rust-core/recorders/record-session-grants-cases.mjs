@@ -58,12 +58,12 @@ function harness() {
     end: (sessionId) => { lives.set(sessionId, null); log.push({ do: 'end session life (null)', sessionId }); },
     decide: async (call, sessionId, hook = null) => {
       const out = await humanGateDecision(call, hook, ctx(sessionId));
-      log.push({ do: 'decide', call, sessionId, hook, decision: out.decision, request: out.request ?? null, gate: out.gate ?? null, remembered: out.remembered ?? null });
+      log.push({ do: 'decide', call, sessionId, hook, result: structuredClone(out) });
       return out;
     },
     answer: async (gate, approval) => { await recordHumanDecision(gate, approval, { store, sessionGrants, sessionLife: life }); log.push({ do: 'answer', gate, approval }); },
-    grants: async (label, filter) => { const rows = (await store.listGrants(filter)).map(({ agentId, action, mode, scope }) => ({ agentId, action, mode, scope: scope ?? null })); log.push({ do: 'grants', label, grants: rows }); return rows; },
-    audit: async (label, filter) => { const rows = (await store.readAudit(filter)).map((row) => ({ agentId: row.agentId, decision: row.decision, action: row.action })); log.push({ do: 'audit', label, filter: filter ?? null, rows }); return rows; },
+    grants: async (label, filter) => { const rows = await store.listGrants(filter); log.push({ do: 'grants', label, filter, grants: structuredClone(rows) }); return rows; },
+    audit: async (label, filter) => { const rows = await store.readAudit(filter); log.push({ do: 'audit', label, filter, rows: structuredClone(rows) }); return rows; },
   };
 }
 async function run(name, fn) {
@@ -127,7 +127,7 @@ await run('the real session life changes when the session is cleared or closed',
   setLiveSession({ id, owner: 'cli', agent: 'lead', createdAt: 5, compaction: { lastClearAt: 77 } });
   const afterClear = sessionLifeMark(id);
   setLiveSession({ id, owner: 'cli', agent: 'lead', createdAt: 5, compaction: { lastClearAt: 77 }, closed: true });
-  return { sessionId: id, before, afterClear, afterClose: sessionLifeMark(id), unknown: sessionLifeMark('sess_unknown_nothing'), beforeTruthy: Boolean(before), clearedDiffers: afterClear !== before };
+  return { sessionId: id, before, afterClear, afterClose: sessionLifeMark(id), unknown: sessionLifeMark('sess_unknown_nothing') };
 });
 await run('unattended runs never inherit a session grant but do use "always" and run policy', async (h) => {
   const first = await h.decide(EMAIL, HOME);
@@ -220,7 +220,7 @@ await run('the session registry is bounded: oldest first, expired entries pruned
 
 await set.finish({
   entry: { runs: 'human-gate/gate.mjs (humanGateDecision, recordHumanDecision, sessionLifeMark, unattended approval port), requests.mjs, store.mjs, session-grants.mjs (createSessionGrants with now/maxEntries/ttlMs), agent-room roomMemberSessionId, the live session store (setLiveSession), config updateSection', notRun: 'no desktop: answers are recorded through recordHumanDecision as the desktop delivers them' },
-  replay: { entry: 'mixdog-tools policy/session_grants.rs (and gate.rs/grants.rs): replay each log step in order on a store and a registry with the recorded clock (start 1_000_000 ms) and compare every step\'s output and the grants/audit views', normalised: { auditRows: 'reduced to {agentId, decision, action}', grants: 'reduced to {agentId, action, mode, scope}', dataDir: 'temp, not in the recording' } },
+  replay: { entry: 'mixdog-tools policy/session_grants.rs (and gate.rs/grants.rs): replay each log step in order on a store and a registry with the recorded clock (start 1_000_000 ms) and compare every step\'s output and the grants/audit views', normalised: { dataDir: '<data> wherever it occurs (paths listed in normalised.paths)' } },
   replaceInText: [[dataRoot, '<data>']],
 });
 rmSync(dataRoot, { recursive: true, force: true });

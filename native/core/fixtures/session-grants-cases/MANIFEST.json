@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 70572,
+      "bytes": 75965,
       "path": "golden.json",
-      "sha256": "4e0e55efe5e3e65dcc7bff26371e04a4d017262bb194dff777f1f9e23b142d51"
+      "sha256": "a08b40a61af106ca071b1952784e7721a82339f920296d2610381b141ce8a619"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,15 +63,47 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-grants-cases.mjs",
-  "recorderSha256": "5172d88c842d04164831ca4051806c344e8d465ea94d2deca7945e9461e158b0",
+  "recorderSha256": "b50e3f59974c46241f7a5149e920b78244d61218a93686084a3c1c996139a13d",
   "replay": {
-    "entry": "mixdog-tools policy/session_grants.rs (and gate.rs/grants.rs): replay each log step in order on a store and a registry with the recorded clock (start 1_000_000 ms) and compare every step's output and the grants/audit views",
+    "compare": "mixdog-tools policy/session_grants.rs (and gate.rs/grants.rs): replay each log step in order on a store and a registry with the recorded clock (start 1_000_000 ms) and compare every step's output and the grants/audit views",
+    "entry": "Drive these public items on o1: mixdog-tools/src/policy/gate.rs:237 decide; mixdog-tools/src/policy/session_grants.rs:49 grant; mixdog-tools/src/policy/session_grants.rs:68 has; mixdog-tools/src/policy/grants.rs:158 set_mode; mixdog-tools/src/policy/grants.rs:321 GrantStore.",
+    "missingOnO1": [
+      "recordHumanDecision: no public function (the audit write is private, policy/pipeline.rs:587)"
+    ],
     "normalised": {
-      "auditRows": "reduced to {agentId, decision, action}",
-      "dataDir": "temp, not in the recording",
-      "grants": "reduced to {agentId, action, mode, scope}"
-    }
+      "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 237,
+        "name": "decide",
+        "path": "native/core/crates/mixdog-tools/src/policy/gate.rs"
+      },
+      {
+        "line": 49,
+        "name": "grant",
+        "path": "native/core/crates/mixdog-tools/src/policy/session_grants.rs"
+      },
+      {
+        "line": 68,
+        "name": "has",
+        "path": "native/core/crates/mixdog-tools/src/policy/session_grants.rs"
+      },
+      {
+        "line": 158,
+        "name": "set_mode",
+        "path": "native/core/crates/mixdog-tools/src/policy/grants.rs"
+      },
+      {
+        "line": 321,
+        "name": "GrantStore",
+        "path": "native/core/crates/mixdog-tools/src/policy/grants.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-grants-cases",
-  "totalBytes": 70572
+  "totalBytes": 75965,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
