@@ -3,6 +3,7 @@
 pub(crate) mod common;
 mod edit;
 mod edit_plan;
+mod grep_context;
 mod hints;
 mod list;
 mod not_found;

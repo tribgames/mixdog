@@ -395,6 +395,14 @@ async fn glob_refuses_a_path_that_is_not_a_string_as_node_does() {
     replay_fs_search("glob-path-array").await;
 }
 
+/// grep over several paths: each section within its share of the context budget, the assembled text capped at 5 KB
+/// with Node's footer and offsets, in content, count, files, explicit and zero context, limit and offset; a missing
+/// path among good ones; one path alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_over_several_paths_budgets_and_caps_as_node_does() {
+    replay_fs_search("grep-path-budget").await;
+}
+
 /// Every non-string path shape (array, number, object, boolean, null, blank, blank-only and nested arrays) at list,
 /// find, glob, grep, read, edit and code_graph: refused, read as the cwd, or (grep) taken as several scopes, as Node's
 /// argument normalisation and guards answer it.

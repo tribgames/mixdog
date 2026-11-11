@@ -17,7 +17,6 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FsErrorKind;
-use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::fs::SearchMatch;
 use mixdog_core_api::domain::fs::SearchRequest;
 use mixdog_core_api::domain::fs::WalkRequest;
@@ -45,11 +44,11 @@ pub(super) const GLOB_ACCUM_CAP: usize = 50_000;
 const FIND_DEFAULT_LIMIT: usize = 25;
 const FIND_UNLIMITED_CAP: usize = 1_000;
 const GREP_DEFAULT_LIMIT: usize = 250;
+/// `GREP_CTX_HEAD_LIMIT_MAX`: the match blocks one content-mode page may hold.
+const GREP_CONTEXT_LIMIT_MAX: usize = 40;
 /// `PUBLIC_PATH_BATCH_LIMIT`: the scopes one grep `path` array may name.
 const GREP_PATH_BATCH_LIMIT: usize = 10;
 const GREP_CONTENT_MATCH_CAP: usize = 300;
-const GREP_AUTO_BEFORE: u64 = 8;
-const GREP_AUTO_AFTER: u64 = 12;
 const GREP_MAX_COLUMNS: usize = 500;
 
 // ---------------------------------------------------------------------------
@@ -703,6 +702,67 @@ fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
     if best.is_empty() { byte_prefix(&footer(&[]), LOCATOR_MAX_BYTES).to_owned() } else { best }
 }
 
+/// builtin.mjs `_grepShownEntries`: the complete context blocks kept (a header with every line of its range and one
+/// more line after it), else every kept row that is not a header, separator, notice or empty.
+fn grep_shown_entries(kept: &[&str]) -> usize {
+    static HEADER: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^# .+:\d+ \[lines (\d+)-(\d+)\]$").expect("a fixed pattern"));
+    let mut blocks = 0;
+    let mut saw_header = false;
+    for (index, line) in kept.iter().enumerate() {
+        let Some(header) = HEADER.captures(line) else { continue };
+        saw_header = true;
+        let (start, end) = (header[1].parse::<f64>().unwrap_or(0.0), header[2].parse::<f64>().unwrap_or(0.0));
+        if (index as f64) + end - start + 1.0 < kept.len() as f64 {
+            blocks += 1;
+        }
+    }
+    if saw_header {
+        return blocks;
+    }
+    kept.iter()
+        .filter(|l| !l.is_empty() && **l != "--" && !["#", "[", "...", "…", "("].iter().any(|p| l.starts_with(p)))
+        .count()
+}
+
+/// executeBuiltinTool's grep cap (builtin.mjs `_budgetBuiltinOutput` → `capLineOrientedToolOutput` at
+/// `GREP_OUTPUT_MAX_BYTES`, footer `_grepBudgetFooter`): the most leading lines that fit with a footer naming the match
+/// rows they hold and the offset after them; a pattern or path fan-out (`# grep ` sections) is told to narrow instead.
+fn grep_budget(text: String, offset: usize) -> String {
+    if text.len() <= GREP_MAX_BYTES {
+        return text;
+    }
+    let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+    let footer = |kept: &[&str]| {
+        let fanout = kept.iter().any(|l| l.starts_with("# grep "));
+        let shown = grep_shown_entries(kept);
+        let narrow = if fanout {
+            "run one pattern/path per call, or add path/glob/type to cut the match set"
+        } else if shown == 0 {
+            "one match row exceeds the cap; read that file window or use a tighter pattern"
+        } else {
+            ""
+        };
+        let next = (!fanout && shown > 0).then_some((offset + shown) as u64);
+        cap_marker(&format_cap_size(GREP_MAX_BYTES), &format!("{shown} match row(s) shown"), next, narrow)
+    };
+    let (mut lo, mut hi, mut best) = (0usize, lines.len(), String::new());
+    while lo <= hi {
+        let mid = (lo + hi) / 2;
+        let kept = &lines[..mid];
+        let candidate = format!("{}{}{}", kept.join("\n"), if kept.is_empty() { "" } else { "\n" }, footer(kept));
+        if candidate.len() <= GREP_MAX_BYTES {
+            best = candidate;
+            lo = mid + 1;
+        } else if mid == 0 {
+            break;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    if best.is_empty() { byte_prefix(&footer(&[]), GREP_MAX_BYTES).to_owned() } else { best }
+}
+
 // ---------------------------------------------------------------------------
 // find
 
@@ -996,26 +1056,25 @@ impl GrepTool {
     }
 }
 
-/// One block of output: a merged window of a file around one or more matches.
-struct Block {
-    path: String,
-    match_line: u64,
-    start: u64,
-    end: u64,
-    rows: Vec<String>,
-}
-
-fn render_block(b: &Block) -> String {
-    format!("# {}:{} [lines {}-{}]\n{}", b.path, b.match_line, b.start, b.end, b.rows.join("\n"))
-}
-
 #[async_trait]
 impl Tool for GrepTool {
     fn spec(&self) -> &ToolSpec {
         &self.spec
     }
 
+    /// The answer within Node's context budget (`GREP_OUTPUT_MAX_BYTES` characters), then capped as
+    /// executeBuiltinTool caps it (builtin.mjs `_budgetBuiltinOutput`: `capLineOrientedToolOutput` at
+    /// `GREP_OUTPUT_MAX_BYTES` bytes with `_grepBudgetFooter`).
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
+        let text = self.answer(ctx, args, GREP_MAX_BYTES).await?;
+        Ok(text_output(grep_budget(text, offset)))
+    }
+}
+
+impl GrepTool {
+    /// One grep call's text, its context renderings fitted to `budget` characters.
+    async fn answer(&self, ctx: &ToolContext, args: JsonValue, budget: usize) -> Result<String, ToolError> {
         let patterns = arg_strings(&args, "pattern");
         if patterns.is_empty() || patterns.iter().all(|p| p.is_empty()) {
             return Err(invalid("pattern", "required", "Error: grep requires pattern."));
@@ -1049,7 +1108,9 @@ impl Tool for GrepTool {
             }
         }
         // search-grep-tool.mjs: two or more distinct paths are independent greps, one `# grep <path>` section each
-        // (lib/grep-path-fanout.mjs); one is that path.
+        // (lib/grep-path-fanout.mjs); one is that path. Each section's context budget is the call's divided by the
+        // number of paths, at least 512 (grep-path-fanout.mjs:244 and :293, `Math.max(512, Math.floor(budget / n))`);
+        // the assembled text is capped once, by `call`.
         if let Some(JsonValue::Array(items)) = args.get("path") {
             let mut list: Vec<String> = Vec::new();
             for item in items {
@@ -1059,17 +1120,18 @@ impl Tool for GrepTool {
                 }
             }
             if list.len() > 1 {
+                let per_path = (budget / list.len()).max(512);
                 let mut bodies = Vec::with_capacity(list.len());
                 for p in &list {
                     let mut one = args.clone();
                     one["path"] = JsonValue::String(p.clone());
-                    bodies.push(match self.call(ctx, one).await {
-                        Ok(out) => out.parts.iter().filter_map(|part| if let ToolPart::Text(t) = part { Some(t.as_str()) } else { None }).collect(),
+                    bodies.push(match Box::pin(self.answer(ctx, one, per_path)).await {
+                        Ok(text) => text,
                         Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
                         Err(e) => e.message_for_model,
                     });
                 }
-                return Ok(text_output(fanout_sections(Fanout::Path, &list, &bodies)));
+                return Ok(fanout_sections(Fanout::Path, &list, &bodies));
             }
             if let Some(one) = list.pop() {
                 args["path"] = JsonValue::String(one);
@@ -1083,39 +1145,38 @@ impl Tool for GrepTool {
         // Node `runGrepPatternFanout`: several content patterns are independent greps, one section
         // each; a match line or block an earlier pattern showed is not repeated.
         if patterns.len() > 1 && mode == Mode::Content {
+            // `perPatternCharBudget` (grep-pattern-fanout.mjs).
+            let per_pattern = (budget / patterns.len()).max(512);
             let mut seen = std::collections::HashSet::new();
             let mut bodies = Vec::with_capacity(patterns.len());
             for pattern in &patterns {
-                let body = self.search(ctx, &args, pattern, mode, true).await?;
+                let body = self.search(ctx, &args, pattern, mode, true, per_pattern).await?;
                 bodies.push(dedupe_fanout_match_lines(&body, &mut seen));
             }
-            return Ok(text_output(fanout_sections(Fanout::Pattern, &patterns, &bodies)));
+            return Ok(fanout_sections(Fanout::Pattern, &patterns, &bodies));
         }
         let pattern = if patterns.len() == 1 {
             patterns[0].clone()
         } else {
             patterns.iter().map(|p| format!("(?:{p})")).collect::<Vec<_>>().join("|")
         };
-        Ok(text_output(self.search(ctx, &args, &pattern, mode, false).await?))
+        self.search(ctx, &args, &pattern, mode, false, budget).await
     }
-}
 
-impl GrepTool {
     /// One grep of `pattern`, rendered. `fanout`: a section of a several-pattern answer, whose
     /// bare match lines carry their file (Node's combined pass, `disableContentGrouping`).
-    async fn search(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool) -> Result<String, ToolError> {
+    async fn search(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, budget: usize) -> Result<String, ToolError> {
         let args = args.clone();
         let limit = match arg_u64(&args, "limit") {
             Some(0) => usize::MAX,
+            // arg-guard.mjs `clampGrepContextHeadLimit`: in content mode the limit counts match blocks, at most 40.
+            Some(n) if mode == Mode::Content => (n as usize).min(GREP_CONTEXT_LIMIT_MAX),
             Some(n) => n as usize,
             None => GREP_DEFAULT_LIMIT,
         };
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
-        let (before, after) = match arg_u64(&args, "context") {
-            Some(c) => (c.min(200), c.min(200)),
-            None if mode == Mode::Content => (GREP_AUTO_BEFORE, GREP_AUTO_AFTER),
-            None => (0, 0),
-        };
+        // An explicit radius (at most `GREP_CONTEXT_MAX`); none is the automatic window, 0 bare match lines.
+        let context = arg_u64(&args, "context").map(|c| c.min(200));
         let mut roots = arg_strings(&args, "path");
         if roots.is_empty() {
             roots.push(".".to_owned());
@@ -1163,7 +1224,7 @@ impl GrepTool {
         let body = match mode {
             Mode::Files => files_body(&all, offset, limit, complete),
             Mode::Count => count_body(&all, offset, limit, complete),
-            Mode::Content => content_body(ctx, &all, offset, limit, before, after, single && !fanout, fanout, complete).await?,
+            Mode::Content => content_body(ctx, &all, offset, limit, context, single && !fanout, fanout, complete, pattern, budget).await?,
         };
         let mut text = body;
         for e in errors {
@@ -1357,38 +1418,36 @@ async fn content_body(
     all: &[(String, Hit)],
     offset: usize,
     limit: usize,
-    before: u64,
-    after: u64,
+    context: Option<u64>,
     single: bool,
     fanout: bool,
     complete: bool,
+    pattern: &str,
+    budget: usize,
 ) -> Result<String, ToolError> {
     if all.is_empty() {
         return Ok(no_matches(complete));
+    }
+    // search-grep-tool.mjs `adaptiveContextEligible`: the automatic window or an explicit radius is Node's adaptive
+    // context within the character budget (`runAdaptiveContextGrep`).
+    if context != Some(0) {
+        let matches = all
+            .iter()
+            .map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: clip_match_text(&h.text) })
+            .collect();
+        let text = super::grep_context::expand(ctx, matches, pattern, offset, limit, complete, context.unwrap_or(0), budget).await?;
+        return Ok(if text.is_empty() { no_matches(complete) } else { text });
     }
     let total = all.len();
     let window = all.get(offset..).unwrap_or(&[]);
     let hard = limit.min(GREP_CONTENT_MATCH_CAP);
     let page = &window[..window.len().min(hard)];
-    let mut out = if before == 0 && after == 0 && fanout {
+    let mut out = if fanout {
         page.iter().map(|(label, h)| format!("{label}:{}:{}", h.line, clip_match_text(&h.text))).collect::<Vec<_>>().join("\n")
-    } else if before == 0 && after == 0 {
-        bare_content(page, single)
     } else {
-        context_blocks(ctx, page, before, after).await?
+        bare_content(page, single)
     };
-    // Byte budget at a block boundary, continuing by offset.
-    let mut shown = page.len();
-    if out.len() > GREP_MAX_BYTES {
-        let (kept, _) = cap_lines(&out, GREP_MAX_BYTES);
-        let kept_matches = kept.lines().filter(|l| l.starts_with("# ") || l.starts_with("  ")).count().max(1);
-        shown = if before == 0 && after == 0 { kept_matches.min(page.len()) } else { kept.lines().filter(|l| l.starts_with("# ")).count().max(1).min(page.len()) };
-        out = format!(
-            "{kept}\n{}",
-            cap_marker(&format_cap_size(GREP_MAX_BYTES), &format!("{shown} of {total} matches shown"), Some((offset + shown) as u64), "")
-        );
-        return Ok(out);
-    }
+    let shown = page.len();
     if shown < window.len() || !complete {
         out.push_str(&paging_notice(shown, total, complete, offset, offset + shown));
     }
@@ -1414,71 +1473,6 @@ fn bare_content(page: &[(String, Hit)], single: bool) -> String {
         }
     }
     out.join("\n")
-}
-
-async fn context_blocks(
-    ctx: &ToolContext,
-    page: &[(String, Hit)],
-    before: u64,
-    after: u64,
-) -> Result<String, ToolError> {
-    let mut files: BTreeMap<&str, Option<Vec<String>>> = BTreeMap::new();
-    let mut blocks: Vec<Block> = Vec::new();
-    for (label, hit) in page {
-        if !files.contains_key(label.as_str()) {
-            let lines = match guarded(
-                ctx,
-                "grep",
-                ctx.files.read(ctx.io.interactive, hit.path.clone(), ReadRange::default()),
-            )
-            .await?
-            {
-                Ok(b) => decode_text(&b.bytes).ok().map(|(t, _)| {
-                    let mut v: Vec<String> =
-                        t.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l).to_owned()).collect();
-                    if v.last().is_some_and(String::is_empty) {
-                        v.pop();
-                    }
-                    v
-                }),
-                Err(_) => None,
-            };
-            files.insert(label.as_str(), lines);
-        }
-        let Some(Some(lines)) = files.get(label.as_str()) else {
-            // Unreadable as text: the match line alone.
-            blocks.push(Block {
-                path: label.clone(),
-                match_line: hit.line,
-                start: hit.line,
-                end: hit.line,
-                rows: vec![clip_match_text(&hit.text)],
-            });
-            continue;
-        };
-        let total = lines.len() as u64;
-        let start = hit.line.saturating_sub(before).max(1);
-        let end = (hit.line + after).min(total.max(hit.line));
-        let rows_for = |s: u64, e: u64| -> Vec<String> {
-            (s..=e).map(|n| clip_match_text(lines.get(n as usize - 1).map_or("", String::as_str))).collect()
-        };
-        match blocks.last_mut() {
-            Some(prev) if prev.path == *label && start <= prev.end + 1 => {
-                if end > prev.end {
-                    prev.rows.extend(rows_for(prev.end + 1, end));
-                    prev.end = end;
-                }
-            }
-            _ => blocks.push(Block {
-                path: label.clone(),
-                match_line: hit.line,
-                start,
-                end,
-                rows: rows_for(start, end),
-            }),
-        }
-    }
-    Ok(blocks.iter().map(render_block).collect::<Vec<_>>().join("\n"))
 }
 
 #[allow(dead_code)]
