@@ -485,7 +485,9 @@ fn contents(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits)
         };
         out.extend(content);
     }
-    if !dialect.family_gated || family {
+    // `ensureGeminiToolCallSignatures`: the validator-bypass token is a Gemini wire token, fabricated for the Gemini
+    // family only on every route.
+    if family {
         ensure_signatures(&mut out);
     }
     Ok(out)
