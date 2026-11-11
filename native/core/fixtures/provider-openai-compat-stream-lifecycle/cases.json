@@ -4239,7 +4239,19 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "visible partial"
+                      },
+                      "finish_reason": null
+                    }
+                  ]
+                }
+              ],
+              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
             },
             {
               "signal": {
@@ -4440,7 +4452,19 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "visible partial"
+                      },
+                      "finish_reason": null
+                    }
+                  ]
+                }
+              ],
+              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
             },
             {
               "signal": {
@@ -4559,6 +4583,20 @@
             }
           ]
         }
+      ],
+      "clock": [
+        {
+          "advanceMs": 20,
+          "fromMs": 0,
+          "fired": [
+            {
+              "id": 35,
+              "dueMs": 20
+            }
+          ],
+          "toMs": 20,
+          "armed": []
+        }
       ]
     },
     {
@@ -4646,7 +4684,13 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
           "args": [
             {
-              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+              "$stream": [
+                {
+                  "type": "response.output_text.delta",
+                  "delta": "visible partial"
+                }
+              ],
+              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
             },
             {
               "signal": {
@@ -4841,7 +4885,13 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
           "args": [
             {
-              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+              "$stream": [
+                {
+                  "type": "response.output_text.delta",
+                  "delta": "visible partial"
+                }
+              ],
+              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
             },
             {
               "signal": {
@@ -4959,6 +5009,20 @@
               }
             }
           ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 20,
+          "fromMs": 20,
+          "fired": [
+            {
+              "id": 39,
+              "dueMs": 40
+            }
+          ],
+          "toMs": 40,
+          "armed": []
         }
       ]
     }

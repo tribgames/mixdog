@@ -109,7 +109,7 @@ const waitingStream = (firstEvent) => {
   const controller = new AbortController();
   const waiting = Promise.withResolvers();
   const released = Promise.withResolvers();
-  return {
+  return rec.describe({
     controller,
     waiting: waiting.promise,
     released: released.promise,
@@ -124,7 +124,7 @@ const waitingStream = (firstEvent) => {
         released.resolve();
       }
     },
-  };
+  }, { $stream: [firstEvent], then: 'the stream yields the first event, then waits until the caller aborts its signal and ends' });
 };
 for (const { name, consume, event } of protocols) {
   const slug = name.split(' ')[0].toLowerCase();
