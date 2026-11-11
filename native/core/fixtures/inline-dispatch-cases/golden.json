@@ -39,6 +39,97 @@
           }
         ]
       }
+    },
+    {
+      "case": "agentDispatch caches one dispatcher per agent and forwards the call parameters",
+      "recorded": {
+        "calls": [
+          {
+            "payload": {
+              "dispatchId": "d1",
+              "agent": "worker",
+              "params": {
+                "prompt": "hello",
+                "preset": "p1",
+                "cwd": "D:/proj",
+                "idleTimeoutMs": 5000
+              }
+            },
+            "outcome": {
+              "ok": "answer for hello"
+            }
+          },
+          {
+            "payload": {
+              "dispatchId": "d2",
+              "agent": "worker",
+              "params": {
+                "prompt": "again",
+                "idleTimeoutMs": -1
+              }
+            },
+            "outcome": {
+              "ok": "answer for again"
+            }
+          }
+        ],
+        "handed": [
+          {
+            "prompt": "hello",
+            "preset": "p1",
+            "cwd": "D:/proj",
+            "idleTimeoutMs": 5000,
+            "parentSignal": true
+          },
+          {
+            "prompt": "again",
+            "preset": null,
+            "cwd": null,
+            "idleTimeoutMs": null,
+            "parentSignal": true
+          }
+        ]
+      }
+    },
+    {
+      "case": "agent graph loading retries after a failure and shares the successful graph",
+      "recorded": {
+        "calls": [
+          {
+            "payload": {
+              "dispatchId": "failed",
+              "agent": "worker"
+            },
+            "outcome": {
+              "error": "graph import failed"
+            }
+          },
+          {
+            "payload": {
+              "dispatchId": "retried",
+              "agent": "worker",
+              "params": {
+                "prompt": "retried"
+              }
+            },
+            "outcome": {
+              "ok": "answer for retried"
+            }
+          },
+          {
+            "payload": {
+              "dispatchId": "cached",
+              "agent": "worker",
+              "params": {
+                "prompt": "cached"
+              }
+            },
+            "outcome": {
+              "ok": "answer for cached"
+            }
+          }
+        ]
+      }
     }
   ]
 }

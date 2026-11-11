@@ -1,15 +1,14 @@
 //! Node's inline host agent dispatch (`fixtures/inline-dispatch-cases`, `record-inline-dispatch-cases.mjs`): the
-//! test's calls through `InlineAgentDispatch::run`, each whole outcome (answer or error message) against Node's.
-//! The slow host's gate (Node: loading the agent graph) is the provider preparation, the step before the dispatcher.
+//! test's calls through `InlineAgentDispatch::run`, each whole outcome (answer or error message) against Node's, and
+//! what the dispatcher was handed. The slow host's gate and the failing graph (Node: loading the agent graph) are the
+//! provider preparation, the step before the dispatcher.
 
 use tokio::sync::Notify;
 
 use super::*;
 
 fn golden() -> Value {
-    #[allow(clippy::disallowed_methods)] // the recording, read at run time
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/inline-dispatch-cases/golden.json")).expect("the recording");
-    serde_json::from_str(&text).expect("json")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inline-dispatch-cases/golden.json")).expect("json")
 }
 
 /// An open host whose provider preparation waits for `gate` (when set) and reports that it started.
@@ -46,6 +45,84 @@ impl ChildRunner for Answers {
     }
 }
 
+/// Answers `answer for <prompt>` and keeps what each dispatch was handed, in Node's recorded shape.
+#[derive(Default)]
+struct Handed(Mutex<Vec<Value>>);
+
+#[async_trait]
+impl ChildRunner for Handed {
+    async fn run_child(&self, request: &DispatchRequest, _cancel: Cancel) -> ChildResult {
+        self.0.lock().unwrap().push(json!({
+            "prompt": request.prompt,
+            "preset": request.preset.clone().unwrap_or(Value::Null),
+            "cwd": request.cwd,
+            // A JS number: JSON writes an integral one with no fraction.
+            "idleTimeoutMs": request.idle_timeout_ms.map(|ms| if ms.fract() == 0.0 { json!(ms as i64) } else { json!(ms) }),
+            // The child's cancel is the caller's (Node: `parentSignal`, an AbortSignal).
+            "parentSignal": true,
+        }));
+        ChildResult { outcome: Ok(format!("answer for {}", request.prompt)) }
+    }
+}
+
+/// An open host whose first provider preparation fails with `graph import failed`.
+#[derive(Default)]
+struct FailsOnce(Mutex<u32>);
+
+#[async_trait]
+impl HostWorld for FailsOnce {
+    fn assert_open(&self, _cancel: Option<&Cancel>) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn prepare_providers(&self, _cancel: &Cancel) -> Result<(), String> {
+        let mut loads = self.0.lock().unwrap();
+        *loads += 1;
+        if *loads == 1 { Err("graph import failed".to_owned()) } else { Ok(()) }
+    }
+}
+
+fn recorded_case<'a>(golden: &'a Value, name: &str) -> &'a Value {
+    golden["cases"].as_array().unwrap().iter().find(|case| case["case"] == name).unwrap_or_else(|| panic!("case {name}"))
+}
+
+/// Each recorded call through `InlineAgentDispatch::run`: the outcomes, in order.
+async fn outcomes(host: &InlineAgentDispatch, calls: &Value) -> Vec<Value> {
+    let mut out = Vec::new();
+    for call in calls.as_array().unwrap() {
+        out.push(shown(host.run(payload_of(&json!({ "payload": call["payload"] })), &Cancel::new()).await));
+    }
+    out
+}
+
+#[tokio::test]
+async fn the_dispatcher_is_handed_the_call_parameters_as_in_node() {
+    mixdog_rt::testing::tokens();
+    let golden = golden();
+    let case = recorded_case(&golden, "agentDispatch caches one dispatcher per agent and forwards the call parameters");
+    let runner = Arc::new(Handed::default());
+    let host = InlineAgentDispatch::new(runner.clone(), Arc::new(Gated::default()), Arc::new(Watch::default()));
+    let got = json!({
+        "outcomes": outcomes(&host, &case["recorded"]["calls"]).await,
+        "handed": runner.0.lock().unwrap().clone(),
+    });
+    let want = json!({
+        "outcomes": case["recorded"]["calls"].as_array().unwrap().iter().map(|c| c["outcome"].clone()).collect::<Vec<_>>(),
+        "handed": case["recorded"]["handed"],
+    });
+    assert_eq!(got, want, "{}", case["case"]);
+}
+
+#[tokio::test]
+async fn a_failed_preparation_fails_that_dispatch_and_the_next_ones_answer_as_in_node() {
+    mixdog_rt::testing::tokens();
+    let golden = golden();
+    let case = recorded_case(&golden, "agent graph loading retries after a failure and shares the successful graph");
+    let host = InlineAgentDispatch::new(Arc::new(Answers), Arc::new(FailsOnce::default()), Arc::new(Watch::default()));
+    let want: Vec<Value> = case["recorded"]["calls"].as_array().unwrap().iter().map(|c| c["outcome"].clone()).collect();
+    assert_eq!(outcomes(&host, &case["recorded"]["calls"]).await, want, "{}", case["case"]);
+}
+
 fn shown(outcome: Result<String, String>) -> Value {
     match outcome {
         Ok(answer) => json!({ "ok": answer }),
@@ -57,7 +134,7 @@ fn shown(outcome: Result<String, String>) -> Value {
 async fn a_missing_or_running_id_and_a_caller_abort_answer_as_in_node() {
     mixdog_rt::testing::tokens();
     let golden = golden();
-    let case = &golden["cases"][0];
+    let case = recorded_case(&golden, "agentDispatch rejects a missing or already-running dispatch id and aborts with the caller signal");
     let recorded = case["recorded"]["calls"].as_array().unwrap();
     let call = |n: usize| payload_of(&json!({ "payload": recorded[n]["payload"] }));
     let mut calls = Vec::new();
