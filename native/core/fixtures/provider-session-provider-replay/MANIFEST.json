@@ -8,7 +8,7 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "session/manager/provider-replay.mjs stripProviderReplayMessages(history) (pure); the target lowerings through the real senders to the loopback endpoint: openai-oauth.mjs buildRequestBody + openai-oauth-http-sse.mjs sendViaHttpSse, anthropic.mjs AnthropicProvider.send, gemini.mjs GeminiProvider.send. lib/provider-replay.mjs createProviderReplay builds the native replay state of the scripted turns.",
+  "entry": "session/manager/provider-replay.mjs stripProviderReplayMessages(history) (pure); the target lowerings through the real providers to the loopback endpoint: openai-ws.mjs OpenAIDirectProvider.send (MIXDOG_OAI_TRANSPORT=http), anthropic.mjs AnthropicProvider.send, gemini.mjs GeminiProvider.send. lib/provider-replay.mjs createProviderReplay builds the native replay state of the scripted turns.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 55594,
+      "bytes": 53270,
       "path": "cases.json",
-      "sha256": "13b528dcdafe9f55c7d5ecd83a0e472b25a44754a4ffb9fde7ae3d23cd0d89a3"
+      "sha256": "a7222f0d4b5b1a8a1b375f5da77f994916a137f6ccf162375e1fe6572387d086"
     }
   ],
   "inputs": [
@@ -86,12 +86,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-provider-replay.mjs",
-  "recorderSha256": "7fe0de59feaaf3d99b05b799aa7bf2a370d13948b2091e55bc6d3f9d44673716",
+  "recorderSha256": "4021d160856b72453fef411438914fba3a7efc8dcaa2796e248045cbecab1fb9",
   "replay": "PURE: mixdog-agent/src/recovery.rs:271 strip_provider_replay_messages (pub). WIRE: the provider sends through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) with the adapters AnthropicAdapter (anthropic/adapter.rs:169), OpenAiAdapter (openai/adapter.rs:308), GoogleAdapter (google/adapter.rs:53) against a loopback endpoint.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-session-provider-replay",
-  "totalBytes": 55594,
+  "totalBytes": 53270,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
