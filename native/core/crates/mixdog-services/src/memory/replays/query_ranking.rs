@@ -13,18 +13,34 @@ use crate::memory::recall::row::{RowKey, unique_rows_by_id};
 
 const SET: &str = "memory-query-ranking";
 
-/// A recorded row as Node holds it: its id keyed by `String(row?.id ?? '')`.
-struct Wire(Exact);
+/// A recorded row as Node holds it, its id keyed by `String(row?.id ?? '')` (query-ranking.mjs:93). Only a missing, null,
+/// string or number id is built: the product's `unique_rows_by_id` gets `Row`s, whose id is an `i64` (recall/row.rs:72) read
+/// from `entries.id` / `core_entries.id`, both `BIGSERIAL` (memory/schema.rs:53,147), so an object, array or boolean id
+/// (`String(id)` = `[object Object]`, …) can reach it from no caller; such a recorded probe is refused when the case is built.
+struct Wire {
+    row: Exact,
+    key: String,
+}
 
-impl RowKey for Wire {
-    fn unique_key(&self) -> Option<String> {
-        let key = match self.0.try_get("id") {
+impl Wire {
+    fn new(row: Exact) -> Result<Self, String> {
+        let key = match row.try_get("id") {
             None | Some(Exact::Null | Exact::Undefined) => String::new(),
             Some(Exact::String(text)) => text.clone(),
             Some(Exact::Number(n)) => mixdog_js::number_to_string(*n),
-            Some(other) => panic!("row id of a shape the recording does not hold: {other:?}"),
+            Some(other) => {
+                return Err(format!(
+                    "a row id of {other:?} has no caller: Row.id is i64 from a BIGSERIAL column (recall/row.rs:72, memory/schema.rs:53,147)"
+                ));
+            }
         };
-        (!key.is_empty()).then_some(key)
+        Ok(Self { row, key })
+    }
+}
+
+impl RowKey for Wire {
+    fn unique_key(&self) -> Option<String> {
+        (!self.key.is_empty()).then(|| self.key.clone())
     }
 }
 
@@ -115,8 +131,15 @@ fn unique_rows_by_id_keeps_first_seen_order_and_topic_term_coverage_counts_membe
             // An empty, null or string id has no typed row (entries ids are bigint): the same function runs over the
             // rows with Node's values, keyed as Node keys them.
             Err(_) => {
-                let input = probe.get("input").as_array().iter().cloned().map(Wire);
-                let kept = Exact::Array(unique_rows_by_id(input).into_iter().map(|w| w.0).collect());
+                let input: Vec<Wire> = probe
+                    .get("input")
+                    .as_array()
+                    .iter()
+                    .cloned()
+                    .map(Wire::new)
+                    .collect::<Result<_, _>>()
+                    .unwrap_or_else(|refused| panic!("{name}: unique {label}: the case is refused: {refused}"));
+                let kept = Exact::Array(unique_rows_by_id(input).into_iter().map(|w| w.row).collect());
                 same(&format!("{name}: unique {label}"), probe.get("result"), &kept);
             }
         }
