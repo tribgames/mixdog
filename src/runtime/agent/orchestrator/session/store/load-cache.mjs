@@ -23,7 +23,7 @@ import { parseSessionRecordStamp, resolveSessionRecordSync, sessionRecordStampSy
 import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
 import { loadLegacySession } from './legacy-session.mjs';
 import { bindLoadedSession, ownLogGeneration } from './session-writers.mjs';
-import { ABSENT_RECORD_STAMP } from './session-record.mjs';
+import { ABSENT_RECORD_STAMP, recordSession } from './session-record.mjs';
 
 // Retained transcripts are bounded by count; headers are tiny and get their
 // own, much larger bound so more than eight active sessions do not evict each
@@ -141,9 +141,13 @@ function _ownLogHeader(id, logPath, cached, stamp) {
  * there; `session` null for a record that is there and holds no session of
  * this id (unreadable, an invalid log, a foreign or corrupt json).
  * `preferInMemory(header)` returns the in-memory copy that outranks the
- * record, if any.
+ * record, if any. `headerOnly`: the caller reads fields of the session's
+ * header and never its transcript (the status pulse): a log is then read as
+ * its header scan, which goes on from where the last one of it stopped, and
+ * the session handed back has no transcript and is not kept here as a loaded
+ * one.
  */
-export function _readStoredSessionCached(id, { preferInMemory = null } = {}) {
+export function _readStoredSessionCached(id, { preferInMemory = null, headerOnly = false } = {}) {
   _syncCacheDataDir();
   const files = _filesOf(id);
   let stamp;
@@ -181,7 +185,7 @@ export function _readStoredSessionCached(id, { preferInMemory = null } = {}) {
   }
   let outcome;
   try {
-    outcome = resolveSessionRecordSync({ ...files, loadLegacy: loadLegacySession, stamp });
+    outcome = resolveSessionRecordSync({ ...files, loadLegacy: loadLegacySession, stamp, messages: !headerOnly });
   } catch {
     _drop(id);
     return { exists: true, session: null };
@@ -190,12 +194,13 @@ export function _readStoredSessionCached(id, { preferInMemory = null } = {}) {
     _drop(id);
     return { exists: false, session: null };
   }
-  const session = outcome.session?.id === id ? outcome.session : null;
+  // A header-only read of a log has no session of its own: its header is the session.
+  const session = headerOnly ? recordSession(outcome, id) : outcome.session?.id === id ? outcome.session : null;
   if (!session) {
     _drop(id);
     return { exists: true, session: null };
   }
-  bindLoadedSession(session, outcome);
+  if (!headerOnly) bindLoadedSession(session, outcome);
   if (Array.isArray(session.messages)) shareJsonStrings(session.messages);
   const header = headerOf(session);
   const preferred = preferInMemory?.(header);
@@ -207,7 +212,7 @@ export function _readStoredSessionCached(id, { preferInMemory = null } = {}) {
     after = null;
   }
   if (after === stamp) {
-    const retained = preferred ? null : session;
+    const retained = preferred || headerOnly ? null : session;
     _put(id, {
       stamp,
       header,

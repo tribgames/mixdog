@@ -611,15 +611,18 @@ for (const reader of ['loadSession', 'loadSessionStatus']) {
   test(`${reader} after this process's own save does not replay the log; after another writer's append it does and returns that change`, async (t) => {
     const f = fixture(t);
     const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+    // A read of the log: all of it, or a scan of its header (which opens it).
     let reads = 0;
-    const original = fs.readFileSync;
-    fs.readFileSync = function (file, ...rest) {
-      if (String(file) === logPath) reads++;
-      return original.call(this, file, ...rest);
-    };
+    const original = { readFileSync: fs.readFileSync, openSync: fs.openSync };
+    for (const name of Object.keys(original)) {
+      fs[name] = function (file, ...rest) {
+        if (String(file) === logPath) reads++;
+        return original[name].call(this, file, ...rest);
+      };
+    }
     syncBuiltinESMExports();
     t.after(() => {
-      fs.readFileSync = original;
+      Object.assign(fs, original);
       syncBuiltinESMExports();
     });
     const read = (id) => (reader === 'loadSession' ? loadSession(id) : loadSessionStatus(id));

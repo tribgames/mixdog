@@ -62,13 +62,14 @@ export function resolveSessionCopy(id, memory, record) {
   return record.session ? { session: record.session, from: 'record' } : { session: null, from: 'absent' };
 }
 
-export function loadSession(id) {
+export function loadSession(id, { headerOnly = false } = {}) {
   const memory = sessionMemoryCopies(id);
   // An existing record owns this identity. It must read as this session's
   // before fresher in-memory state is allowed to shadow it; the cache keeps
   // only its header when that header proves the in-memory copy is served.
   const disk = _readStoredSessionCached(id, {
     preferInMemory: (stored) => inMemorySessionCopy(id, memory, stored),
+    headerOnly,
   });
   const { session, from } = resolveSessionCopy(id, memory, disk);
   // The record (or its absence) outranks a live snapshot that no longer speaks for the id.
@@ -97,7 +98,8 @@ export function loadSessionStatus(id) {
   const cached = before ? _statusById.get(id) : null;
   if (cached && cached.stamp === before) return cached.status;
   _statusById.delete(id);
-  const status = loadSession(id)?.status ?? null;
+  // Its status is a field of the record's header: a log is not replayed whole for it.
+  const status = loadSession(id, { headerOnly: true })?.status ?? null;
   if (before && isSettledRecordStamp(before) && !inMemory() && before === _observeStamp(id)) {
     if (_statusById.size >= STATUS_CACHE_LIMIT) _statusById.delete(_statusById.keys().next().value);
     _statusById.set(id, { stamp: before, status });
