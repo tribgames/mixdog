@@ -265,9 +265,24 @@ pub struct MemStore {
     pub header_gate: CommitGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
+    /// Each run's draft file, by thread and run: its bodies in order.
+    pub drafts: Mutex<std::collections::BTreeMap<(String, String), Vec<Value>>>,
 }
 
 impl MemStore {
+    /// Appends `record` to thread `id`'s log as a barrier would (a log an earlier build wrote).
+    pub fn append_record(&self, id: &ThreadId, record: Record) {
+        let log = self.log(id);
+        let mut log = lock(&log);
+        let next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        log.push((next, record));
+    }
+
+    /// The draft files of thread `id`: run id and bodies.
+    pub fn draft_files(&self, id: &ThreadId) -> Vec<(String, Vec<Value>)> {
+        lock(&self.drafts).iter().filter(|((thread, _), _)| thread == id.as_str()).map(|((_, rid), bodies)| (rid.clone(), bodies.clone())).collect()
+    }
+
     pub fn records(&self, id: &ThreadId) -> Vec<(u64, Record)> {
         lock(&self.logs)
             .get(id)
@@ -389,7 +404,7 @@ impl ThreadStore for MemStore {
     fn decode(
         &self,
         _lane: &InLane<CpuInteractive>,
-        _id: &ThreadId,
+        id: &ThreadId,
         head: HeadRead,
         _window: WindowRead,
     ) -> Result<OpenedLog, CoreError> {
@@ -405,6 +420,28 @@ impl ThreadStore for MemStore {
             ),
             _ => (Header::new(), false, String::new()),
         };
+        // Each draft file folded over the log's draft records of its run (the session's fold reads those from the tail).
+        let drafts = self
+            .draft_files(id)
+            .into_iter()
+            .map(|(rid, bodies)| {
+                let mut draft = super::turn_draft::RunDraft::default();
+                for (_, record) in &records {
+                    match record {
+                        Record::Draft(d) if d.rid.as_str() == rid => {
+                            if let Slot::Inline(body) = &d.body {
+                                draft.apply(body);
+                            }
+                        }
+                        Record::Item(item) if item.turn.as_ref().is_some_and(|t| t.as_str() == rid) && item.role.as_ref().is_some_and(|r| r.as_str() == "assistant") => draft.message_committed(),
+                        _ => {}
+                    }
+                }
+                let landed = |iid: &str| records.iter().any(|(_, record)| matches!(record, Record::Item(item) if item.iid.as_str() == iid));
+                draft.apply_file(&bodies, landed);
+                (rid, draft)
+            })
+            .collect();
         Ok(OpenedLog {
             header,
             control,
@@ -420,7 +457,7 @@ impl ThreadStore for MemStore {
             log_id,
             next_ordinal: records.last().map_or(0, |(ordinal, _)| ordinal + 1),
             tail: records,
-            drafts: Vec::new(),
+            drafts,
             append: AppendPosition(Box::new(())),
         })
     }
@@ -522,6 +559,21 @@ impl ThreadStore for MemStore {
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
         Ok((Box::new(log), ordinal))
+    }
+
+    fn draft_write(&self, _lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        use super::turn_draft::DraftWrite;
+        let thread = id.as_str().to_owned();
+        let mut drafts = lock(&self.drafts);
+        match write {
+            DraftWrite::Append { rid, body } => drafts.entry((thread, rid.clone())).or_default().push(body.clone()),
+            DraftWrite::Replace { rid, body } => drop(drafts.insert((thread, rid.clone()), vec![body.clone()])),
+            DraftWrite::Remove { rid } => drop(drafts.remove(&(thread, rid.clone()))),
+            DraftWrite::Sweep { open } => drafts.retain(|(t, rid), _| *t != thread || open.contains(rid)),
+        }
+        drop(drafts);
+        self.committed.notify_waiters();
+        Ok(())
     }
 
     /// Rewinds cut the lineage, as the real store reads it.
@@ -659,6 +711,7 @@ impl ThreadStore for CallCounted {
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
         fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
         fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
+        fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
     }
 }
 
@@ -833,6 +886,8 @@ pub struct ScriptRuns {
     pub script: Mutex<Script>,
     /// The input row each crashed run was recovered with.
     pub crashed: Mutex<Vec<Option<mixdog_core_api::ids::ItemId>>>,
+    /// The draft each crashed run was recovered with.
+    pub crashed_drafts: Mutex<Vec<super::turn_draft::RunDraft>>,
 }
 
 impl RunFactory for ScriptRuns {
@@ -845,6 +900,7 @@ impl RunFactory for ScriptRuns {
     /// `RunHostFactory`'s).
     fn crashed(&self, run: super::seams::CrashedRun) -> super::seams::CrashedRows {
         lock(&self.crashed).push(run.input);
+        lock(&self.crashed_drafts).push(run.draft);
         super::seams::CrashedRows::default()
     }
 }
@@ -1694,6 +1750,7 @@ impl Rig {
             store,
             runs: Arc::new(ScriptRuns {
                 crashed: Mutex::default(),
+                crashed_drafts: Mutex::default(),
                 script: Mutex::new(idle),
             }),
             feeds: Arc::new(RecFeeds::default()),

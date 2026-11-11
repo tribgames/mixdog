@@ -202,35 +202,69 @@ async fn a_recovery_that_cannot_read_the_context_leaves_the_run_for_the_next_ope
     assert_eq!(rig.runs.crashed.lock().unwrap().len(), 1, "recovered by the next open");
 }
 
-/// The `text` of every `draft` record the store holds for `id`, with whether it rewrites the whole draft.
+/// A log an earlier build wrote holds an open run's draft as `draft` records: the next open recovers the run from them, and
+/// writes no draft of it again (its old records go with the log's redaction pass, not with a second rewrite here).
+#[tokio::test(start_paused = true)]
+async fn a_draft_the_log_holds_is_recovered_at_open() {
+    use mixdog_store::schema::record::DraftRecord;
+    use mixdog_store::schema::record::RunPhase;
+    let rig = Rig::new();
+    let started = Arc::new(tokio::sync::Notify::new());
+    let signal = started.clone();
+    rig.set_script(Arc::new(move |run| {
+        let signal = signal.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            signal.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    turn(&handle, "first task", "op-1").await;
+    crate::session::testing::awaiting(|| "the run's start".to_owned(), started.notified()).await;
+    let rid = rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
+        Record::Run(run) if run.phase == RunPhase::Started => Some(run.rid),
+        _ => None,
+    });
+    let rid = rid.expect("the run started");
+    rig.store.append_record(&handle.id, Record::Draft(DraftRecord { rid, body: Slot::Inline(json!({ "text": "streamed before" })) }));
+
+    let second = SessionDirectory::new(rig.deps());
+    let reopened = second.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
+    crate::eventually_on!(&[&reopened.cell.stepped], || (reopened.recovered() && !rig.runs.crashed_drafts.lock().unwrap().is_empty()).then_some(())).await;
+    assert_eq!(rig.runs.crashed_drafts.lock().unwrap()[0].text, "streamed before");
+    assert!(rig.store.draft_files(&handle.id).is_empty(), "no draft file is written for it");
+}
+
+/// The `text` of every body of `id`'s draft files, with whether it is the whole draft.
 fn draft_texts(rig: &Rig, id: &mixdog_core_api::ids::ThreadId) -> Vec<(bool, String)> {
     rig.store
-        .records(id)
+        .draft_files(id)
         .into_iter()
-        .filter_map(|(_, record)| match record {
-            Record::Draft(draft) => match draft.body {
-                Slot::Inline(body) => Some((body.get("reset") == Some(&json!(true)), body.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned())),
-                Slot::Blob(_) => None,
-            },
-            _ => None,
-        })
+        .flat_map(|(_, bodies)| bodies)
+        .map(|body| (body.get("reset") == Some(&json!(true)), body.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned()))
         .collect()
 }
 
-/// A run's drafts are written redacted with the session's sensitive values: once a value is marked, the draft written
-/// before is written again redacted (Node rewrites its checkpoint), and later drafts hold it redacted.
+/// A run's draft is written redacted with the session's sensitive values: once a value is marked, the draft file is replaced
+/// by the draft redacted (Node rewrites its checkpoint), so no stored copy keeps the value; later bodies hold it redacted, the
+/// log holds no draft, and the file goes once the turn's end is saved.
 #[tokio::test(start_paused = true)]
 async fn drafts_are_written_redacted_once_a_value_is_marked() {
     let rig = Rig::new();
     let go = Arc::new(tokio::sync::Notify::new());
     let resume = go.clone();
+    let finish = Arc::new(tokio::sync::Notify::new());
+    let end = finish.clone();
     rig.set_script(Arc::new(move |run| {
-        let resume = resume.clone();
+        let (resume, end) = (resume.clone(), end.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             run.port.draft(json!({ "text": "the code is s3cret, " })).await.expect("drafted");
             resume.notified().await;
             run.port.draft(json!({ "text": "again s3cret." })).await.expect("drafted");
+            end.notified().await;
             RunOutcome::Completed(Default::default())
         })
     }));
@@ -240,15 +274,17 @@ async fn drafts_are_written_redacted_once_a_value_is_marked() {
     crate::eventually_on!(&[&rig.store.committed], || (!draft_texts(&rig, &handle.id).is_empty()).then_some(())).await;
 
     rig.sensitive.remember(handle.id.as_str(), &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "text": "s3cret", "sensitive": true } } })]);
-    crate::eventually_on!(&[&rig.store.committed], || draft_texts(&rig, &handle.id).iter().any(|(reset, _)| *reset).then_some(())).await;
+    crate::eventually_on!(&[&rig.store.committed], || draft_texts(&rig, &handle.id).first().is_some_and(|(reset, _)| *reset).then_some(())).await;
     go.notify_one();
-    crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    crate::eventually_on!(&[&rig.store.committed], || (draft_texts(&rig, &handle.id).len() == 2).then_some(())).await;
 
     let drafts = draft_texts(&rig, &handle.id);
-    let after: Vec<&(bool, String)> = drafts.iter().skip_while(|(reset, _)| !reset).collect();
-    assert_eq!(after.len(), 2, "the rewrite and the later draft: {drafts:?}");
-    assert!(after.iter().all(|(_, text)| !text.contains("s3cret")), "{drafts:?}");
-    assert!(after[0].1.starts_with("the code is [redacted]"), "{drafts:?}");
+    assert!(drafts.iter().all(|(_, text)| !text.contains("s3cret")), "the file keeps no copy of the value: {drafts:?}");
+    assert!(drafts[0].1.starts_with("the code is [redacted]"), "{drafts:?}");
+    assert!(!rig.store.records(&handle.id).iter().any(|(_, record)| matches!(record, Record::Draft(_))), "the log holds no draft");
+
+    finish.notify_one();
+    crate::eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || (idle(&handle) && !handle.turn_busy() && rig.store.draft_files(&handle.id).is_empty()).then_some(())).await;
 }
 
 #[tokio::test(start_paused = true)]

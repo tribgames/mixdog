@@ -23,12 +23,12 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use mixdog_store::draft_file::DraftStep;
 use mixdog_store::fsio::AppendStep;
 use mixdog_store::schema::record::RunPhase;
 
 use super::*;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/turn-durability/golden.json");
 const CRASHED: i32 = 77;
 const READ_TEXT: &str = "[lines 1-1]\nFILE-SENTINEL\n[lines 1-1 of 1]";
 
@@ -38,12 +38,19 @@ type OnSend = Arc<dyn Fn(usize) -> Pin<Box<dyn Future<Output = Play> + Send>> + 
 struct Play {
     events: VecDeque<StreamEvent>,
     hang: bool,
+    /// Events sent while the stream is open (`crash-sensitive`: after the value is marked).
+    more: Option<tokio::sync::mpsc::UnboundedReceiver<StreamEvent>>,
 }
 
 #[async_trait]
 impl ModelStream for Play {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
         if let Some(event) = self.events.pop_front() {
+            return Some(Ok(event));
+        }
+        if let Some(more) = self.more.as_mut()
+            && let Some(event) = more.recv().await
+        {
             return Some(Ok(event));
         }
         if self.hang {
@@ -107,7 +114,7 @@ fn reported_usage() -> StreamEvent {
 }
 
 fn answer(text: &str) -> Play {
-    Play { events: VecDeque::from([StreamEvent::TextDelta(text.into()), reported_usage(), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]), hang: false }
+    Play { events: VecDeque::from([StreamEvent::TextDelta(text.into()), reported_usage(), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]), hang: false, more: None }
 }
 
 /// The `read` the recording's tool round called; it answers what Node's `read` answered for the case's file.
@@ -146,6 +153,19 @@ impl Clock for At {
     }
 }
 
+/// A crash child's session clock: each recorded Node process died before its usage write's real 150 ms debounce ran out
+/// (no case's golden holds a debounced usage write), so the replay's debounce does not run out either, however slow this
+/// machine's syncs are.
+struct Held(Arc<dyn mixdog_core_session::session::Clock>);
+impl mixdog_core_session::session::Clock for Held {
+    fn now_ms(&self) -> i64 {
+        self.0.now_ms()
+    }
+    fn sleep(&self, _: Duration) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(std::future::pending())
+    }
+}
+
 struct Timed(Parts, i64);
 
 #[async_trait]
@@ -167,6 +187,9 @@ const REOPEN_AT: i64 = 1_800_000_600_000;
 fn stack(rig: &Rig, store: Arc<dyn mixdog_core_session::session::ThreadStore>, provider: Arc<Stub>, workspace: &Path, now: i64) -> Arc<SessionDirectory> {
     rig.clock.0.store(now as u64, Ordering::SeqCst);
     let mut deps = rig.deps_parts(store);
+    if CASE.get().is_some() {
+        deps.clock = Arc::new(Held(deps.clock.clone()));
+    }
     let route = Arc::new(DraftRoute::default());
     deps.new_route = route.clone();
     deps.new_tools = Arc::new(LeadRecord(now));
@@ -324,8 +347,8 @@ static CASE: std::sync::OnceLock<(String, std::path::PathBuf)> = std::sync::Once
 static SENDS: AtomicUsize = AtomicUsize::new(0);
 /// The run's start is synced (`crash-before-output` dies on it).
 static STARTED: tokio::sync::Notify = tokio::sync::Notify::const_new();
-/// What the hook saw synced: the run's start, a tool row, and the run's drafted text.
-static SEEN: Mutex<(bool, bool, String)> = Mutex::new((false, false, String::new()));
+/// What the hooks saw durable: the run's start, a tool row, the run's drafted text, and a draft back out of its tool phase.
+static SEEN: Mutex<(bool, bool, String, bool)> = Mutex::new((false, false, String::new(), false));
 
 fn has_run(records: &[Record], phase: RunPhase) -> bool {
     records.iter().any(|record| matches!(record, Record::Run(run) if run.phase == phase))
@@ -335,14 +358,23 @@ fn has_role(records: &[Record], role: &str) -> bool {
     records.iter().any(|record| matches!(record, Record::Item(item) if item.role.as_ref().is_some_and(|r| r.as_str() == role)))
 }
 
-fn drafts(records: &[Record]) -> impl Iterator<Item = &Value> {
-    records.iter().filter_map(|record| match record {
-        Record::Draft(draft) => match &draft.body {
-            Slot::Inline(body) => Some(body),
-            Slot::Blob(_) => None,
-        },
-        _ => None,
-    })
+
+/// `crash-sensitive`: the value the turn streams, then marks sensitive (the recording's `SECRET`).
+const SECRET: &str = "731905";
+/// The streamed value is in the run's draft file.
+static SECRET_DRAFTED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// Where the stream's later events go (`crash-sensitive`).
+static MORE: Mutex<Option<tokio::sync::mpsc::UnboundedSender<StreamEvent>>> = Mutex::new(None);
+
+/// Whether any file under `data` holds the value.
+fn secret_on_disk(data: &Path) -> bool {
+    fn walk(dir: &Path) -> bool {
+        std::fs::read_dir(dir).unwrap().any(|entry| {
+            let path = entry.unwrap().path();
+            if path.is_dir() { walk(&path) } else { std::fs::read(&path).unwrap().windows(SECRET.len()).any(|w| w == SECRET.as_bytes()) }
+        })
+    }
+    walk(data)
 }
 
 /// The disk refuses writes (`save-failure`): each barrier's write stops half way with `EIO: injected`.
@@ -353,10 +385,44 @@ static ROLLBACKS_FAILING: AtomicUsize = AtomicUsize::new(0);
 /// Every step of every barrier, in order, with its records' kinds: what the save-failure replay shows of the writer.
 static STEPS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// The store's barrier hook of this process, installed once: the save failure, or a crash child's kill points.
+/// The store's barrier and draft hooks of this process, installed once: the save failure, or a crash child's kill points.
 fn install_hook() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| mixdog_store::fsio::set_append_hook(hook));
+    ONCE.call_once(|| {
+        mixdog_store::fsio::set_append_hook(hook);
+        mixdog_store::draft_file::set_draft_hook(draft_hook);
+    });
+}
+
+/// Node's kill points on its checkpoint journal, as the steps of the run's draft file.
+fn draft_hook(step: DraftStep, _rid: &str, body: Option<&Value>) -> std::io::Result<()> {
+    let Some((case, _)) = CASE.get() else { return Ok(()) };
+    let case = case.as_str();
+    let body = body.cloned().unwrap_or(Value::Null);
+    let sealed = body.get("sealed").is_some();
+    let text = body.get("text").and_then(Value::as_str).unwrap_or_default();
+    match step {
+        // The finished message and its seal were not written: what streamed of it is the draft's.
+        DraftStep::Append | DraftStep::Replace if case == "crash-answer-streamed" && sealed => kill(&format!("draft {step:?}")),
+        // The value is in the draft: the turn's driver marks it (`crash_child`).
+        DraftStep::Appended if case == "crash-sensitive" && text.contains(SECRET) => SECRET_DRAFTED.notify_one(),
+        // What streamed after the mark is in the redacted draft: the process dies.
+        DraftStep::Appended | DraftStep::Replaced if case == "crash-sensitive" && text.contains("entered.") => kill(&format!("draft {step:?}")),
+        DraftStep::Appended => {
+            let mut seen = lock(&SEEN);
+            seen.2.push_str(body.get("text").and_then(Value::as_str).unwrap_or_default());
+            seen.3 |= body.get("tools") == Some(&Value::Bool(false));
+            match case {
+                "crash-mid-stream" if seen.2 == "partial streamed answer" => kill("draft Appended"),
+                "crash-tool-wire" if seen.1 && seen.3 => kill("draft Appended"),
+                // Once the seal is on disk the session's saves fail; the process dies once the turn has ended (`crash_child`).
+                "crash-sealed-unsaved" | "resume-held" if sealed => SESSION_SAVES_FAIL.store(true, Ordering::SeqCst),
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
@@ -390,10 +456,11 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
         AppendStep::Write => match case {
             // The turn's first write (its input row and the run's start), before it writes.
             "crash-before-write" if has_run(records, RunPhase::Started) || has_role(records, "user") => die(),
-            // The finished message and its seal were not written: what streamed of it is the draft's.
-            "crash-answer-streamed" if has_role(records, "assistant") || drafts(records).any(|body| body.get("sealed").is_some()) => die(),
-            // Once the seal is on disk the session's saves fail; the process dies once the turn has ended (`crash_child`).
+            // The finished message was not written: what streamed of it is the draft's.
+            "crash-answer-streamed" if has_role(records, "assistant") => die(),
+            // From the seal on the session's saves fail (`draft_hook`); the answer's row comes after its seal.
             "crash-sealed-unsaved" | "resume-held" if SESSION_SAVES_FAIL.load(Ordering::SeqCst) => return Err(std::io::Error::other("EIO: injected")),
+            "crash-sealed-unsaved" | "resume-held" => assert!(!has_role(records, "assistant"), "the answer's row is written before its seal"),
             _ => {}
         },
         AppendStep::Synced => {
@@ -403,18 +470,9 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
                 STARTED.notify_one();
             }
             seen.1 |= has_role(records, "tool");
-            for body in drafts(records) {
-                seen.2.push_str(body.get("text").and_then(Value::as_str).unwrap_or_default());
-            }
-            let follow_up_on_wire = seen.1 && drafts(records).any(|body| body.get("tools") == Some(&Value::Bool(false)));
             match case {
-                "crash-mid-stream" if seen.2 == "partial streamed answer" => die(),
-                "crash-tool-wire" if follow_up_on_wire => die(),
+                "crash-tool-wire" if seen.1 && seen.3 => die(),
                 "crash-saved-uncleared" if has_run(records, RunPhase::Completed) => die(),
-                "crash-sealed-unsaved" | "resume-held" if drafts(records).any(|body| body.get("sealed").is_some()) => {
-                    assert!(!has_role(records, "assistant"), "the seal is written before the answer's row");
-                    SESSION_SAVES_FAIL.store(true, Ordering::SeqCst);
-                }
                 _ => {}
             }
         }
@@ -426,6 +484,7 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
 /// The process dies where Node's was killed, after writing how many requests it sent.
 fn kill(at: &str) -> ! {
     let (case, dir) = CASE.get().expect("a crash child");
+    std::fs::write(dir.join("secret"), secret_on_disk(&dir.join("data")).to_string()).unwrap();
     std::fs::write(dir.join("sends"), SENDS.load(Ordering::SeqCst).to_string()).unwrap();
     eprintln!("[turn-durability] {case}: killed at {at}");
     kill_self()
@@ -465,7 +524,7 @@ async fn crash_child() {
                 kill("the first request")
             })
         }),
-        "crash-mid-stream" => Arc::new(|_| Box::pin(async { Play { events: VecDeque::from([StreamEvent::TextDelta("partial ".into()), StreamEvent::TextDelta("streamed answer".into())]), hang: true } })),
+        "crash-mid-stream" => Arc::new(|_| Box::pin(async { Play { events: VecDeque::from([StreamEvent::TextDelta("partial ".into()), StreamEvent::TextDelta("streamed answer".into())]), hang: true, more: None } })),
         "crash-tool-wire" => Arc::new(|n| {
             Box::pin(async move {
                 if n == 1 {
@@ -475,15 +534,22 @@ async fn crash_child() {
                             StreamEvent::ToolCallDone(ToolCall { id: "call_read".into(), name: "read".into(), arguments: json!({ "path": "x.txt" }), native_type: None }),
                             reported_usage(), StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                         ]),
-                        hang: false,
+                        hang: false, more: None,
                     }
                 } else {
-                    Play { events: VecDeque::new(), hang: true }
+                    Play { events: VecDeque::new(), hang: true, more: None }
                 }
             })
         }),
         "crash-answer-streamed" | "crash-saved-uncleared" | "crash-sealed-unsaved" | "resume-held" => Arc::new(|_| Box::pin(async { answer("answer") })),
         "crash-before-write" => Arc::new(|_| Box::pin(async { panic!("crash-before-write: the process dies before the first request") })),
+        "crash-sensitive" => Arc::new(|_| {
+            Box::pin(async {
+                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                *lock(&MORE) = Some(tx);
+                Play { events: VecDeque::from([StreamEvent::TextDelta(format!("the code is {SECRET}, "))]), hang: true, more: Some(rx) }
+            })
+        }),
         other => panic!("unknown case {other}"),
     };
     let rig = Rig::new();
@@ -494,6 +560,12 @@ async fn crash_child() {
     let handle = start(&directory, &workspace).await;
     std::fs::write(dir.join("id"), ThreadHandle::id(&*handle).as_str()).unwrap();
     ask(&handle, "do the task", "op-1").await.expect("turn/start");
+    // The value is in the draft; it is marked sensitive (a browser fill, as the recording's), then the stream goes on.
+    if case == "crash-sensitive" {
+        tokio::time::timeout(Duration::from_secs(30), SECRET_DRAFTED.notified()).await.expect("the value is drafted");
+        rig.sensitive.remember(ThreadHandle::id(&*handle).as_str(), &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "ref": "p1-s1-e3", "text": SECRET, "sensitive": true } } })]);
+        lock(&MORE).as_ref().expect("the stream is open").send(StreamEvent::TextDelta("entered.".into())).unwrap();
+    }
     // Node's `settleThenKill`: the turn ended with its terminal save failed, then the process dies.
     if case == "crash-sealed-unsaved" || case == "resume-held" {
         until(&handle, "the sealed turn ends", async || SESSION_SAVES_FAIL.load(Ordering::SeqCst) && !handle.turn_busy()).await;
@@ -531,13 +603,26 @@ async fn reopen(dir: &Path) -> Value {
     let directory = stack(&rig, store, stub(never), &dir.join("work"), REOPEN_AT);
     let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
     until(&handle, "the recovery at open", async || handle.recovered()).await;
+    // Node's recovery removes the checkpoint (`clearTurnCheckpoint`): the draft goes once the recovered end is saved.
+    until(&handle, "the recovered run's draft goes", async || !has_draft_file(&dir.join("data"))).await;
     observe(&directory, &handle).await
+}
+
+/// Whether a run's draft file is under `data`.
+fn has_draft_file(data: &Path) -> bool {
+    fn walk(dir: &Path) -> bool {
+        std::fs::read_dir(dir).unwrap().any(|entry| {
+            let path = entry.unwrap().path();
+            if path.is_dir() { walk(&path) } else { path.file_name().and_then(|n| n.to_str()).and_then(mixdog_store::draft_file::rid_of).is_some() }
+        })
+    }
+    walk(data)
 }
 
 // ---- the comparison ----------------------------------------------------------------------------------------------------------
 
 fn cases() -> Vec<Value> {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/turn-durability/golden.json")).unwrap();
     golden["cases"].as_array().unwrap().clone()
 }
 
@@ -784,7 +869,7 @@ fn held_plays(case: &str) -> OnSend {
                 StreamEvent::ToolCallDone(ToolCall { id: id.into(), name: "read".into(), arguments: json!({ "path": path }), native_type: None }),
                 reported_usage(), StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
             ]),
-            hang: false,
+            hang: false, more: None,
         };
         let play = match n {
             1 if rounds => round("reading", "call_read", "x.txt"),
@@ -946,8 +1031,18 @@ async fn crashes_replay_as_node_recovers() {
         }
         let sends: usize = std::fs::read_to_string(dir.path().join("sends")).unwrap().parse().unwrap();
         assert_eq!(sends, steps[killed]["sends"].as_u64().unwrap() as usize, "{name}: the requests sent before the kill");
-        same(&name, &steps[killed + 1], rust_step(&reopen(dir.path()).await));
-        same(&name, &steps[killed + 2], rust_step(&reopen(dir.path()).await));
+        // Whether a file of the data holds the value marked sensitive (`crash-sensitive`): at the kill and after each open.
+        let secret = |step: &Value| step.get("secretFiles").map(|files| !files.as_array().unwrap().is_empty());
+        let at_kill: bool = std::fs::read_to_string(dir.path().join("secret")).unwrap().parse().unwrap();
+        if let Some(want) = secret(&steps[killed]) {
+            assert_eq!(at_kill, want, "{name}: a file holds the value at the kill");
+        }
+        for step in &steps[killed + 1..killed + 3] {
+            same(&name, step, rust_step(&reopen(dir.path()).await));
+            if let Some(want) = secret(step) {
+                assert_eq!(secret_on_disk(&dir.path().join("data")), want, "{name} / {}: a file holds the value", step["step"]);
+            }
+        }
     }
     no_diffs();
 }

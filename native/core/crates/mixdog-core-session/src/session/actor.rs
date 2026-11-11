@@ -66,7 +66,6 @@ use mixdog_store::schema::record::CompactedDropped;
 use mixdog_store::schema::record::CompactedRecord;
 use mixdog_store::schema::record::ReplacementEntry;
 use mixdog_store::schema::record::DequeueReason;
-use mixdog_store::schema::record::DraftRecord;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
@@ -288,6 +287,14 @@ pub(crate) enum JobDone {
     ToastExpired(String),
     /// The debounce of the turn's usage writes ran out ([`USAGE_SAVE_DEBOUNCE`]).
     UsageSaveDue,
+    /// A draft file write ran ([`SessionActor::draft_pump`]).
+    DraftWritten {
+        write: super::turn_draft::DraftWrite,
+        result: Result<(), CoreError>,
+        ack: Option<oneshot::Sender<Result<(), RunError>>>,
+    },
+    /// The end record of run `.0` is durable: its draft file goes.
+    DraftEnded(String),
     ApprovalId {
         turn: TurnId,
         ask: ApprovalAsk,
@@ -686,6 +693,14 @@ pub(crate) struct SessionActor {
     /// `saveSession` is debounced, `store.mjs` `saveSession`; the turn's terminal save writes what is still waiting).
     usage_unsaved: Option<HeaderChange>,
     usage_save_armed: bool,
+    /// The draft file writes not run yet, in order (one runs at a time, [`Self::draft_pump`]), with the producer's ack.
+    draft_queue: std::collections::VecDeque<(super::turn_draft::DraftWrite, Option<oneshot::Sender<Result<(), RunError>>>)>,
+    draft_busy: bool,
+    /// Runs whose draft could neither be redacted nor removed: nothing more of them is written (`failClosed`,
+    /// `turn-checkpoint.mjs:310`).
+    draft_stopped: std::collections::HashSet<String>,
+    /// Ended runs whose drafts wait for the held records (their end records among them) to land.
+    drafts_after_save: Vec<String>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
@@ -1016,6 +1031,10 @@ impl SessionActor {
             toast_timers: std::collections::HashMap::new(),
             usage_unsaved: None,
             usage_save_armed: false,
+            draft_queue: std::collections::VecDeque::new(),
+            draft_busy: false,
+            draft_stopped: std::collections::HashSet::new(),
+            drafts_after_save: Vec::new(),
             after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
@@ -1434,8 +1453,9 @@ impl SessionActor {
         if !self.usage_save_armed {
             self.usage_save_armed = true;
             let jobs = self.jobs_tx.clone();
+            let due = self.deps.clock.sleep(USAGE_SAVE_DEBOUNCE);
             drop(tokio::spawn(async move {
-                tokio::time::sleep(USAGE_SAVE_DEBOUNCE).await;
+                due.await;
                 let _ = jobs.send(JobDone::UsageSaveDue);
             }));
         }
@@ -1462,6 +1482,82 @@ impl SessionActor {
             }
         }
         self.cell.header.store(Arc::new(header));
+    }
+
+    /// Queues a draft file write; they run one at a time, in order, on the durability lane.
+    fn draft_push(&mut self, write: super::turn_draft::DraftWrite, ack: Option<oneshot::Sender<Result<(), RunError>>>) {
+        use super::turn_draft::DraftWrite;
+        if let DraftWrite::Append { rid, .. } | DraftWrite::Replace { rid, .. } = &write
+            && self.draft_stopped.contains(rid)
+        {
+            if let Some(ack) = ack {
+                let _ = ack.send(Ok(()));
+            }
+            return;
+        }
+        self.draft_queue.push_back((write, ack));
+        self.draft_pump();
+    }
+
+    fn draft_pump(&mut self) {
+        if self.draft_busy {
+            return;
+        }
+        let Some((write, ack)) = self.draft_queue.pop_front() else { return };
+        self.draft_busy = true;
+        let (store, thread, jobs) = (self.deps.store.clone(), self.id.clone(), self.jobs_tx.clone());
+        let job = std::sync::Arc::new(std::sync::Mutex::new(Some((write.clone(), ack))));
+        let taken = job.clone();
+        let submitted = self.deps.lanes.durability.submit(&CancellationToken::new(), move |lane| {
+            if let Some((write, ack)) = taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+                let result = store.draft_write(lane, &thread, &write);
+                let _ = jobs.send(JobDone::DraftWritten { write, result, ack });
+            }
+        });
+        if submitted.is_err()
+            && let Some((write, ack)) = job.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        {
+            let error = CoreError::Internal { incident_id: "session-draft-lane-refused".into() };
+            let _ = self.jobs_tx.send(JobDone::DraftWritten { write, result: Err(error), ack });
+        }
+    }
+
+    /// A draft write failed. A redaction that could not be written removes the draft (`failClosed`); a removal that fails
+    /// after it stops the run's drafts. An append that failed leaves the draft as it was (the next whole write repairs it).
+    fn draft_failed(&mut self, write: &super::turn_draft::DraftWrite, error: &CoreError) {
+        use super::turn_draft::DraftWrite;
+        tracing::error!("session {}: a draft write failed: {error:?}", self.id.as_str());
+        match write {
+            DraftWrite::Replace { rid, .. } => {
+                // Before anything queued after it: the file holding the unredacted value goes first.
+                self.draft_queue.retain(|(queued, _)| !matches!(queued, DraftWrite::Append { rid: r, .. } | DraftWrite::Replace { rid: r, .. } if r == rid));
+                self.draft_queue.push_front((DraftWrite::Remove { rid: rid.clone() }, None));
+                if let Some(run) = self.run.as_mut().filter(|run| run.turn.as_str() == rid) {
+                    run.journal.lost();
+                }
+            }
+            DraftWrite::Remove { rid } if self.run.as_ref().is_some_and(|run| run.turn.as_str() == rid) => {
+                self.draft_stopped.insert(rid.clone());
+            }
+            DraftWrite::Append { rid, .. } => {
+                if let Some(run) = self.run.as_mut().filter(|run| run.turn.as_str() == rid) {
+                    run.journal.lost();
+                }
+            }
+            DraftWrite::Remove { .. } | DraftWrite::Sweep { .. } => {}
+        }
+    }
+
+    /// Once everything queued so far is durable (the run's end record among it), run `rid`'s draft file goes.
+    fn remove_draft_when_durable(&mut self, rid: &str) {
+        let (tx, rx) = oneshot::channel();
+        let (jobs, rid) = (self.jobs_tx.clone(), rid.to_owned());
+        tokio::spawn(async move {
+            if matches!(rx.await, Ok(Ok(()))) {
+                let _ = jobs.send(JobDone::DraftEnded(rid));
+            }
+        });
+        self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(tx)]);
     }
 
     /// A view-only change, released in order with the records around it.
@@ -1602,6 +1698,26 @@ impl SessionActor {
                     self.save_usage();
                 }
             }
+            JobDone::DraftWritten { write, result, ack } => {
+                self.draft_busy = false;
+                if let Err(error) = &result {
+                    self.draft_failed(&write, error);
+                }
+                if let Some(ack) = ack {
+                    let _ = ack.send(Ok(()));
+                }
+                self.draft_pump();
+            }
+            JobDone::DraftEnded(rid) => {
+                self.draft_stopped.remove(&rid);
+                // A barrier passes records a failed save holds: the end record may still be unsaved, and the draft is
+                // what a restart recovers it from, so it goes once the held records land.
+                if self.outbox.has_unsaved() {
+                    self.drafts_after_save.push(rid);
+                } else {
+                    self.draft_push(super::turn_draft::DraftWrite::Remove { rid }, None);
+                }
+            }
             // A timer cancelled after it fired (its job already queued) finds no owner: its toast is gone.
             JobDone::ToastExpired(id) => {
                 if self.toast_timers.remove(&id).is_some() {
@@ -1626,14 +1742,15 @@ impl SessionActor {
             // committed so far is durable.
             JobDone::SensitiveMarked => {
                 if self.run.is_some() {
-                    // The run's draft is written again, redacted with the new value (`commitHeader` on a new version).
+                    // The run's draft file is replaced by the draft redacted with the new value (`commitHeader` on a new
+                    // version): no stored copy keeps the value.
                     let marks = self.deps.sensitive.clone();
                     if let Some(run) = self.run.as_mut()
-                        && !run.journal.is_empty()
+                        && run.journal.written()
                     {
                         let body = run.journal.reset(&*marks, &self.id);
-                        let record = Record::Draft(DraftRecord { rid: id(run.turn.as_str()), body: Slot::Inline(body) });
-                        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+                        let rid = run.turn.as_str().to_owned();
+                        self.draft_push(super::turn_draft::DraftWrite::Replace { rid, body }, None);
                     }
                     let ack = self.ingest_when_durable();
                     self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
@@ -2520,6 +2637,11 @@ impl SessionActor {
                 for (id, ordinal) in ordinals {
                     self.outbox.acked(id, ordinal);
                 }
+                if !self.outbox.has_unsaved() {
+                    for rid in std::mem::take(&mut self.drafts_after_save) {
+                        self.draft_push(super::turn_draft::DraftWrite::Remove { rid }, None);
+                    }
+                }
             }
             FromDurability::Failed { generation, error } => {
                 if generation != self.generation {
@@ -2880,6 +3002,8 @@ impl SessionActor {
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             }
+            // `clearTurnCheckpoint` once the terminal save landed: the draft goes with nothing left to recover.
+            self.remove_draft_when_durable(turn.as_str());
         }
         if self.deleting {
             self.delete_turn_ended();
@@ -3580,8 +3704,16 @@ impl SessionActor {
                 // The model's reply is output (`completeTurn`, `settleSegmentBeforeToolCall`).
                 if item.role.as_deref() == Some("assistant") {
                     self.prompt_committed();
+                    let mut marker = None;
                     if let Some(run) = self.run.as_mut() {
+                        if run.journal.written() {
+                            marker = Some(super::turn_draft::DraftWrite::Append { rid: run.turn.as_str().to_owned(), body: json!({ "committed": item.iid.as_str() }) });
+                        }
                         run.journal.message_committed();
+                    }
+                    // The draft names the row that took its message: recovery drops that message once the row is in the log.
+                    if let Some(marker) = marker {
+                        self.draft_push(marker, None);
                     }
                 }
                 // The row's facts read the prompt-attachment store first (an io-lane job).
@@ -3595,12 +3727,13 @@ impl SessionActor {
                 }
                 let marks = self.deps.sensitive.clone();
                 let written = self.run.as_mut().and_then(|run| run.journal.chunk(&body, &*marks, &self.id));
-                let Some(body) = written else {
+                let Some((body, whole)) = written else {
                     let _ = ack.send(Ok(()));
                     return;
                 };
-                let record = Record::Draft(DraftRecord { rid: id(turn.as_str()), body: Slot::Inline(body) });
-                self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
+                let rid = turn.as_str().to_owned();
+                let write = if whole { super::turn_draft::DraftWrite::Replace { rid, body } } else { super::turn_draft::DraftWrite::Append { rid, body } };
+                self.draft_push(write, Some(ack));
             }
             ProducerMsg::ProviderState { turn, state, ack } => {
                 if !self.active(&turn) {
@@ -5641,6 +5774,8 @@ impl SessionActor {
             }
         }
         let runs: Vec<(String, super::turn_draft::RunDraft)> = self.acked.runs.iter().map(|(rid, draft)| (rid.clone(), draft.clone())).collect();
+        // A draft whose run ended (a kill between the end record and the draft's removal) goes.
+        self.draft_push(super::turn_draft::DraftWrite::Sweep { open: runs.iter().map(|(rid, _)| rid.clone()).collect() }, None);
         if runs.is_empty() {
             return;
         }
@@ -5726,6 +5861,7 @@ impl SessionActor {
             }
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
             self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
+            self.remove_draft_when_durable(&rid);
         }
         self.recovering = false;
     }

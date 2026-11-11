@@ -63,7 +63,7 @@ fn parse_log_name(name: &str) -> Option<u32> {
         .flatten()
 }
 
-/// The log files of a session directory, ascending. Tmp files of `publish_file` are
+/// The log files of a session directory, ascending. Tmp files of `publish_file` and run drafts (`draft_file`) are
 /// skipped; any other entry is a format error.
 pub fn list_logs(dir: &Path) -> Result<Vec<u32>, OpenError> {
     let mut files = Vec::new();
@@ -72,7 +72,7 @@ pub fn list_logs(dir: &Path) -> Result<Vec<u32>, OpenError> {
         let name = entry.file_name().to_string_lossy().into_owned();
         if let Some(n) = parse_log_name(&name) {
             files.push(n);
-        } else if !fsio::is_tmp_name(&name) {
+        } else if !fsio::is_tmp_name(&name) && crate::draft_file::rid_of(&name).is_none() {
             return Err(OpenError::Format(format!("unexpected entry {name:?} in {}", dir.display())));
         }
     }

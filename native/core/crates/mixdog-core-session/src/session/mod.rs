@@ -410,6 +410,11 @@ pub struct SessionLanes {
 /// Wall-clock milliseconds since the Unix epoch, for record and resolution timestamps.
 pub trait Clock: Send + Sync + 'static {
     fn now_ms(&self) -> i64;
+    /// Resolves `after` from now: the session's debounce of its usage writes waits on it (Node's `setTimeout`), so a replay
+    /// holds it to the recording's timing.
+    fn sleep(&self, after: std::time::Duration) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(tokio::time::sleep(after))
+    }
 }
 
 pub struct SystemClock;

@@ -435,10 +435,11 @@ impl StoreThreads {
         Ok(levels)
     }
 
-    /// The draft of the run `rid` that `started` begins, folded over every frame from there to the log's end (a
-    /// checkpoint between them does not carry it).
+    /// The draft of the run `rid` that `started` begins: the `draft` records a log written before held, folded over every
+    /// frame from there to the log's end (a checkpoint between them does not carry it), then the run's draft file.
     fn run_draft(&self, lane: &InLane<InteractiveIo>, dir: &Path, rid: &str, started: FramePos) -> Result<RunDraft, CoreError> {
         let mut draft = RunDraft::default();
+        let mut landed = std::collections::HashSet::new();
         let mut from = started;
         loop {
             let read = log::read_forward(lane, dir, from, 1 << 20).map_err(|e| internal("drafts", &e))?;
@@ -453,6 +454,7 @@ impl StoreThreads {
                         if item.turn.as_ref().is_some_and(|turn| turn.as_str() == rid)
                             && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant") =>
                     {
+                        landed.insert(item.iid.as_str().to_owned());
                         draft.message_committed();
                     }
                     _ => {}
@@ -460,10 +462,13 @@ impl StoreThreads {
             }
             match read.next {
                 log::ForwardEnd::More(next) => from = next,
-                log::ForwardEnd::Done { .. } => return Ok(draft),
+                log::ForwardEnd::Done { .. } => break,
                 log::ForwardEnd::Damaged(damage) => return Err(internal("drafts", &format!("{damage:?}"))),
             }
         }
+        let bodies = mixdog_store::draft_file::read(lane, dir, rid).map_err(|e| internal("drafts", &e))?;
+        draft.apply_file(&bodies, |iid| landed.contains(iid));
+        Ok(draft)
     }
 
     fn frame_at(
@@ -1148,6 +1153,21 @@ impl ThreadStore for StoreThreads {
             }),
             ordinal,
         ))
+    }
+
+    fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        use mixdog_store::draft_file;
+        use super::turn_draft::DraftWrite;
+        let dir = self.dir(id.as_str());
+        let done = match write {
+            DraftWrite::Append { rid, body } => draft_file::append(lane, &dir, rid, body),
+            DraftWrite::Replace { rid, body } => draft_file::replace(lane, &dir, rid, body),
+            DraftWrite::Remove { rid } => draft_file::remove(lane, &dir, rid),
+            DraftWrite::Sweep { open } => draft_file::list(lane, &dir).and_then(|rids| {
+                rids.iter().filter(|rid| !open.contains(rid)).try_for_each(|rid| draft_file::remove(lane, &dir, rid))
+            }),
+        };
+        done.map_err(|e| internal("draft", &e))
     }
 }
 
