@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,6 +67,7 @@
   "replay": {
     "compare": "mixdog-store summary.rs workspace_summary (and the summary row builder/normaliser): compare each result whole",
     "entry": "Drive these public items on o1: mixdog-store/src/summary.rs:107 workspace_summary.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [],
     "normalised": {},
     "protocolMethods": [],
