@@ -93,7 +93,12 @@ impl Offsets {
     }
 
     pub fn set(&self, path: &str, position: Position) {
-        self.lock().insert(path.to_owned(), json!({"bytes": position.bytes, "lineIndex": position.line_index, "generation": position.generation}));
+        // JS numbers, as Node's JSON.stringify writes them (782, not 782.0).
+        let number = mixdog_js::json_number;
+        self.lock().insert(
+            path.to_owned(),
+            json!({"bytes": number(position.bytes), "lineIndex": number(position.line_index), "generation": number(position.generation)}),
+        );
     }
 
     fn forget(&self, path: &str) -> bool {
