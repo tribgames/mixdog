@@ -22,11 +22,11 @@ await set.run('summary rows expose the workspace while grouping stays on the pro
   const input = session({ workspace });
   const summary = _sessionSummary(input);
   const [normalized] = _normalizeSummaryIndex({ rows: [summary] }).rows;
-  return { session: input, summary, normalizedWorkspace: normalized.workspace, normalizedRow: normalized };
+  return { session: input, summary, normalizedRow: normalized };
 });
 await set.run('a session without a workspace record has no workspace field', () => {
   const summary = _sessionSummary(session());
-  return { session: session(), summary, hasWorkspaceKey: 'workspace' in summary };
+  return { session: session(), summary };
 });
 
 await set.finish({
