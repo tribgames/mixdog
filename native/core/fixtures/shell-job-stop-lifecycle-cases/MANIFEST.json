@@ -1,0 +1,130 @@
+{
+  "cases": 1,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "nativeSpawnBinary": {
+      "bytes": 1441792,
+      "note": "a debug build of native/mixdog-spawn made by another worker from a tree whose native/mixdog-spawn sources equal o1 6bf0a5bbf (the working copy of its Cargo.lock differs); copied unchanged, not built here",
+      "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\k1\\mixdog-spawn-o1-debug.exe",
+      "sha256": "b01d3545e0be52bf73aa8b92b687a393b9b1b61dd7a93334537dc123c372de16"
+    },
+    "notRun": "no Electron; the session runtime is the test's scripted object (state, stopShellJob, dispose); timers are virtual",
+    "runs": "standalone/session-service.mjs createSessionService (idle eviction), daemon-local-session-bridge.mjs, daemon-desktop-runtime.mjs, the desktop SessionHost (setVisibleSessions, subscribeSessionStates, stopShellJob), tools/shell-command.mjs execShellCommand (auto background), builtin/shell-jobs.mjs, builtin/task-tool.mjs stopBackgroundShellJob, native-spawn-client.mjs over the REAL native spawn server",
+    "scripted": {
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
+    }
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 12804,
+      "path": "golden.json",
+      "sha256": "cead0df59d9b705da08f5e8bb0a42337d80a425f2eca1d7dad219f1861498450"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "1ad866793937f0ec91631efb98090cfad3508da5453e21c64a51dc9d8e79db00"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.jobId",
+      "$.cases[0].observed.steps[3].started.stdoutPath",
+      "$.cases[0].observed.steps[3].started.stderrPath",
+      "$.cases[0].observed.steps[3].started.jobId",
+      "$.cases[0].observed.steps[3].running.jobs[0].taskId",
+      "$.cases[0].observed.steps[3].running.jobs[0].cwd",
+      "$.cases[0].observed.steps[3].running.jobs[0].startedAt",
+      "$.cases[0].observed.steps[5].settled.finished[0].taskId",
+      "$.cases[0].observed.steps[5].settled.finished[0].cwd",
+      "$.cases[0].observed.steps[5].settled.finished[0].startedAt",
+      "$.cases[0].observed.steps[5].settled.finished[0].finishedAt",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].taskId",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].cwd",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].startedAt",
+      "$.cases[0].observed.steps[5].lastPane.finished[0].finishedAt",
+      "$.cases[0].observed.paneRows[2].jobs[0].taskId",
+      "$.cases[0].observed.paneRows[2].jobs[0].cwd",
+      "$.cases[0].observed.paneRows[2].jobs[0].startedAt",
+      "$.cases[0].observed.paneRows[5].finished[0].taskId",
+      "$.cases[0].observed.paneRows[5].finished[0].cwd",
+      "$.cases[0].observed.paneRows[5].finished[0].startedAt",
+      "$.cases[0].observed.paneRows[5].finished[0].finishedAt"
+    ],
+    "reason": "the isolated test environment root is written <fixtureRoot>; the wall clock is real (the job records are files with real mtimes) plus the virtual elapsed time: job ids job_<ms of the wall clock>_N are written job_<ms>_N and ISO times <iso>, the virtual offsets are in steps[].atMs"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
+  "recorderSha256": "aaaea2bea3c09718a054e70120670334ae188cb640022d2e9d669050ab778688",
+  "replay": {
+    "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
+    "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs.",
+    "missingOnO1": [
+      "the desktop SessionHost pane publication (session-state shellJobs rows) and the session service idle reclaim around it: no counterpart found (idle eviction is private, mixdog-core-session/src/session/actor.rs:1233)"
+    ],
+    "normalised": {},
+    "protocolMethods": [
+      "thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE)",
+      "thread/listShellJobs"
+    ],
+    "rustTargets": [
+      {
+        "line": 63,
+        "name": "ShellJobsService",
+        "path": "native/core/crates/mixdog-core-session/src/session/shell_jobs.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "shell-job-stop-lifecycle-cases",
+  "totalBytes": 12804,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
