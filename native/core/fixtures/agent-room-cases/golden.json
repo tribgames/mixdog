@@ -5540,8 +5540,10 @@
             },
             "options": {
               "signal": {
-                "class": "AbortSignal",
-                "aborted": false
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
               },
               "effort": "low",
               "fast": false,
@@ -5572,8 +5574,10 @@
             },
             "options": {
               "signal": {
-                "class": "AbortSignal",
-                "aborted": false
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
               },
               "effort": "low",
               "fast": false,

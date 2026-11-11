@@ -1,17 +1,20 @@
 {
   "cases": 50,
-  "command": "node benchmarks/rust-core/recorders/record-agent-room-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-agent-room-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "no real member sessions or model: runRoomExchange gets scripted speak and decide functions (their scripts are in each case)",
-    "runs": "agent-room.mjs (parseRoomAsk, roomMentionOf, normalizeRoomRow/Config, roomRowItem/Message/Targets/rowsOfItems, rowsSinceCursor, roomTurnPrompt, roomMessageBudget, isPassReply, withoutPassMarker, roomUserWaiting, roomUsageLimit, roomMember* and runRoomExchange), agent-room-supervisor.mjs (parseRoomDecision, roomSupervisorPrompt, roomSupervisorRows), createRoomSupervisorCompletion with scripted config/route/provider, createAgentRoomDelivery over the real attachment store, restoreTranscriptItems"
+    "runs": "agent-room.mjs (parseRoomAsk, roomMentionOf, normalizeRoomRow/Config, roomRowItem/Message/Targets/rowsOfItems, rowsSinceCursor, roomTurnPrompt, roomMessageBudget, isPassReply, withoutPassMarker, roomUserWaiting, roomUsageLimit, roomMember* and runRoomExchange), agent-room-supervisor.mjs (parseRoomDecision, roomSupervisorPrompt, roomSupervisorRows), createRoomSupervisorCompletion with scripted config/route/provider, createAgentRoomDelivery over the real attachment store, restoreTranscriptItems",
+    "standIns": {
+      "AbortSignal": "an AbortSignal is stored as { aborted, reason } (reason through exact)"
+    }
   },
   "exclusions": {},
   "fileCount": 1,
   "files": [
     {
-      "bytes": 246165,
+      "bytes": 246259,
       "path": "golden.json",
-      "sha256": "13024c01b21bd3991a6706c23fead35c6de3bdf29865a9870b26764ecce5e111"
+      "sha256": "0a7722ed9b5af595f6ccab29fddbcd8a650d61e1d159f05abbac0cbc1fa9bf88"
     }
   ],
   "inputs": [
@@ -66,7 +69,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-room-cases.mjs",
-  "recorderSha256": "0d9bc1aa7f94bccefe0d644852f4b05559150daac5cd82a29fc31c818dae244f",
+  "recorderSha256": "cbabf12f5445ca17acdffbf4b013ee7d6a90fe6a8fc4c386456c1de2cb4bd823",
   "replay": {
     "compare": "mixdog-core-rooms (config, exchange, live, calls): parse_room_ask, mention, row/prompt builders, run_room_exchange (feed spec.plan / spec.choose; compare result, spoken, every turn handed to speak and every step shown to decide), supervisor parser/prompt, completion request, delivery append",
     "entry": "Drive these public items on o1: mixdog-core-rooms/src/rooms/config.rs:157 parse_room_ask; mixdog-core-rooms/src/rooms/config.rs:206 room_mention_of; mixdog-core-rooms/src/rooms/row_message.rs:228 room_row_message; mixdog-core-rooms/src/rooms/turn_prompt.rs:296 room_turn_prompt; mixdog-core-rooms/src/rooms/exchange.rs:302 run_room_exchange; mixdog-core-rooms/src/rooms/supervisor.rs:115 supervisor_prompt; mixdog-core-rooms/src/rooms/supervisor.rs:100 supervisor_rows; mixdog-core-rooms/src/rooms/supervisor.rs:300 parse_room_decision; mixdog-core-rooms/src/rooms/turn_post.rs:137 post_speech.",
@@ -130,6 +133,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "agent-room-cases",
-  "totalBytes": 246165,
+  "totalBytes": 246259,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
