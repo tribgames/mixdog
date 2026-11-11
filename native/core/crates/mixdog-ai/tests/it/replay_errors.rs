@@ -260,7 +260,8 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         // The attempts the send made: one more than the attempts it discarded for a retry.
         "attempts" => assert_eq!(left.attempts, Some(value.as_f64() as u32), "{what}: {mapping}"),
         // The Devin wire error's server text, which the error's message carries.
-        "detail" => assert!(left.error(field).message.contains(value.as_str()), "{what}: {mapping}: {:?}", left.error(field).message),
+        "detail" | "cursorDetail" => assert!(left.error(field).message.contains(value.as_str()), "{what}: {mapping}: {:?}", left.error(field).message),
+        "cursorCode" => assert_eq!(left.error(field).code.as_deref(), opt_str(value), "{what}: {mapping}"),
         "providerQuota" | "quotaExceeded" => assert_eq!(
             left.error(field).kind == mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted,
             opt_bool(value),

@@ -671,10 +671,6 @@ impl CursorDecoder {
             DeliveryState::Accepted,
         );
         error.exposure = self.exposure;
-        // The product reports every end-stream failure as an aborted stream;
-        // the kind above keeps the retry verdict of the stream's own code.
-        error.code = Some("stream_aborted".to_owned());
-        error.status = None;
         Some(error)
     }
 

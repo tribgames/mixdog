@@ -13,6 +13,8 @@ pub const ERROR_FIELDS: &[(&str, &str, &str)] = &[
     ("acquireTimeoutMs", "unread", ""),
     ("attempts", "observable: the attempts on the wire (requests/dials counted by the endpoint)", "o/providers/openai-ws-send-attempts/handshake-failure.mjs:27 o/session/manager/ask-turn-failure.mjs:66 src/runtime/shared/err-text.mjs:219"),
     ("connectCode", "unread", ""),
+    ("cursorCode", "ProviderError.code (the Connect code the transient-code check reads)", "o/providers/retry-classification.mjs:219 o/providers/retry-classification.mjs:440"),
+    ("cursorDetail", "ProviderError.message (the Connect error's detail: the protocol-drift check reads it, and the message carries it)", "o/providers/cursor-wire-guards.mjs:296"),
     ("data", "the response body as served (its RetryInfo is ProviderError.retry_after; the cached-content check reads it)", "o/providers/gemini.mjs:225 o/providers/provider-error-kind.mjs:83 o/providers/provider-error-kind.mjs:188 o/providers/anthropic-fast-mode.mjs:76 o/providers/anthropic-fast-mode.mjs:107 o/providers/vertex-ai-models.mjs:380 o/providers/vertex-ai-models.mjs:383 o/mcp/client.mjs:161 o/mcp/client.mjs:162"),
     ("detail", "ProviderError.message (the Devin wire error's detail: the opaque-rejection check reads it, and the message carries it)", "o/providers/devin.mjs:260"),
     ("details", "ProviderError.retry_after (the RetryInfo `providerErrorKind` reads behind the stamped retryAfterMs)", "o/providers/provider-error-kind.mjs:186 o/providers/provider-error-kind.mjs:187 o/providers/provider-error-kind.mjs:188 o/providers/vertex-ai-models.mjs:384 o/providers/devin-wire-transport.mjs:378 o/session/manager/ask-turn-failure.mjs:53 (+13 more)"),
