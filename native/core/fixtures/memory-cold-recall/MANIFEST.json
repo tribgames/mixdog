@@ -48,7 +48,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-cold-recall.mjs",
-  "recorderSha256": "273aafcde3e0cc6b3e681e8ee2eab8b95342c9246db3006a7ebce05512805771",
+  "recorderSha256": "793762bb12865db70c368506729e08db1f86c6c4108caf26dd81b1df41183d78",
   "replay": "native/core/crates/mixdog-services/src/memory/tests/cold_recall.rs",
   "set": "memory-cold-recall",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
