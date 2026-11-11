@@ -1,7 +1,8 @@
 // The Stop scenarios both abort recordings (Node's real daemon behind its SessionHost; a running mixdogd) are driven through, one fresh thread
 // each. `prompt` is the first prompt (its HOLD marker picks the provider's answer: remote-protocol-chat-abort-provider.mjs), `output` waits
 // for the streamed text to reach the client before the Stop, `then` is a second prompt sent while the first still runs (a queued
-// steering prompt), `pasted` rides the first prompt, `stop` is what the phone sends, and `again` stops a second time once the first Stop settled.
+// steering prompt), `pasted` rides the first prompt, `stop` is what the phone sends, `again` stops a second time once the first Stop settled,
+// and `twice` sends the Stop twice in one tick (a second Stop before the first ended the turn).
 // `submitter` / `canceller` name the paired devices that send the prompt and the Stop (the same one unless a case says otherwise), `submit` adds options to
 // the prompt's submission, and `ready` is the state the turn is in when the Stop comes: `held` (the endpoint holds the request; the default), `approval`
 // (a tool call waits for the person's approval) or `completed` (the turn ended on its own). `requeued` marks a Stop after which the prompt is queued again (a runtime's turn is never handed back) and
@@ -40,4 +41,5 @@ export const ABORT_CASES = [
   { name: 'notify-deny-settled', prompt: 'HOLD-ASK read the file twice answered', ready: 'ask', notify: [{ action: 'allow', id: 'shown' }, { action: 'deny', id: 'shown' }] },
   { name: 'notify-allow-unknown-id', prompt: 'HOLD-ASK read the file of another approval', ready: 'ask', notify: [{ action: 'allow', id: 'not-the-shown-approval' }, { action: 'deny', id: 'not-the-shown-approval' }, { action: 'allow', id: 'shown' }] },
   { name: 'notify-allow-question', prompt: 'HOLD-APPROVAL ask about the file', ready: 'approval', notify: [{ action: 'allow', id: 'shown' }], stop: {} },
+  { name: 'running-stopped-twice-at-once', prompt: 'HOLD-EMPTY stop me twice at once', stop: {}, twice: true },
 ];

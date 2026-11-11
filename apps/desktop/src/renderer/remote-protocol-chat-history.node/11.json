@@ -14,13 +14,58 @@
    "<port:daemon>"
   ]
  },
- "name": "running-approval-pending",
- "id": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+ "name": "running-ask-pending",
+ "id": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
  "inputs": [
+  {
+   "at": 0,
+   "clock": 10,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 50,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 499,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 1000,
+   "input": "clock"
+  },
   {
    "at": 0,
    "clock": 1000,
    "input": "host.startProject"
+  },
+  {
+   "at": 1,
+   "clock": 1001,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1010,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1500,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1510,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 2000,
+   "input": "clock"
   },
   {
    "at": 1,
@@ -79,54 +124,249 @@
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42515 5d1232a6bbb1fcde92b2fc70e1f94f3e28c42e0a205be46d12adc31abfc0d084",
-   "prompt": "HOLD-APPROVAL add a file",
+   "key": "POST /v1/chat/completions stream tools first 42514 f1c706b2034f439b1b6542d7d5b43d1370f823450500a6d1d5c7dc4d53dcf3d0",
+   "prompt": "HOLD-ASK read the asked file then stop",
    "step": 1
   },
   {
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42515 5d1232a6bbb1fcde92b2fc70e1f94f3e28c42e0a205be46d12adc31abfc0d084",
-   "prompt": "HOLD-APPROVAL add a file",
+   "key": "POST /v1/chat/completions stream tools first 42514 f1c706b2034f439b1b6542d7d5b43d1370f823450500a6d1d5c7dc4d53dcf3d0",
+   "prompt": "HOLD-ASK read the asked file then stop",
    "step": 2
   },
   {
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42515 5d1232a6bbb1fcde92b2fc70e1f94f3e28c42e0a205be46d12adc31abfc0d084",
-   "prompt": "HOLD-APPROVAL add a file",
+   "key": "POST /v1/chat/completions stream tools first 42514 f1c706b2034f439b1b6542d7d5b43d1370f823450500a6d1d5c7dc4d53dcf3d0",
+   "prompt": "HOLD-ASK read the asked file then stop",
    "step": 3
   },
   {
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42515 5d1232a6bbb1fcde92b2fc70e1f94f3e28c42e0a205be46d12adc31abfc0d084",
-   "prompt": "HOLD-APPROVAL add a file",
+   "key": "POST /v1/chat/completions stream tools first 42514 f1c706b2034f439b1b6542d7d5b43d1370f823450500a6d1d5c7dc4d53dcf3d0",
+   "prompt": "HOLD-ASK read the asked file then stop",
    "step": 4
   },
   {
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42515 5d1232a6bbb1fcde92b2fc70e1f94f3e28c42e0a205be46d12adc31abfc0d084",
-   "prompt": "HOLD-APPROVAL add a file",
+   "key": "POST /v1/chat/completions stream tools first 42514 f1c706b2034f439b1b6542d7d5b43d1370f823450500a6d1d5c7dc4d53dcf3d0",
+   "prompt": "HOLD-ASK read the asked file then stop",
    "step": 5
   },
   {
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42515 5d1232a6bbb1fcde92b2fc70e1f94f3e28c42e0a205be46d12adc31abfc0d084",
-   "prompt": "HOLD-APPROVAL add a file",
+   "key": "POST /v1/chat/completions stream tools first 42514 f1c706b2034f439b1b6542d7d5b43d1370f823450500a6d1d5c7dc4d53dcf3d0",
+   "prompt": "HOLD-ASK read the asked file then stop",
    "step": 6
+  },
+  {
+   "at": 5,
+   "clock": 2001,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2009,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2010,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2016,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2017,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2025,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2033,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2050,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2100,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2109,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2110,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2150,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2200,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2216,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2225,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2226,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2250,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2300,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2400,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 2800,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3000,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3001,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3010,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 3500,
+   "input": "clock"
+  },
+  {
+   "at": 10,
+   "clock": 4000,
+   "input": "clock"
   },
   {
    "at": 10,
    "clock": 4000,
    "input": "phone.abortSession"
+  },
+  {
+   "at": 11,
+   "clock": 4001,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 4010,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 4016,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 4150,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 4400,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 5000,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 5001,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 6000,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 6010,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 6400,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 7000,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 8000,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 9001,
+   "input": "clock"
+  },
+  {
+   "at": 12,
+   "clock": 10000,
+   "input": "clock"
   }
  ],
  "history": [
@@ -139,18 +379,18 @@
     "queued": [],
     "busy": false,
     "commandBusy": false,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
-    "currentProject": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
+    "currentProject": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "desktopSession": {
      "classification": "project",
-     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a"
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a"
     },
     "remoteEnabled": false,
     "remoteSessionId": null
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [],
@@ -196,7 +436,7 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "",
@@ -214,7 +454,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -300,7 +540,7 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [],
@@ -346,7 +586,7 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -364,7 +604,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -442,20 +682,20 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-running-approval-pending",
-      "text": "HOLD-APPROVAL add a file",
+      "id": "sub-running-ask-pending",
+      "text": "HOLD-ASK read the asked file then stop",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+      "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
       "device": "Phone A"
      }
     ],
@@ -509,9 +749,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-APPROVAL add a file"
+     "HOLD-ASK read the asked file then stop"
     ],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -529,7 +769,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -615,19 +855,19 @@
    "input": "phone.submitNewTask",
    "reply": {
     "accepted": true,
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "snapshot": {
      "items": [
       {
        "kind": "user",
-       "id": "sub-running-approval-pending",
-       "text": "HOLD-APPROVAL add a file",
+       "id": "sub-running-ask-pending",
+       "text": "HOLD-ASK read the asked file then stop",
        "at": 1900000002000,
        "modelId": "harness-model",
        "model": "harness-model",
        "provider": "custom-harness",
        "agent": "Default",
-       "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+       "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
        "device": "Phone A"
       }
      ],
@@ -681,9 +921,9 @@
      "activeToolSummary": null,
      "activeTools": null,
      "promptHistoryList": [
-      "HOLD-APPROVAL add a file"
+      "HOLD-ASK read the asked file then stop"
      ],
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
      "sessionForkedFrom": null,
      "clientHostPid": "<pid:daemon>",
      "model": "harness-model",
@@ -701,7 +941,7 @@
      "contextWindow": null,
      "rawContextWindow": null,
      "effectiveContextWindowPercent": null,
-     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
      "workspace": null,
      "systemShell": {
       "command": "",
@@ -772,20 +1012,20 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-running-approval-pending",
-      "text": "HOLD-APPROVAL add a file",
+      "id": "sub-running-ask-pending",
+      "text": "HOLD-ASK read the asked file then stop",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+      "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
       "device": "Phone A"
      }
     ],
@@ -813,34 +1053,26 @@
     "queued": [],
     "thinking": null,
     "toolApproval": {
-     "id": "it_bd0fd0c8_1",
-     "name": "ask_user",
-     "kind": "question",
+     "id": "it_e7d0e6d8_1",
+     "name": "read",
+     "kind": "approval",
      "args": {
-      "questions": [
-       {
-        "question": "Add the file?",
-        "header": "Add file",
-        "options": [
-         {
-          "label": "Yes",
-          "description": "Add it"
-         },
-         {
-          "label": "No",
-          "description": "Leave it out"
-         }
-        ]
-       }
-      ]
+      "path": "ask-me.json"
      },
-     "cwd": null,
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
      "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook",
+     "reason": "approval requested by hook rule for read",
      "requestedAt": 1900000002000,
      "timeoutMs": null,
-     "expiresAt": null
+     "expiresAt": null,
+     "remember": [
+      "once",
+      "session",
+      "always"
+     ],
+     "agentId": "lead",
+     "grantAction": "tool:read"
     },
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
@@ -868,9 +1100,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-APPROVAL add a file"
+     "HOLD-ASK read the asked file then stop"
     ],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -888,7 +1120,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -970,41 +1202,41 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-running-approval-pending",
-      "text": "HOLD-APPROVAL add a file",
+      "id": "sub-running-ask-pending",
+      "text": "HOLD-ASK read the asked file then stop",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+      "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
       "device": "Phone A"
      },
      {
       "kind": "tool",
-      "id": "it_bd0fd0c8_2",
+      "id": "it_e7d0e6d8_2",
       "name": "__aggregate__",
       "args": {
        "categoryOrder": [
-        "Setup|Asking|Asked|user|users"
+        "Read|Reading|Read|file|files"
        ]
       },
       "count": 1,
       "completedCount": 0,
       "categories": {
-       "Setup|Asking|Asked|user|users": {
-        "key": "Setup|Asking|Asked|user|users",
-        "category": "Setup",
-        "active": "Asking",
-        "done": "Asked",
-        "noun": "user",
-        "pluralNoun": "users",
+       "Read|Reading|Read|file|files": {
+        "key": "Read|Reading|Read|file|files",
+        "category": "Read",
+        "active": "Reading",
+        "done": "Read",
+        "noun": "file",
+        "pluralNoun": "files",
         "effect": false,
         "count": 1
        }
@@ -1013,24 +1245,9 @@
        {
         "kind": "tool",
         "id": "call_hold_1",
-        "name": "ask_user",
+        "name": "read",
         "args": {
-         "questions": [
-          {
-           "question": "Add the file?",
-           "header": "Add file",
-           "options": [
-            {
-             "label": "Yes",
-             "description": "Add it"
-            },
-            {
-             "label": "No",
-             "description": "Leave it out"
-            }
-           ]
-          }
-         ]
+         "path": "ask-me.json"
         },
         "result": null,
         "rawResult": null,
@@ -1078,34 +1295,26 @@
     "queued": [],
     "thinking": null,
     "toolApproval": {
-     "id": "it_bd0fd0c8_1",
-     "name": "ask_user",
-     "kind": "question",
+     "id": "it_e7d0e6d8_1",
+     "name": "read",
+     "kind": "approval",
      "args": {
-      "questions": [
-       {
-        "question": "Add the file?",
-        "header": "Add file",
-        "options": [
-         {
-          "label": "Yes",
-          "description": "Add it"
-         },
-         {
-          "label": "No",
-          "description": "Leave it out"
-         }
-        ]
-       }
-      ]
+      "path": "ask-me.json"
      },
-     "cwd": null,
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
      "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook",
+     "reason": "approval requested by hook rule for read",
      "requestedAt": 1900000002000,
      "timeoutMs": null,
-     "expiresAt": null
+     "expiresAt": null,
+     "remember": [
+      "once",
+      "session",
+      "always"
+     ],
+     "agentId": "lead",
+     "grantAction": "tool:read"
     },
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
@@ -1140,9 +1349,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-APPROVAL add a file"
+     "HOLD-ASK read the asked file then stop"
     ],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -1160,7 +1369,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -1242,41 +1451,41 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-running-approval-pending",
-      "text": "HOLD-APPROVAL add a file",
+      "id": "sub-running-ask-pending",
+      "text": "HOLD-ASK read the asked file then stop",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+      "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
       "device": "Phone A"
      },
      {
       "kind": "tool",
-      "id": "it_bd0fd0c8_2",
+      "id": "it_e7d0e6d8_2",
       "name": "__aggregate__",
       "args": {
        "categoryOrder": [
-        "Setup|Asking|Asked|user|users"
+        "Read|Reading|Read|file|files"
        ]
       },
       "count": 1,
       "completedCount": 0,
       "categories": {
-       "Setup|Asking|Asked|user|users": {
-        "key": "Setup|Asking|Asked|user|users",
-        "category": "Setup",
-        "active": "Asking",
-        "done": "Asked",
-        "noun": "user",
-        "pluralNoun": "users",
+       "Read|Reading|Read|file|files": {
+        "key": "Read|Reading|Read|file|files",
+        "category": "Read",
+        "active": "Reading",
+        "done": "Read",
+        "noun": "file",
+        "pluralNoun": "files",
         "effect": false,
         "count": 1
        }
@@ -1285,24 +1494,9 @@
        {
         "kind": "tool",
         "id": "call_hold_1",
-        "name": "ask_user",
+        "name": "read",
         "args": {
-         "questions": [
-          {
-           "question": "Add the file?",
-           "header": "Add file",
-           "options": [
-            {
-             "label": "Yes",
-             "description": "Add it"
-            },
-            {
-             "label": "No",
-             "description": "Leave it out"
-            }
-           ]
-          }
-         ]
+         "path": "ask-me.json"
         },
         "result": null,
         "rawResult": null,
@@ -1350,34 +1544,26 @@
     "queued": [],
     "thinking": null,
     "toolApproval": {
-     "id": "it_bd0fd0c8_1",
-     "name": "ask_user",
-     "kind": "question",
+     "id": "it_e7d0e6d8_1",
+     "name": "read",
+     "kind": "approval",
      "args": {
-      "questions": [
-       {
-        "question": "Add the file?",
-        "header": "Add file",
-        "options": [
-         {
-          "label": "Yes",
-          "description": "Add it"
-         },
-         {
-          "label": "No",
-          "description": "Leave it out"
-         }
-        ]
-       }
-      ]
+      "path": "ask-me.json"
      },
-     "cwd": null,
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
      "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook",
+     "reason": "approval requested by hook rule for read",
      "requestedAt": 1900000002000,
      "timeoutMs": null,
-     "expiresAt": null
+     "expiresAt": null,
+     "remember": [
+      "once",
+      "session",
+      "always"
+     ],
+     "agentId": "lead",
+     "grantAction": "tool:read"
     },
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
@@ -1412,9 +1598,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-APPROVAL add a file"
+     "HOLD-ASK read the asked file then stop"
     ],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -1432,7 +1618,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -1491,7 +1677,7 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5"
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a"
     },
     "toolMode": "full",
     "themeEpoch": 0,
@@ -1516,41 +1702,41 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-running-approval-pending",
-      "text": "HOLD-APPROVAL add a file",
+      "id": "sub-running-ask-pending",
+      "text": "HOLD-ASK read the asked file then stop",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+      "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
       "device": "Phone A"
      },
      {
       "kind": "tool",
-      "id": "it_bd0fd0c8_2",
+      "id": "it_e7d0e6d8_2",
       "name": "__aggregate__",
       "args": {
        "categoryOrder": [
-        "Setup|Asking|Asked|user|users"
+        "Read|Reading|Read|file|files"
        ]
       },
       "count": 1,
       "completedCount": 0,
       "categories": {
-       "Setup|Asking|Asked|user|users": {
-        "key": "Setup|Asking|Asked|user|users",
-        "category": "Setup",
-        "active": "Asking",
-        "done": "Asked",
-        "noun": "user",
-        "pluralNoun": "users",
+       "Read|Reading|Read|file|files": {
+        "key": "Read|Reading|Read|file|files",
+        "category": "Read",
+        "active": "Reading",
+        "done": "Read",
+        "noun": "file",
+        "pluralNoun": "files",
         "effect": false,
         "count": 1
        }
@@ -1559,24 +1745,9 @@
        {
         "kind": "tool",
         "id": "call_hold_1",
-        "name": "ask_user",
+        "name": "read",
         "args": {
-         "questions": [
-          {
-           "question": "Add the file?",
-           "header": "Add file",
-           "options": [
-            {
-             "label": "Yes",
-             "description": "Add it"
-            },
-            {
-             "label": "No",
-             "description": "Leave it out"
-            }
-           ]
-          }
-         ]
+         "path": "ask-me.json"
         },
         "result": null,
         "rawResult": null,
@@ -1624,34 +1795,26 @@
     "queued": [],
     "thinking": null,
     "toolApproval": {
-     "id": "it_bd0fd0c8_1",
-     "name": "ask_user",
-     "kind": "question",
+     "id": "it_e7d0e6d8_1",
+     "name": "read",
+     "kind": "approval",
      "args": {
-      "questions": [
-       {
-        "question": "Add the file?",
-        "header": "Add file",
-        "options": [
-         {
-          "label": "Yes",
-          "description": "Add it"
-         },
-         {
-          "label": "No",
-          "description": "Leave it out"
-         }
-        ]
-       }
-      ]
+      "path": "ask-me.json"
      },
-     "cwd": null,
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
      "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook",
+     "reason": "approval requested by hook rule for read",
      "requestedAt": 1900000002000,
      "timeoutMs": null,
-     "expiresAt": null
+     "expiresAt": null,
+     "remember": [
+      "once",
+      "session",
+      "always"
+     ],
+     "agentId": "lead",
+     "grantAction": "tool:read"
     },
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
@@ -1686,9 +1849,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-APPROVAL add a file"
+     "HOLD-ASK read the asked file then stop"
     ],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -1706,7 +1869,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -1765,7 +1928,7 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5"
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a"
     },
     "toolMode": "full",
     "themeEpoch": 0,
@@ -1795,41 +1958,41 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-running-approval-pending",
-      "text": "HOLD-APPROVAL add a file",
+      "id": "sub-running-ask-pending",
+      "text": "HOLD-ASK read the asked file then stop",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+      "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
       "device": "Phone A"
      },
      {
       "kind": "tool",
-      "id": "it_bd0fd0c8_2",
+      "id": "it_e7d0e6d8_2",
       "name": "__aggregate__",
       "args": {
        "categoryOrder": [
-        "Setup|Asking|Asked|user|users"
+        "Read|Reading|Read|file|files"
        ]
       },
       "count": 1,
       "completedCount": 0,
       "categories": {
-       "Setup|Asking|Asked|user|users": {
-        "key": "Setup|Asking|Asked|user|users",
-        "category": "Setup",
-        "active": "Asking",
-        "done": "Asked",
-        "noun": "user",
-        "pluralNoun": "users",
+       "Read|Reading|Read|file|files": {
+        "key": "Read|Reading|Read|file|files",
+        "category": "Read",
+        "active": "Reading",
+        "done": "Read",
+        "noun": "file",
+        "pluralNoun": "files",
         "effect": false,
         "count": 1
        }
@@ -1838,24 +2001,9 @@
        {
         "kind": "tool",
         "id": "call_hold_1",
-        "name": "ask_user",
+        "name": "read",
         "args": {
-         "questions": [
-          {
-           "question": "Add the file?",
-           "header": "Add file",
-           "options": [
-            {
-             "label": "Yes",
-             "description": "Add it"
-            },
-            {
-             "label": "No",
-             "description": "Leave it out"
-            }
-           ]
-          }
-         ]
+         "path": "ask-me.json"
         },
         "result": null,
         "rawResult": null,
@@ -1903,34 +2051,26 @@
     "queued": [],
     "thinking": null,
     "toolApproval": {
-     "id": "it_bd0fd0c8_1",
-     "name": "ask_user",
-     "kind": "question",
+     "id": "it_e7d0e6d8_1",
+     "name": "read",
+     "kind": "approval",
      "args": {
-      "questions": [
-       {
-        "question": "Add the file?",
-        "header": "Add file",
-        "options": [
-         {
-          "label": "Yes",
-          "description": "Add it"
-         },
-         {
-          "label": "No",
-          "description": "Leave it out"
-         }
-        ]
-       }
-      ]
+      "path": "ask-me.json"
      },
-     "cwd": null,
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
      "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook",
+     "reason": "approval requested by hook rule for read",
      "requestedAt": 1900000002000,
      "timeoutMs": null,
-     "expiresAt": null
+     "expiresAt": null,
+     "remember": [
+      "once",
+      "session",
+      "always"
+     ],
+     "agentId": "lead",
+     "grantAction": "tool:read"
     },
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
@@ -1965,9 +2105,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-APPROVAL add a file"
+     "HOLD-ASK read the asked file then stop"
     ],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -1985,7 +2125,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -2044,7 +2184,7 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5"
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a"
     },
     "toolMode": "full",
     "themeEpoch": 0,
@@ -2087,41 +2227,41 @@
    }
   },
   {
-   "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+   "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-running-approval-pending",
-      "text": "HOLD-APPROVAL add a file",
+      "id": "sub-running-ask-pending",
+      "text": "HOLD-ASK read the asked file then stop",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_09f5e8a9ea2a4d3cbdf14cafead7e2fa",
+      "messageId": "msg_cd1eef7925fe4901aac50ef1e6228c6c",
       "device": "Phone A"
      },
      {
       "kind": "tool",
-      "id": "it_bd0fd0c8_2",
+      "id": "it_e7d0e6d8_2",
       "name": "__aggregate__",
       "args": {
        "categoryOrder": [
-        "Setup|Asking|Asked|user|users"
+        "Read|Reading|Read|file|files"
        ]
       },
       "count": 1,
       "completedCount": 1,
       "categories": {
-       "Setup|Asking|Asked|user|users": {
-        "key": "Setup|Asking|Asked|user|users",
-        "category": "Setup",
-        "active": "Asking",
-        "done": "Asked",
-        "noun": "user",
-        "pluralNoun": "users",
+       "Read|Reading|Read|file|files": {
+        "key": "Read|Reading|Read|file|files",
+        "category": "Read",
+        "active": "Reading",
+        "done": "Read",
+        "noun": "file",
+        "pluralNoun": "files",
         "effect": false,
         "count": 1
        }
@@ -2130,27 +2270,12 @@
        {
         "kind": "tool",
         "id": "call_hold_1",
-        "name": "ask_user",
+        "name": "read",
         "args": {
-         "questions": [
-          {
-           "question": "Add the file?",
-           "header": "Add file",
-           "options": [
-            {
-             "label": "Yes",
-             "description": "Add it"
-            },
-            {
-             "label": "No",
-             "description": "Leave it out"
-            }
-           ]
-          }
-         ]
+         "path": "ask-me.json"
         },
         "result": "Error: Session closed: runtime abort (reason=user-cancel)",
-        "rawResult": "Error: Session \"sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5\" closed: runtime abort (reason=user-cancel)",
+        "rawResult": "Error: Session \"sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a\" closed: runtime abort (reason=user-cancel)",
         "isError": true,
         "errorCount": 1,
         "callErrorCount": 1,
@@ -2164,7 +2289,7 @@
       ],
       "aggregate": true,
       "result": "[status: cancelled]\n1 Failed",
-      "rawResult": "1. ask_user\nError: Session \"sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5\" closed: runtime abort (reason=user-cancel)",
+      "rawResult": "1. read\nError: Session \"sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a\" closed: runtime abort (reason=user-cancel)",
       "isError": true,
       "expanded": false,
       "headerFinalized": true,
@@ -2176,13 +2301,13 @@
       "exitErrorCount": 0,
       "completedAt": 1900000004000,
       "doneCategories": {
-       "Setup|Asking|Asked|user|users": {
-        "key": "Setup|Asking|Asked|user|users",
-        "category": "Setup",
-        "active": "Asking",
-        "done": "Asked",
-        "noun": "user",
-        "pluralNoun": "users",
+       "Read|Reading|Read|file|files": {
+        "key": "Read|Reading|Read|file|files",
+        "category": "Read",
+        "active": "Reading",
+        "done": "Read",
+        "noun": "file",
+        "pluralNoun": "files",
         "effect": false,
         "count": 1
        }
@@ -2190,8 +2315,8 @@
      },
      {
       "kind": "turndone",
-      "id": "it_bd0fd0c8_3",
-      "checkpointId": "sub-running-approval-pending",
+      "id": "it_e7d0e6d8_3",
+      "checkpointId": "sub-running-ask-pending",
       "elapsedMs": 2000,
       "status": "cancelled",
       "outputTokens": 2,
@@ -2205,7 +2330,7 @@
       "agent": "Default",
       "device": "Phone A",
       "completionVerb": "Mapped",
-      "attemptId": "3d6d6dcf-bcf7-4c2e-a9b6-79c148bac51f"
+      "attemptId": "004d5246-df97-4232-b136-99cd5a220bba"
      }
     ],
     "transcriptViewItems": null,
@@ -2226,7 +2351,7 @@
     "toolApproval": null,
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": {
-     "id": "it_bd0fd0c8_1",
+     "id": "it_e7d0e6d8_1",
      "approved": false,
      "device": "",
      "interrupted": true,
@@ -2263,9 +2388,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-APPROVAL add a file"
+     "HOLD-ASK read the asked file then stop"
     ],
-    "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+    "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -2283,7 +2408,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-ask-pending\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -2342,7 +2467,7 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5"
+     "sessionId": "sess_desktop_afdd908539dfa0e4a0b2cd5df16488a2af3ea0a7cc6e0fa52fdc3735e0cffa5a"
     },
     "toolMode": "full",
     "themeEpoch": 0,

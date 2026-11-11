@@ -316,15 +316,17 @@ try {
   await run('the attached world');
 
   /** One input: a call of the phone's table (or the host's), the world run until its reply and then for AFTER_INPUT_MS. */
-  const call = async (label, invoke) => {
+  // Several invokes are one input: all are made in the same tick, in order, and their replies recorded in that order (`<label> <n>`).
+  const calls = async (label, invokes) => {
     inputs.push({ at: history.length, clock: clockNow().perf - PERF_BASE, input: label });
-    let outcome = null;
-    invoke().then((reply) => { outcome = { reply: plain(reply ?? null) }; }, (error) => { outcome = { error: String(error?.message ?? error) }; });
-    await run(`the reply to ${label}`, { until: () => outcome !== null, budget: 120_000 });
-    history.push({ kind: 'reply', input: label, ...outcome });
+    const outcomes = invokes.map(() => null);
+    invokes.forEach((invoke, n) => invoke().then((reply) => { outcomes[n] = { reply: plain(reply ?? null) }; }, (error) => { outcomes[n] = { error: String(error?.message ?? error) }; }));
+    await run(`the reply to ${label}`, { until: () => outcomes.every((o) => o !== null), budget: 120_000 });
+    for (const [n, outcome] of outcomes.entries()) history.push({ kind: 'reply', input: invokes.length > 1 ? `${label} ${n + 1}` : label, ...outcome });
     await run(`the world after ${label}`);
-    return outcome;
+    return outcomes;
   };
+  const call = async (label, invoke) => (await calls(label, [invoke]))[0];
   const submitter = phone(c.submitter ?? DEVICES.a);
   const canceller = phone(c.canceller ?? c.submitter ?? DEVICES.a);
   await call('host.startProject', () => host.startProject(project));
@@ -347,7 +349,8 @@ try {
   }
   // Any state published since the Stop that closes the turn(s): a requeued runtime turn is busy again in the next one.
   const closedAt = history.length;
-  if (c.stop) await call('phone.abortSession', () => canceller.abortSession([id, c.stop]));
+  if (c.stop && c.twice) await calls('phone.abortSession twice', [() => canceller.abortSession([id, c.stop]), () => canceller.abortSession([id, c.stop])]);
+  else if (c.stop) await call('phone.abortSession', () => canceller.abortSession([id, c.stop]));
   const turns = c.then ? 2 : 1;
   const closed = () => history.slice(closedAt).some((h) => h.sessionId === id && h.snapshot?.busy === false && (h.snapshot?.stats?.turns ?? 0) >= turns) || (shown()?.busy === false && (shown()?.stats?.turns ?? 0) >= turns);
   await run('the turn(s) to close', { until: closed, budget: 120_000 });

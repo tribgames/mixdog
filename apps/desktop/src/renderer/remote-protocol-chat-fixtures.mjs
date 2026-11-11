@@ -3,18 +3,13 @@
 // Loading verifies all of it: a file missing, extra or changed, or a recorder file changed since the recordings were made, fails.
 //
 //   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-fixtures.mjs <fixture> <recording.json>...
-// installs the recordings as the fixture's folder (abort | history | roster | live | refusals).
+// installs the recordings as the fixture's folder (history | roster | live | refusals).
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /** Each fixture's folder and the files its recorder is made of (paths relative to this folder). */
 export const FIXTURES = {
-  abort: {
-    dir: 'remote-protocol-chat-abort.node/',
-    recorder: ['remote-protocol-chat-abort.record.mjs', 'remote-protocol-chat-abort-cases.mjs', 'remote-protocol-chat-abort-provider.mjs', 'remote-protocol-chat-abort-procs.mjs'],
-    node: true,
-  },
   // Node's state history at the store's publish, one recording per case, each recorded twice byte-identical before it was installed.
   history: {
     dir: 'remote-protocol-chat-history.node/',
@@ -87,8 +82,6 @@ export function installFixture(name, files, extra = {}) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [name, ...files] = process.argv.slice(2);
   if (!FIXTURES[name] || !files.length) throw new Error(`usage: <${Object.keys(FIXTURES).join(' | ')}> <recording.json>...`);
-  // The Stop fixture's manifest also declares its free points and the cases where Node disagrees with itself.
-  const extra = name === 'abort' ? (await import('./remote-protocol-chat-abort-fixture.mjs')).abortManifestExtra(files.map((f) => JSON.parse(readFileSync(f, 'utf8')))) : {};
-  const { manifest } = installFixture(name, files, extra);
-  console.log(`installed ${manifest.count} recordings as ${FIXTURES[name].dir}${name === 'abort' ? `; Node varies in: ${JSON.stringify(manifest.nodeVariants)}` : ''}`);
+  const { manifest } = installFixture(name, files);
+  console.log(`installed ${manifest.count} recordings as ${FIXTURES[name].dir}`);
 }
