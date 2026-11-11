@@ -4270,7 +4270,7 @@ impl SessionActor {
         let host_meta = params.input.options.as_ref().and_then(|o| o.client_submission_id.as_deref()).and_then(|submission| {
             let starts = self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner());
             let start = starts.get(submission)?;
-            let mut meta = serde_json::Map::new();
+            let mut meta = start.meta.clone();
             if let Some(hop) = start.hop {
                 meta.insert("hop".into(), json!(hop));
             }
@@ -4953,6 +4953,9 @@ impl SessionActor {
                 body["meta"]["transcript"]["submissionIds"] = json!([submission]);
                 if let Some(trigger) = &routine.trigger {
                     body["meta"]["transcript"]["routineTrigger"] = trigger.clone();
+                }
+                for (key, value) in &routine.meta {
+                    body["meta"]["transcript"][key] = value.clone();
                 }
                 if let Some(hop) = routine.hop {
                     body["meta"]["transcript"]["hop"] = json!(hop);

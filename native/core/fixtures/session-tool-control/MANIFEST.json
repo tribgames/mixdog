@@ -5,14 +5,15 @@
     "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
     "Room sends, members and asks are not recorded (out of scope).",
     "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
+    "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded.",
     "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered."
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5278378,
+      "bytes": 7474558,
       "path": "golden.json",
-      "sha256": "c7947da7ebe1a80cc51901f411b4c0f4f66f2ec9dd1592369418c8a0121090a7"
+      "sha256": "2a5ec939512210b15d4c9246647c92f4aaa96a7a9a55ad87afb0349354662240"
     }
   ],
   "product": {
@@ -41,10 +42,10 @@
     ],
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-    "recorderSha256": "28415fe2b5f694cd396cfd4f324571da815eeadd553f07f549c31e2caab8e428"
+    "recorderSha256": "6b27ba4ac1066a4fa269f078a7401ab9fd8c8cefcc61910f51ee285a2c9e830b"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-  "scenarios": 74,
+  "scenarios": 105,
   "set": "session-tool-control",
-  "totalBytes": 5278378
+  "totalBytes": 7474558
 }

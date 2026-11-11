@@ -19,6 +19,7 @@ use super::follow::{FollowHost, RuntimeView};
 use super::rearm::RearmHost;
 use crate::bots::delivery::env::RetryTimer;
 use crate::bots::delivery::home::{AgentHomeDelivery, TaskReport};
+use crate::bots::delivery::queue::WatchError;
 
 /// The files a turn produced (`turnArtifacts`): `omitted` counts those left out of the list.
 #[derive(Clone, Debug, Default)]
@@ -132,7 +133,7 @@ impl BotWork {
 }
 
 /// What reaches the bot's home: the report a `deliver` payload carries (`enqueueTask`).
-fn report_of(payload: &Value) -> TaskReport {
+pub fn report_of(payload: &Value) -> TaskReport {
     let text = |key: &str| payload.get(key).filter(|v| !v.is_null()).map_or_else(String::new, mixdog_js::value_to_string);
     let number = |key: &str| mixdog_js::to_number_of(payload.get(key));
     let finite = |n: f64| if n.is_nan() { 0.0 } else { n };
@@ -162,6 +163,14 @@ pub trait HomeQueue: Send + Sync + 'static {
     async fn disown(&self, run_id: &str) -> Result<(), String>;
     async fn watches(&self) -> Result<Vec<Value>, String>;
     async fn owned(&self) -> Result<Vec<Value>, String>;
+    /// `watches.add`: the durable watch of a reporting turn, stored before the turn can start.
+    async fn watch(&self, watch: Value) -> Result<(), WatchError>;
+    /// `watches.remove`: the watch of a turn that was never taken.
+    async fn unwatch(&self, run_id: &str) -> Result<(), String>;
+    /// `watches.own`: the durable record of a bot's work that reports nothing.
+    async fn own(&self, work: Value) -> Result<(), String>;
+    /// `watches.disown(ids)`: the records of the work one turn ended, in one write.
+    async fn disown_all(&self, run_ids: Vec<String>) -> Result<(), String>;
 }
 
 #[async_trait]
@@ -171,6 +180,18 @@ impl HomeQueue for Arc<AgentHomeDelivery> {
     }
     async fn disown(&self, run_id: &str) -> Result<(), String> {
         self.disown_task(vec![run_id.to_owned()]).await
+    }
+    async fn watch(&self, watch: Value) -> Result<(), WatchError> {
+        self.watch_task(watch).await
+    }
+    async fn unwatch(&self, run_id: &str) -> Result<(), String> {
+        self.unwatch_task(run_id).await
+    }
+    async fn own(&self, work: Value) -> Result<(), String> {
+        self.own_task(work).await
+    }
+    async fn disown_all(&self, run_ids: Vec<String>) -> Result<(), String> {
+        self.disown_task(run_ids).await
     }
     async fn watches(&self) -> Result<Vec<Value>, String> {
         self.task_watches().await
@@ -192,6 +213,11 @@ pub struct TaskReportHost {
 impl TaskReportHost {
     pub fn new(home: Arc<dyn HomeQueue>, sessions: Arc<dyn SessionStore>, agents: Arc<dyn AgentRegistry>, bot_work: Arc<BotWork>, timer: Arc<dyn RetryTimer>) -> Arc<Self> {
         Arc::new(Self { home, sessions, agents, bot_work, timer })
+    }
+
+    /// The bot home's queue and watch records.
+    pub fn home(&self) -> &Arc<dyn HomeQueue> {
+        &self.home
     }
 }
 

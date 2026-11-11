@@ -124,6 +124,9 @@ pub(crate) struct RoutineStart {
     pub room_row: Option<String>,
     /// The trusted text the turn's skills are selected from.
     pub skill_selection: Option<String>,
+    /// The sender's own `transcriptMeta` (`sendTranscriptMeta`: `sender`, `fromAgent`), ahead of
+    /// the hop and the bot chain on the queue entry and the input row.
+    pub meta: serde_json::Map<String, serde_json::Value>,
     /// `onCommitted`: runs the moment the turn starts, before any tool can.
     pub on_start: Box<dyn FnOnce() + Send>,
     /// Answered with the run's outcome when it ends.

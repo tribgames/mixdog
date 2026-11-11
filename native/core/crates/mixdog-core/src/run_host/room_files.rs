@@ -37,22 +37,35 @@ impl SessionFiles {
 
     /// `loadSession` + `turnSlice` + `collectTurnArtifacts(.., { cwd, roots: sessionRoots(session) })`.
     async fn collect(&self, session_id: &str, since: f64) -> Result<Vec<Value>, String> {
-        let thread = ThreadId::from(session_id);
-        let header = self.directory.stored_header(&thread).await.ok_or_else(|| format!("session {session_id} is not available"))?;
-        let held = self.directory.model_context(&thread).read().await.map_err(|error| error.to_string())?;
-        let messages = Value::Array(held.into_iter().map(|(_, message)| message).collect());
-        let text = |value: Option<&Value>| value.and_then(Value::as_str).unwrap_or_default().to_owned();
-        let cwd = text(header.get("cwd"));
-        let workspace = header.get("workspace");
-        let candidates = vec![
-            cwd.clone(),
-            text(workspace.and_then(|w| w.get("projectPath"))),
-            text(workspace.and_then(|w| w.get("worktreePath"))),
-            text(header.get("desktopSession").and_then(|d| d.get("projectPath"))),
-        ];
-        let folders = Folders { cwd, candidates };
-        collect_from(self.lane, &self.data_dir, &self.scopes, &folders, &messages, since).await
+        let (folders, messages) = session_turns(&self.directory, session_id).await?;
+        let found = collect_from(self.lane, &self.data_dir, &self.scopes, &folders, &messages, "", since).await?;
+        Ok(found.get("files").and_then(Value::as_array).cloned().unwrap_or_default())
     }
+}
+
+/// A stored session's folders and model messages (`loadSession(id)`).
+async fn session_turns(directory: &SessionDirectory, session_id: &str) -> Result<(Folders, Value), String> {
+    let thread = ThreadId::from(session_id);
+    let header = directory.stored_header(&thread).await.ok_or_else(|| format!("session {session_id} is not available"))?;
+    let held = directory.model_context(&thread).read().await.map_err(|error| error.to_string())?;
+    let messages = Value::Array(held.into_iter().map(|(_, message)| message).collect());
+    let text = |value: Option<&Value>| value.and_then(Value::as_str).unwrap_or_default().to_owned();
+    let cwd = text(header.get("cwd"));
+    let workspace = header.get("workspace");
+    let candidates = vec![
+        cwd.clone(),
+        text(workspace.and_then(|w| w.get("projectPath"))),
+        text(workspace.and_then(|w| w.get("worktreePath"))),
+        text(header.get("desktopSession").and_then(|d| d.get("projectPath"))),
+    ];
+    Ok((Folders { cwd, candidates }, messages))
+}
+
+/// `turnArtifacts(sessionId, runId)` (`agent-task-sessions.mjs`): the files the turn that took
+/// submission `run_id` produced, as `collectTurnArtifacts` answers them (`{ files, omitted? }`).
+pub async fn turn_files(directory: &SessionDirectory, lane: DurabilityIo, data_dir: &Path, scopes: &[Vec<String>], session_id: &str, run_id: &str) -> Result<Value, String> {
+    let (folders, messages) = session_turns(directory, session_id).await?;
+    collect_from(lane, data_dir, scopes, &folders, &messages, run_id, 0.0).await
 }
 
 /// A session's cwd and the folders its files may come from (`sessionRoots`' candidates).
@@ -61,11 +74,11 @@ struct Folders {
     candidates: Vec<String>,
 }
 
-/// `turnSlice(messages, { since })` + `collectTurnArtifacts(.., { cwd, roots: sessionRoots(..) })`
+/// `turnSlice(messages, { runId, since })` + `collectTurnArtifacts(.., { cwd, roots: sessionRoots(..) })`
 /// on the durability lane: the files the turn wrote, stored (a file that fits a prompt) or
-/// path-only.
-async fn collect_from(lane: DurabilityIo, data_dir: &Path, scopes: &[Vec<String>], folders: &Folders, messages: &Value, since: f64) -> Result<Vec<Value>, String> {
-    let slice = Value::Array(turn_slice(messages, "", since));
+/// path-only (`{ files, omitted? }`).
+async fn collect_from(lane: DurabilityIo, data_dir: &Path, scopes: &[Vec<String>], folders: &Folders, messages: &Value, run_id: &str, since: f64) -> Result<Value, String> {
+    let slice = Value::Array(turn_slice(messages, run_id, since));
     let (data_dir, scopes) = (data_dir.to_path_buf(), scopes.to_vec());
     let (cwd, candidates) = (folders.cwd.clone(), folders.candidates.clone());
     let found = lane
@@ -77,7 +90,7 @@ async fn collect_from(lane: DurabilityIo, data_dir: &Path, scopes: &[Vec<String>
         .map_err(|error| format!("{error:?}"))?
         .await
         .map_err(|error| format!("{error:?}"))?;
-    Ok(found.get("files").and_then(Value::as_array).cloned().unwrap_or_default())
+    Ok(found)
 }
 
 /// `storedFileFields(files)`: `{ parts, attachments }` for the stored files among `files`; none
@@ -190,7 +203,8 @@ mod tests {
             let case = &golden[name];
             let messages: Value = serde_json::from_str(&swap(&case["messages"].to_string())).unwrap();
             let lane = mixdog_rt::testing::tokens().durability_io;
-            let files = collect_from(lane, &data, &[], &folders, &messages, 1000.0).await.unwrap();
+            let found = collect_from(lane, &data, &[], &folders, &messages, "", 1000.0).await.unwrap();
+            let files = found.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
             let got = stored_file_fields(&files);
             let want = &case["row"];
             assert_eq!(got.get("parts"), want.get("parts"), "{name}");

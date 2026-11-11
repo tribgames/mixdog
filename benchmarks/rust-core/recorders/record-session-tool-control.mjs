@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Records Node's `session` tool answers for the actions a model triggers (list, read, compact), success and each
+// Records Node's `session` tool answers for the actions a model triggers (list, read, compact, fork, send), success and each
 // refusal, and the compactions a call leaves scheduled:the real `createWorkspaceToolHandlers(...).session` over the real `createSessionControl`, for a caller record
 // (its scope decides what a list shows). Only the session service's two reads are stood in, each over the scenario's
 // data through Node's own code:
@@ -46,6 +46,7 @@ const { readStoredSessionTranscript } = await importFrom(tree, 'src/runtime/agen
 
 const { createSession } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
 const { createLifecycleApi } = await importFrom(tree, 'src/session-runtime/lifecycle-api.mjs');
+const { createAgentTaskSessions } = await importFrom(tree, 'src/session-runtime/agent-task-sessions.mjs');
 const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
@@ -212,6 +213,27 @@ const FORK_CONVERSATION = [
 ];
 const FORK_SUMMARY = [{ role: 'user', content: 'Summarized for the heir.' }];
 
+// `send`: the target sessions as the store holds them (`loadSession`: title, task origin, messages) and as the session
+// service reads them (`readSession(..).full`: the route the effort is checked on); the model menu's catalog rows
+// (`listProviderModels`); the answer a sent turn ends with (`onSettled`).
+const SEND_FINAL = 'The final answer of the sent turn.';
+const MODEL_ROWS = [
+  { provider: 'anthropic', id: 'opus', display: 'Opus', effortOptions: [{ value: 'low' }, { value: 'high' }] },
+  { provider: 'openai', id: 'gpt', display: 'GPT' },
+];
+const target = (id, title, provider, model, extra = {}) => ({ id, title, provider, model, messages: [], ...extra });
+const ANN_TASK_ORIGIN = { agentId: 'ann', sessionId: 'sess_home_ann', requestId: 'atask_request1', title: 'Ann task', notify: true };
+const SEND_TARGETS = {
+  sess_b: target('sess_b', 'Title sess_b', 'anthropic', 'opus'),
+  sess_home_ann: target('sess_home_ann', '', 'openai', 'gpt'),
+  sess_task_ann: target('sess_task_ann', 'Ann task', 'anthropic', 'opus', { taskOrigin: ANN_TASK_ORIGIN }),
+  sess_task_quiet: target('sess_task_quiet', 'Quiet task', 'anthropic', 'opus', { taskOrigin: { ...ANN_TASK_ORIGIN, title: 'Quiet task', notify: false } }),
+  sess_other_route: target('sess_other_route', 'Other route', 'other', 'x'),
+  sess_home_bob: target('sess_home_bob', '', 'openai', 'gpt'),
+};
+const ANN_TASK = { id: 'sess_task_ann', sourceType: 'lead', taskOrigin: ANN_TASK_ORIGIN };
+const sendTo = (sessionId, extra = {}) => ({ action: 'send', session_id: sessionId, prompt: 'Please check the build.', ...extra });
+
 const compacted = await compactForReal();
 const base = {
   caller: HUMAN,
@@ -346,7 +368,111 @@ const SCENARIOS = [
   { name: 'fork-compact-empty', fork: { conversation: FORK_CONVERSATION, compactor: { rows: [] } }, args: { action: 'fork', compact: true } },
   { name: 'fork-compact-no-conversation', fork: { conversation: [], compactor: { rows: FORK_SUMMARY } }, args: { action: 'fork', compact: true } },
   { name: 'fork-compact-worker', callerSessionId: 'sess_worker1', fork: { conversation: FORK_CONVERSATION, compactor: { rows: FORK_SUMMARY } }, args: { action: 'fork', compact: true } },
+  // `send`: the Lead's send queues the prompt as the Lead's (`sender: 'lead'`) and reports nothing back; a bot
+  // conversation's send is its turn (`agentTasks.send`): watched durably, reported to the bot's home when it ends, in
+  // the sender envelope to a session that is not its own task session. Effort, hop and bot-chain checks refuse first.
+  { name: 'send-lead', send: {}, args: sendTo('sess_b') },
+  { name: 'send-lead-bot-home', send: {}, args: sendTo('ann') },
+  { name: 'send-no-prompt', send: {}, args: { action: 'send', session_id: 'sess_b' } },
+  { name: 'send-blank-prompt', send: {}, args: sendTo('sess_b', { prompt: '   ' }) },
+  { name: 'send-prompt-not-string', send: {}, args: sendTo('sess_b', { prompt: 5 }) },
+  { name: 'send-self', send: {}, args: sendTo('sess_lead1') },
+  { name: 'send-no-session-id', send: {}, args: { action: 'send', prompt: 'hello' } },
+  { name: 'send-bad-session-id', send: {}, args: sendTo('a b') },
+  { name: 'send-room-member', send: {}, args: sendTo(ROOM_MEMBER.id) },
+  { name: 'send-effort', send: {}, args: sendTo('sess_b', { effort: 'high' }) },
+  { name: 'send-effort-auto', send: {}, args: sendTo('sess_b', { effort: 'auto' }) },
+  { name: 'send-effort-unsupported', send: {}, args: sendTo('sess_b', { effort: 'max' }) },
+  { name: 'send-effort-invalid', send: {}, args: sendTo('sess_b', { effort: 'huge' }) },
+  { name: 'send-effort-not-in-catalog', send: {}, args: sendTo('sess_other_route', { effort: 'high' }) },
+  { name: 'send-effort-missing-target', send: {}, args: sendTo('sess_gone', { effort: 'high' }) },
+  { name: 'send-lead-hop', send: {}, caller: { ...HUMAN, turnHop: 1 }, args: sendTo('sess_b') },
+  { name: 'send-lead-hop-limit', send: {}, caller: { ...HUMAN, turnHop: 3 }, args: sendTo('sess_b') },
+  { name: 'send-task-origin', send: {}, caller: ANN_TASK, args: sendTo('ann') },
+  { name: 'send-bot-other', send: {}, caller: ANN_CHAT, args: sendTo('sess_b') },
+  { name: 'send-bot-own-task', send: {}, caller: ANN_CHAT, args: sendTo('sess_task_ann') },
+  { name: 'send-bot-task-quiet', send: {}, caller: ANN_CHAT, args: sendTo('sess_task_quiet') },
+  { name: 'send-bot-own-home', send: {}, caller: ANN_CHAT, args: sendTo('ann') },
+  { name: 'send-bot-other-bot', send: {}, caller: ANN_CHAT, args: sendTo('sess_home_bob') },
+  { name: 'send-bot-chain-target', send: {}, caller: { ...ANN_CHAT, turnBotChain: ['bob'] }, args: sendTo('sess_home_bob') },
+  { name: 'send-bot-effort-other', send: {}, caller: ANN_CHAT, args: sendTo('sess_b', { effort: 'high' }) },
+  { name: 'send-bot-effort-own-task', send: {}, caller: ANN_CHAT, args: sendTo('sess_task_ann', { effort: 'low' }) },
+  { name: 'send-bot-hop', send: {}, caller: { ...ANN_CHAT, turnHop: 2 }, args: sendTo('sess_b') },
+  { name: 'send-bot-hop-limit', send: {}, caller: { ...ANN_CHAT, turnHop: 3 }, args: sendTo('sess_b') },
+  { name: 'send-bot-task-hop', send: {}, caller: { ...ANN_CHAT, turnHop: 3 }, args: sendTo('sess_task_ann') },
+  { name: 'send-bot-watch-cap', send: { watch: 'cap' }, caller: ANN_CHAT, args: sendTo('sess_b') },
+  { name: 'send-bot-watch-fails', send: { watch: 'fails' }, caller: ANN_CHAT, args: sendTo('sess_b') },
 ].map((scenario) => ({ ...base, ...scenario }));
+
+// ---- `agentTasks` over a send scenario: the real `createAgentTaskSessions` (report origin, watch, envelope, turn,
+// follow to the final answer, report) with its stores stood in: the durable watches and the bot's home (`deliver`) keep
+// what they are given; the session store (`loadSession`) holds SEND_TARGETS; the agent's name is its BOTS name; the
+// task session has no pending agent work and its answer is final at once (`settleMs: 0`).
+function sendWorldOf(scenario) {
+  const seen = { submitted: [], effort: [], watches: [], unwatched: [], owned: [], disowned: [], delivered: [] };
+  let settle = () => {};
+  const settled = new Promise((resolveSettled) => {
+    settle = resolveSettled;
+  });
+  const service = {
+    async readSession(params) {
+      if (params.action === 'listProviderModels') return { value: clone(MODEL_ROWS) };
+      const stored = SEND_TARGETS[params.sessionId];
+      return { full: stored ? { provider: stored.provider, model: stored.model } : null };
+    },
+    async configureSession(params) {
+      seen.effort.push({ sessionId: params.sessionId, action: params.action, args: clone(params.args) });
+      return { value: true };
+    },
+    async submitSession({ sessionId, prompt, options }) {
+      const { onSettled, follow: _follow, ...kept } = options;
+      seen.submitted.push({ sessionId, prompt: clone(prompt), options: clone(kept), reports: typeof onSettled === 'function' });
+      if (typeof onSettled === 'function') queueMicrotask(() => onSettled({ status: 'done', result: { content: SEND_FINAL } }));
+      return { accepted: true };
+    },
+    async materializeSession() {
+      return { getState: () => ({ busy: false, queued: [] }), subscribe: () => () => {} };
+    },
+  };
+  const watchError = scenario.send.watch === 'cap' ? Object.assign(new Error('watch cap'), { code: 'REPORT_WATCH_CAP' }) : scenario.send.watch === 'fails' ? new Error('the watch store is unavailable') : null;
+  const agentTasks = createAgentTaskSessions({
+    getSessionService: () => service,
+    deliver: async (agentId, report) => {
+      seen.delivered.push({ agentId, report: clone(report) });
+      settle();
+    },
+    watches: {
+      add: async (watch) => {
+        if (watchError) throw watchError;
+        seen.watches.push({ ...clone(watch), owner: '<process>', at: '<now>' });
+      },
+      list: async () => [],
+      remove: async (runId) => {
+        seen.unwatched.push(runId);
+      },
+      follow: async () => {},
+      own: async (work) => {
+        seen.owned.push({ ...clone(work), owner: '<process>', at: '<now>' });
+      },
+      owned: async () => [],
+      disown: async (runIds) => {
+        seen.disowned.push(clone(runIds));
+        settle();
+      },
+    },
+    loadSession: async (id) => clone(SEND_TARGETS[id] ?? null),
+    agentName: async (agentId) => BOTS.find((bot) => bot.id === agentId)?.name ?? agentId,
+    pendingWork: async () => false,
+    settleMs: 0,
+    retryDelaysMs: [],
+    log: () => {},
+  });
+  return { service, agentTasks, seen, settled };
+}
+
+// The send's id (`atask_<uuid>`), minted per run: named by its place, not its value.
+const SEND_ID = /atask_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const masked = (value) => JSON.parse(JSON.stringify(value).replace(SEND_ID, 'atask_<send>'));
 
 // ---- the session service's two reads over a scenario
 function serviceOf(scenario) {
@@ -384,8 +510,10 @@ async function record(scenario) {
       if (id && !own.has(id) && hasPendingAgentWork(entry)) own.set(id, Date.parse(entry.updatedAt) || 0);
     }
     const live = { own, agents: new Set([...agentWorking, ...sessionsWithPendingWork(pool)]) };
+    const sending = scenario.send ? sendWorldOf(scenario) : null;
     const executeSessionControl = createSessionControl({
-      getSessionService: () => (scenario.noService ? null : serviceOf(scenario)),
+      getSessionService: () => (scenario.noService ? null : sending ? sending.service : serviceOf(scenario)),
+      ...(sending ? { agentTasks: sending.agentTasks } : {}),
       listBots: async () => clone(BOTS),
       liveWork: async () => live,
       readRow: async (id) => clone(scenario.catalog.find((entry) => entry.id === id) ?? null),
@@ -401,6 +529,11 @@ async function record(scenario) {
     try {
       const text = scenario.fork ? await _withRegisteredProviderForTestAsync(FORK_PROVIDER.name, FORK_PROVIDER, call) : await call();
       const answer = { ok: true, text, pendingCompact: scheduled() };
+      // A bot's send: what its turn's end delivered (or, reporting nothing, dropped) once it settled.
+      if (sending) {
+        if (sending.seen.submitted.some((entry) => entry.reports)) await sending.settled;
+        return masked({ ...answer, send: sending.seen });
+      }
       // The heir a fork created: its id, and the conversation it holds.
       if (scenario.fork) {
         const heir = JSON.parse(text).sessionId;
@@ -408,7 +541,8 @@ async function record(scenario) {
       }
       return answer;
     } catch (error) {
-      return { ok: false, text: String(error?.message ?? error), pendingCompact: scheduled() };
+      const refused = { ok: false, text: String(error?.message ?? error), pendingCompact: scheduled() };
+      return sending ? masked({ ...refused, send: sending.seen }) : refused;
     }
   } finally {
     unregister();
@@ -424,7 +558,14 @@ if (only) {
 } else {
   const finalDir = join(FIXTURES_ROOT, 'session-tool-control');
   const stage = stageSet(finalDir);
-  writeJson(join(stage, 'golden.json'), { domain: 'session-tool-control', recorder: RECORDER, bots: BOTS, compaction: compacted.result, scenarios });
+  writeJson(join(stage, 'golden.json'), {
+    domain: 'session-tool-control',
+    recorder: RECORDER,
+    bots: BOTS,
+    compaction: compacted.result,
+    send: { targets: SEND_TARGETS, modelRows: MODEL_ROWS, final: SEND_FINAL },
+    scenarios,
+  });
   writeSetManifest(stage, {
     set: 'session-tool-control',
     recorder: RECORDER,
@@ -437,6 +578,7 @@ if (only) {
         "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
         'Room sends, members and asks are not recorded (out of scope).',
         "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
+        "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded.",
         "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered.",
       ],
       scenarios: scenarios.length,
