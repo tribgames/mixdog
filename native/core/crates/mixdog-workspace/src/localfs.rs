@@ -30,6 +30,7 @@ use std::sync::Condvar;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::OnceLock;
 use std::sync::PoisonError;
 use std::time::Duration;
 
@@ -976,47 +977,102 @@ impl<T: Weigh> Weigh for Result<T, FsError> {
     }
 }
 
-/// How long `close` waits for a stopped producer to end (Node's `CANCEL_GRACE_MS`, after which its client ends the
-/// search server).
+/// How long a producer its stream let go of may take to end before it is given up ([`Producers::give_up`]): Node's
+/// `CANCEL_GRACE_MS` (native-search-client.mjs:28), after which its client ends the search server whose search did not
+/// stop (`armNativeCancellationWatchdog`, :501-520); `MIXDOG_SEARCH_CANCEL_GRACE_MS` replaces it as there
+/// ([`cancel_grace`]).
 const CLOSE_GRACE: Duration = Duration::from_secs(1);
 
 /// The bytes one read of a searched file asks for: the stop and the deadline are checked before each, as Node's search
 /// server checks them before each read of its 64 KiB chunks (`serve_search/matching.rs`, `CancellableReader`).
 const READ_CHUNK: usize = 64 * 1024;
 
-/// The most stream producer threads alive at once, process-wide, abandoned ones included.
-///
-/// Node's search server runs at most `server_parallelism()` searches at once (2 to 8, `serve_search/config.rs:139`) and
-/// queues 2,048 more (`config.rs:17`, `scheduler.rs:234`). A search held in a read that never returns keeps its worker
-/// until the client's cancellation watchdog ends the whole server 1 s after its cancel (native-search-client.mjs:501,
-/// `CANCEL_GRACE_MS`), which ends the stuck threads with it. Here an abandoned producer's blocking call is cancelled
-/// ([`cancel_io`]) and the thread ends; the cap counts it until it really ends, so a call the OS cannot cancel keeps its
-/// slot. The cap is wider than Node's worker count so that a few such calls do not stop every other search, and it
-/// bounds what they hold: a stack, one file's searcher buffers and a walker's state.
-pub const MAX_PRODUCERS: usize = 64;
+/// The walks Node does not send to its search server (`WalkRequest::server` `None`: the listing, read's same-name scan)
+/// that run at once, process-wide; the rest wait for one to end. Node runs those in its own process, unbounded; this
+/// bounds the threads they take.
+pub const MAX_LOCAL_PRODUCERS: usize = 64;
 
-/// The streams that may wait for a producer slot, as Node's search server queues the requests no worker has taken:
-/// `DEFAULT_SEARCH_QUEUE_CAPACITY` (serve_search/config.rs:17). A stream that stands for a search-server request
-/// ([`SearchClass`]) and finds that many already waiting (fewer for a bulk one, [`admission_capacity`]) is refused with
-/// [`FsErrorKind::Saturated`], as the server refuses it (server.rs:370-383, scheduler.rs:241); one that does not
-/// (`WalkRequest::server` `None`) always waits.
-///
-/// The point is the queue's depth, as in Node: the searches running alongside differ, up to [`MAX_PRODUCERS`] here and
-/// `server_parallelism()` (2 to 8) there, so the core is refused with up to 64 searches running where Node runs 2 to 8.
-pub const SEARCH_QUEUE_CAPACITY: usize = 2_048;
-
-/// serve_search/config.rs:171-192: a bulk request is queued while fewer than the capacity less the priority reserve
-/// (`ceil(capacity / 8)` within 1..=64, below the capacity) wait, any other while fewer than the capacity wait.
-fn admission_capacity(class: SearchClass, capacity: usize) -> usize {
-    if class != SearchClass::Bulk {
-        return capacity;
-    }
-    let reserve = if capacity <= 1 { 0 } else { capacity.div_ceil(8).clamp(1, 64).min(capacity - 1) };
-    capacity.saturating_sub(reserve).max(1)
+/// Node's search server's scheduler (b6f10295a `native/mixdog-graph/src/serve_search/scheduler.rs:197-232`), each limit
+/// read from the environment variable it reads there, with its default and bounds (`config.rs`), and its client's
+/// cancel grace. The streams that stand for a search-server request ([`SearchClass`]) are admitted by these, as the
+/// server admits its requests; the other walks by [`MAX_LOCAL_PRODUCERS`].
+#[derive(Clone, Copy, Debug)]
+pub struct SchedulerConfig {
+    /// `server_parallelism()` (config.rs:139-146): `MIXDOG_SEARCH_SERVER_MAX_INFLIGHT` above 0, else the available
+    /// parallelism within 2..=8; then within 1..=16. The searches running at once across the three classes.
+    pub total: usize,
+    /// `interactive_reserve(total)` (config.rs:154-160, `MIXDOG_SEARCH_INTERACTIVE_RESERVE`, 1, at most `total`): the
+    /// interactive searches that may run past `total` while one waits (scheduler.rs:292-298).
+    pub interactive_reserve: usize,
+    /// `bulk_parallelism()` (config.rs:148-152, `MIXDOG_SEARCH_SERVER_MAX_BULK_INFLIGHT` above 0, else 2, at most
+    /// `total`).
+    pub bulk: usize,
+    /// `queue_capacity()` (config.rs:162-169, `MIXDOG_SEARCH_SERVER_QUEUE_CAPACITY`, 2,048, within 1..=8,192): the
+    /// searches that may wait.
+    pub queue: usize,
+    /// `priority_queue_reserve(queue)` (config.rs:171-181): the waiting places a bulk search may not take.
+    pub priority_reserve: usize,
+    /// `aimd_target()` and `aimd_increase_every()` (config.rs:109-125), which move the bulk window.
+    pub aimd_target: Duration,
+    pub aimd_increase_every: usize,
+    /// The client's cancel grace ([`cancel_grace`]).
+    pub grace: Duration,
+    /// [`MAX_LOCAL_PRODUCERS`].
+    pub local: usize,
 }
 
-/// Every stream's producer threads, process-wide.
-static PRODUCERS: LazyLock<Arc<Producers>> = LazyLock::new(|| Arc::new(Producers::new(MAX_PRODUCERS, SEARCH_QUEUE_CAPACITY)));
+impl SchedulerConfig {
+    fn from_env() -> Self {
+        let available = std::thread::available_parallelism().map_or(2, |n| n.get());
+        let total = positive_env("MIXDOG_SEARCH_SERVER_MAX_INFLIGHT").unwrap_or_else(|| available.clamp(2, 8)).clamp(1, 16);
+        let queue = bounded_env("MIXDOG_SEARCH_SERVER_QUEUE_CAPACITY", 2_048, 1, 8_192);
+        let priority_reserve =
+            if queue <= 1 { 0 } else { bounded_env("MIXDOG_SEARCH_PRIORITY_QUEUE_RESERVE", queue.div_ceil(8).clamp(1, 64), 1, queue - 1) };
+        Self {
+            total,
+            interactive_reserve: env_usize("MIXDOG_SEARCH_INTERACTIVE_RESERVE").unwrap_or(1).min(total),
+            bulk: positive_env("MIXDOG_SEARCH_SERVER_MAX_BULK_INFLIGHT").unwrap_or(2).min(total),
+            queue,
+            priority_reserve,
+            aimd_target: Duration::from_millis(bounded_env("MIXDOG_SEARCH_AIMD_TARGET_MS", 250, 10, 10_000) as u64),
+            aimd_increase_every: bounded_env("MIXDOG_SEARCH_AIMD_INCREASE_EVERY", 8, 1, 1_024),
+            grace: cancel_grace(),
+            local: MAX_LOCAL_PRODUCERS,
+        }
+    }
+
+    /// `queue_admission_capacity` (config.rs:183-193): a bulk search is queued while fewer than the capacity less the
+    /// priority reserve wait, any other while fewer than the capacity wait (scheduler.rs:234-247).
+    fn admission(&self, class: SearchClass) -> usize {
+        if class == SearchClass::Bulk { self.queue.saturating_sub(self.priority_reserve).max(1) } else { self.queue }
+    }
+}
+
+/// serve_search/config.rs `bounded_env_usize` (:39-45) and `positive_env_usize` (:49-54).
+fn env_usize(name: &str) -> Option<usize> {
+    std::env::var(name).ok().and_then(|raw| raw.parse::<usize>().ok())
+}
+
+fn bounded_env(name: &str, default: usize, min: usize, max: usize) -> usize {
+    env_usize(name).unwrap_or(default).clamp(min, max)
+}
+
+fn positive_env(name: &str) -> Option<usize> {
+    env_usize(name).filter(|n| *n > 0)
+}
+
+/// `cancelGraceMs()` (native-search-client.mjs:489-493): `MIXDOG_SEARCH_CANCEL_GRACE_MS` when it is a number above 0
+/// (whole milliseconds, at least 1), else [`CLOSE_GRACE`].
+fn cancel_grace() -> Duration {
+    std::env::var("MIXDOG_SEARCH_CANCEL_GRACE_MS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<f64>().ok())
+        .filter(|ms| ms.is_finite() && *ms > 0.0)
+        .map_or(CLOSE_GRACE, |ms| Duration::from_millis(ms.floor().max(1.0) as u64))
+}
+
+/// Every stream's producer threads, process-wide, as one Node process has one search server.
+static PRODUCERS: LazyLock<Arc<Producers>> = LazyLock::new(|| Arc::new(Producers::new(SchedulerConfig::from_env())));
 
 /// The stream producer threads alive now, process-wide ([`Producers`]).
 pub fn producer_counts() -> ProducerCounts {
@@ -1026,128 +1082,292 @@ pub fn producer_counts() -> ProducerCounts {
 /// What [`Producers`] counts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ProducerCounts {
-    /// Producer threads started that have not ended.
+    /// Producers holding a slot: started, or admitted and about to start, and neither ended nor given up.
     pub live: usize,
     /// Of those, the ones their stream has let go of (closed, or dropped, a `close` cut short included) that are still
     /// running: a thread held in a blocking OS call (a directory read, an open or a read on a dead network share, a
-    /// pipe), whose call is being cancelled ([`cancel_io`]), or one the OS cannot cancel. Each ends when its call
-    /// returns; nothing waits for it.
+    /// pipe) whose call is being cancelled ([`cancel_io`]). Each ends when its call returns, or is given up once the
+    /// cancel grace has passed ([`Producers::give_up`]); nothing waits for it.
     pub abandoned: usize,
-    /// Streams waiting for a slot, no thread yet ([`SEARCH_QUEUE_CAPACITY`]).
+    /// Streams waiting for a slot, no thread yet.
     pub waiting: usize,
+    /// Producer threads given up that have not ended: each held a call the cancel did not end within its grace, holds no
+    /// slot, and ends by itself if its call ever returns.
+    pub stalled: usize,
 }
 
-/// A producer's state, changed only under [`Producers`]' lock, so each start, release and end is counted once.
+/// A producer's state, changed only under [`Producers`]' lock, so each start, release, give-up and end is counted once.
 const WAITING: u8 = 0;
 const RUNNING: u8 = 1;
 const RELEASED: u8 = 2;
 const ENDED: u8 = 3;
+const STALLED: u8 = 4;
 
-/// The producer threads of a set of streams, at most `cap` alive, and the streams waiting for one, at most `queue` of
-/// those that stand for a search-server request ([`SEARCH_QUEUE_CAPACITY`]). A stream's state moves through [`WAITING`]
-/// (no thread yet: every slot is taken), [`RUNNING`], [`RELEASED`] (its stream let go of it while it ran: abandoned
-/// until it ends) and [`ENDED`]; the counts change with it, under one lock, whichever of the stream (close, drop) and the
+/// A stream's place in its [`Producers`]: its state ([`WAITING`] to [`ENDED`]), the server class whose slot it takes
+/// (`None`: a walk Node does not send to its server), and when it was queued and started, the samples the bulk window
+/// moves by (scheduler.rs `execute_scheduled_search`, :447-489).
+struct Ticket {
+    state: AtomicU8,
+    class: Option<SearchClass>,
+    queued_at: Instant,
+    started_at: OnceLock<Instant>,
+}
+
+impl Ticket {
+    fn new(class: Option<SearchClass>) -> Arc<Self> {
+        Arc::new(Self { state: AtomicU8::new(ENDED), class, queued_at: Instant::now(), started_at: OnceLock::new() })
+    }
+}
+
+/// The scheduler's state (scheduler.rs `SchedulerState`, :58-74): the waiting streams of each class in arrival order,
+/// the running ones of each class (interactive, fuzzy, bulk) and the bulk window, beside the walks Node does not queue.
+struct Sched {
+    counts: ProducerCounts,
+    interactive: VecDeque<Arc<Ticket>>,
+    fuzzy: VecDeque<Arc<Ticket>>,
+    bulk: VecDeque<Arc<Ticket>>,
+    local: VecDeque<Arc<Ticket>>,
+    inflight: [usize; 3],
+    local_live: usize,
+    bulk_window: usize,
+    healthy_completions: usize,
+}
+
+impl Sched {
+    /// `queue_depth()` (scheduler.rs:93-100): the searches waiting across the three classes.
+    fn queue_depth(&self) -> usize {
+        self.interactive.len() + self.fuzzy.len() + self.bulk.len()
+    }
+
+    fn queue(&mut self, class: Option<SearchClass>) -> &mut VecDeque<Arc<Ticket>> {
+        match class {
+            Some(SearchClass::Interactive) => &mut self.interactive,
+            Some(SearchClass::Fuzzy) => &mut self.fuzzy,
+            Some(SearchClass::Bulk) => &mut self.bulk,
+            None => &mut self.local,
+        }
+    }
+}
+
+fn class_index(class: SearchClass) -> usize {
+    match class {
+        SearchClass::Interactive => 0,
+        SearchClass::Fuzzy => 1,
+        SearchClass::Bulk => 2,
+    }
+}
+
+/// Moves waiting streams of one queue to running while the queue's own count stays under `limit` and the total under
+/// `ceiling` (scheduler.rs `admit_class`, :360-377).
+fn admit(
+    queue: &mut VecDeque<Arc<Ticket>>,
+    inflight: &mut usize,
+    (limit, ceiling): (usize, usize),
+    total: &mut usize,
+    counts: &mut ProducerCounts,
+) {
+    while *inflight < limit && *total < ceiling {
+        let Some(ticket) = queue.pop_front() else { break };
+        *inflight += 1;
+        *total += 1;
+        counts.waiting -= 1;
+        counts.live += 1;
+        ticket.state.store(RUNNING, Ordering::SeqCst);
+    }
+}
+
+/// The producer threads of a set of streams, admitted as Node's search server admits its searches ([`SchedulerConfig`]).
+/// A stream's state moves through [`WAITING`] (queued), [`RUNNING`] (a slot is its), [`RELEASED`] (its stream let go of
+/// it while it ran: abandoned until it ends), [`STALLED`] (given up: its slot back, its thread running on) and [`ENDED`];
+/// the counts change with it, under one lock, whichever of the stream (close, drop), the canceller (the grace) and the
 /// thread (its end) gets there first.
 pub struct Producers {
-    cap: usize,
-    queue: usize,
-    counts: Mutex<ProducerCounts>,
+    config: SchedulerConfig,
+    sched: Mutex<Sched>,
     /// Notified on every change of the counts.
     changed: Notify,
 }
 
 impl Producers {
-    fn new(cap: usize, queue: usize) -> Self {
-        Self { cap, queue, counts: Mutex::new(ProducerCounts::default()), changed: Notify::new() }
+    fn new(config: SchedulerConfig) -> Self {
+        Self {
+            config,
+            sched: Mutex::new(Sched {
+                counts: ProducerCounts::default(),
+                interactive: VecDeque::new(),
+                fuzzy: VecDeque::new(),
+                bulk: VecDeque::new(),
+                local: VecDeque::new(),
+                inflight: [0; 3],
+                local_live: 0,
+                bulk_window: config.bulk.max(1),
+                healthy_completions: 0,
+            }),
+            changed: Notify::new(),
+        }
     }
 
-    fn lock(&self) -> MutexGuard<'_, ProducerCounts> {
-        self.counts.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> MutexGuard<'_, Sched> {
+        self.sched.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn counts(&self) -> ProducerCounts {
-        *self.lock()
+        self.lock().counts
     }
 
-    /// A new stream's producer takes a slot (`Some(true)`: it starts) or else waits for one (`Some(false)`), unless it
-    /// stands for a search-server request of `server`'s class and as many streams already wait as that class may join
-    /// (`None`: refused, [`FsErrorKind::Saturated`]). `full`: a replay's scripted full queue ([`deadline_script`]).
-    fn enqueue(&self, state: &AtomicU8, server: Option<SearchClass>, full: bool) -> Option<bool> {
-        let mut counts = self.lock();
-        if !full && counts.live < self.cap {
-            counts.live += 1;
-            state.store(RUNNING, Ordering::SeqCst);
-            return Some(true);
-        }
-        if let Some(class) = server {
-            if full || counts.waiting >= admission_capacity(class, self.queue) {
+    /// A new stream joins its queue and starts at once if [`Producers::dispatch`] gives it a slot (`Some(true)`), or else
+    /// waits (`Some(false)`). One that stands for a search-server request and finds as many searches waiting as its class
+    /// may join is refused (`None`, [`FsErrorKind::Saturated`]), as `SearchScheduler::enqueue` refuses it
+    /// (scheduler.rs:234-247; the answer, server.rs:370-394). `full`: a replay's scripted full queue ([`deadline_script`]).
+    fn enqueue(&self, ticket: &Arc<Ticket>, full: bool) -> Option<bool> {
+        let mut s = self.lock();
+        if let Some(class) = ticket.class {
+            if full || s.queue_depth() >= self.config.admission(class) {
                 return None;
             }
         }
-        counts.waiting += 1;
-        state.store(WAITING, Ordering::SeqCst);
-        drop(counts);
+        ticket.state.store(WAITING, Ordering::SeqCst);
+        s.queue(ticket.class).push_back(ticket.clone());
+        s.counts.waiting += 1;
+        self.dispatch(&mut s);
+        drop(s);
         self.changed.notify_waiters();
-        Some(false)
+        Some(ticket.state.load(Ordering::SeqCst) == RUNNING)
     }
 
-    /// `state`'s waiting producer takes a slot and starts, if a slot is free.
-    fn admit(&self, state: &AtomicU8) -> bool {
-        let mut counts = self.lock();
-        if counts.live >= self.cap {
-            return false;
+    /// Gives free slots to waiting streams as the server's dispatcher does, one pass per change (scheduler.rs
+    /// `dispatch_searches`, :379-421): interactive ones first, up to `total` and the interactive reserve while one waits
+    /// (`interactive_dispatch_ceiling`, :292-298), then fuzzy ones up to `total`, then bulk ones up to `total` within the
+    /// adaptive bulk limit (`adaptive_bulk_limit`, :300-307: the window, one while an interactive search runs or waits);
+    /// then the walks Node does not queue, up to [`SchedulerConfig::local`].
+    ///
+    /// The server's dispatcher is a thread of its own, so a burst can queue several searches before it runs: here each is
+    /// dispatched as it arrives, which is the server's admission when its dispatcher keeps up.
+    fn dispatch(&self, s: &mut Sched) {
+        let c = &self.config;
+        let mut total = s.inflight.iter().sum::<usize>();
+        let ceiling = c.total + if s.interactive.is_empty() { 0 } else { c.interactive_reserve };
+        admit(&mut s.interactive, &mut s.inflight[0], (c.total + c.interactive_reserve, ceiling), &mut total, &mut s.counts);
+        admit(&mut s.fuzzy, &mut s.inflight[1], (c.total, c.total), &mut total, &mut s.counts);
+        let adaptive = c.bulk.min(s.bulk_window.max(1));
+        let bulk = if s.inflight[0] > 0 || !s.interactive.is_empty() { adaptive.min(1) } else { adaptive };
+        admit(&mut s.bulk, &mut s.inflight[2], (bulk, c.total), &mut total, &mut s.counts);
+        let mut walks = s.local_live;
+        admit(&mut s.local, &mut s.local_live, (c.local, c.local), &mut walks, &mut s.counts);
+    }
+
+    /// `ticket`'s slot is free.
+    fn free(s: &mut Sched, ticket: &Ticket) {
+        s.counts.live -= 1;
+        match ticket.class {
+            Some(class) => s.inflight[class_index(class)] -= 1,
+            None => s.local_live -= 1,
         }
-        counts.live += 1;
-        counts.waiting -= 1;
-        state.store(RUNNING, Ordering::SeqCst);
-        drop(counts);
-        self.changed.notify_waiters();
-        true
     }
 
-    /// `state`'s stream lets go of its producer: one still running is abandoned until it ends, and its blocking OS call,
-    /// if it is in one, is cancelled through `thread` ([`cancel_io`]).
-    fn release(&self, state: &Arc<AtomicU8>, thread: Option<std::thread::JoinHandle<()>>) {
-        let mut counts = self.lock();
-        match state.load(Ordering::SeqCst) {
-            RUNNING => {
-                state.store(RELEASED, Ordering::SeqCst);
-                counts.abandoned += 1;
+    /// `ticket`'s stream lets go of its producer: one waiting leaves its queue, one admitted that never started gives its
+    /// slot back, and one running is abandoned until it ends or is given up, its blocking OS call, if it is in one,
+    /// cancelled through `thread` ([`cancel_io`]).
+    fn release(self: &Arc<Self>, ticket: &Arc<Ticket>, thread: Option<std::thread::JoinHandle<()>>) {
+        let mut s = self.lock();
+        match (ticket.state.load(Ordering::SeqCst), thread) {
+            (RUNNING, Some(thread)) => {
+                ticket.state.store(RELEASED, Ordering::SeqCst);
+                s.counts.abandoned += 1;
+                drop(s);
+                self.changed.notify_waiters();
+                cancel_io::until_ended(thread, ticket.clone(), self.clone());
+                return;
             }
-            WAITING => {
-                state.store(ENDED, Ordering::SeqCst);
-                counts.waiting -= 1;
+            (RUNNING, None) => {
+                ticket.state.store(ENDED, Ordering::SeqCst);
+                Self::free(&mut s, ticket);
+            }
+            (WAITING, _) => {
+                ticket.state.store(ENDED, Ordering::SeqCst);
+                s.queue(ticket.class).retain(|t| !Arc::ptr_eq(t, ticket));
+                s.counts.waiting -= 1;
             }
             _ => return,
         }
-        drop(counts);
+        self.dispatch(&mut s);
+        drop(s);
         self.changed.notify_waiters();
-        if let Some(thread) = thread {
-            cancel_io::until_ended(thread, state.clone());
-        }
     }
 
-    /// `state`'s producer thread ends.
-    fn end(&self, state: &AtomicU8) {
-        let mut counts = self.lock();
-        if state.swap(ENDED, Ordering::SeqCst) == RELEASED {
-            counts.abandoned -= 1;
+    /// `ticket`'s producer, let go of and still running when the cancel grace has passed, is given up, as Node's client
+    /// ends a search server whose search did not stop within it (native-search-client.mjs:501-520) and its next search
+    /// starts a new server: the slot is free at once, and the bulk window starts again as a new server's does. The
+    /// thread runs on and ends by itself if its call ever returns ([`Producers::end`]).
+    fn give_up(&self, ticket: &Ticket) {
+        let mut s = self.lock();
+        if ticket.state.load(Ordering::SeqCst) != RELEASED {
+            return;
         }
-        counts.live -= 1;
-        drop(counts);
+        ticket.state.store(STALLED, Ordering::SeqCst);
+        s.counts.abandoned -= 1;
+        s.counts.stalled += 1;
+        Self::free(&mut s, ticket);
+        s.bulk_window = self.config.bulk.max(1);
+        s.healthy_completions = 0;
+        self.dispatch(&mut s);
+        drop(s);
         self.changed.notify_waiters();
+    }
+
+    /// `ticket`'s producer thread ends. One given up only leaves the count of stalled threads: its slot went back when it
+    /// was given up, and nothing else is touched.
+    fn end(&self, ticket: &Ticket) {
+        let mut s = self.lock();
+        match ticket.state.swap(ENDED, Ordering::SeqCst) {
+            STALLED => s.counts.stalled -= 1,
+            previous => {
+                if previous == RELEASED {
+                    s.counts.abandoned -= 1;
+                }
+                Self::free(&mut s, ticket);
+                if ticket.class.is_some() {
+                    self.observe(&mut s, ticket);
+                }
+                self.dispatch(&mut s);
+            }
+        }
+        drop(s);
+        self.changed.notify_waiters();
+    }
+
+    /// The bulk window after a search ends (scheduler.rs `observe_scheduler_latency`, :324-357): halved after a search
+    /// that waited or ran past the AIMD target, widened by one after `aimd_increase_every` quick ones in a row while no
+    /// interactive search waits.
+    fn observe(&self, s: &mut Sched, ticket: &Ticket) {
+        let started = ticket.started_at.get().copied().unwrap_or(ticket.queued_at);
+        let queued = started.saturating_duration_since(ticket.queued_at);
+        let ran = started.elapsed();
+        let (target, bulk) = (self.config.aimd_target, self.config.bulk);
+        if queued > target || ran > target {
+            s.bulk_window = s.bulk_window.max(1).div_ceil(2);
+            s.healthy_completions = 0;
+        } else if queued <= target / 4 && ran <= target && s.interactive.is_empty() && s.bulk_window < bulk {
+            s.healthy_completions += 1;
+            if s.healthy_completions >= self.config.aimd_increase_every {
+                s.bulk_window = (s.bulk_window + 1).min(bulk);
+                s.healthy_completions = 0;
+            }
+        } else {
+            s.healthy_completions = 0;
+        }
     }
 }
 
-/// A started producer's hold on its count, given up when its thread ends, however it ends.
+/// A started producer's hold on its slot, given up when its thread ends, however it ends.
 struct Started {
     producers: Arc<Producers>,
-    state: Arc<AtomicU8>,
+    ticket: Arc<Ticket>,
 }
 
 impl Drop for Started {
     fn drop(&mut self) {
-        self.producers.end(&self.state);
+        self.producers.end(&self.ticket);
     }
 }
 
@@ -1420,8 +1640,8 @@ impl Produce<SearchMatch> for Searching {
             });
             ctl.in_file.store(false, Ordering::SeqCst);
             match searched {
-                Ok((true, _)) => return,
-                Ok((false, sent)) => {
+                Ok(true) => return,
+                Ok(false) => {
                     if sent > 0 {
                         ctl.file_with_lines();
                     }
@@ -1449,16 +1669,17 @@ impl Produce<SearchMatch> for Searching {
 /// A stream fed by a producer thread through a queue of [`QUEUE`] items and [`QUEUE_BYTES`]: the producer runs ahead of
 /// the consumer by at most that much and waits while the queue is full.
 ///
-/// [`EventSource::close`] stops the producer and waits for its thread to end, at most [`CLOSE_GRACE`]: a producer
-/// checks the stop between entries, before every read of a file and at every item it queues, so it ends at once unless
-/// a blocking OS call holds it (a directory read, an open or a read on a dead network share, a pipe). That call is
-/// cancelled ([`cancel_io`]); the thread is counted ([`ProducerCounts::abandoned`]) from the moment its stream lets go
-/// of it until it ends, never awaited past the grace, and one in a call the OS cannot cancel ends when the call
-/// returns. Dropping the stream, or a `close` cut short by its caller's deadline or cancellation, stops the producer,
-/// cancels its call and counts it the same way without waiting for it.
+/// [`EventSource::close`] stops the producer and waits for its thread to end, at most the cancel grace ([`CLOSE_GRACE`]):
+/// a producer checks the stop between entries, before every read of a file and at every item it queues, so it ends at
+/// once unless a blocking OS call holds it (a directory read, an open or a read on a dead network share, a pipe). That
+/// call is cancelled ([`cancel_io`]); the thread is counted ([`ProducerCounts::abandoned`]) from the moment its stream
+/// lets go of it until it ends, never awaited past the grace, and one still running once the grace has passed is given
+/// up ([`Producers::give_up`]): its slot is free, and the thread ends by itself if its call ever returns. Dropping the
+/// stream, or a `close` cut short by its caller's deadline or cancellation, stops the producer, cancels its call and
+/// counts it the same way without waiting for it; the canceller gives it up when the grace has passed.
 ///
-/// A producer starts once a slot of its [`Producers`] is free ([`MAX_PRODUCERS`]); until then the stream answers nothing,
-/// its deadline included, as a search waiting in Node's server queue gets no answer until a worker takes it. One that
+/// A producer starts once its [`Producers`] give it a slot ([`Producers::dispatch`]); until then the stream answers
+/// nothing, its deadline included, as a search waiting in Node's server queue gets no answer until a worker takes it. One that
 /// starts past its deadline answers [`FsErrorKind::TimedOut`] at its first check, as Node's server answers a search
 /// dequeued past its deadline (`scheduler.rs:467`, the deadline counted from `queued_at`); the caller's own hard
 /// deadline answers one that never starts, as Node's client times out a request its server never answers.
@@ -1474,8 +1695,8 @@ struct Streamed<T> {
     /// The deadline passed while the producer was inside a file: that file's read reports it.
     late: bool,
     producers: Arc<Producers>,
-    /// The producer's state in `producers`.
-    state: Arc<AtomicU8>,
+    /// The producer's place in `producers`.
+    ticket: Arc<Ticket>,
     /// The producer, while it waits for a slot.
     waiting: Option<Waiting<T>>,
     /// The producer's thread once started, through which [`cancel_io`] cancels its blocking call when it is let go of.
@@ -1504,7 +1725,7 @@ fn failed<T: Weigh + Send + 'static>(error: FsError) -> Box<dyn EventSource<Resu
         finished: None,
         late: false,
         producers: PRODUCERS.clone(),
-        state: Arc::new(AtomicU8::new(ENDED)),
+        ticket: Ticket::new(None),
         waiting: None,
         thread: None,
     })
@@ -1519,8 +1740,8 @@ fn streamed<T: Weigh + Send + 'static>(
     server: Option<SearchClass>,
     full: bool,
 ) -> Box<dyn EventSource<Result<T, FsError>>> {
-    let state = Arc::new(AtomicU8::new(ENDED));
-    let Some(start) = producers.enqueue(&state, server, full) else {
+    let ticket = Ticket::new(server);
+    let Some(start) = producers.enqueue(&ticket, full) else {
         return failed(FsError::new(FsErrorKind::Saturated, None));
     };
     let (tx, rx) = mpsc::channel(QUEUE);
@@ -1533,7 +1754,7 @@ fn streamed<T: Weigh + Send + 'static>(
         finished: Some(finished),
         late: false,
         producers: producers.clone(),
-        state,
+        ticket,
         waiting: Some(Waiting { producer, out, done }),
         thread: None,
     };
@@ -1544,12 +1765,12 @@ fn streamed<T: Weigh + Send + 'static>(
 }
 
 impl<T: Weigh + Send + 'static> Streamed<T> {
-    /// Starts the waiting producer if a slot is free; `false` while it still waits.
+    /// Starts the waiting producer once its [`Producers`] gave it a slot; `false` while it still waits.
     fn try_start(&mut self) -> bool {
         if self.waiting.is_none() {
             return true;
         }
-        if !self.producers.admit(&self.state) {
+        if self.ticket.state.load(Ordering::SeqCst) != RUNNING {
             return false;
         }
         self.spawn();
@@ -1559,11 +1780,12 @@ impl<T: Weigh + Send + 'static> Streamed<T> {
     /// Starts the producer's thread, its slot taken.
     fn spawn(&mut self) {
         let Some(Waiting { producer, out, done }) = self.waiting.take() else { return };
-        let started = Started { producers: self.producers.clone(), state: self.state.clone() };
+        let started = Started { producers: self.producers.clone(), ticket: self.ticket.clone() };
         let spawned = std::thread::Builder::new().name("mixdog-fs-stream".into()).spawn(move || {
             // Dropped when the thread ends, however it ends, in this order: the slot, then the end `close` waits for.
             let _done = done;
-            let _started = started;
+            let started = started;
+            let _ = started.ticket.started_at.set(Instant::now());
             producer.run(&out);
         });
         match spawned {
@@ -1632,9 +1854,11 @@ impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> 
         self.rx = None;
         self.waiting = None;
         // Counted before the wait, so a caller that drops this `close` leaves the count right.
-        self.producers.release(&self.state, self.thread.take());
+        self.producers.release(&self.ticket, self.thread.take());
         if let Some(finished) = self.finished.take() {
-            let _ = tokio::time::timeout(CLOSE_GRACE, finished).await;
+            if tokio::time::timeout(self.producers.config.grace, finished).await.is_err() {
+                self.producers.give_up(&self.ticket);
+            }
         }
     }
 }
@@ -1642,7 +1866,7 @@ impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> 
 impl<T> Drop for Streamed<T> {
     fn drop(&mut self) {
         self.ctl.halt();
-        self.producers.release(&self.state, self.thread.take());
+        self.producers.release(&self.ticket, self.thread.take());
     }
 }
 
@@ -1653,40 +1877,51 @@ impl<T> Drop for Streamed<T> {
 /// ends such a search by ending its whole search server CANCEL_GRACE_MS after its cancel (native-search-client.mjs:501),
 /// which ends the stuck threads with their process. A thread cannot be ended from outside its process, so its call is
 /// cancelled with the OS's own cancellation of one thread's synchronous I/O: on Windows `CancelSynchronousIo` on the
-/// thread's handle (the call fails with ERROR_OPERATION_ABORTED), on Unix a signal installed without `SA_RESTART`,
-/// delivered to that thread (the call fails with EINTR; [`open_to_search`] does not repeat an interrupted open). The
-/// producer then finds its stop set and ends, which frees its slot.
+/// thread's handle (the call fails with ERROR_OPERATION_ABORTED), on Unix a signal delivered to that thread alone,
+/// whose handler was installed without `SA_RESTART` (the call fails with EINTR; [`open_to_search`] does not repeat an
+/// interrupted open). The producer then finds its stop set and ends, which frees its slot.
 ///
 /// A cancel that reaches the thread before it enters its call is lost (`CancelSynchronousIo` cancels only an operation
 /// in progress; the signal's handler runs before the call), so it is repeated: at once, then after 1 ms and at doubling
-/// intervals up to 1 s, until the thread ends.
-///
-/// What remains uncancellable is what the OS does not cancel: on Windows an operation whose driver does not support
-/// cancellation (`CancelSynchronousIo` then returns ERROR_NOT_FOUND, or the operation completes normally), on Unix a call
-/// in uninterruptible sleep (Linux `TASK_UNINTERRUPTIBLE`: a read from an NFS share mounted `hard` whose server is gone,
-/// a hung disk), which no signal but SIGKILL ends. Such a thread keeps its slot ([`MAX_PRODUCERS`]) until its call
-/// returns. Node's client starts a new server process and searches on; its old server, with the stuck thread, lingers
-/// until that call returns.
+/// intervals up to 1 s, until the thread ends or the cancel grace has passed. A thread still running then is given up
+/// ([`Producers::give_up`]): its slot is free, nothing cancels it any more, and it ends by itself if its call ever
+/// returns. That is what remains uncancellable: on Windows an operation whose driver does not support cancellation
+/// (`CancelSynchronousIo` then returns ERROR_NOT_FOUND, or the operation completes normally), on Unix a call in
+/// uninterruptible sleep (Linux `TASK_UNINTERRUPTIBLE`: a read from an NFS share mounted `hard` whose server is gone, a
+/// hung disk), which no signal but SIGKILL ends, and any call when another code holds the signal (`take_over`). Node's client
+/// ends its server's process (SIGTERM) and starts a new one; the stuck thread lingers with its process until that call
+/// returns, as a given-up thread lingers here ([`ProducerCounts::stalled`]).
 mod cancel_io {
     use std::sync::Arc;
     use std::sync::Condvar;
     use std::sync::LazyLock;
     use std::sync::Mutex;
     use std::sync::PoisonError;
-    use std::sync::atomic::AtomicU8;
     use std::sync::atomic::Ordering;
     use std::thread::JoinHandle;
     use std::time::Duration;
+    use std::time::Instant;
 
-    use super::ENDED;
+    use super::Producers;
+    use super::RELEASED;
+    use super::Ticket;
 
     const FIRST_RETRY: Duration = Duration::from_millis(1);
     const LAST_RETRY: Duration = Duration::from_secs(1);
 
     struct Abandoned {
-        /// Held, not detached, until the thread ends: on Unix its id stays valid for `pthread_kill` until then.
+        /// Held, not detached, while it is cancelled: on Unix its id stays valid for `pthread_kill` until then.
         thread: JoinHandle<()>,
-        state: Arc<AtomicU8>,
+        ticket: Arc<Ticket>,
+        producers: Arc<Producers>,
+        /// When the cancel grace has passed.
+        give_up_at: Instant,
+    }
+
+    impl Abandoned {
+        fn running(&self) -> bool {
+            self.ticket.state.load(Ordering::SeqCst) == RELEASED
+        }
     }
 
     struct Canceller {
@@ -1697,16 +1932,18 @@ mod cancel_io {
     static CANCELLER: LazyLock<Arc<Canceller>> = LazyLock::new(|| {
         let canceller = Arc::new(Canceller { abandoned: Mutex::new(Vec::new()), added: Condvar::new() });
         let running = canceller.clone();
-        // Without this thread nothing is cancelled: abandoned producers end when their calls return, as before.
+        // Without this thread nothing is cancelled or given up but by `close`: the others end when their calls return.
         let _ = std::thread::Builder::new().name("mixdog-fs-cancel".into()).spawn(move || running.run());
         canceller
     });
 
-    /// Cancels `thread`'s blocking call now and again until `state` is [`ENDED`].
-    pub(super) fn until_ended(thread: JoinHandle<()>, state: Arc<AtomicU8>) {
+    /// Cancels `thread`'s blocking call now and again until its producer ends, or gives it up once `producers`' cancel
+    /// grace has passed.
+    pub(super) fn until_ended(thread: JoinHandle<()>, ticket: Arc<Ticket>, producers: Arc<Producers>) {
         cancel(&thread);
+        let give_up_at = Instant::now() + producers.config.grace;
         let canceller = &*CANCELLER;
-        canceller.abandoned.lock().unwrap_or_else(PoisonError::into_inner).push(Abandoned { thread, state });
+        canceller.abandoned.lock().unwrap_or_else(PoisonError::into_inner).push(Abandoned { thread, ticket, producers, give_up_at });
         canceller.added.notify_one();
     }
 
@@ -1715,16 +1952,22 @@ mod cancel_io {
             let mut abandoned = self.abandoned.lock().unwrap_or_else(PoisonError::into_inner);
             let mut retry = FIRST_RETRY;
             loop {
-                abandoned.retain(|a| a.state.load(Ordering::SeqCst) != ENDED);
-                if abandoned.is_empty() {
+                let now = Instant::now();
+                for a in abandoned.iter().filter(|a| a.running() && a.give_up_at <= now) {
+                    a.producers.give_up(&a.ticket);
+                }
+                // An ended or given-up thread is let go of: a given-up one is detached and runs on alone.
+                abandoned.retain(Abandoned::running);
+                let Some(next) = abandoned.iter().map(|a| a.give_up_at).min() else {
                     abandoned = self.added.wait(abandoned).unwrap_or_else(PoisonError::into_inner);
                     retry = FIRST_RETRY;
                     continue;
-                }
+                };
                 let before = abandoned.len();
-                abandoned = self.added.wait_timeout(abandoned, retry).unwrap_or_else(PoisonError::into_inner).0;
+                let wait = retry.min(next.saturating_duration_since(now));
+                abandoned = self.added.wait_timeout(abandoned, wait).unwrap_or_else(PoisonError::into_inner).0;
                 retry = if abandoned.len() > before { FIRST_RETRY } else { (retry * 2).min(LAST_RETRY) };
-                for a in abandoned.iter().filter(|a| a.state.load(Ordering::SeqCst) != ENDED) {
+                for a in abandoned.iter().filter(|a| a.running()) {
                     cancel(&a.thread);
                 }
             }
@@ -2534,12 +2777,31 @@ mod tests {
         Box::new(|_| unreachable!("no file is listed"))
     }
 
-    /// A directory read that never returns: the deadline answers at once, and `close` waits its grace and abandons the
-    /// thread (counted), which ends when the read returns.
+    /// Node's scheduler with `total` searches at once and no interactive reserve, `queue` waiting places, its other
+    /// defaults (the bulk limit 2 within `total`, the priority reserve of `queue`, the AIMD target and step), and a
+    /// cancel grace of `grace`.
+    fn scheduler(total: usize, queue: usize, grace: Duration) -> SchedulerConfig {
+        SchedulerConfig {
+            total,
+            interactive_reserve: 0,
+            bulk: 2.min(total),
+            queue,
+            priority_reserve: if queue <= 1 { 0 } else { queue.div_ceil(8).clamp(1, 64).min(queue - 1) },
+            aimd_target: Duration::from_millis(250),
+            aimd_increase_every: 8,
+            grace,
+            local: MAX_LOCAL_PRODUCERS,
+        }
+    }
+
+    const NODE_QUEUE: usize = 2_048;
+
+    /// A directory read that never returns: the deadline answers at once, and `close` waits its grace, then gives the
+    /// thread up: its slot is free, and it is counted as stalled until its read returns.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_directory_read_that_never_returns_is_abandoned_after_the_grace() {
+    async fn a_directory_read_that_never_returns_is_given_up_after_the_grace() {
         let (_dir, root) = root();
-        let producers = Arc::new(Producers::new(MAX_PRODUCERS, SEARCH_QUEUE_CAPACITY));
+        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, CLOSE_GRACE)));
         let (listing, release, _) = hung_listing();
         let started = Instant::now();
         let mut stream = search_over(&producers, &needle_request(&root, Some(started + Duration::from_millis(100))), listing, no_files());
@@ -2549,18 +2811,19 @@ mod tests {
         let closing = Instant::now();
         stream.close().await;
         assert!(closing.elapsed() >= CLOSE_GRACE && closing.elapsed() < CLOSE_GRACE * 3, "{:?}", closing.elapsed());
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1, waiting: 0 }, "the abandoned thread is still in its read");
+        assert_eq!(producers.counts(), ProducerCounts { stalled: 1, ..Default::default() }, "given up, still in its read, no slot");
         drop(release);
-        until(&producers, "the abandoned thread ends once its read returns", |c| c == ProducerCounts::default()).await;
+        until(&producers, "the given-up thread ends once its read returns", |c| c == ProducerCounts::default()).await;
     }
 
     /// A producer held in a read that never returns is counted as abandoned however its stream lets go of it: a `close`
-    /// that waits out its grace, a `close` its caller drops before the grace (its deadline or cancellation), and a
-    /// dropped stream. Each count ends with the read.
+    /// that waits out its grace (given up then), a `close` its caller drops before the grace (its deadline or
+    /// cancellation), and a dropped stream; the canceller gives these two up once the grace has passed. Each given-up
+    /// thread is counted as stalled until its read returns.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_producer_its_stream_lets_go_of_is_counted_until_it_ends() {
+    async fn a_producer_its_stream_lets_go_of_is_counted_until_it_ends_or_is_given_up() {
         let (_dir, root) = root();
-        let producers = Arc::new(Producers::new(MAX_PRODUCERS, SEARCH_QUEUE_CAPACITY));
+        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, CLOSE_GRACE)));
         let mut released = Vec::new();
         let mut search = async || {
             let (listing, release, in_read) = hung_listing();
@@ -2571,7 +2834,7 @@ mod tests {
         };
         let mut closed = search().await;
         closed.close().await;
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1, waiting: 0 }, "a close that waited out its grace");
+        assert_eq!(producers.counts(), ProducerCounts { stalled: 1, ..Default::default() }, "a close that waited out its grace");
         let mut cut = search().await;
         {
             let close = cut.close();
@@ -2579,62 +2842,83 @@ mod tests {
             let polled = close.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
             assert!(polled.is_pending(), "the close waits for its producer");
         }
-        assert_eq!(producers.counts(), ProducerCounts { live: 2, abandoned: 2, waiting: 0 }, "a close its caller dropped");
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1, waiting: 0, stalled: 1 }, "a close its caller dropped");
         drop(search().await);
-        assert_eq!(producers.counts(), ProducerCounts { live: 3, abandoned: 3, waiting: 0 }, "a dropped stream");
+        assert_eq!(producers.counts(), ProducerCounts { live: 2, abandoned: 2, waiting: 0, stalled: 1 }, "a dropped stream");
+        until(&producers, "the canceller gives both up after the grace", |c| c == ProducerCounts { stalled: 3, ..Default::default() }).await;
         drop(released);
         until(&producers, "every producer ends once its read returns", |c| c == ProducerCounts::default()).await;
         drop((closed, cut));
     }
 
-    /// Repeated timeouts against reads that never return: each timed-out search's producer is abandoned in its read and
-    /// keeps its slot, so the count stops at the cap and later searches wait, answering nothing (their deadline
-    /// included, as a search queued in Node's server is not answered); once the reads return, the slots are free and
-    /// the waiting searches run: one whose deadline passed while it waited answers timed out, the other its match.
+    /// Two hundred searches in a row, each held in a read that ignores its cancel: each is given up once the cancel
+    /// grace has passed (none here), and its slot, the only one, serves the next; after them a search answers. The
+    /// given-up threads hold no slot and end once their reads return.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn producers_stop_at_the_cap_and_waiting_searches_run_once_the_stuck_reads_return() {
-        const CAP: usize = 3;
+    async fn two_hundred_reads_that_ignore_the_cancel_leave_the_slot_to_the_next_search() {
         let (_dir, root) = root();
         let file = root.join("a.txt").as_path().to_path_buf();
         std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(CAP, SEARCH_QUEUE_CAPACITY));
+        let producers = Arc::new(Producers::new(scheduler(1, NODE_QUEUE, Duration::ZERO)));
         let mut released = Vec::new();
-        for _ in 0..CAP {
+        for _ in 0..200 {
             let (listing, release, in_read) = hung_listing();
             released.push(release);
-            let deadline = Instant::now() + Duration::from_millis(50);
-            let mut stream = search_over(&producers, &needle_request(&root, Some(deadline)), listing, no_files());
-            let _ = within("the producer in its read", in_read).await;
-            let err = within("the deadline's answer", stream.next()).await.unwrap().unwrap_err();
-            assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
+            let mut stream = search_over(&producers, &needle_request(&root, None), listing, no_files());
+            let _ = within("a stuck search in its read", in_read).await;
             stream.close().await;
         }
-        assert_eq!(producers.counts(), ProducerCounts { live: CAP, abandoned: CAP, waiting: 0 });
-        let one_file = || -> (Listing, Opener) {
-            let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
-            (listing, Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>)))
-        };
-        let (listing, open) = one_file();
-        let mut late = search_over(&producers, &needle_request(&root, Some(Instant::now())), listing, open);
-        let (listing, open) = one_file();
+        assert_eq!(producers.counts(), ProducerCounts { stalled: 200, ..Default::default() });
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
+        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
         let mut found = search_over(&producers, &needle_request(&root, None), listing, open);
-        assert_eq!(producers.counts(), ProducerCounts { live: CAP, abandoned: CAP, waiting: 2 }, "no thread past the cap");
-        for stream in [&mut late, &mut found] {
-            let next = stream.next();
-            let mut next = std::pin::pin!(next);
-            let polled = next.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
-            assert!(polled.is_pending(), "a search waiting for a slot answers nothing, its passed deadline included");
-        }
-        drop(released);
-        until(&producers, "the stuck producers end once their reads return", |c| c == ProducerCounts { waiting: 2, ..Default::default() }).await;
-        let err = within("the late search's answer", late.next()).await.unwrap().unwrap_err();
-        assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
-        let hit = within("the waiting search's match", found.next()).await.unwrap().unwrap();
+        let hit = within("the next search's match", found.next()).await.unwrap().unwrap();
         assert_eq!((hit.path.as_path(), hit.line, hit.text.as_str()), (file.as_path(), 1, "needle"));
-        assert!(within("the waiting search's end", found.next()).await.is_none());
-        late.close().await;
+        assert!(within("the next search's end", found.next()).await.is_none());
         found.close().await;
-        assert_eq!(producers.counts(), ProducerCounts::default());
+        drop(released);
+        until(&producers, "the given-up threads end once their reads return", |c| c == ProducerCounts::default()).await;
+    }
+
+    /// A stream that never polls next, for the burst below: whether it was refused (its one item, at once) or holds or
+    /// waits for a slot (nothing yet).
+    fn refused(stream: &mut Box<dyn EventSource<Result<SearchMatch, FsError>>>) -> bool {
+        let next = stream.next();
+        let mut next = std::pin::pin!(next);
+        match next.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
+            std::task::Poll::Ready(Some(Err(FsError { kind: FsErrorKind::Saturated, .. }))) => true,
+            std::task::Poll::Pending => false,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// A burst of searches that never end, each class alone, against Node's scheduler with 2 searches at once, an
+    /// interactive reserve of 1, a bulk limit of 2, and 4 waiting places (a priority reserve of 1): as the server's
+    /// dispatcher admits them when it keeps up, 3 interactive ones run (2 and the reserve), 4 wait and the 8th is
+    /// refused; 2 fuzzy ones run, 4 wait, the 7th is refused; 2 bulk ones run, 3 wait (4 less the reserve), the 6th is
+    /// refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_burst_is_refused_at_the_search_nodes_scheduler_refuses() {
+        let (_dir, root) = root();
+        let config = SchedulerConfig { interactive_reserve: 1, ..scheduler(2, 4, Duration::ZERO) };
+        assert_eq!((config.bulk, config.priority_reserve), (2, 1));
+        for (class, running, refused_at) in [(SearchClass::Interactive, 3, 8), (SearchClass::Fuzzy, 2, 7), (SearchClass::Bulk, 2, 6)] {
+            let producers = Arc::new(Producers::new(config));
+            let mut held = Vec::new();
+            let mut first_refused = None;
+            for n in 1..=10 {
+                let (listing, release, _) = hung_listing();
+                let mut stream = search_over(&producers, &SearchRequest { class, ..needle_request(&root, None) }, listing, no_files());
+                if refused(&mut stream) && first_refused.is_none() {
+                    first_refused = Some(n);
+                    assert_eq!(producers.counts(), ProducerCounts { live: running, waiting: refused_at - 1 - running, ..Default::default() }, "{class:?}");
+                }
+                held.push((stream, release));
+            }
+            assert_eq!(first_refused, Some(refused_at), "{class:?}");
+            drop(held);
+            until(&producers, "the burst's producers end", |c| c == ProducerCounts::default()).await;
+        }
     }
 
     /// A pipe's reading end that reports its first read as it starts, past the search's last check of its stop.
@@ -2660,7 +2944,7 @@ mod tests {
         let (_dir, root) = root();
         let file = root.join("a.txt").as_path().to_path_buf();
         std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(1, SEARCH_QUEUE_CAPACITY));
+        let producers = Arc::new(Producers::new(scheduler(1, NODE_QUEUE, CLOSE_GRACE)));
         let (reader, writer) = io::pipe().unwrap();
         let (started, in_read) = oneshot::channel::<()>();
         let pipe = Mutex::new(Some(Reading { pipe: reader, started: Some(started) }));
@@ -2671,9 +2955,10 @@ mod tests {
         let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
         let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
         let mut next = search_over(&producers, &needle_request(&root, None), listing, open);
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 0, waiting: 1 }, "the next search has no slot");
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: 1, ..Default::default() }, "the next search has no slot");
         blocked.close().await;
-        until(&producers, "the producer in its pipe read is cancelled and ends", |c| c == ProducerCounts { waiting: 1, ..Default::default() }).await;
+        // Cancelled within the grace: it ended, nothing was given up, and its slot went to the waiting search.
+        until(&producers, "the producer in its pipe read is cancelled and ends", |c| c == ProducerCounts { live: 1, ..Default::default() }).await;
         let hit = within("the next search's match", next.next()).await.unwrap().unwrap();
         assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
         assert!(within("the next search's end", next.next()).await.is_none());
@@ -2682,15 +2967,15 @@ mod tests {
     }
 
     /// Past the slots, searches wait while fewer than the queue's capacity wait; the next is refused as Node's server
-    /// refuses it, a bulk one already at the capacity less its reserve (9 less 2), and a walk Node does not queue still
-    /// waits. Once the slot frees, the waiting searches run and the queue takes searches again.
+    /// refuses it, a bulk one already at the capacity less its reserve (9 less 2), and a walk Node does not queue runs on
+    /// its own slots. Once the slot frees, the waiting searches run and the queue takes searches again.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_search_past_the_queue_capacity_is_refused_as_saturated_and_the_queue_recovers() {
         const QUEUE: usize = 9;
         let (_dir, root) = root();
         let file = root.join("a.txt").as_path().to_path_buf();
         std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(1, QUEUE));
+        let producers = Arc::new(Producers::new(scheduler(1, QUEUE, CLOSE_GRACE)));
         let (reader, writer) = io::pipe().unwrap();
         let (started, in_read) = oneshot::channel::<()>();
         let pipe = Mutex::new(Some(Reading { pipe: reader, started: Some(started) }));
@@ -2707,15 +2992,20 @@ mod tests {
         let mut waiting: Vec<_> = (0..7).map(|_| one_file(SearchClass::Interactive)).collect();
         assert!(saturated(within("a bulk search past 7 waiting", one_file(SearchClass::Bulk).next()).await));
         waiting.extend((0..2).map(|_| one_file(SearchClass::Fuzzy)));
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 0, waiting: QUEUE });
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: QUEUE, ..Default::default() });
         assert!(saturated(within("a search past 9 waiting", one_file(SearchClass::Interactive).next()).await));
         assert!(saturated(within("a fuzzy search past 9 waiting", one_file(SearchClass::Fuzzy).next()).await));
         let walking = Walking { walk: WalkBuilder::new(root.as_path()).build(), root: root.as_path().to_path_buf(), include_dirs: false };
-        let walk = streamed(&producers, Box::new(walking), Deadline::default(), None, false);
-        assert_eq!(producers.counts().waiting, QUEUE + 1, "a walk Node does not queue waits");
-        drop(walk);
+        let mut walk = streamed(&producers, Box::new(walking), Deadline::default(), None, false);
+        assert_eq!(producers.counts().waiting, QUEUE, "a walk Node does not queue runs at once");
+        let mut walked = Vec::new();
+        while let Some(entry) = within("the walk's entries", walk.next()).await {
+            walked.push(entry.unwrap().path);
+        }
+        assert!(walked.iter().any(|p| p.as_path() == file.as_path()), "{walked:?}");
+        walk.close().await;
         blocked.close().await;
-        until(&producers, "the slot frees", |c| c == ProducerCounts { waiting: QUEUE, ..Default::default() }).await;
+        until(&producers, "the slot goes to the first waiting search", |c| c == ProducerCounts { live: 1, waiting: QUEUE - 1, ..Default::default() }).await;
         for stream in &mut waiting {
             let hit = within("a waiting search's match", stream.next()).await.unwrap().unwrap();
             assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
@@ -2725,7 +3015,7 @@ mod tests {
         let mut again = one_file(SearchClass::Bulk);
         assert!(within("the queue takes searches again", again.next()).await.unwrap().is_ok());
         again.close().await;
-        assert_eq!(producers.counts(), ProducerCounts::default());
+        until(&producers, "every producer ends", |c| c == ProducerCounts::default()).await;
         drop(writer);
     }
 

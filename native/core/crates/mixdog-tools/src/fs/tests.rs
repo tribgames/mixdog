@@ -351,6 +351,8 @@ async fn replay_fs_search(scenario: &str) {
         let what = || format!("{scenario} #{index} {tool} {}", call["input"]);
         let (is_error, text) = recorded_form(within(what, tool_of(tool).call(&ctx, args_of(&call["input"]))).await);
         mixdog_workspace::localfs::deadline_script::set(&ws, None);
+        // The hard timer passes only for the silent call itself, not for a call made beside it.
+        advanced.store(false, std::sync::atomic::Ordering::SeqCst);
         // Every search of the call has ended and been joined, a timed-out one included.
         let live = mixdog_workspace::localfs::probe::live_under(&ws);
         if live != 0 {
@@ -368,6 +370,17 @@ async fn replay_fs_search(scenario: &str) {
         };
         if text != want || is_error != want_error {
             failures.push(format!("#{index} {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
+        }
+        // A call Node made while this one's stuck search was being given up: answered by the next search, unscripted.
+        if let Some(beside) = call.get("beside") {
+            let tool = beside["tool"].as_str().unwrap();
+            let what = || format!("{scenario} #{index} beside {tool} {}", beside["input"]);
+            let (is_error, text) = recorded_form(within(what, tool_of(tool).call(&ctx, args_of(&beside["input"]))).await);
+            let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+            let (want, want_error) = (beside["text"].as_str().unwrap(), beside["isError"] == true);
+            if text != want || is_error != want_error {
+                failures.push(format!("#{index} beside {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", beside["input"]));
+            }
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -588,7 +601,9 @@ async fn grep_renders_as_node_does() {
 /// A search that reaches its deadline, the deadline an input as it was in the recording: the soft one passing after a
 /// given number of files with matches (one path, several paths, several patterns, before any line, after more lines than
 /// the window holds) keeps what was found, with Node's partial notices and warning, a combined pattern scan keeping its
-/// sections; the hard one, on a search that never answers, fails the call. No search of a call runs once it returns.
+/// sections; the hard one, on a search that never answers, fails the call, and a grep made while that search is given up
+/// and one after it answer as usual (Node sends the first again to its next server). No search of a call runs once it
+/// returns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grep_answers_a_search_past_its_deadline_as_node_does() {
     replay_fs_search("grep-timeout").await;
