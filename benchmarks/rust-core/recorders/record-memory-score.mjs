@@ -9,8 +9,8 @@
 // trigger replaces it. So for every probe whose arguments the trigger can pass (a category string or null, integer or
 // null timestamps) the recorder also runs Node's own compute_entry_score on Node's opened memory database (openDatabase,
 // memory.mjs, a private bundled PostgreSQL cluster) and records what it answers as `stored` (`{score}`: REAL, as node-pg
-// parses it). A probe with an argument no BIGINT/TEXT column can hold (a string or NaN timestamp) gets
-// `stored: {noSqlArgument}` naming it.
+// parses it). A probe with an argument no BIGINT/TEXT column can hold (a string or NaN timestamp) has no `stored`: no
+// caller can pass it to compute_entry_score, and the manifest's exclusions name each such probe.
 //
 //   node benchmarks/rust-core/recorders/record-memory-score.mjs --tree <dir>
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
@@ -55,7 +55,7 @@ try {
     const last = sqlTimestamp(lastSeenAt);
     const now = sqlTimestamp(nowMs);
     const bad = [last.bad && `lastSeenAt is ${last.bad}`, now.bad && `nowMs is ${now.bad}`].filter(Boolean);
-    if (bad.length) { out.stored = { noSqlArgument: `${bad.join('; ')}: no BIGINT column holds it` }; continue; }
+    if (bad.length) continue;
     const { rows } = await db.query('SELECT compute_entry_score($1::text, $2::bigint, $3::bigint) AS score', [category ?? null, last.ok, now.ok]);
     out.stored = { score: rows[0].score };
   }
@@ -68,14 +68,21 @@ try {
   if (problems.length) throw new Error(`private cluster left behind at ${directory}: ${problems.join('; ')}`);
 }
 
+const unreachable = cases.flatMap((c) => c.scores.flatMap((out, index) => ('stored' in out ? [] : [{ case: c.name, index }])));
+
 finish(ctx, {
   url: import.meta.url,
   set: 'memory-score',
   golden: { domain: 'memory-score', source: 'src/runtime/memory/lib/memory-score.test.mjs', cases },
   extra: {
     entry: { runs: 'computeEntryScore and CATEGORY_GRADE (memory-score.mjs: what the test asserts, `result`); compute_entry_score (memory-schema/score-params.mjs:46) on Node\'s opened memory database (openDatabase, memory.mjs; a private bundled PostgreSQL cluster) for every probe the row trigger can pass (`stored`)', notRun: 'the row trigger itself (it reads NOW(), the wall clock): its arguments are passed explicitly' },
-    replay: "The product's score is SQL in Node and in the core: the trigger trg_entry_score_recalc (core native/core/crates/mixdog-services/src/memory/schema.rs:115, Node entry-triggers.mjs:15) calls compute_entry_score (core schema.rs:41, Node score-params.mjs:46) on every write of entries.score; Node's JavaScript computeEntryScore (`result`) is replaced by that trigger in the same UPDATE (manage-actions.mjs:39,92 set `category`) and has no core counterpart. A replay (mixdog-services memory/replays/score.rs) runs the core's compute_entry_score on a private cluster with the core's installed schema (needs MIXDOG_PG_RUNTIME) over each probe's input and compares `stored` whole: the score as REAL (f32 equal to node-pg's parsed number) or null, and every `noSqlArgument` probe is one whose input the replay's argument mapping also refuses",
-    exclusions: 'none',
+    replay: "The product's score is SQL in Node and in the core: the trigger trg_entry_score_recalc (core native/core/crates/mixdog-services/src/memory/schema.rs:115, Node entry-triggers.mjs:15) calls compute_entry_score (core schema.rs:41, Node score-params.mjs:46) on every write of entries.score; Node's JavaScript computeEntryScore (`result`) is replaced by that trigger in the same UPDATE (manage-actions.mjs:39,92 set `category`) and has no core counterpart. A replay (mixdog-services memory/replays/score.rs) runs the core's compute_entry_score on a private cluster with the core's installed schema (needs MIXDOG_PG_RUNTIME) over each probe's input and compares `stored` whole: the score as REAL (f32 equal to node-pg's parsed number) or null. The probes named in exclusions.noTriggerArgument have no `stored` and are not compared",
+    exclusions: {
+      noTriggerArgument: {
+        reason: "a string or NaN timestamp: the only caller of compute_entry_score, in Node and in the core, is the row trigger (Node entry-triggers.mjs:15, core memory/schema.rs:118), which passes entries.category (TEXT), COALESCE(entries.last_seen_at, entries.ts) (BIGINT columns, core memory/schema.rs:73) and NOW() as BIGINT; no write can store a string or NaN in a BIGINT column, so no caller can ask either side for these probes. Node's JavaScript `result` for them is recorded; the stored score has no input",
+        probes: unreachable,
+      },
+    },
     normalised: { none: 'no run-dependent value' },
   },
 });

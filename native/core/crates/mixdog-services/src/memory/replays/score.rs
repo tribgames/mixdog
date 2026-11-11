@@ -10,9 +10,10 @@
 //! cluster with the core's installed schema and compares `stored` whole, in recorded order.
 //!
 //! Arguments are the trigger's types: a category string is `TEXT`, `null`/`undefined` is `NULL`; an integer timestamp
-//! is `BIGINT`, `null`/`undefined` is `NULL`. A string or NaN timestamp has no `BIGINT` form: the replay answers
-//! `noSqlArgument` with its own text for it, as the recorder did. A score is `REAL`: node-pg parses its text to the
-//! shortest double, so both sides compare as the `f32` they are.
+//! is `BIGINT`, `null`/`undefined` is `NULL`. A string or NaN timestamp has no `BIGINT` form and no caller can pass
+//! one (the trigger reads `BIGINT` columns): those probes have no `stored`, are named in the manifest's
+//! `exclusions.noTriggerArgument`, and are not compared. A score is `REAL`: node-pg parses its text to the shortest
+//! double, so both sides compare as the `f32` they are.
 
 use mixdog_testkit::Exact;
 
@@ -33,15 +34,25 @@ fn text(value: &Exact) -> Option<String> {
     }
 }
 
-/// A timestamp as the trigger's `BIGINT` argument, or why it has none.
-fn bigint(name: &str, value: &Exact) -> Result<Option<i64>, String> {
+/// A timestamp as the trigger's `BIGINT` argument.
+fn bigint(name: &str, value: &Exact) -> Option<i64> {
     match value {
-        Exact::Number(n) if n.fract() == 0.0 => Ok(Some(*n as i64)),
-        Exact::Null | Exact::Undefined => Ok(None),
-        Exact::NaN => Err(format!("{name} is NaN")),
-        Exact::String(s) => Err(format!("{name} is the string {}", serde_json::to_string(s).expect("JSON string"))),
-        other => panic!("{name}: a recorded timestamp shape the replay does not know: {other:?}"),
+        Exact::Number(n) if n.fract() == 0.0 => Some(*n as i64),
+        Exact::Null | Exact::Undefined => None,
+        other => panic!("{name}: {other:?} has no BIGINT form and is not declared in exclusions.noTriggerArgument"),
     }
+}
+
+/// The probes the manifest declares unreachable: `(case name, probe index)`.
+fn declared_unreachable() -> Vec<(String, usize)> {
+    let path = super::fixture(SET, "MANIFEST.json");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let manifest: serde_json::Value = serde_json::from_str(&text).expect("MANIFEST.json is JSON");
+    let probes = manifest["exclusions"]["noTriggerArgument"]["probes"].as_array().expect("exclusions.noTriggerArgument.probes");
+    probes
+        .iter()
+        .map(|p| (p["case"].as_str().expect("probe case").to_owned(), p["index"].as_u64().expect("probe index") as usize))
+        .collect()
 }
 
 fn real(value: &Exact) -> Exact {
@@ -54,10 +65,7 @@ fn real(value: &Exact) -> Exact {
 
 /// The recorded `stored`, its score as the `f32` it is.
 fn recorded(stored: &Exact) -> Exact {
-    match stored.try_get("score") {
-        Some(score) => super::object(vec![("score", real(score))]),
-        None => stored.clone(),
-    }
+    super::object(vec![("score", real(stored.get("score")))])
 }
 
 mod pg {
@@ -70,25 +78,23 @@ mod pg {
     async fn replay(index: usize, name: &str) {
         let g = golden(SET);
         let c = case(&g, index, name);
+        let declared = declared_unreachable();
         let pg = memory_db().await;
         let (mut expected, mut actual) = (Vec::new(), Vec::new());
         for (at, probe) in c.get("scores").as_array().iter().enumerate() {
             let input = probe.get("input");
+            let unreachable = declared.iter().any(|(case, index)| case == name && *index == at);
+            assert_eq!(
+                probe.try_get("stored").is_none(),
+                unreachable,
+                "{name}: input {at}: a probe has no `stored` exactly when the manifest declares it unreachable"
+            );
+            if unreachable {
+                continue;
+            }
             expected.push(object(vec![("input", input.clone()), ("stored", recorded(probe.get("stored")))]));
             let category = text(input.get("category"));
             let (last_seen, now) = (bigint("lastSeenAt", input.get("lastSeenAt")), bigint("nowMs", input.get("nowMs")));
-            let (last_seen, now) = match (last_seen, now) {
-                (Ok(last_seen), Ok(now)) => (last_seen, now),
-                (last_seen, now) => {
-                    let why: Vec<String> = [last_seen.err(), now.err()].into_iter().flatten().collect();
-                    let reason = format!("{}: no BIGINT column holds it", why.join("; "));
-                    actual.push(object(vec![
-                        ("input", input.clone()),
-                        ("stored", object(vec![("noSqlArgument", Exact::String(reason))])),
-                    ]));
-                    continue;
-                }
-            };
             let row = tokio::time::timeout(
                 DEADLINE,
                 pg.db.query_opt(
