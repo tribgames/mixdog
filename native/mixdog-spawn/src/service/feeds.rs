@@ -48,6 +48,12 @@ use crate::terminal::ReplayBuffer;
 /// Exited processes whose feed stays attachable (replay of a finished run).
 const RETAINED_FEEDS: usize = 256;
 
+/// The terminal lane: every terminal tab's output as Node's relay lane sent it to a phone, each frame naming its tab (`processHandle`).
+/// Node's relay pushed `termData` of every running terminal to every phone reading the terminal lane, the tabs the desktop or another
+/// phone opened included, from their first output (remote-relay-push-lanes.ts:85-100): a phone that reads the lane subscribes this one
+/// feed, which a tab's first output finds subscribed whoever opened the tab.
+pub const TERMINAL_LANE_FEED: &str = "process:relay";
+
 /// How long the pump waits for a change to reach the clients before the output that follows it (see `PumpTell`).
 const ORDER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -176,9 +182,9 @@ fn exited_params(handle: &ProcessHandle, exit: &ProcessExit) -> Value {
 struct Entry {
     handle: ProcessHandle,
     publisher: FramePublisher,
-    /// A terminal tab's output as Node's relay lane sent it to a phone (`process:relay:<tab>`, see [`super::relay_buffer`]); `None` for a
-    /// process feed.
-    relay: Option<FramePublisher>,
+    /// A terminal tab: its output also goes on the terminal lane ([`TERMINAL_LANE_FEED`]) as Node's relay lane sent it to a phone (see
+    /// [`super::relay_buffer`]).
+    relay: bool,
     /// A terminal feed: its snapshot carries the screen text; a process feed's carries only the
     /// run state (its replay is the feed's ring).
     text: bool,
@@ -240,41 +246,29 @@ pub struct ProcessFeeds {
     entries: Mutex<HashMap<String, Arc<Entry>>>,
     finished: Mutex<VecDeque<Arc<Entry>>>,
     on_exit: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// The terminal lane ([`TERMINAL_LANE_FEED`]), live for the life of the core.
+    lane: FramePublisher,
 }
 
 /// What `feed()` hands the server: attaches like the feed and starts its pump once.
 struct Gate {
     feeds: Arc<ProcessFeeds>,
     entry: Arc<Entry>,
-    /// The tab's relay feed rather than its raw one.
-    relay: bool,
-}
-
-impl Gate {
-    fn publisher(&self) -> &FramePublisher {
-        match (&self.entry.relay, self.relay) {
-            (Some(relay), true) => relay,
-            _ => &self.entry.publisher,
-        }
-    }
 }
 
 impl Entry {
     fn close(&self) {
         self.publisher.close();
-        if let Some(relay) = &self.relay {
-            relay.close();
-        }
     }
 }
 
 impl FeedSource for Gate {
     fn feed_id(&self) -> FeedId {
-        self.publisher().id().clone()
+        self.entry.publisher.id().clone()
     }
 
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
-        let decision = self.publisher().source().attach(req)?;
+        let decision = self.entry.publisher.source().attach(req)?;
         if !self.entry.started.swap(true, Ordering::AcqRel) {
             Arc::clone(&self.feeds).start_pump(Arc::clone(&self.entry));
         }
@@ -282,18 +276,20 @@ impl FeedSource for Gate {
     }
 
     fn detach(&self, sub: SubscriptionId) {
-        self.publisher().source().detach(sub);
+        self.entry.publisher.source().detach(sub);
     }
 }
 
 impl ProcessFeeds {
     pub fn new(manager: LocalProcessManager, scoped: Arc<dyn ScopedFeeds>) -> Arc<Self> {
+        let lane = FramePublisher::create(scoped.as_ref(), FeedId::from(TERMINAL_LANE_FEED), json!({}));
         Arc::new(Self {
             manager,
             scoped,
             entries: Mutex::new(HashMap::new()),
             finished: Mutex::new(VecDeque::new()),
             on_exit: OnceLock::new(),
+            lane,
         })
     }
 
@@ -305,15 +301,6 @@ impl ProcessFeeds {
     /// The feed of `handle`, created on first use. A terminal feed (`text`) also keeps the screen
     /// text for its snapshot. A finished run's feed is replaced when the same handle runs again.
     pub(crate) fn feed(self: &Arc<Self>, handle: &str, text: bool) -> Arc<dyn FeedSource> {
-        self.feed_for(handle, text, false)
-    }
-
-    /// The relay feed of a terminal tab (`process:relay:<tab>`): what a phone reads, its output framed by Node's relay rule.
-    pub(crate) fn relay_feed(self: &Arc<Self>, handle: &str) -> Arc<dyn FeedSource> {
-        self.feed_for(handle, true, true)
-    }
-
-    fn feed_for(self: &Arc<Self>, handle: &str, text: bool, relay: bool) -> Arc<dyn FeedSource> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = entries.get(handle) {
             let rerun = entry.finished.load(Ordering::Acquire)
@@ -322,7 +309,6 @@ impl ProcessFeeds {
                 return Arc::new(Gate {
                     feeds: Arc::clone(self),
                     entry: Arc::clone(entry),
-                    relay,
                 });
             }
             entry.close();
@@ -330,8 +316,8 @@ impl ProcessFeeds {
         let state = if text { json!({ "text": "" }) } else { json!({}) };
         let entry = Arc::new(Entry {
             handle: ProcessHandle::from(handle),
-            publisher: FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:{handle}")), state.clone()),
-            relay: text.then(|| FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:relay:{handle}")), state)),
+            publisher: FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:{handle}")), state),
+            relay: text,
             text,
             started: AtomicBool::new(false),
             finished: AtomicBool::new(false),
@@ -349,7 +335,6 @@ impl ProcessFeeds {
         Arc::new(Gate {
             feeds: Arc::clone(self),
             entry,
-            relay,
         })
     }
 
@@ -461,8 +446,8 @@ impl ProcessFeeds {
         let output = |publisher: &FramePublisher, bytes: &[u8], state: Value| {
             publisher.publish("process/outputDelta", json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes) }), state);
         };
-        let relay_out = |frames: Vec<RelayFrame>, state: &Value| {
-            if let Some(publisher) = &entry.relay {
+        let relay_out = |frames: Vec<RelayFrame>| {
+            if entry.relay {
                 for frame in frames {
                     let mut params = json!({ "processHandle": handle, "bytesB64": STANDARD.encode(&frame.bytes) });
                     // A frame Node cut inside a surrogate pair: the lone units at its edges (see `RelayFrame`).
@@ -472,7 +457,7 @@ impl ProcessFeeds {
                     if let Some(tail) = frame.tail {
                         params["tailUnit"] = json!(tail);
                     }
-                    publisher.publish("process/outputDelta", params, state.clone());
+                    self.lane.publish("process/outputDelta", params, json!({}));
                 }
             }
         };
@@ -503,9 +488,8 @@ impl ProcessFeeds {
                 // client got from Node. Bounded like a reply's wait for its events (a section worker that is stuck downstream).
                 let _ = tokio::time::timeout(ORDER_DEADLINE, published).await;
             }
-            let state = if entry.text { json!({ "text": screen.read() }) } else { json!({}) };
             let Some(event) = next else {
-                relay_out(relay.flush(tokio::time::Instant::now()), &state);
+                relay_out(relay.flush(tokio::time::Instant::now()));
                 continue;
             };
             match event {
@@ -516,16 +500,18 @@ impl ProcessFeeds {
                     } else {
                         json!({})
                     };
-                    output(&entry.publisher, &bytes, state.clone());
+                    output(&entry.publisher, &bytes, state);
                     // Node's relay lane takes output into its buffer only while a phone reads the terminal lane
                     // (remote-relay-push-lanes.ts:98-101): output from before the first reader never reaches it, and with no reader
                     // nothing is buffered. What already waits goes out when due, to whoever reads then.
-                    if entry.relay.as_ref().is_some_and(|relay| relay.feed.subscribers() > 0) {
-                        relay_out(relay.push(&bytes, tokio::time::Instant::now()), &state);
+                    if entry.relay && self.lane.feed.subscribers() > 0 {
+                        relay_out(relay.push(&bytes, tokio::time::Instant::now()));
                     }
                     taken += bytes.len() as u64;
-                    if let Some(tell) = entry.taken.get() {
-                        let _ = tell(PumpPoint::Taken(taken));
+                    // The changes this chunk's markers caused go now, and reach the clients before the relay buffer sends the chunk's
+                    // text (Node broadcast them before its 16 ms flush); bounded as the wait above.
+                    if let Some(published) = entry.taken.get().and_then(|tell| tell(PumpPoint::Taken(taken))) {
+                        let _ = tokio::time::timeout(ORDER_DEADLINE, published).await;
                     }
                 }
                 Some(ProcessEvent::Exited { exit, .. }) => {
@@ -534,14 +520,14 @@ impl ProcessFeeds {
                     } else {
                         json!({ "exited": true })
                     };
-                    entry.publisher.publish("process/exited", exited_params(handle, &exit), state.clone());
-                    // Node's relay lane sends what waits when its 16 ms are up, exit or not; the relay feed ends after it.
+                    entry.publisher.publish("process/exited", exited_params(handle, &exit), state);
+                    // Node's relay lane sends what waits when its 16 ms are up, exit or not; the tab's exit on the lane follows it.
                     if let Some(due) = relay.due() {
                         tokio::time::sleep_until(due).await;
-                        relay_out(relay.flush(tokio::time::Instant::now()), &state);
+                        relay_out(relay.flush(tokio::time::Instant::now()));
                     }
-                    if let Some(publisher) = &entry.relay {
-                        publisher.publish("process/exited", exited_params(handle, &exit), state);
+                    if entry.relay {
+                        self.lane.publish("process/exited", exited_params(handle, &exit), json!({}));
                     }
                     break;
                 }
@@ -722,8 +708,8 @@ mod tests {
     /// count before it buffers a chunk and publishes the chunk afterwards: a chunk the pump takes before the attach counted nothing and is
     /// not buffered (it is from before the subscription, which Node's lane never delivers either); a chunk it takes after is buffered and
     /// published after the attach, so the reader gets it once, as a live frame (an attach starts at the feed's current position, so a
-    /// frame published later is never also in what the attach replays). Here the reader attaches before the pump starts (the attach is
-    /// what starts it): every chunk reaches it, exactly once.
+    /// frame published later is never also in what the attach replays). Here the reader attaches before the pump starts: every chunk
+    /// reaches it, exactly once.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_chunk_reaches_the_first_relay_reader_exactly_once() {
         use mixdog_core_api::feed::subscribe;
@@ -740,10 +726,10 @@ mod tests {
                 let _ = ended.send(());
             }
         });
-        let relay = feeds.relay_feed("relay-once");
         let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
-        let attached = subscribe(&relay, SubscriptionId::from("s"), Window::Fixed, None, &conn).unwrap();
+        let attached = subscribe(&feeds.lane.source(), SubscriptionId::from("s"), Window::Fixed, None, &conn).unwrap();
         conn.send_control_release(Bytes::from_static(b"ok"), attached.release).unwrap();
+        drop(feeds.open_terminal("relay-once", || None));
         tokio::time::timeout(std::time::Duration::from_secs(60), end).await.expect("the pump ended within 60 s").unwrap();
         let mut got = Vec::new();
         for line in conn.drain_text() {
@@ -852,8 +838,8 @@ mod tests {
         let _ = manager.kill(&handle);
     }
 
-    /// With no phone reading the relay feed, output does not enter the relay buffer (remote-relay-push-lanes.ts:98-101): the raw feed
-    /// carries the output and the exit, the relay feed only the exit.
+    /// With no phone reading the terminal lane, output does not enter the relay buffer (remote-relay-push-lanes.ts:98-101): the raw feed
+    /// carries the output and the exit, the lane only the exit.
     #[tokio::test]
     async fn output_with_no_relay_reader_never_enters_the_relay_buffer() {
         use mixdog_core_api::domain::common::AbsPath;
@@ -880,10 +866,10 @@ mod tests {
             .await
             .unwrap();
         let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
-        let _ = feeds.relay_feed("relay-unread");
+        let _ = feeds.feed("relay-unread", true);
         let entry = feeds.entries.lock().unwrap().get("relay-unread").cloned().unwrap();
         feeds.pump(&entry).await;
         assert!(entry.publisher.feed.position().seq >= 2, "the raw feed has the output and the exit");
-        assert_eq!(entry.relay.as_ref().unwrap().feed.position().seq, 1, "the relay feed has only the exit");
+        assert_eq!(feeds.lane.feed.position().seq, 1, "the lane has only the exit");
     }
 }

@@ -1,0 +1,130 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-openai-ws-delta.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::openai delta.rs (:197-298) and decoder.rs:271-287; mixdog-trace builders.rs:765-781 (no production caller: K1 gaps G12): compare `result` whole (frame mode/reason/previous_response_id/input, hashes of the mismatch diagnostics, parsed tool_search args, cache observations). `traceRows` are the rows Node writes; Rust writes none today (diagnostic only).",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (over a real loopback WebSocket; _agentTraceFn collects the trace rows); Not run: the seams of the Node test (:316-318); the real acquire, send and stream run instead, openai-compat-stream.mjs isInvalidToolArgsMarker.",
+  "exclusions": [
+    "result...results[].result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared",
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 370063,
+      "path": "cases.json",
+      "sha256": "ba41cb521e7f52e0c4fca5a30c144ec40211b910cc8c8ac23ef0ffbbc29e1534"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "default-delta-falls-back-on-request-property-mismatch",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "ws-delta-previous-response-id-safe-fallbacks",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "mismatch-diagnostics-reach-trace-rows",
+      "level": "wire"
+    },
+    {
+      "id": "canonical-full-frame-key-order",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "canonical-delta-frame-key-order",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180"
+    },
+    {
+      "id": "tool-search-malformed-args-marker",
+      "level": "wire"
+    },
+    {
+      "id": "tool-search-valid-object-empty-preserved",
+      "level": "wire"
+    },
+    {
+      "id": "message-mismatch-diagnostics-hash-content",
+      "level": "wire"
+    },
+    {
+      "id": "diagnostic-hashes-normalize-equivalent-forms",
+      "level": "wire"
+    },
+    {
+      "id": "native-tool-search-output-replays-canonically",
+      "level": "wire"
+    },
+    {
+      "id": "cache-observation-warm-zero-and-retreats",
+      "level": "wire"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-openai-ws-delta.mjs",
+  "recorderSha256": "7bccc9690538a0713b27d6e37d215f0360bc99f525414e7baaea66f2f7e2b926",
+  "replay": "PURE cases, per `levels`: mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180 (the delta chain and frame builders). WIRE case (mismatch-diagnostics-reach-trace-rows): the OpenAI WS send through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback WebSocket. Cases marked RUST WORK have no public Rust function of the same input and output.",
+  "set": "provider-openai-ws-delta",
+  "totalBytes": 370063,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

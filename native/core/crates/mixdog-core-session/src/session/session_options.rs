@@ -219,7 +219,7 @@ mod tests {
     /// its profile; the one `write_header` persists is exactly that list, in that order.
     #[test]
     fn the_profile_allowlists_are_the_ones_node_recorded() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/tool-resolution/golden.json")).expect("golden");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-resolution/golden.json")).expect("golden");
         let mut seen = std::collections::BTreeMap::new();
         for case in golden["cases"].as_array().expect("cases") {
             let input = &case["input"];

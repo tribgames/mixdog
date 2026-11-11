@@ -105,7 +105,7 @@ mod tests {
     }
 
     fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/agent-tool-variants/golden.json")).expect("golden")
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-tool-variants/golden.json")).expect("golden")
     }
 
     /// Node's `bindAgentOwner` over every built-in tool (`fixtures/agent-tool-variants`): the pool's

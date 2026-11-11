@@ -185,7 +185,7 @@ mod tests {
     use super::*;
 
     fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../fixtures/claude-floors/golden.json")).expect("fixture")
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("fixture")
     }
 
     /// A version number as the recording holds it: the text `JSON.stringify` writes for it (an integer's digits, `null`

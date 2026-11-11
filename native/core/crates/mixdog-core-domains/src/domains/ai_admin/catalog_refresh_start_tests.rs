@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 use super::model_list_node_tests::{Rig, rig_on};
 
 fn recording() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/catalog-refresh-start/node-catalog-refresh-start.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/catalog-refresh-start/node-catalog-refresh-start.json")).unwrap()
 }
 
 /// `wait`, or a failure naming `what` once a minute of real time has passed without it (the clock is paused, so the

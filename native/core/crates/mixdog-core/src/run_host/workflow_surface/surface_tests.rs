@@ -28,7 +28,7 @@ use crate::run_host::workflow_surface::testing::open_world;
 use crate::run_host::workflow_surface::testing::profile_of;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/workflow-surface/surface.json")).expect("the golden is JSON")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/workflow-surface/surface.json")).expect("the golden is JSON")
 }
 
 struct Facts;
