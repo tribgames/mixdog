@@ -259,7 +259,13 @@ pub struct GhClient {
     locks: Arc<RepoLocks>,
     /// One FIFO queue per remote repository, nothing shared between keys.
     writes: mixdog_rt::KeyedGate,
+    /// Told the key of a write the moment it starts waiting behind another write of its repository.
+    #[cfg(feature = "write-queue-hook")]
+    write_queued: Mutex<Option<WriteQueued>>,
 }
+
+#[cfg(feature = "write-queue-hook")]
+type WriteQueued = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl GhClient {
     pub fn new(runner: Arc<dyn GhRunner>, locks: Arc<RepoLocks>) -> Self {
@@ -267,7 +273,36 @@ impl GhClient {
             runner,
             locks,
             writes: mixdog_rt::KeyedGate::new(),
+            #[cfg(feature = "write-queue-hook")]
+            write_queued: Mutex::new(None),
         }
+    }
+
+    /// Development only (`write-queue-hook`): `hook` is told the key of every write that has to wait for another write of its
+    /// repository, once it is queued behind it.
+    #[cfg(feature = "write-queue-hook")]
+    pub fn on_write_queued(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        *self.write_queued.lock().expect("write queue hook") = Some(Arc::new(hook));
+    }
+
+    /// The write turn of `key`: at once when no other write of the repository holds or waits for it, else in arrival order.
+    async fn write_turn(&self, key: &str, cancel: &CancellationToken) -> Result<mixdog_rt::GateGuard, ScmFailure> {
+        let entering = self.writes.enter(key, cancel);
+        #[cfg(feature = "write-queue-hook")]
+        let entering = {
+            let mut entering = Box::pin(entering);
+            match std::future::poll_fn(|cx| std::task::Poll::Ready(std::future::Future::poll(entering.as_mut(), cx))).await {
+                std::task::Poll::Ready(turn) => return turn.map_err(|_| ScmFailure::Cancelled),
+                std::task::Poll::Pending => {
+                    let hook = self.write_queued.lock().expect("write queue hook").clone();
+                    if let Some(hook) = hook {
+                        hook(key);
+                    }
+                    entering
+                }
+            }
+        };
+        entering.await.map_err(|_| ScmFailure::Cancelled)
     }
 
     /// The raw answer of `gh` with plain arguments: the exit code is the caller's to read.
@@ -342,7 +377,7 @@ impl GhClient {
         let write_key = format!("{hostname}/{}", if repo_name.is_empty() { "@account" } else { &repo_name }).to_lowercase();
         let mutates = request.def.write;
         let _turn = if mutates {
-            Some(self.writes.enter(&write_key, cancel).await.map_err(|_| ScmFailure::Cancelled)?)
+            Some(self.write_turn(&write_key, cancel).await?)
         } else {
             None
         };
