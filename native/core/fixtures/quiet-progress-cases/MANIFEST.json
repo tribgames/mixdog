@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,6 +66,7 @@
   "recorderSha256": "932889148dca28e7905c3b4667fd6c4eb5a61b455f01c5cefdb9eb7601de9e95",
   "replay": {
     "entry": "NO RUST ENTRY ON o1 FOR THE QUIET CUE: this is work for the Rust side. Nothing in native/ produces the quiet labels (\"quiet for 3m · running shell\"), quietProgress / quietProgressParts / quietWaitKind or the pool-row decoration withTurnProgress adds (stall warn seconds, display stage): a search of native/**/*.rs for those strings finds none. agent_tool/progress.rs progress_fields (mixdog-agent, native/core/crates/mixdog-agent/src/agent_tool/progress.rs:380) is a different contract (task progress) and is NOT the target. A new public function is needed; this recording is the contract it must replay: feed each recorded input and compare the result whole.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the whole recording: no Rust code produces the quiet cue, its labels or the pool-row decoration (see replay.entry)"
     ],
