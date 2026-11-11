@@ -16,7 +16,11 @@ import { syncBuiltinESMExports } from 'node:module';
 import { mock } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { exact } from './lib/exact.mjs';
+import { DETERMINISM, DEADLINE_MS, installDeterminism, realClearTimeout, realSetTimeout } from './lib/session-wire-harness.mjs';
 import { cleanup, runSessionRecorder } from './lib/session-rec.mjs';
+
+const determinism = installDeterminism();
 
 const root = mkdtempSync(join(tmpdir(), 'session-sequence-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -29,22 +33,25 @@ await runSessionRecorder(import.meta.url, {
   testFile: 'src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs',
   entry: 'Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord) and manager/session-close.mjs (closeSession) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.',
   replay: 'mixdog-core-session actor ordering (S/close.rs detach/close, S/delete.rs delete_session, the item-commit barrier) driven by the same op list per case with the case\'s unlink failures injected in the store writer: compare each op\'s result, the lifecycle commit error, the stored record (messages, generation, closed) and the log file (normalised) whole.',
+  values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: [
     'session ids drop the test\'s process id (sess_sequence_<tag>_<n>)',
-    'log file text: epoch uuids -> <uuid>, the random 24-hex logId -> <logid>, 13-digit millisecond timestamps -> <ms>; every other byte kept',
     'the unlink plan is computed by the test\'s `predict` oracle (copied here only to place the injected failures); the recorded outcomes are Node\'s own',
-    'timers of 1000 ms are not recorded: the derived summary index (store-summary-index.mjs:446,518) re-arms a retry when two of its flushes overlap in real time, so their presence is not deterministic; the summary log is retired in the Rust core (decisions: derived data, MIG/src/stores.rs:102-103). The only store timer recorded is the 150 ms save debounce (pending-writes.mjs:24)',
+    'every timer the store arms is recorded, the derived summary index\'s 1000 ms retry included (store-summary-index.mjs:518). A case ends on events, not on a count of event-loop turns: the recorder waits (10 s deadline) for the product\'s own settleSummaryIndexWrites(), and when the retry timer is armed the recorder ticks the mock clock by its delay (a recorded step in the case\'s clockSteps); the wait runs again after drainSessionStore()',
+    'the recorded stored record is the whole readDurableSessionRecord result and the whole directory listing of the sessions dir (the OS\'s order), the log file is its exact text',
     'the random op lists come from the test\'s seeded generator (seed * 7919), recorded as inputs',
+    'the temp data dir is a path under the OS temp dir: it is not recorded; a recorded string that holds it is a defect of the recording (the recorder fails on it)',
+    ...DETERMINISM,
   ],
 }, async ({ imp }) => {
   const store = await imp('src/runtime/agent/orchestrator/session/store.mjs');
   const { readDurableSessionRecord } = await imp('src/runtime/agent/orchestrator/session/store/transcript-durability.mjs');
   const { closeSession } = await imp('src/runtime/agent/orchestrator/session/manager/session-close.mjs');
   const { bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError, markSessionClosed, saveSession, saveSessionAsync } = store;
+  const { settleSummaryIndexWrites } = await imp('src/runtime/agent/orchestrator/session/store-summary-index.mjs');
 
   const sessions = join(root, 'data', 'sessions');
   const logPath = (id) => join(sessions, `${id}.log.jsonl`);
-  const turns = async (count) => { for (let i = 0; i < count; i++) await new Promise((resolve) => setImmediate(resolve)); };
 
   // fs.unlinkSync of a session log fails while `failing(id)` says so (consulted once per unlink call)
   const unlinks = [];
@@ -64,33 +71,59 @@ await runSessionRecorder(import.meta.url, {
   // The mock clock: setTimeout only; each arming is recorded.
   mock.timers.enable({ apis: ['setTimeout'] });
   const armed = [];
-  const mockSetTimeout = globalThis.setTimeout;
+  // The summary index's retry (1000 ms) is held here when armed: the recorder fires it itself (a recorded step) so that
+  // the other mock timers (the 150 ms save debounce) are NOT advanced, as in the test.
+  const retry = { fn: null, waiters: new Set() };
+  // The end of a step is an event: the summary index has landed its queued writes. A flush the index refused re-arms its retry
+  // on the mock clock; the recorder fires that retry (a recorded clock step) because nothing else would.
+  const quiesce = async (clockSteps, label) => {
+    let settled = false;
+    const settling = settleSummaryIndexWrites().then(() => { settled = true; });
+    const deadline = realSetTimeout(() => { throw new Error(`timed out waiting for the summary index to settle: ${label}`); }, DEADLINE_MS);
+    try {
+      while (!settled) {
+        if (retry.fn) {
+          const { fn } = retry;
+          retry.fn = null;
+          clockSteps.push({ fired: 'summary index retry timer (1000 ms)', after: label });
+          fn();
+          continue;
+        }
+        await Promise.race([settling, new Promise((resolve) => { retry.waiters.add(resolve); })]);
+        retry.waiters.clear();
+      }
+    } finally { realClearTimeout(deadline); }
+  };  const mockSetTimeout = globalThis.setTimeout;
   globalThis.setTimeout = function (fn, delay, ...rest) {
-    // 1000 ms is the derived summary index's retry (store-summary-index.mjs SUMMARY_RETRY_DELAY_MS), armed only when two index flushes overlap in real time: not recorded (see exclusions).
-    if (delay !== 1000) armed.push(delay ?? 1);
+    armed.push(delay ?? 1);
+    if (delay === 1000) { retry.fn = fn; for (const w of [...retry.waiters]) w(); }
     return mockSetTimeout.call(this, fn, delay, ...rest);
   };
 
-  const normLog = (text) => text.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, '<uuid>').replace(/\b1[0-9]{12}\b/g, '<ms>').replace(/"logId":"[0-9a-f]{24}"/g, '"logId":"<logid>"');
-  const state = (id) => {
-    const stored = readDurableSessionRecord(id);
-    return {
-      stored: stored ? { messages: stored.messages.map((m) => m.content), generation: stored.generation, closed: stored.closed === true } : null,
-      logFile: existsSync(logPath(id)) ? normLog(readFileSync(logPath(id), 'utf8')) : null,
-      sessionFiles: readdirSync(sessions).filter((n) => n.includes(id)).sort(),
-    };
-  };
-
+  // Whole values: the durable record as readDurableSessionRecord returns it, the log file's exact text and the sessions
+  // directory's whole listing in the order the OS returned it.
+  const state = (id) => ({
+    stored: exact(readDurableSessionRecord(id)),
+    logFile: existsSync(logPath(id)) ? readFileSync(logPath(id), 'utf8') : null,
+    sessionsDir: readdirSync(sessions),
+  });
   let sequence = 0;
   const label = (tag) => `sess_sequence_${tag}_${++sequence}`;
   async function newSession(tag) {
     const id = label(tag);
     const message = { role: 'user', content: 'm0' };
     const first = await saveSessionAsync({ id, generation: 0, closed: false, messages: [message] });
+    await quiesce([], 'after the initial save');
     return { id, message, first };
   }
 
   const cases = [];
+  // A case's end: the deferred summary writes landed, the store drained, the summary writes the drain queued landed.
+  const finish = async (clockSteps) => {
+    await quiesce(clockSteps, 'before drainSessionStore');
+    drainSessionStore();
+    await quiesce(clockSteps, 'after drainSessionStore');
+  };
   try {
     // test line 64
     for (const fails of [false, true]) {
@@ -99,14 +132,16 @@ await runSessionRecorder(import.meta.url, {
       failing = (candidate) => fails && candidate === id;
       const deleting = deleteSession(id);
       const closing = closeSession(id, 'desktop-context-switch', { tombstone: false });
-      const deleted = await deleting;
-      const closed = await closing;
+      const deleted = exact(await deleting);
+      const closed = exact(await closing);
       failing = () => false;
+      const clockSteps = [];
+      await finish(clockSteps);
       cases.push({
         name: `detach-accepted-while-a-delete-${fails ? 'fails' : 'succeeds'}`,
         testLine: 64,
         input: { id, initialSave: { messages: ['m0'], generation: 0, closed: false }, ops: [{ op: 'deleteSession' }, { op: 'closeSession', reason: 'desktop-context-switch', options: { tombstone: false } }], unlinkPlan: [fails] },
-        result: { firstSave: first, deleted, closed, commitError: getSessionLifecycleCommitError(id), unlinks: unlinks.slice(), timersArmed: armed.slice(), ...state(id) },
+        result: { firstSave: exact(first), deleted, closed, commitError: exact(getSessionLifecycleCommitError(id)), unlinks: unlinks.slice(), timersArmed: armed.slice(), clockSteps, ...state(id) },
       });
     }
 
@@ -181,15 +216,15 @@ await runSessionRecorder(import.meta.url, {
         if (kind === 'detach') return bumpSessionGeneration(id, 'detach');
         return deleteSession(id);
       });
-      const results = await Promise.all(pending);
-      await turns(5);
-      drainSessionStore();
+      const results = exact(await Promise.all(pending));
+      const clockSteps = [];
+      await finish(clockSteps);
       failing = () => false;
       cases.push({
         name: `random-seed-${seed}`,
         testLine: 168,
         input: { id, seed, initialSave: { messages: ['m0'], generation: 0, closed: false }, ops: ops.map((kind, index) => ({ kind, content: `m${index + 1}` })), unlinkPlan: plan },
-        result: { results: results.map((r) => (r === undefined ? null : r)), commitError: getSessionLifecycleCommitError(id), unlinkPlanLeft: queue.slice(), unlinks: unlinks.slice(), timersArmed: armed.slice(), ...state(id) },
+        result: { results, commitError: exact(getSessionLifecycleCommitError(id)), unlinkPlanLeft: queue.slice(), unlinks: unlinks.slice(), timersArmed: armed.slice(), clockSteps, ...state(id) },
       });
     }
   } finally {
@@ -199,6 +234,8 @@ await runSessionRecorder(import.meta.url, {
     syncBuiltinESMExports();
     drainSessionStore();
   }
+  const text = JSON.stringify(cases);
+  for (const leak of [root, root.replaceAll('\\', '\\\\')]) if (text.includes(leak)) throw new Error('the recording holds the temp data dir: ' + leak);
   return { cases };
 });
 cleanup(root);
