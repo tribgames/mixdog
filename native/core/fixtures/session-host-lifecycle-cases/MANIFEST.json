@@ -1,0 +1,60 @@
+{
+  "cases": 6,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-host-lifecycle-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no daemon: the session client is a scripted list/close pair; the real data dir (MIXDOG_DATA_DIR of the test env) holds the retention members' stored records",
+    "runs": "SessionHost (setSessionArchived, sessionSidebarState, forgetSessionMetadata, markSessionRead, listSessions, dispose, transport.invokeControl hand-off), sessionSidebarChangeHandler, registerSessionSidebarHost / readSessionSidebarState / applySessionSidebarChange and applySubAgentRetention over the host"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6095,
+      "path": "golden.json",
+      "sha256": "e32e5f14844958409ed3b47345b0f77b31023244b43f12037bf92e12101ca5b8"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-host-lifecycle-cases.mjs",
+  "recorderSha256": "a9efb3fb596aa022a1fddd4cff2107fa91b393363f99f45e279721f4ae127ba4",
+  "replay": {
+    "entry": "mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case's calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome",
+    "normalised": {
+      "retentionAge": "member ages are now - 5 days",
+      "userData": "the temp user-data path in the dispose error text is <userData>"
+    }
+  },
+  "set": "session-host-lifecycle-cases",
+  "totalBytes": 6095
+}
