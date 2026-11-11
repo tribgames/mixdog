@@ -446,6 +446,13 @@ async fn code_graph_answers_every_mode_as_node_does() {
     replay_fs_search("code-graph-modes").await;
 }
 
+/// A sentinel-free cwd spelled in another case than its built graph is not a federation child of itself on Windows
+/// (Node with node-fix-code-graph-self-federation.patch).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_never_federates_a_cwd_into_itself_whatever_its_case_as_node_does() {
+    replay_fs_search("code-graph-self-case").await;
+}
+
 /// The casing hint's looked-up names live with the project root's resident graph, as Node's do: they survive five
 /// other roots, and after six more evict the root its rebuilt graph knows no earlier lookup.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
