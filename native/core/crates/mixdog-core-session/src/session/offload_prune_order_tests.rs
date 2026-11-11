@@ -30,9 +30,11 @@
 //! markers drive the cases where Node's recorder itself only marks the session busy (`turn-before-save`,
 //! `closed-before-turn-end`, `process-stopped`, `re-referenced`).
 //!
-//! `clear-fork`, `heir-fork` and `owner-let-go` are sessions Node's recorder does not compact: the copies of a
-//! conversation in other sessions keep the sidecars they name, and a session let go while its reconcile runs is left
-//! to its next owner.
+//! `clear-fork`, `heir-fork`, `older-fork`, `unreadable-fork`, `room-row` and `owner-let-go` are sessions Node's
+//! recorder does not compact: the copies of a conversation in other sessions keep the sidecars they name (found from
+//! their own source link in the catalog as well as from their source's record), a session the store cannot read keeps
+//! everything, a room log's text keeps nothing, and a session let go while its reconcile runs is left to its next
+//! owner. Node's older heir (made by Node as shipped) and its room log's row are stored in the core as recorded.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -474,6 +476,27 @@ async fn a_copy_that_cannot_be_read_keeps_every_sidecar() {
     let _reopened = world.reopened(2).await;
     let readable = world.point("after-readable-resume", false).await;
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, unreadable, readable]), world.case);
+}
+
+/// Node's `room-row`: a room log (`sess_room_<id>`) takes a member's speech naming `stray` (`thread/roomRows/append`,
+/// the stored row Node's `appendRoomRows` wrote); the session is opened again: a room log is not a copy of the
+/// conversation, so the text naming `stray` there keeps nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_row_naming_a_sidecar_keeps_nothing() {
+    let world = world("room-row").await;
+    let room_log = &world.case["seed"]["roomLog"];
+    let room = mixdog_core_api::ids::ThreadId::from(room_log["sessionId"].as_str().expect("the room log id").to_owned());
+    let rooms = SessionDirectory::new(world.rig.deps());
+    within("the room log is created", rooms.create_with_id(room.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({}))).await.expect("create");
+    let log = within("the room log opens", rooms.open_handle(&room, &CallContext::internal("test"))).await.expect("open");
+    let params = json!({ "threadId": room, "messages": unmask(world.data.path(), &room_log["messages"]) });
+    let append = CoreRequest { method: Method("thread/roomRows/append"), params, op: None, ctx: CallContext::internal("test") };
+    within("the room row is appended", log.request(append)).await.expect("thread/roomRows/append");
+    within("the room log's directory shuts down", rooms.shutdown_for("test close")).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_resume]), world.case);
 }
 
 /// Node's `owner-let-go`: the session is opened, and let go (its directory shut down, its actor ended) while the
