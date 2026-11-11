@@ -3,7 +3,11 @@
   "command": "node benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the scripted provider answers one fixed summary; no real model",
-    "runs": "compaction-archive-capture.mjs (scheduleCompactionArchive, droppedByCompaction, stampCompactionMessageIds, recover/flush/hide), compaction-archive.mjs (segment lines, pages, range), the real runSessionCompaction and runPreSendCompactPass with a scripted summary provider, deleteSession, reapOrphanSidecars, projectStoredTranscript, restoreTranscriptItems, compactionArchivedRows (TUI helper)"
+    "runs": "compaction-archive-capture.mjs (scheduleCompactionArchive, droppedByCompaction, stampCompactionMessageIds, recover/flush/hide), compaction-archive.mjs (segment lines, pages, range), the real runSessionCompaction and runPreSendCompactPass with a scripted summary provider, deleteSession, reapOrphanSidecars, projectStoredTranscript, restoreTranscriptItems, compactionArchivedRows (TUI helper)",
+    "scripted": {
+      "perCase": "the counter restarts at 1 for every case",
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
+    }
   },
   "fileCount": 14,
   "files": [
@@ -73,9 +77,9 @@
       "sha256": "2b3b3f02f5f3af227444e4f883542bf10df9c579f9e4ef7f1404aa93401b679c"
     },
     {
-      "bytes": 303766,
+      "bytes": 562549,
       "path": "golden.json",
-      "sha256": "9293c2a10c85f9ca3e101fa2d8964478346d05d7f8a893fc48b3f1838f40b738"
+      "sha256": "56497be421f0ac2c772a8d7c2a5711ebf6e6c0d414676d0ad2c411134e008c07"
     }
   ],
   "inputs": [
@@ -84,8 +88,24 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "1ad866793937f0ec91631efb98090cfad3508da5453e21c64a51dc9d8e79db00"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -107,18 +127,38 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs",
-  "recorderSha256": "a677d84f5c144b286349761f1eaa38ac27d4fb4d9bc621f3b6790404d7deb3cb",
+  "recorderSha256": "e34a756b90dfba46f92eaf8068ae4fd7247645bdbdad1a1fa8bcf093f4a0eb5c",
   "replay": {
     "entry": "mixdog-agent compact::execution_tail (serialize_archive, ensure_archive) + mixdog-store archive writer: replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values",
     "faults": "Node injected fsync failure, short writes, publish/park hooks, read errors through its test hooks; the recording holds what those produced. A replay must inject the same faults in the real writer",
     "normalised": {
-      "clock": "Date.now fixed",
-      "corruptName": "the kept-aside sidecar name carries a time (.corrupt-<n>)",
-      "dataDir": "the temp data dir is <data>",
-      "generatedIds": "random message ids are compared by shape only",
-      "parkedWait": "a 60 ms wait became three event-loop turns"
-    }
+      "paths": [
+        "$.cases[6].observed.after[3].message.content",
+        "$.cases[6].observed.after[38].message.content",
+        "$.cases[6].observed.after[69].message.content",
+        "$.cases[7].observed.after[5].message.content",
+        "$.cases[7].observed.after[8].message.content",
+        "$.cases[7].observed.after[39].message.content",
+        "$.cases[38].observed.log[0]",
+        "$.cases[46].observed.keptNames[0]",
+        "$.cases[46].observed.log[0]",
+        "$.cases[47].observed.keptNames[0]",
+        "$.cases[47].observed.log[0]",
+        "$.cases[48].observed.keptNames[0]",
+        "$.cases[48].observed.log[0]",
+        "$.cases[49].observed.keptNames[0]",
+        "$.cases[49].observed.log[0]"
+      ],
+      "reasons": {
+        "corruptName": "the kept-aside sidecar name carries a time (.corrupt-<n>)",
+        "dataDir": "the temp data dir is <data>",
+        "tmpName": "the writer's temp file names end in mixdog-tmp-<random hex>",
+        "toolResultsName": "the execution-recovery message names a tool-results file by the sha256 of a text that holds the per-run data dir: the sha256 digits are written <sha256 of the text> (name and sha256: form)"
+      }
+    },
+    "timers": "the parked-publication case runs on a virtual clock for setTimeout/setInterval (every arming and firing is recorded) and counts setImmediate armings",
+    "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
   },
   "set": "compaction-archive-cases",
-  "totalBytes": 1341650
+  "totalBytes": 1600433
 }

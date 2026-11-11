@@ -14,6 +14,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
+import { exact } from './lib/exact.mjs';
+import { scriptUuids } from './lib/scripted-uuid.mjs';
+import { normalisePaths } from './lib/normalise-paths.mjs';
+import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -25,6 +29,7 @@ const stage = stageSet(finalDir);
 const NOW = 1_800_000_000_000;
 const realNow = Date.now;
 Date.now = () => NOW;
+const scriptedUuids = scriptUuids();
 
 const dataDir = mkdtempSync(join(tmpdir(), 'compact-archive-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
@@ -109,11 +114,11 @@ const idsOf = (list) => list.map(idOf);
 const flush = (label) => within(`flushCompactionArchiveWrites (${label})`, flushCompactionArchiveWrites());
 const itemsOf = (seq, count, pad = 0) => stamped(Array.from({ length: count }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `s${seq} m${index} ${'x'.repeat(pad)}` })), `items-${seq}`);
 const fsError = (code) => Object.assign(new Error(`${code}: simulated`), { code });
-const heads = (id) => archiveLines(id).map((line) => { const h = compactionSegmentHead(line); return { seq: h.seq, id: h.id, prev: h.prev }; });
+const heads = (id) => archiveLines(id).map((line) => compactionSegmentHead(line));
 const stray = (id) => readdirSync(sessionsDir).filter((name) => name.includes(id) && (name.endsWith('.tmp') || name.includes('.mixdog-tmp-')));
-const named = (id) => readdirSync(sessionsDir).filter((name) => name.includes(id)).map((n) => n.replace(/\.corrupt-\d+/, '.corrupt-<n>'));
-const archiveState = (session) => session.compaction?.archive ?? null;
-const rowIds = (page) => ({ ids: page.items.map((item) => item.id), hasOlder: page.hasOlder });
+const named = (id) => readdirSync(sessionsDir).filter((name) => name.includes(id));
+const archiveState = (session) => session.compaction?.archive;
+const rowIds = (page) => page;
 
 async function captureStderr(fn) {
   const original = process.stderr.write;
@@ -135,7 +140,7 @@ async function coldSidecar(tag) {
   _resetCompactionArchiveState();
   return { session, pending: sidecarOf(session.id) };
 }
-async function parkedSession(tag) {
+async function parkedSession(tag, guard = (label, promise) => within(label, promise)) {
   const session = storedSession(tag);
   const record = recordOf(session.id);
   _setCompactionArchivePublishHook(async () => {
@@ -150,7 +155,7 @@ async function parkedSession(tag) {
   const original = process.stderr.write;
   process.stderr.write = (chunk) => { log.push(String(chunk)); return true; };
   const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
-  await within('parked write reaching its refusal', Promise.race([parked, scheduled.written.then(() => { throw new Error('publication ended without parking'); })]));
+  await guard('parked write reaching its refusal', Promise.race([parked, scheduled.written.then(() => { throw new Error('publication ended without parking'); })]));
   const release = () => { process.stderr.write = original; _setCompactionArchivePublishHook(null); _setCompactionArchiveParkHook(null); takePendingWrite(session.id); };
   return { session, record, scheduled, log, release, restoreStderr: () => { process.stderr.write = original; } };
 }
@@ -158,13 +163,13 @@ async function parkedSession(tag) {
 const cases = [];
 const files = new Map();
 async function runCase(row, fn) {
+  scriptedUuids.reset(); // every case counts its generated ids from 1: the number of ids an earlier case drew cannot move this one
   _setCompactionArchiveFs(null);
   _setCompactionArchiveFsync(null);
   _setCompactionArchivePublishHook(null);
   _setCompactionArchiveParkHook(null);
   _resetCompactionArchiveState();
-  const observed = await fn();
-  cases.push({ case: row, observed });
+  cases.push({ case: row, observed: exact(await fn(), { path: row }) });
 }
 const saveArchive = (name, id) => {
   const path = compactionArchivePath(sessionsDir, id);
@@ -271,13 +276,13 @@ for (const path of ['rules', 'summary']) {
       const id = message?.meta && typeof message.meta === 'object' ? message.meta.transcript?.messageId : '';
       return {
         role: message.role, id: id || null, idKnownBefore: id ? ids.has(id) : null,
-        contentSha256: sha(JSON.stringify(message)),
+        message: structuredClone(message),
         restoredWhenNoId: id ? null : restoreTranscriptItems([message], { sessionId: session.id }),
       };
     });
     await flush(path);
     saveArchive(`provenance-${path}`, session.id);
-    return { changed: result.changed, droppedMessages: result.droppedMessages ?? null, beforeIds: idsOf(before), after, archive: archiveState(session), segmentHeads: heads(session.id) };
+    return { changed: result.changed, droppedMessages: result.droppedMessages, beforeIds: idsOf(before), after, archive: archiveState(session), segmentHeads: heads(session.id) };
   });
 }
 await runCase('recompacting a compacted transcript keeps the summary ack and archives nothing', async () => {
@@ -437,7 +442,7 @@ await runCase('fsync failure fails the publication and leaves no temp file', asy
   _setCompactionArchiveFsync(null);
   scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
   await flush('fsync');
-  return { written, archiveExists, temps, log, headsAfterRetry: heads(session.id).map((h) => h.seq) };
+  return { written, archiveExists, temps, log, headsAfterRetry: heads(session.id) };
 });
 await runCase('an append that the handle writes only in part is completed before it is acknowledged', async () => {
   const session = storedSession('short-write');
@@ -508,7 +513,7 @@ await runCase('a clear hides earlier archive segments and the next write drops t
   const rangeHidden = compactionArchiveRange(session);
   scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
   await flush('clear 2');
-  return { rangeBefore, rangeHidden, seqsAfter: heads(session.id).map((h) => h.seq), rangeAfter: compactionArchiveRange(session) };
+  return { rangeBefore, rangeHidden, seqsAfter: heads(session.id), rangeAfter: compactionArchiveRange(session) };
 });
 await runCase('paged stored reads continue into the archive, newest segment first; whole reads never get it', async () => {
   const session = storedSession('paging');
@@ -610,13 +615,13 @@ await runCase('a compaction capture writes nothing on the event loop: no sync fs
     });
   } finally { Atomics.wait = wait; }
   const reads = /^(readFileSync|existsSync|statSync|lstatSync|fstatSync|readdirSync|accessSync|realpathSync) /;
-  return { nonReadSyncCalls: calls.filter((c) => !reads.test(c)).map((c) => c.replaceAll(dataDir, '<data>')), atomicsWaits: waits, publications, newestSeq: compactionSegmentHead(archiveLines(session.id).at(-1)).seq, sidecarExists: existsSync(sidecarOf(session.id)) };
+  return { scope: 'only the sync calls on paths under the sessions dir: a background trace writer can mkdir <data>/history inside the window, which is not the capture', nonReadSyncCalls: calls.filter((c) => c.includes(sessionsDir) && !reads.test(c)), atomicsWaits: waits, publications, newestSeq: compactionSegmentHead(archiveLines(session.id).at(-1)).seq, sidecarExists: existsSync(sidecarOf(session.id)) };
 });
 await runCase('the cap counts each line with its newline', async () => {
   const session = storedSession('cap-newline');
   for (const seq of [1, 2, 3, 4]) scheduleCompactionArchive({ session, before: itemsOf(seq, 3, 1_500), after: [], maxBytes: 12_000 });
   await flush('cap-newline');
-  return { maxBytes: 12_000, size: readFileSync(compactionArchivePath(sessionsDir, session.id)).length, seqs: heads(session.id).map((h) => h.seq) };
+  return { maxBytes: 12_000, size: readFileSync(compactionArchivePath(sessionsDir, session.id)).length, seqs: heads(session.id) };
 });
 await runCase('archive pages follow the sidecar after it changes', async () => {
   const session = storedSession('index');
@@ -644,26 +649,29 @@ await runCase('dropped messages that restore to no row claim no segment number',
   const archiveAfterHidden = archiveState(session);
   scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
   await flush('invisible');
-  return { restored, scheduledHidden, archiveAfterHidden, seqs: heads(session.id).map((h) => h.seq), nextSeq: archiveState(session).nextSeq };
+  return { restored, scheduledHidden, archiveAfterHidden, seqs: heads(session.id), nextSeq: archiveState(session).nextSeq };
 });
 await runCase('a publication refused while the session is live waits for its save to land, without polling', async () => {
-  const { session, record, scheduled, log, release } = await parkedSession('refused-live');
-  const second = scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
-  const original = globalThis.setImmediate;
-  let immediates = 0;
-  globalThis.setImmediate = (...a) => { immediates += 1; return original(...a); };
+  const virtual = virtualTimers();
+  let parked;
   try {
-    // three loop turns stand in for the test's 60 ms wait: a poller would have re-checked in any of them
-    for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => original(resolve));
-  } finally { globalThis.setImmediate = original; }
-  const archiveWhileParked = existsSync(compactionArchivePath(sessionsDir, session.id));
-  writeFileSync(record, JSON.stringify({ id: session.id }));
-  takePendingWrite(session.id);
-  publishSessionPersistence(session.id, 'landed');
-  const w1 = Boolean(await within('first parked segment', scheduled.written));
-  const w2 = Boolean(await within('second parked segment', second.written));
-  release();
-  return { immediatesWhileParked: immediates, archiveWhileParked, written: [w1, w2], seqs: heads(session.id).map((h) => h.seq), nextSeq: archiveState(session).nextSeq, log: log.join('').split('\n').filter(Boolean), normalized: 'the wait is three event-loop turns, not 60 ms' };
+    parked = await parkedSession('refused-live', realDeadline);
+    const { session, record, scheduled, log, release } = parked;
+    const second = scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
+    const armedUntilPark = virtual.armed.slice();
+    // The Node test waited 60 ms of real time and asserted that no setImmediate ran: here the virtual clock is driven over those 60 ms.
+    virtual.advance(60);
+    const window = { advancedMs: 60, armedInWindow: virtual.armed.slice(armedUntilPark.length), fired: virtual.fired.slice(), stillPendingTimers: virtual.pending() };
+    const archiveWhileParked = existsSync(compactionArchivePath(sessionsDir, session.id));
+    virtual.restore();
+    writeFileSync(record, JSON.stringify({ id: session.id }));
+    takePendingWrite(session.id);
+    publishSessionPersistence(session.id, 'landed');
+    const w1 = await within('first parked segment', scheduled.written);
+    const w2 = await within('second parked segment', second.written);
+    release();
+    return { armedUntilPark, window, archiveWhileParked, written: [w1, w2], seqs: heads(session.id), nextSeq: archiveState(session).nextSeq, log: log.join('').split('\n').filter(Boolean) };
+  } finally { virtual.restore(); }
 });
 await runCase('a delete wakes the parked write: final skip, no segment, number given back', async () => {
   const { session, scheduled, log, release } = await parkedSession('parked-delete');
@@ -684,7 +692,7 @@ await runCase('a close before the record exists keeps the segment; the next proc
   publishSessionPersistence(session.id, 'landed');
   await flush('parked-close');
   release();
-  return { written, archiveAfterClose, sidecarAfterClose, seqs: heads(session.id).map((h) => h.seq), sidecarAfterRecovery: existsSync(sidecarOf(session.id)) };
+  return { written, archiveAfterClose, sidecarAfterClose, seqs: heads(session.id), sidecarAfterRecovery: existsSync(sidecarOf(session.id)) };
 });
 await runCase('a failed write survives a restart through the pending sidecar', async () => {
   const { session, log } = await failedFsyncSession('restart');
@@ -739,7 +747,7 @@ await runCase('the startup scan publishes the pending segments of a session noth
   writeFileSync(orphan, readFileSync(pending));
   const recovered = await recoverPendingCompactionArchives();
   await flush('cold-scan');
-  const out = { recovered, seqs: heads(session.id).map((h) => h.seq), sidecarAfter: existsSync(pending), orphanArchiveExists: existsSync(compactionArchivePath(sessionsDir, orphanId)) };
+  const out = { recovered, seqs: heads(session.id), sidecarAfter: existsSync(pending), orphanArchiveExists: existsSync(compactionArchivePath(sessionsDir, orphanId)) };
   rmSync(orphan, { force: true });
   return out;
 });
@@ -783,7 +791,7 @@ for (const code of ['EACCES', 'EIO']) {
     const second = await compact(session, summaryProvider());
     await flush(`unreadable-${code}`);
     saveArchive(`unreadable-${code}`, session.id);
-    return { code, log, keptWhileUnreadable, afterReadable: { changed: second.changed, seqs: heads(session.id).map((h) => h.seq), firstItemText: JSON.parse(archiveLines(session.id)[0]).items[0].text.slice(0, 5), sidecarAfter: existsSync(pending) } };
+    return { code, log, keptWhileUnreadable, afterReadable: { changed: second.changed, seqs: heads(session.id), firstLine: archiveLines(session.id)[0], sidecarAfter: existsSync(pending) } };
   });
 }
 const DAMAGED = {
@@ -801,7 +809,7 @@ for (const [shape, damaged] of Object.entries(DAMAGED)) {
     let result;
     const log = await captureStderr(async () => { result = await compact(session, summaryProvider()); await flush('damaged'); });
     const kept = readdirSync(sessionsDir).filter((n) => n.startsWith(`${session.id}.compaction-archive.pending.corrupt-`));
-    const out = { shape, damaged, changed: result.changed, keptCount: kept.length, keptBytesEqualDamaged: kept.length ? readFileSync(join(sessionsDir, kept[0]), 'utf8') === damaged : null, log: log.map((l) => l.replace(/corrupt-\d+/, 'corrupt-<n>')), seqs: heads(session.id).map((h) => h.seq), sidecarAfter: existsSync(pending), normalized: 'the kept-aside file name carries a time: compared as .corrupt-<n>' };
+    const out = { shape, damaged, changed: result.changed, keptCount: kept.length, keptNames: kept, keptBytes: kept.map((name) => readFileSync(join(sessionsDir, name), 'utf8')), log, seqs: heads(session.id), sidecarAfter: existsSync(pending) };
     for (const name of kept) rmSync(join(sessionsDir, name), { force: true });
     return out;
   });
@@ -839,8 +847,8 @@ writeJson(join(stage, 'golden.json'), {
 for (const name of sorted) writeText(join(stage, name), files.get(name).toString('utf8'));
 rmSync(dataDir, { recursive: true, force: true });
 const identity = exactProductIdentity(tree, COMMIT);
-const text = readFileSync(join(stage, 'golden.json'), 'utf8').replaceAll(dataDir.replaceAll('\\', '\\\\'), '<data>').replaceAll(dataDir, '<data>');
-writeText(join(stage, 'golden.json'), text);
+const normalised = normalisePaths(JSON.parse(readFileSync(join(stage, 'golden.json'), 'utf8')), { replaceInText: [[dataDir, '<data>']], replaceRegex: [[/corrupt-\d+/g, 'corrupt-<n>'], [/mixdog-tmp-[0-9a-f]{8,16}/g, 'mixdog-tmp-<random>'], [/(tool-results[\\\\/]+[^\\\\/]+[\\\\/]+)[0-9a-f]{64}(\.txt)/g, '$1<sha256 of the text>$2'], [/sha256:[0-9a-f]{64}/g, 'sha256:<sha256 of the text>']] });
+writeJson(join(stage, 'golden.json'), normalised.doc);
 writeSetManifest(stage, {
   set: 'compaction-archive-cases', recorder: RECORDER, command: `node ${RECORDER} --tree <export of ${COMMIT} with node_modules>`, identity,
   extra: {
@@ -848,11 +856,12 @@ writeSetManifest(stage, {
     entry: {
       runs: "compaction-archive-capture.mjs (scheduleCompactionArchive, droppedByCompaction, stampCompactionMessageIds, recover/flush/hide), compaction-archive.mjs (segment lines, pages, range), the real runSessionCompaction and runPreSendCompactPass with a scripted summary provider, deleteSession, reapOrphanSidecars, projectStoredTranscript, restoreTranscriptItems, compactionArchivedRows (TUI helper)",
       notRun: 'the scripted provider answers one fixed summary; no real model',
+      scripted: { source: scriptedUuids.source, perCase: 'the counter restarts at 1 for every case' },
     },
     replay: {
       entry: 'mixdog-agent compact::execution_tail (serialize_archive, ensure_archive) + mixdog-store archive writer: replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values',
       faults: "Node injected fsync failure, short writes, publish/park hooks, read errors through its test hooks; the recording holds what those produced. A replay must inject the same faults in the real writer",
-      normalised: { generatedIds: 'random message ids are compared by shape only', corruptName: 'the kept-aside sidecar name carries a time (.corrupt-<n>)', dataDir: 'the temp data dir is <data>', clock: 'Date.now fixed', parkedWait: 'a 60 ms wait became three event-loop turns' },
+      normalised: { reasons: { corruptName: 'the kept-aside sidecar name carries a time (.corrupt-<n>)', tmpName: 'the writer\'s temp file names end in mixdog-tmp-<random hex>', toolResultsName: 'the execution-recovery message names a tool-results file by the sha256 of a text that holds the per-run data dir: the sha256 digits are written <sha256 of the text> (name and sha256: form)', dataDir: 'the temp data dir is <data>' }, paths: normalised.paths }, values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)', timers: 'the parked-publication case runs on a virtual clock for setTimeout/setInterval (every arming and firing is recorded) and counts setImmediate armings'
     },
   },
 });
