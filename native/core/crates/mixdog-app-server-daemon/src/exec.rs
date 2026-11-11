@@ -411,14 +411,7 @@ mod tests {
 
         /// The standby parked next, once it is.
         async fn parked(&self) -> ProcessHandle {
-            let deadline = Instant::now() + Duration::from_secs(30);
-            loop {
-                if let Some(handle) = self.runtime.parked_standby() {
-                    return handle;
-                }
-                assert!(Instant::now() < deadline, "no standby was parked");
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+            tokio::time::timeout(Duration::from_secs(30), self.runtime.wait_parked_standby()).await.expect("no standby was parked")
         }
 
         async fn task(&self, call: &str, args: serde_json::Value) -> String {
@@ -487,14 +480,26 @@ mod tests {
     /// Node b6f10295a by `record-shell-warm-standby.mjs`): a command taken by the parked standby runs in its folder (one
     /// whose name needs the Base64 hand-off) for PowerShell and .NET with its session's TEMP, and the next command, in the
     /// next standby, does not see the global it set; a command from another folder (another environment) does not take
-    /// the standby and runs cold. Whether each command ran in the parked standby is told, as Node's recording tells it, by
-    /// the process id it prints last. Each standby runs one command, and shutdown ends the parked one.
+    /// the standby and runs cold. Commands of 1 MiB, 1 MiB + 1 byte (cold), and one the hand-off prelude pushes past
+    /// 1 MiB (warm) run whole, past the helper's 1 MiB input queue. A variable of this process's environment changed
+    /// after a standby was parked reaches the next command, which does not take that standby. Whether each command ran
+    /// in the parked standby is told, as Node's recording tells it, by the process id it prints last. Each standby runs
+    /// one command, and shutdown ends the parked one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[allow(clippy::disallowed_methods, reason = "the test makes its folders on the test thread")]
     async fn powershell_commands_run_in_the_warm_standby_as_nodes_do() {
         use mixdog_core_api::domain::process::ProcessEvent;
         use mixdog_core_api::domain::process::ProcessManager;
         let want: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/shell-warm-standby/golden.json")).unwrap();
+        // Read by no other test; every standby is parked with this value, as in the recording.
+        // SAFETY: no other thread of this test binary reads or writes MIXDOG_STANDBY_PROBE.
+        unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", "parked") };
+        // The recorder's `sizedCommand`.
+        let sized = |size: usize| {
+            let head = "$null = $PSScriptRoot; $s = '";
+            let tail = "'; Write-Output ('len|' + $s.Length); Write-Output \"pid|$PID\"";
+            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
+        };
         let rig = rig().await;
         let (a, b) = (rig.dir.path().join("ws-a it\u{2019}s"), rig.dir.path().join("ws-b"));
         std::fs::create_dir_all(&a).unwrap();
@@ -505,8 +510,16 @@ mod tests {
         for (i, call) in want["calls"].as_array().unwrap().iter().enumerate() {
             let parked = if call["parked"].as_bool().unwrap() { Some(rig.parked().await) } else { None };
             let parked_pid = parked.as_ref().and_then(|h| rig.processes.list().into_iter().find(|p| &p.handle == h)).map(|p| p.pid);
+            if let Some(value) = call["setAfterPark"]["MIXDOG_STANDBY_PROBE"].as_str() {
+                // SAFETY: as above.
+                unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", value) };
+            }
             let dir = if call["ws"] == "A" { &a } else { &b };
-            let ran = rig.run_in(dir, &format!("w{i}"), call["input"]["command"].as_str().unwrap()).await;
+            let command = match call["input"]["size"].as_u64() {
+                Some(size) => sized(size as usize),
+                None => call["input"]["command"].as_str().unwrap().to_owned(),
+            };
+            let ran = rig.run_in(dir, &format!("w{i}"), &command).await;
             let (body, pid) = ran.trim_end().rsplit_once("pid|").unwrap_or_else(|| panic!("call {i}: no pid line in {ran:?}"));
             let body = body.strip_suffix('\n').map(|b| b.strip_suffix('\r').unwrap_or(b)).unwrap();
             let taken = parked_pid == Some(pid.parse().unwrap());

@@ -52,6 +52,49 @@
       },
       "text": "[exit code: 0]\n\ndrift|<B>",
       "isError": false
+    },
+    {
+      "ws": "A",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048576
+      },
+      "text": "[exit code: 0]\n\nlen|1048486",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "input": {
+        "size": 1048577
+      },
+      "text": "[exit code: 0]\n\nlen|1048487",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": true,
+      "input": {
+        "size": 1048448
+      },
+      "text": "[exit code: 0]\n\nlen|1048358",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
+      "taken": false,
+      "setAfterPark": {
+        "MIXDOG_STANDBY_PROBE": "claimed"
+      },
+      "input": {
+        "command": "Write-Output \"env|$env:MIXDOG_STANDBY_PROBE\"; Write-Output \"pid|$PID\""
+      },
+      "text": "[exit code: 0]\n\nenv|claimed",
+      "isError": false
     }
   ]
 }
