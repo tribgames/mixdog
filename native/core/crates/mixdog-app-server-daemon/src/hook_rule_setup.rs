@@ -320,6 +320,9 @@ impl SetupActions for HookRuleSetup {
 }
 
 #[cfg(test)]
+mod adopt_node_cases;
+
+#[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test fixtures are written straight to a temp dir")]
 mod tests {
     use mixdog_protocol::ThreadId;
