@@ -189,9 +189,9 @@ async fn on_disk(db: &Db) -> (Value, Value) {
 /// `fixtures/transcript-restart/restart-kill.json` (`record-transcript-restart.mjs`): Node's watcher ingest over its real
 /// memory database, killed (SIGKILL) right after its k-th row insert returned, k = 1 .. n (the last, the point between
 /// the last insert and the position save), then started again. Here the same file: the core's own ingest, never killed,
-/// stores what Node's stores (so a kill after its k-th insert leaves Node's k rows, the position not yet saved); and from
-/// each point's disk as Node's kill left it (its rows, the id sequence they used, no position), the core's start stores
-/// every line once and leaves Node's rows, ids and position.
+/// stores what Node's stores; then, for each point, the core's ingest in a child process killed at the same boundary
+/// (after its k-th insert returned, `transcript/tail.rs`'s kill point) leaves Node's disk, and the core's restart on that
+/// database stores every line once and leaves Node's rows, ids and position.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
 async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does() {
@@ -199,7 +199,7 @@ async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_node
     let read = |rel: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(path(rel)).expect("recording")).expect("json") };
     let writer = read("session-transcript/writer.json");
     let recorded = read("transcript-restart/restart-kill.json");
-    let now = 1_772_600_767_890_i64;
+    let now = RESTART_NOW;
     assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
     let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
     let pg = TestPg::start().await;
@@ -251,21 +251,26 @@ async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_node
 
     for point in recorded["points"].as_array().unwrap() {
         let k = point["k"].as_u64().unwrap();
-        assert_eq!(point["atKill"]["positions"], Value::Null, "point {k}: Node's kill came before the position save");
         let db = fresh().await;
-        // The disk as the kill left it: Node's rows (named back to this directory) and the ids the inserts used.
-        for row in point["atKill"]["rows"].as_array().unwrap() {
-            let row: Value = serde_json::from_str(&row.to_string().replace("<cwd>", &cwd)).unwrap();
-            db.execute(
-                "INSERT INTO entries(id, ts, role, content, source_ref, session_id, source_turn, project_id, time_source) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-                &[&row["id"].as_i64(), &row["ts"].as_i64(), &row["role"].as_str(), &row["content"].as_str(), &row["source_ref"].as_str(), &row["session_id"].as_str(), &row["source_turn"].as_i64().map(|t| t as i32), &row["project_id"].as_str(), &row["time_source"].as_str()],
-            )
-            .await
-            .expect("the row the kill left");
-        }
-        db.execute("SELECT setval('entries_id_seq', $1)", &[&(k as i64)]).await.expect("the sequence the inserts used");
-        let (rows, _) = on_disk(&db).await;
-        assert_eq!(named(rows, &point["fileBytes"]), point["atKill"]["rows"], "point {k}: the disk the kill left");
+        // The core's own ingest in a child process, killed after its k-th insert returned (the ingest's kill point),
+        // over this database.
+        let status = std::process::Command::new(std::env::current_exe().expect("the test binary"))
+            .args(["--exact", "memory::tests::jobs::restart_kill_child", "--ignored", "--nocapture", "--test-threads=1"])
+            .env("MIXDOG_KILL_AT", format!("memory-transcript-insert:{k}"))
+            .env("MIXDOG_KILL_PG_PROFILE", pg.dir.path())
+            .env("MIXDOG_KILL_PG_PORT", pg.cluster.port().to_string())
+            .env("MIXDOG_KILL_FILE", &file)
+            .env("MIXDOG_KILL_WORK", &work)
+            .status()
+            .expect("the child runs");
+        assert!(!status.success() && status.code() != Some(101), "point {k}: the child dies at its kill point, it neither ends nor fails: {status:?}");
+        let (rows, positions) = on_disk(&db).await;
+        assert_eq!(
+            named(json!({ "rows": rows, "positions": positions }), &point["fileBytes"]),
+            json!({ "rows": point["atKill"]["rows"], "positions": point["atKill"]["positions"] }),
+            "point {k}: the disk the kill left"
+        );
+        // The restart on the same database.
         let count = start(db.clone()).await;
         let (rows, positions) = on_disk(&db).await;
         assert_eq!(
@@ -274,6 +279,27 @@ async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_node
             "point {k}: after the restart"
         );
     }
+}
+
+/// The instant the restart recording ran at (`writer.json`'s `now`).
+const RESTART_NOW: i64 = 1_772_600_767_890;
+
+/// The killed child of [`a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does`]: the core's
+/// ingest of the recorded file over the parent's database, which dies at the kill point the environment names
+/// (`MIXDOG_KILL_AT`, `mixdog_workspace::killpoint`). Run only by that test.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "spawned by the restart kill matrix with the point to die at"]
+async fn restart_kill_child() {
+    let var = |name: &str| std::env::var_os(name).unwrap_or_else(|| panic!("{name} is set by the parent"));
+    let runtime = PathBuf::from(var("MIXDOG_PG_RUNTIME"));
+    let port: u16 = var("MIXDOG_KILL_PG_PORT").to_string_lossy().parse().expect("a port");
+    let processes = crate::tidy::process::Processes::for_tests();
+    let cluster = crate::memory::pg::cluster::PgCluster::over(crate::memory::pg::cluster::PgRuntime::new(&runtime), Path::new(&var("MIXDOG_KILL_PG_PROFILE")), port, mixdog_rt::testing::tokens().durability_io, processes);
+    let db = Db::open(&cluster, Schema::Memory).await.expect("the parent's database");
+    let ingest = TranscriptIngest::new(db, io(), Arc::new(|| RESTART_NOW));
+    ingest.load_transcript_offsets().await;
+    ingest.ingest_transcript_file(Path::new(&var("MIXDOG_KILL_FILE")), Some(Path::new(&var("MIXDOG_KILL_WORK")))).await.expect("the ingest");
+    panic!("the ingest ended without reaching {:?}", std::env::var("MIXDOG_KILL_AT"));
 }
 
 fn assert_offset(ingest: &TranscriptIngest, file: &Path, expected: &Value) {
