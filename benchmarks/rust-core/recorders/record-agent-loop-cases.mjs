@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Records Node's agent loop for the k1 UNTESTED agent-loop test files (gaps-rest.md agents rows; gaps-tools.md section 3
 // `mixdog-agent`): agent-loop-carried-report, agent-loop-output-escalation, agent-loop-request-boundaries,
-// agent-loop-step-limit and agent-loop.test.mjs.
+// agent-loop-step-limit, agent-loop-no-tool-turn and agent-loop.test.mjs.
 //
 // Each case is the test's own provider script, written as data (the `script` entries below) so the Rust replay drives
 // the same sends; the recorder runs it through Node's real `agentLoop` at b6f10295a with the test's options and records
@@ -115,6 +115,14 @@ async function runCase(c, provider, runIndex) {
       return taken;
     };
   }
+  if (c.steerOnSend) {
+    opts.drainSteering = (_id, { stage }) => {
+      if (provider.pending.length === 0) return [];
+      out.drained.push(stage);
+      return provider.pending.splice(0);
+    };
+    opts.onSteerMessage = () => {};
+  }
   if (c.textDelta) opts.onTextDelta = (text) => out.deltas.push(text);
   if (c.textReset === 'withdraw') {
     opts.onTextReset = ({ chars, reason }) => {
@@ -154,7 +162,8 @@ async function runCase(c, provider, runIndex) {
     unregister?.();
   }
   out.messages = messages.map(normalizeMessage);
-  for (const key of ['deltas', 'resets', 'assistantTexts', 'committed', 'drained']) if (out[key].length === 0) delete out[key];
+  out.submissionIds = messages.filter((m) => m.meta?.submissionIds?.length).map((m) => m.meta.submissionIds);
+  for (const key of ['deltas', 'resets', 'assistantTexts', 'committed', 'drained', 'submissionIds']) if (out[key].length === 0) delete out[key];
   return out;
 }
 
@@ -162,6 +171,7 @@ function scriptedProvider(c) {
   const p = {
     sends: 0,
     requests: [],
+    pending: [],
     escalatedMaxTokens: c.escalated === undefined ? undefined : () => c.escalated,
     async send(sent, _model, _tools, sendOpts) {
       p.sends += 1;
@@ -187,8 +197,14 @@ function scriptedProvider(c) {
         }
         throw new Error(entry.throw.message);
       }
-      const { content, toolCalls, stopReason } = entry;
-      return { content, toolCalls: structuredClone(toolCalls ?? []), ...(stopReason ? { stopReason } : {}) };
+      if (c.steerOnSend?.send === p.sends) p.pending.push({ ...c.steerOnSend.entry, submittedAt: Date.now() });
+      const { content, toolCalls, stopReason, endTurn } = entry;
+      return {
+        content,
+        toolCalls: structuredClone(toolCalls ?? []),
+        ...(stopReason ? { stopReason } : {}),
+        ...(endTurn === false ? { endTurn } : {}),
+      };
     },
   };
   if (p.escalatedMaxTokens === undefined) delete p.escalatedMaxTokens;
@@ -312,6 +328,49 @@ const user = (content) => ({ role: 'user', content });
       ...(id === 'sess-uncapped-replay' ? { rewrite: { toolKind: 'normal', content: 'same output' } } : {}),
     });
   }
+}
+
+// agent-loop-no-tool-turn.test.mjs
+{
+  const T = 'agent-loop-no-tool-turn.test.mjs';
+  const base = (script, extra = {}) => ({
+    session: { id: 'no-tool-turn-test', owner: 'cli' },
+    escalated: null,
+    messages: [user(extra.prompt ?? 'go')],
+    script,
+    repeatLast: true,
+    ...extra,
+  });
+  const emptyCut = turn('', [], 'max_tokens');
+  const missing = turn('', [{ id: 'c1', name: 'definitely_missing_no_tool_turn_tool', arguments: {} }]);
+  add(T, 'max-output ladder resumes three times, then seals the aggregate with the exhausted notice',
+    base([1, 2, 3, 4].map((n) => turn(`part${n}`, [], 'length')), { prompt: 'write', watchAssistant: true }));
+  add(T, 'a recovered max-output turn keeps every partial in the caller aggregate but not in history',
+    base([turn('part1', [], 'length'), end('done')], { prompt: 'write' }));
+  add(T, 'an empty max_tokens turn escalates once with no nudge, then resumes three times at normal max_tokens',
+    base([emptyCut], { prompt: 'think hard', escalated: 128_000 }));
+  add(T, 'no escalation is attempted when the provider has no higher limit', base([emptyCut], { prompt: 'think hard' }));
+  add(T, 'a truncated turn with text follows the same rule: escalate without keeping the partial, then resume',
+    base([turn('part1', [], 'max_tokens'), turn('part2', [], 'max_tokens'), end('done')], { prompt: 'write', escalated: 128_000 }));
+  add(T, 'a tool-call turn is progress: the escalation and the three resumes are available again',
+    base([emptyCut, emptyCut, missing, emptyCut], { escalated: 128_000 }));
+  add(T, 'one refusal is retried with a policy reminder and its partial text is preserved',
+    base([turn('partial narration', [], 'refusal'), end('safe answer')], { prompt: 'ask' }));
+  add(T, 'a refusal that survives the retry ends the loop as a refusal termination', base([turn('', [], 'refusal')], { prompt: 'ask' }));
+  add(T, 'text-only provider continuations are capped and the last text becomes the final answer',
+    base([{ ...turn('seg'), endTurn: false }]));
+  add(T, 'empty turns are nudged three times before an explicit empty termination', base([end('')]));
+  add(T, 'an executed tool batch reseals the text aggregate and resets the continuation budget',
+    base([{ ...turn('mid-turn note'), endTurn: false }, missing, end('done')]));
+  add(T, 'a message sent while the final text streams is read right after it, inside the same turn',
+    base([end('first answer'), end('summary added')], {
+      prompt: 'explain',
+      steerOnSend: { send: 1, entry: { id: 'sub-1', content: 'add a one-line summary' } },
+    }));
+  excluded[`${SESSION}/${T} :: a truncated turn with text follows the same rule: escalate without keeping the partial, then resume`] =
+    "not representable: the test's provider returns 'part1' without streaming it, so Node escalates; a Rust model stream carries text only as deltas, and streamed text the owner cannot withdraw is kept and resumed instead (the output-escalation cases replay that rule)";
+  excluded[`${SESSION}/${T} :: tool-call and continuation turns echo provider replay payloads under one precedence rule`] =
+    "not representable: the test's provider answers with thinkingBlocks/assistantBlocks fields; a Rust model stream carries reasoning as stream events and the committed echo as a provider replay, a different shape";
 }
 
 // agent-loop.test.mjs

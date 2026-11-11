@@ -3,6 +3,8 @@
   "compared": "per run: the whole transcript, the result or the thrown error with its carried report, and what reached the test's callbacks; per case: every request the loop built (output override, tool choice, messages); the crossing batch: the calls that ran and every answered tool message",
   "excluded": {
     "src/runtime/agent/orchestrator/session/agent-loop-carried-report.test.mjs :: a turn that throws after the report carries it on the error to the failed task :: reconcileJobStreamStalled": "the failed task's settlement from the carried report belongs to the agent tool's reconcile (job-task-reconcile cases); the loop half (the error and its carried report) is replayed",
+    "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs :: a truncated turn with text follows the same rule: escalate without keeping the partial, then resume": "not representable: the test's provider returns 'part1' without streaming it, so Node escalates; a Rust model stream carries text only as deltas, and streamed text the owner cannot withdraw is kept and resumed instead (the output-escalation cases replay that rule)",
+    "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs :: tool-call and continuation turns echo provider replay payloads under one precedence rule": "not representable: the test's provider answers with thinkingBlocks/assistantBlocks fields; a Rust model stream carries reasoning as stream events and the committed echo as a provider replay, a different shape",
     "src/runtime/agent/orchestrator/session/agent-loop-output-escalation.test.mjs :: streamed text the owner cannot withdraw is kept: no escalation, the ladder resumes it (no onTextReset)": "difference: Node's fake provider returns 'rest' without streaming it, so onTextDelta sees only 'partial text'; a Rust model stream carries text only as deltas, so the observer also sees 'rest'",
     "src/runtime/agent/orchestrator/session/agent-loop-output-escalation.test.mjs :: streamed text the owner cannot withdraw is kept: no escalation, the ladder resumes it (onTextReset refuses)": "difference: Node's fake provider returns 'rest' without streaming it, so onTextDelta sees only 'partial text'; a Rust model stream carries text only as deltas, so the observer also sees 'rest'",
     "src/runtime/agent/orchestrator/session/agent-loop-request-boundaries.test.mjs :: cancellation still stops a productive loop before dispatching further tools": "difference: Node rejects with the abort reason ('requested stop'); Rust's run fails with its fixed 'agent loop aborted' (the transcript and requests match)",
@@ -15,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7030155,
+      "bytes": 7099840,
       "path": "golden.json",
-      "sha256": "c568484e34a8ccf8d2c89f1576c998875d313dc7c9a6e2efb72f82984d7f9e13"
+      "sha256": "6d7e5c41ba0ae5d54c9832205e66ca0babce59aaf0d4523b9ad485e2a83a351c"
     }
   ],
   "inputs": [
@@ -49,7 +51,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-loop-cases.mjs",
-  "recorderSha256": "9909e354e2a259474c41302f0301c5d84aa50a93527448df84a954c5c9743668",
+  "recorderSha256": "3a42d73cb3fbbd46573b83f3ef1012164b32d905a9fb5aeac9b5858b1c596572",
   "set": "agent-loop-cases",
-  "totalBytes": 7030155
+  "totalBytes": 7099840
 }

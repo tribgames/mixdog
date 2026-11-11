@@ -97,6 +97,9 @@ struct CaseProvider {
     requests: Mutex<Vec<Arc<ModelRequest>>>,
     todos: Option<Arc<Todos>>,
     signal: Cancel,
+    /// `steerOnSend`: the message the user sends while that send streams.
+    steer_on_send: JsonValue,
+    pending: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 #[async_trait]
@@ -148,8 +151,13 @@ impl ProviderAdapter for CaseProvider {
         for c in &calls {
             steps.push(call(c["id"].as_str().unwrap(), c["name"].as_str().unwrap(), c["arguments"].clone()));
         }
+        if self.steer_on_send.get("send").and_then(JsonValue::as_u64) == Some(*self.sends.lock().unwrap() as u64) {
+            let entry = &self.steer_on_send["entry"];
+            self.pending.lock().unwrap().push((entry["id"].as_str().unwrap().to_owned(), entry["content"].as_str().unwrap().to_owned()));
+        }
         let stop = match entry["stopReason"].as_str() {
             Some(stop) => stop_of(stop),
+            None if entry["endTurn"] == false => StopReason::ContinueTurn,
             None if calls.is_empty() => StopReason::EndTurn,
             None => StopReason::ToolUse,
         };
@@ -190,15 +198,33 @@ impl RunObserver for CaseObserver {
     }
 }
 
-/// The test's pre-send queue: taken whole at the first pre-send drain.
+/// The test's pre-send queue: taken whole at the first pre-send drain; and the host queue a
+/// `steerOnSend` message waits in, taken at whichever drain comes next.
 struct CaseSteer {
     queue: Mutex<Vec<String>>,
     drained: Mutex<Vec<String>>,
+    pending: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 #[async_trait]
 impl SteerSource for CaseSteer {
     async fn drain(&self, request: DrainRequest) -> Vec<SteerEntry> {
+        let sent: Vec<(String, String)> = self.pending.lock().unwrap().drain(..).collect();
+        if !sent.is_empty() {
+            self.drained.lock().unwrap().push(request.stage.label().into());
+            return sent
+                .into_iter()
+                .map(|(id, text)| SteerEntry {
+                    content: Content::Text(text),
+                    text: None,
+                    ids: vec![id],
+                    submitted_at: None,
+                    message_id: None,
+                    mode: SteerMode::Prompt,
+                    execution: None,
+                })
+                .collect();
+        }
         let mut queue = self.queue.lock().unwrap();
         if request.stage != DrainStage::PreSend || queue.is_empty() {
             return Vec::new();
@@ -337,6 +363,8 @@ async fn replay(case: &JsonValue, hidden_name: &str) -> JsonValue {
         requests: Mutex::new(Vec::new()),
         todos: todo_list.clone(),
         signal: signal.clone(),
+        steer_on_send: case.get("steerOnSend").cloned().unwrap_or(JsonValue::Null),
+        pending: Arc::new(Mutex::new(Vec::new())),
     });
     let hidden = case["session"]["agent"] == "<hidden>";
     let _ = hidden_name;
@@ -361,6 +389,7 @@ async fn replay(case: &JsonValue, hidden_name: &str) -> JsonValue {
                 case["steer"]["pre-send"].as_array().into_iter().flatten().map(|s| s.as_str().unwrap().to_owned()).collect(),
             ),
             drained: Mutex::new(Vec::new()),
+            pending: provider.pending.clone(),
         });
         let sink = Arc::new(Sink::default());
         let mut env = h.run_env();
@@ -440,6 +469,10 @@ async fn replay(case: &JsonValue, hidden_name: &str) -> JsonValue {
             ));
         }
         lists.push(("drained", steer.drained.lock().unwrap().iter().map(|d| json!(d)).collect()));
+        lists.push((
+            "submissionIds",
+            transcript.iter().filter(|m| !m.submission_ids.is_empty()).map(|m| json!(m.submission_ids)).collect(),
+        ));
         for (key, list) in lists {
             if !list.is_empty() {
                 out.insert(key.into(), JsonValue::Array(list));
