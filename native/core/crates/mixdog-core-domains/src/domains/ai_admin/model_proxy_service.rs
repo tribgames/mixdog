@@ -24,7 +24,7 @@ use mixdog_core_api::{Caller, ConnectionNotifier, CoreError, CoreRequest, Domain
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::model_proxy::{ProxyEvents, ProxyRunner};
+use super::model_proxy::{ProxyEvents, ProxyRunner, busy, request_too_large};
 
 const RUN: &str = "modelProxy/run";
 const EVENT: &str = "model/proxy/event";
@@ -84,6 +84,10 @@ pub struct ModelProxyService {
     notifier: Arc<dyn ConnectionNotifier>,
     /// The runs in flight by asking connection and run id, so modelProxy/cancel can stop one.
     runs: Mutex<HashMap<(ConnectionId, String), CancellationToken>>,
+    /// `maxRequestBytes` and `maxInflightBytes` of the host's admission (model-proxy-host.ts).
+    bounds: Bounds,
+    /// The payload characters of the runs in flight (`inflight.bytes`).
+    held: Mutex<usize>,
     /// Woken when a run leaves `runs`: `close` waits on it.
     settled: tokio::sync::Notify,
     /// Set by `close`: a run it aborts answers that the app is closing.
@@ -93,9 +97,61 @@ pub struct ModelProxyService {
 /// `appClosingError()` (model-proxy-host.ts `dispose`): what a run aborted by the closing app answers.
 const APP_CLOSING: &str = "The desktop app is closing.";
 
+/// What this PC accepts of a server's calls, in payload characters: one call (`MODEL_PROXY_MAX_REQUEST_BYTES`, room for 64 MiB
+/// of inlined attachments as base64 plus the transcript) and all the calls in flight together (`MODEL_PROXY_MAX_INFLIGHT_BYTES`).
+/// There is no cap on how many calls run: Node's host refuses by these sizes alone.
+#[derive(Clone, Copy)]
+struct Bounds {
+    max_request: usize,
+    max_inflight: usize,
+}
+
+const MIB: usize = 1024 * 1024;
+
+/// The payload a run holds until it ends; dropping it gives the share back.
+struct Held<'a> {
+    service: &'a ModelProxyService,
+    chars: usize,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        *self.service.held.lock().unwrap_or_else(PoisonError::into_inner) -= self.chars;
+    }
+}
+
 impl ModelProxyService {
     pub fn new(runner: Arc<ProxyRunner>, host: Arc<dyn HostChannel>, notifier: Arc<dyn ConnectionNotifier>) -> Self {
-        Self { runner, host, notifier, runs: Mutex::new(HashMap::new()), settled: tokio::sync::Notify::new(), closing: AtomicBool::new(false) }
+        Self {
+            runner,
+            host,
+            notifier,
+            runs: Mutex::new(HashMap::new()),
+            bounds: Bounds { max_request: 128 * MIB, max_inflight: 256 * MIB },
+            held: Mutex::new(0),
+            settled: tokio::sync::Notify::new(),
+            closing: AtomicBool::new(false),
+        }
+    }
+
+    /// The bound of all calls in flight together, in payload characters (Node's `maxInflightBytes` option).
+    pub fn with_inflight_bound(mut self, max_inflight: usize) -> Self {
+        self.bounds.max_inflight = max_inflight;
+        self
+    }
+
+    /// `admitPayload`: a payload past one call's bound is refused as too large, one that would take the data held past the
+    /// in-flight bound as busy. The check and the claim of the share are one step.
+    fn admit(&self, chars: usize) -> Result<Held<'_>, w::ProxyFailure> {
+        if chars > self.bounds.max_request {
+            return Err(request_too_large());
+        }
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if *held + chars > self.bounds.max_inflight {
+            return Err(busy());
+        }
+        *held += chars;
+        Ok(Held { service: self, chars })
     }
 
     /// `modelProxyBridge.close` (daemon.mjs:302), the first step of Node's shutdown: every relayed model call is aborted, then this waits for the calls to settle, before
@@ -133,6 +189,12 @@ impl DomainService for ModelProxyService {
             return Err(invalid("caller", "a connection: the events of the run go to it"));
         };
         let ModelProxyRunParams { run_id, call, allowed_providers } = serde_json::from_value(req.params).map_err(|e| invalid("params", &e.to_string()))?;
+        // The payload is sized in the characters of the call's JSON (`payload.length`), before the run is registered or any provider is looked up.
+        let chars = serde_json::to_string(&call).expect("a typed call serializes").encode_utf16().count();
+        let _held = match self.admit(chars) {
+            Ok(held) => held,
+            Err(failure) => return Ok(Reply::Value(serde_json::to_value(ModelProxyResult { result: w::ProxyAnswer::Failed { failure } }).expect("a typed result serializes"))),
+        };
         let cancel = req.ctx.cancel.child_token();
         self.runs.lock().unwrap_or_else(PoisonError::into_inner).insert((to, run_id.clone()), cancel.clone());
         let events = RunEvents { notifier: Arc::clone(&self.notifier), to, run_id: run_id.clone() };

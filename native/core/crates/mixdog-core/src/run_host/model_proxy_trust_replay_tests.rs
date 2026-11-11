@@ -48,13 +48,51 @@ fn observed(case: &str) -> Value {
     golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == case).unwrap_or_else(|| panic!("{case} is recorded"))["observed"].clone()
 }
 
-/// What the scripted provider does on its one attempt: the tools it reports left out (while it encodes) and the
-/// events its stream yields. Every request it is sent is kept.
+/// What the scripted provider does on its one attempt: the events its stream yields, and the tools it reports left out
+/// once `excluded_after` of them were yielded. Every request it is sent is kept.
 struct Script {
     inner: MockProvider,
     excluded: Vec<p::ToolExclusionReport>,
+    excluded_after: usize,
     events: Vec<p::StreamEvent>,
     seen: Mutex<Vec<p::ModelRequest>>,
+    /// A script that holds its first attempt until released, to keep a run in flight.
+    hold: Option<Arc<Hold>>,
+}
+
+/// Holds the first attempt: `entered` tells the test it arrived, `release` lets it go.
+struct Hold {
+    armed: std::sync::atomic::AtomicBool,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+/// The stream of a [`Script`]: its events, with the tools left out reported to the request's sink after `after` of them.
+struct Scripted {
+    events: VecDeque<p::StreamEvent>,
+    yielded: usize,
+    after: usize,
+    excluded: Vec<p::ToolExclusionReport>,
+    sink: Option<p::ToolExclusionSink>,
+}
+
+#[async_trait]
+impl p::ModelStream for Scripted {
+    async fn next(&mut self) -> Option<Result<p::StreamEvent, p::ProviderError>> {
+        if self.yielded >= self.after {
+            if let Some(sink) = &self.sink {
+                for report in self.excluded.drain(..) {
+                    sink.report(report);
+                }
+            }
+        }
+        self.yielded += 1;
+        self.events.pop_front().map(Ok)
+    }
+    fn delivery(&self) -> p::DeliveryState {
+        p::DeliveryState::Accepted
+    }
+    fn on_wire_left(&mut self, _: Arc<dyn Fn() + Send + Sync>) {}
 }
 
 pub(super) struct Events(pub(super) VecDeque<p::StreamEvent>);
@@ -86,12 +124,19 @@ impl p::ProviderAdapter for Script {
     }
     async fn attempt(&self, request: Arc<p::ModelRequest>) -> Result<Box<dyn p::ModelStream>, p::ProviderError> {
         self.seen.lock().unwrap().push((*request).clone());
-        if let Some(sink) = &request.options.on_tool_excluded {
-            for report in &self.excluded {
-                sink.report(report.clone());
-            }
+        if let Some(hold) = &self.hold
+            && hold.armed.swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            hold.entered.notify_one();
+            hold.release.notified().await;
         }
-        Ok(Box::new(Events(self.events.iter().cloned().collect())))
+        Ok(Box::new(Scripted {
+            events: self.events.iter().cloned().collect(),
+            yielded: 0,
+            after: self.excluded_after,
+            excluded: self.excluded.clone(),
+            sink: request.options.on_tool_excluded.clone(),
+        }))
     }
 }
 
@@ -185,7 +230,19 @@ pub(super) async fn service_of(
 }
 
 fn script(excluded: Vec<p::ToolExclusionReport>, events: Vec<p::StreamEvent>) -> Arc<Script> {
-    Arc::new(Script { inner: MockProvider::new(Vec::<MockAttempt>::new()), excluded, events, seen: Mutex::new(Vec::new()) })
+    script_reporting_after(0, excluded, events)
+}
+
+/// A script that reports the tools it left out once `after` of its events were yielded.
+fn script_reporting_after(after: usize, excluded: Vec<p::ToolExclusionReport>, events: Vec<p::StreamEvent>) -> Arc<Script> {
+    Arc::new(Script { inner: MockProvider::new(Vec::<MockAttempt>::new()), excluded, excluded_after: after, events, seen: Mutex::new(Vec::new()), hold: None })
+}
+
+/// A script whose first attempt waits for its `release`.
+fn held_script(events: Vec<p::StreamEvent>) -> (Arc<Script>, Arc<Hold>) {
+    let hold = Arc::new(Hold { armed: std::sync::atomic::AtomicBool::new(true), entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
+    let script = Arc::new(Script { inner: MockProvider::new(Vec::<MockAttempt>::new()), excluded: Vec::new(), excluded_after: 0, events, seen: Mutex::new(Vec::new()), hold: Some(hold.clone()) });
+    (script, hold)
 }
 
 /// `modelProxy/run` of a send to "openai", as the relaying connection asks it.
@@ -219,28 +276,36 @@ pub(super) fn content(events: &[w::ProxyEvent]) -> String {
     events.iter().filter_map(|e| if let w::ProxyEvent::TextDelta { text } = e { Some(text.as_str()) } else { None }).collect()
 }
 
-/// The manifest's `replay.fieldMap`: the typed events a K1 server receives for what Node's server callbacks received.
-fn typed_of_node(stages: &[Value], excluded: &[Value]) -> (Vec<w::ProxyEvent>, Vec<w::ProxyEvent>) {
+/// The manifest's `replay.fieldMap`: the typed events a K1 server receives for the server callbacks Node's host relayed,
+/// in the order the recording's wire carried them (`modelProxyEvent` operations, `[id, "[{name, args}]"]`). A callback with
+/// no typed event (`onStreamDelta`, whose free text is unrepresentable) maps to none.
+fn typed_in_recorded_order(wire: &[Value]) -> Vec<w::ProxyEvent> {
     let text = |v: &Value| v.as_str().unwrap().to_owned();
-    let stages = stages
-        .iter()
-        .map(|stage| match stage[0].as_str().unwrap() {
-            "account-changed" => w::ProxyEvent::AccountChanged { provider: text(&stage[1]["provider"]), at: stage[1]["at"].as_i64().unwrap() },
-            "reconnecting" => w::ProxyEvent::AccountSwitching { message: text(&stage[1]["message"]) },
-            other => panic!("stage {other} has no mapping"),
-        })
-        .collect();
-    let excluded = excluded
-        .iter()
-        .map(|info| w::ProxyEvent::ToolExcluded {
-            name: text(&info["name"]),
-            index: info["index"].as_u64().unwrap(),
-            pointer: text(&info["pointer"]),
-            reason: text(&info["reason"]),
-            message: text(&info["message"]),
-        })
-        .collect();
-    (stages, excluded)
+    let mut events = Vec::new();
+    for operation in wire.iter().filter(|op| op["direction"] == "pc->daemon" && op["operation"] == "modelProxyEvent") {
+        let sent: Vec<Value> = serde_json::from_str(operation["text"].as_str().unwrap()).unwrap();
+        let callbacks: Vec<Value> = serde_json::from_str(sent[1].as_str().unwrap()).unwrap();
+        for callback in callbacks {
+            let args = &callback["args"];
+            match callback["name"].as_str().unwrap() {
+                "onStageChange" => events.push(match args[0].as_str().unwrap() {
+                    "account-changed" => w::ProxyEvent::AccountChanged { provider: text(&args[1]["provider"]), at: args[1]["at"].as_i64().unwrap() },
+                    "reconnecting" => w::ProxyEvent::AccountSwitching { message: text(&args[1]["message"]) },
+                    other => panic!("stage {other} has no mapping"),
+                }),
+                "onToolExcluded" => events.push(w::ProxyEvent::ToolExcluded {
+                    name: text(&args[0]["name"]),
+                    index: args[0]["index"].as_u64().unwrap(),
+                    pointer: text(&args[0]["pointer"]),
+                    reason: text(&args[0]["reason"]),
+                    message: text(&args[0]["message"]),
+                }),
+                "onStreamDelta" => {}
+                other => panic!("callback {other} has no mapping"),
+            }
+        }
+    }
+    events
 }
 
 /// Case 0. The old wire's `{ type: "image", attachmentRef }` cannot be written on the typed wire (`ProxyImage` is
@@ -282,11 +347,9 @@ async fn a_reference_the_server_could_not_inline_is_the_unavailable_text_node_ga
     assert!(!all.contains(node["pcSecretBase64"].as_str().unwrap()), "nothing of this PC's store reached the provider");
 }
 
-/// Cases 2 and 3: the typed protocol's bounds on what a peer can make this core hold. There is no snapshot of
-/// advertised ids: each call is its own `modelProxy/run` request (class C2), each in one frame of at most
-/// `maxInboundFrameBytes`; a run streams notifications and asks the peer nothing, so no reply of the peer is ever read.
-/// The in-flight bound is the server's: a ninth `modelProxy/run` of one connection is refused `-32001 inflightLimit`,
-/// sent in mixdog-app-server `tests/admission.rs` `a_ninth_model_proxy_run_is_refused_as_in_flight_limit`.
+/// Case 3, the call bound: a call is one `modelProxy/run` frame of at most `maxInboundFrameBytes`, and a run streams
+/// notifications and asks the peer nothing, so no reply of the peer is ever read. What the calls in flight may hold
+/// together is the service's own bound, `a_call_that_would_take_the_data_held_past_its_bound_is_refused_as_busy`.
 #[test]
 fn a_peer_holds_at_most_its_in_flight_runs_each_one_bounded_frame() {
     let node = observed("payloads past the aggregate in-flight limit are refused, and so are oversized event replies");
@@ -299,6 +362,37 @@ fn a_peer_holds_at_most_its_in_flight_runs_each_one_bounded_frame() {
     assert!(matches!(decode_inbound_text(&small, limits.max_inbound_frame_bytes as usize), InboundText::Message(_)));
     let over = frame(limits.max_inbound_frame_bytes as usize);
     assert_eq!(decode_inbound_text(&over, limits.max_inbound_frame_bytes as usize), InboundText::TooLarge);
+}
+
+/// Case 3, the aggregate bound: a second call that would take the payload this PC holds for the server past its bound is
+/// refused with Node's `MODEL_PROXY_BUSY` (429) and its words, before any provider is looked up; the share a finished call
+/// held goes back, so the same call is then served. Node's host option `maxInflightBytes` is the recording's 3,000.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_that_would_take_the_data_held_past_its_bound_is_refused_as_busy() {
+    let node = observed("payloads past the aggregate in-flight limit are refused, and so are oversized event replies");
+    let rejected = &node["secondCall"]["rejected"];
+    let payload = "x".repeat(node["payloadChars"].as_u64().unwrap() as usize);
+    let (script, hold) = held_script(answer("ok"));
+    let (service, _) = service(script.clone()).await;
+    let service = Arc::new(service.with_inflight_bound(node["maxInflightBytes"].as_u64().unwrap() as usize));
+    let big = request(vec![p::Message::new(p::Role::User, p::Content::Text(payload))]);
+
+    let first = tokio::spawn({
+        let (service, call) = (service.clone(), run("r1", &big));
+        async move { answered(&service, call).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), hold.entered.notified()).await.expect("the first call to reach its provider");
+
+    let refused = answered(&service, run("r2", &big)).await;
+    assert_eq!(refused["result"], "failed");
+    let failure = &refused["failure"];
+    assert_eq!((failure["code"].as_str(), failure["status"].as_u64(), failure["message"].as_str()), (rejected["code"].as_str(), rejected["props"]["status"].as_u64(), rejected["message"].as_str()));
+    assert_eq!(script.seen.lock().unwrap().len(), 1, "the refused call never reached a provider");
+
+    hold.release.notify_one();
+    let first = tokio::time::timeout(std::time::Duration::from_secs(5), first).await.expect("the first call to end").unwrap();
+    assert_eq!(first["result"], "sent");
+    assert_eq!(answered(&service, run("r3", &big)).await["result"], "sent", "the share the first call held is back");
 }
 
 /// Case 4: a burst of sends all run; nothing is left running.
@@ -345,16 +439,15 @@ async fn reports_reach_the_server_projected_and_the_account_id_stays_on_this_pc(
     // The recorder's scripted `send` returns `{ content: 'ok' }`: the provider is scripted from that, never from the
     // recorded result, whose content the core's own events must fold to.
     events.extend(answer("ok"));
-    let (service, notes) = service(script(vec![excluded], events)).await;
+    // Node's scripted send called the stage changes, then `onToolExcluded`; the provider is scripted to report the tool
+    // it left out after its two stage events, so the order the server receives can be compared as it was recorded.
+    let (service, notes) = service(script_reporting_after(2, vec![excluded], events)).await;
     let hi = request(vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))]);
     assert_eq!(answered(&service, run("r5", &hi)).await["result"], "sent");
     let got = notes.events("r5");
-    let (stages, excluded) = typed_of_node(node["stages"].as_array().unwrap(), node["excluded"].as_array().unwrap());
-    // The whole ordered list of the run: an adapter reports the tools it left out while it encodes, before its stream
-    // (Node's scripted send called `onToolExcluded` after the stages), then the stages, the text, and the end the
-    // scripted stream names.
-    let mut want = excluded;
-    want.extend(stages);
+    // The whole ordered list of the run: the callbacks in the order Node's wire carried them, then the text, and the end
+    // the scripted stream names.
+    let mut want = typed_in_recorded_order(node["wire"].as_array().unwrap());
     want.push(w::ProxyEvent::TextDelta { text: node["result"]["content"].as_str().unwrap().to_owned() });
     want.push(w::ProxyEvent::Completed { stop: Some(w::ProxyStop::EndTurn), pricing_model: None, request_ms: None });
     assert_eq!(got, want);

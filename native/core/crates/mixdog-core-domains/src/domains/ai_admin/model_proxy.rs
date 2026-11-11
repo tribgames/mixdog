@@ -916,6 +916,26 @@ fn refusal(code: &str, message: String, kind: p::ErrorKind) -> w::ProxyFailure {
     failure_out(&error, w::ProxyOutcome::Provider)
 }
 
+/// `refusal(message, code, status)` of the host's admission (model-proxy-host.ts `admitPayload`): an `Error` with a code and an
+/// HTTP status, which the sender reads as the kind that status means.
+fn refusal_with_status(code: &str, message: &str, kind: p::ErrorKind, status: u16) -> w::ProxyFailure {
+    let mut error = p::ProviderError::new(kind, p::DeliveryState::NotSent);
+    error.code = Some(code.to_owned());
+    error.status = Some(status);
+    error.message = message.to_owned();
+    failure_out(&error, w::ProxyOutcome::Provider)
+}
+
+/// A call whose payload is past what this PC accepts from a server (`MODEL_PROXY_REQUEST_TOO_LARGE`, 413).
+pub fn request_too_large() -> w::ProxyFailure {
+    refusal_with_status("MODEL_PROXY_REQUEST_TOO_LARGE", "The model call is larger than this PC accepts from a server.", p::ErrorKind::RequestTooLarge, 413)
+}
+
+/// A call that would take the data this PC holds for the server past its bound (`MODEL_PROXY_BUSY`, 429).
+pub fn busy() -> w::ProxyFailure {
+    refusal_with_status("MODEL_PROXY_BUSY", "This PC is already holding as much model-call data for this server as it accepts; try again shortly.", p::ErrorKind::RateLimited, 429)
+}
+
 /// A call that failed with a plain `Error` (no code, no status): the record Node answers with.
 fn plain_failure(message: String) -> w::ProxyFailure {
     let mut error = p::ProviderError::new(p::ErrorKind::Unknown, p::DeliveryState::NotSent);
