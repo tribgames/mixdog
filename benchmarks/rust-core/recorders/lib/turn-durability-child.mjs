@@ -134,6 +134,97 @@ const client = (index, id) => ({
   transcriptMeta: { ...createTranscriptRouteMetadata(getSession(id)), completionVerb: pickDoneVerb(index), attemptId: globalThis.crypto.randomUUID() },
 });
 
+// ---- the queue cases: the desktop's real session flow (intake, drain, turn, steering mirror) over the real `askSession` ----------
+const QUEUED_CASES = ['crash-queued-before-take', 'crash-queued-while-take', 'crash-queued-after-take'];
+const { createSessionFlow } = await imp('src/tui/session/session-flow.mjs');
+const { createRunTurn } = await imp('src/tui/session/turn.mjs');
+const { createAskCallbacks } = await imp('src/session-runtime/turn/turn-run/ask-callbacks.mjs');
+const { readTuiSteeringPersist, flushTuiSteeringPersist } = await imp('src/tui/session/tui-steering-persist.mjs');
+const { projectSessionState } = await imp('src/standalone/session-state-projection.mjs');
+// The text of each user message of every turn request, in order: what the model was given.
+const requests = [];
+const textOf = (content) => (typeof content === 'string' ? content : (content ?? []).map((part) => part?.text ?? '').join(''));
+// The session runtime's ask (`session-runtime/turn/turn-run.mjs`): the TUI turn's options through the real callback bridge
+// (`createAskCallbacks`, which stamps the submission ids on the transcript) into `askSession`; workspace preparation, the turn's
+// snapshot and timing are left out (none touches the queue or the transcript's identity).
+function queueFlow(id) {
+  const state = { busy: false, commandBusy: false, queued: [], items: [], promptHistoryList: [], stats: { turns: 0, inputTokens: 0, outputTokens: 0 } };
+  const flags = { leadTurnEpoch: 0 };
+  const pending = [];
+  let sequence = 0;
+  const { askCallbacks, plannedToolCalls } = createAskCallbacks({
+    transcript: { appendAssistantText() {} },
+    notifyFnForSession: () => null,
+    scheduleSearchRuntimeWarmup: null,
+    hooks: { emit() {} },
+  });
+  const runtime = {
+    id,
+    get session() {
+      return getSession(id);
+    },
+    toolMode: 'auto',
+    async ask(content, options) {
+      const turn = { timing: {}, emitTiming() {}, armHeavyRuntimeWarmup() {}, snapshot: {}, signal: undefined };
+      const session0 = getSession(id);
+      const result = await askSession(id, content, options.context || null, plannedToolCalls(session0, options), null, null, askCallbacks(turn, session0, options));
+      return { result, session: getSession(id) };
+    },
+    abort: () => false,
+  };
+  const bag = {
+    runtime,
+    flags,
+    pending,
+    pendingNotificationKeys: new Set(),
+    getState: () => state,
+    set: (patch) => Object.assign(state, patch),
+    nextId: () => `${id}-item-${++sequence}`,
+    appendItems: (items, extra) => Object.assign(state, { items: [...state.items, ...items] }, extra),
+    pushItem: (item) => state.items.push(item),
+    pushUserOrSyntheticItem: (text, itemId, kind, extra) => state.items.push({ text, id: itemId, kind, ...extra }),
+    patchItem: (itemId, patch) => Object.assign(state.items.find((item) => item.id === itemId) || {}, patch),
+    replaceItems: (items) => items,
+    tuiDebug() {},
+    pushNotice() {},
+    syncContextStats() {},
+    routeState: () => ({}),
+    agentStatusState: () => ({}),
+    denyAllToolApprovals() {},
+    clearActiveToolSummary() {},
+    flushDeferredExecutionPendingResumeKick() {},
+    flushToolResults() {},
+  };
+  Object.assign(bag, createSessionFlow(bag));
+  bag.runTurn = createRunTurn(bag);
+  return {
+    // A desktop submit (`clientSubmissionId`, its durable mirror awaited).
+    async submit({ id: submission, content }) {
+      if ((await bag.enqueue(content, { id: submission, awaitPersistence: true })) !== true) throw new Error(`${submission} refused`);
+    },
+    // Settled: no turn runs and nothing is queued.
+    async idle() {
+      for (let i = 0; i < 10_000 && (state.busy || pending.length); i += 1) await new Promise((resolve) => setImmediate(resolve));
+      if (state.busy || pending.length) throw new Error(`${caseName}: the drain did not settle`);
+      await settleTurnCheckpointWrites(id);
+      await flushTuiSteeringPersist();
+    },
+    restore: () => bag.restoreLeadSteeringFromDisk(),
+    // The resume's release hook drains what the restore queued (`session-api/lifecycle/resume.mjs:72`).
+    drain: () => bag.drain(),
+    // What the user has queued (the composer's queue: id and text, in order), the durable mirror's rows, the requests so far.
+    async seen() {
+      await flushTuiSteeringPersist();
+      return {
+        // As the desktop is sent it (`projectSessionState`).
+        queued: projectSessionState({}, { queued: state.queued }).queued,
+        spool: (await readTuiSteeringPersist(id)).map((row) => ({ id: row.submissionId, text: row.text })),
+        requests: requests.slice(),
+      };
+    },
+  };
+}
+
 const realWrite = sessionLogIo.writeSync;
 const FAULT = 'EIO: injected';
 // Every session-log batch write fails while armed, as `turn-durability.test.mjs` arms it.
@@ -176,9 +267,10 @@ let onSend = async () => {};
 const provider = {
   name: 'durability-stub',
   contextWindow: 128000,
-  async send(_messages, _model, _tools, opts) {
+  async send(messages, _model, _tools, opts) {
     if (opts?.requestKind && opts.requestKind !== 'turn') return { content: 'Title', usage: USAGE };
     sends += 1;
+    requests.push(messages.filter((message) => message.role === 'user').map((message) => textOf(message.content)));
     return await onSend(sends, opts);
   },
 };
@@ -190,6 +282,19 @@ const answer = (opts, text) => {
 await _withRegisteredProviderForTestAsync('durability-stub', provider, async () => {
   if (phase === 'reopen') {
     const id = readFileSync(idFile, 'utf8');
+    if (QUEUED_CASES.includes(caseName)) {
+      // The desktop resumes the session: the read (which recovers a dead owner's turn), the restore of the durable mirror, then
+      // the drain of what it restored.
+      const view = await observe(id);
+      const f = queueFlow(id);
+      onSend = async (_n, opts) => answer(opts, 'answer after restart');
+      await f.restore();
+      step({ step: 'reopened', ...(await f.seen()), ...view });
+      await f.drain();
+      await f.idle();
+      step({ step: 'drained', ...(await f.seen()), ...(await observe(id)) });
+      return;
+    }
     const secrets = () => (caseName === 'crash-sensitive' ? { secretFiles: secretFiles() } : {});
     step({ step: 'reopened', ...(await observe(id)), ...secrets() });
     step({ step: 'read again', ...(await observe(id)), ...secrets() });
@@ -331,6 +436,39 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
     await settleTurnCheckpointWrites(id);
     const live = await projectStoredTranscript(id, getSession(id), { includeMessages: true, itemLimit: 100 });
     step({ step: 'resumed while held', live: { items: live.items ?? null }, ...(await observe(id)) });
+    await settleThenKill();
+  }
+  if (QUEUED_CASES.includes(caseName)) {
+    // A turn runs; two prompts are queued while its request is on the wire (durable in the steering mirror). Killed before the
+    // turn takes them, while the turn that took them is on the wire, or after it answered.
+    const f = queueFlow(id);
+    let release;
+    const first = new Promise((resolve) => {
+      release = resolve;
+    });
+    const onWire = Promise.withResolvers();
+    onSend = async (n, opts) => {
+      onWire.resolve(n);
+      if (n === 1) {
+        await first;
+        return answer(opts, 'answer');
+      }
+      if (caseName === 'crash-queued-while-take') {
+        step({ step: 'taken', ...(await f.seen()), ...(await observe(id)) });
+        await settleThenKill();
+      }
+      return answer(opts, 'answer to the queued');
+    };
+    await f.submit({ id: 'sub-0', content: 'do the task' });
+    await onWire.promise;
+    for (const [sub, content] of [['sub-1', 'first queued'], ['sub-2', 'second queued']]) await f.submit({ id: sub, content });
+    step({ step: 'queued', ...(await f.seen()), ...(await observe(id)) });
+    if (caseName === 'crash-queued-before-take') await settleThenKill();
+    release();
+    // `crash-queued-while-take` dies on the request that took them (`onSend`).
+    if (caseName === 'crash-queued-while-take') await new Promise(() => {});
+    await f.idle();
+    step({ step: 'answered', ...(await f.seen()), ...(await observe(id)) });
     await settleThenKill();
   }
   if (caseName === 'crash-before-write') {
