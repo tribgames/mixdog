@@ -3798,6 +3798,7 @@ dependencies = [
  "mixdog-spawn",
  "mixdog-store",
  "mixdog-tools",
+ "mixdog-trace",
  "mixdog-workspace",
  "mixdog-workspace-hack",
  "regex",
