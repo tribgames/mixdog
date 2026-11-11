@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -68,6 +68,7 @@
   "replay": {
     "compare": "mixdog-app-server thread reads: replay the open of six cold sessions, three refresh ticks and the one rewrite; compare the stored sessions read per tick and the session-state updates published (whole)",
     "entry": "NO RUST ENTRY ON o1: the desktop SessionHost cold-view refresh (ticks, concurrency, session-state updates): no production counterpart found.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the desktop SessionHost cold-view refresh (ticks, concurrency, session-state updates): no production counterpart found"
     ],
