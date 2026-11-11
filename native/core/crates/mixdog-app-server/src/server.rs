@@ -113,12 +113,14 @@ struct Job {
 
 /// `callLane` (`call-lanes.mjs:35`) for the method a Node call became: an abort, an approval answer and an unsubscribe never
 /// queue; a create, read, submit and the project and terminal calls the desktop makes while the user waits queue behind a smaller
-/// bound than the rest. The other control calls are control calls. Node's interactive `session.subscribe` is the core's attach
-/// (`thread/resume`, `feed/subscribe`, `app/subscribe`, all C0): it runs where the request arrives, because the attach position
-/// of a feed is the one the subscriber is answered with (P §8.3), so it never waits in a lane.
+/// bound than the rest. The other control calls are control calls. Node's `session.subscribe` is interactive (`call-lanes.mjs:24`):
+/// it is `thread/resume`, which waits behind its owner's earlier interactive calls like any other (recorded: `session-call-lanes`,
+/// "an attach queues in the interactive lane"). `feed/subscribe` and `app/subscribe` are not `/call`s in Node: a phone opens its
+/// feeds with the relay's `setRemoteLanes` (`remote-relay-client-calls.ts`, recorded in `phone-lifecycle`'s lane matrix, which
+/// `tests/lane_pushes.rs` replays), a control-plane message that never enters a lane; they run where they arrive.
 pub(crate) fn lane_of(spec: &MethodSpec) -> Lane {
     match spec.method {
-        "thread/start" | "thread/read" | "turn/start" | "turn/steer" | "turn/retryFailed" | "project/list" | "project/read" | "project/create"
+        "thread/resume" | "thread/start" | "thread/read" | "turn/start" | "turn/steer" | "turn/retryFailed" | "project/list" | "project/read" | "project/create"
         | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" | "terminal/ensure" | "terminal/focus"
         | "terminal/dispose" | "terminal/profiles" => Lane::Interactive,
         "thread/approval/answer" | "thread/approval/answerNotification" => Lane::Critical,

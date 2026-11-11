@@ -17699,6 +17699,98 @@
       }
     },
     {
+      "case": "an attach queues in the interactive lane behind the calls made before it",
+      "observed": {
+        "calls": [
+          [
+            "session:A",
+            "session.read",
+            "read0"
+          ],
+          [
+            "session:A",
+            "session.read",
+            "read1"
+          ],
+          [
+            "session:A",
+            "session.read",
+            "read2"
+          ],
+          [
+            "session:A",
+            "session.subscribe",
+            "subscribe"
+          ],
+          [
+            "client:desktop",
+            "desktop.init",
+            "desktop-init"
+          ],
+          [
+            "session:A",
+            "session.list",
+            "list"
+          ],
+          [
+            "session:A",
+            "session.abort",
+            "abort"
+          ],
+          [
+            "session:B",
+            "session.subscribe",
+            "other-subscribe"
+          ]
+        ],
+        "afterEnqueue": {
+          "critical": {
+            "active": 1,
+            "queued": 0,
+            "queueMax": 256
+          },
+          "interactive": {
+            "active": 0,
+            "queued": 6,
+            "queueMax": 512
+          },
+          "normal": {
+            "active": 0,
+            "queued": 1,
+            "queueMax": 1024
+          }
+        },
+        "started": [
+          "abort",
+          "read0",
+          "list",
+          "desktop-init",
+          "other-subscribe",
+          "read1",
+          "read2",
+          "subscribe"
+        ],
+        "refused": [],
+        "afterSettled": {
+          "critical": {
+            "active": 0,
+            "queued": 0,
+            "queueMax": 256
+          },
+          "interactive": {
+            "active": 0,
+            "queued": 0,
+            "queueMax": 512
+          },
+          "normal": {
+            "active": 0,
+            "queued": 0,
+            "queueMax": 1024
+          }
+        }
+      }
+    },
+    {
       "case": "the critical lane queues nothing, even past 256 calls",
       "observed": {
         "calls": [

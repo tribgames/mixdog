@@ -68,6 +68,19 @@ await set.run('an abort and an approval start at once ahead of the reads queued 
     ['session:A', 'session.unsubscribe', 'unsubscribe'],
   ]));
 
+// The attach calls (`session.subscribe`, the desktop's `desktop.init`) are interactive: they wait behind the interactive calls their owner
+// made before them and start in their lane's turn, while an abort or an approval made after them starts at once. (A phone's feed opens
+// are not calls: the relay's `setRemoteLanes` never reaches these lanes.)
+await set.run('an attach queues in the interactive lane behind the calls made before it', () =>
+  burst([
+    ...many('session:A', 'session.read', 'read', 3),
+    ['session:A', 'session.subscribe', 'subscribe'],
+    ['client:desktop', 'desktop.init', 'desktop-init'],
+    ['session:A', 'session.list', 'list'],
+    ['session:A', 'session.abort', 'abort'],
+    ['session:B', 'session.subscribe', 'other-subscribe'],
+  ]));
+
 await set.run('the critical lane queues nothing, even past 256 calls', () =>
   burst(many('session:A', 'session.abort', 'abort', 300)));
 
