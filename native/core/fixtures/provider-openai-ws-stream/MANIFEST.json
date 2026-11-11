@@ -1,7 +1,7 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-openai-ws-stream.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-ai providers::openai decoder.rs (:696-745 bundle salvage, :1011-1027, :1144-1179 max-output), the WS transport (openai/pool.rs, transport/ws.rs) and mixdog-agent send.rs:541-556: serve each case's `events` as the loopback server does (the `server->client` frames and closes, in order, answering the request frame) and compare, in order, the client's upgrade request headers, its frames, the callback events (`progress`/`text`/`tool`, interleaved with the frames), the clock steps, and `result`/`error` (message, wsCloseCode, partialToolCalls, pendingToolUse, providerErrorCode, ...) and `state`. `client-frame-handled` and `recorder-cleanup-close` are the recorder's own markers.",
+  "compare": "mixdog-ai providers::openai decoder.rs (:696-745 bundle salvage, :1011-1027, :1144-1179 max-output), the WS transport (openai/pool.rs, transport/ws.rs) and mixdog-agent send.rs:541-556: serve each case's `events` as the loopback server does (the `server->client` frames and closes, in order, answering the request frame) and compare, in order, the client's upgrade request headers, its frames, the callback events (`progress`/`text`/`tool`, interleaved with the frames), the clock steps, and `result`/`error` (message, wsCloseCode, partialToolCalls, pendingToolUse, providerErrorCode, ...) and `state`. `recorder-cleanup-close` is the recorder's own marker; the `ping` / `pong` pairs after a keepalive frame are the recorder's proof that the client handled the frame.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
@@ -10,16 +10,17 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the watchdog cases advance the virtual clock (`rec.clock`) with the product's real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.",
   "exclusions": [
+    "result.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 179422,
+      "bytes": 288348,
       "path": "cases.json",
-      "sha256": "c06ad26b55e2e29a5a1bb6f49006f0116903999569495c7e952a4e20b9768463"
+      "sha256": "4fb0da5048c7fbd353743a3275f2b5dbe7fbc768eacdc92bae91f399311cf4b7"
     }
   ],
   "inputs": [
@@ -41,11 +42,85 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "9ea2970d4d50044ee08cd2fa91c7d0d6981a8450af0eae081b42981830208edc"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "text-call-and-usage-in-one-result",
+      "level": "wire"
+    },
+    {
+      "id": "call-id-only-in-completed-bundle-is-salvaged",
+      "level": "wire"
+    },
+    {
+      "id": "unsalvageable-call-fails",
+      "level": "wire"
+    },
+    {
+      "id": "leaked-tool-call-recovered-once",
+      "level": "wire"
+    },
+    {
+      "id": "max-output-tokens-truncated-success",
+      "level": "wire"
+    },
+    {
+      "id": "response-failed-rejects-with-frame",
+      "level": "wire"
+    },
+    {
+      "id": "response-done-cancelled-rejects",
+      "level": "wire"
+    },
+    {
+      "id": "close-before-terminal-keeps-partial-state",
+      "level": "wire"
+    },
+    {
+      "id": "close-after-finished-call-carries-it",
+      "level": "wire"
+    },
+    {
+      "id": "external-abort-tags-user-abort",
+      "level": "wire"
+    },
+    {
+      "id": "external-abort-tags-watchdog-abort",
+      "level": "wire"
+    },
+    {
+      "id": "prestream-watchdog-closes-silent-socket-first-byte-timeout",
+      "level": "wire"
+    },
+    {
+      "id": "inter-chunk-stall-after-output-rejects-as-continuation",
+      "level": "wire"
+    },
+    {
+      "id": "silent-thinking-past-semantic-idle-until-first-output",
+      "level": "wire"
+    },
+    {
+      "id": "no-output-aborted-at-first-output-deadline",
+      "level": "wire"
+    },
+    {
+      "id": "semantic-idle-applies-after-first-output",
+      "level": "wire"
+    },
+    {
+      "id": "reopened-stream-aborts-at-original-request-deadline",
+      "level": "wire"
+    },
+    {
+      "id": "ws-retry-after-output-stays-under-semantic-idle",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +142,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
-  "recorderSha256": "8ddea8744f08880c11d70d4ad3a13282ec45493fbcd6aeccfdc943ed3a41b1cc",
+  "recorderSha256": "c57982ccc28067584ccfa31390f651d5da951cae66d5b8134f1ac5a1ee302bc7",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-openai-ws-stream",
-  "totalBytes": 179422,
+  "totalBytes": 288348,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

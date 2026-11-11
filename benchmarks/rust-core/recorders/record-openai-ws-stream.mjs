@@ -19,7 +19,7 @@ const rec = await startRecording({
   },
   exclusions: ['result.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared'],
   entry: 'src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the watchdog cases advance the virtual clock (`rec.clock`) with the product\'s real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.',
-  compare: 'mixdog-ai providers::openai decoder.rs (:696-745 bundle salvage, :1011-1027, :1144-1179 max-output), the WS transport (openai/pool.rs, transport/ws.rs) and mixdog-agent send.rs:541-556: serve each case\'s `events` as the loopback server does (the `server->client` frames and closes, in order, answering the request frame) and compare, in order, the client\'s upgrade request headers, its frames, the callback events (`progress`/`text`/`tool`, interleaved with the frames), the clock steps, and `result`/`error` (message, wsCloseCode, partialToolCalls, pendingToolUse, providerErrorCode, ...) and `state`. `client-frame-handled` and `recorder-cleanup-close` are the recorder\'s own markers.',
+  compare: 'mixdog-ai providers::openai decoder.rs (:696-745 bundle salvage, :1011-1027, :1144-1179 max-output), the WS transport (openai/pool.rs, transport/ws.rs) and mixdog-agent send.rs:541-556: serve each case\'s `events` as the loopback server does (the `server->client` frames and closes, in order, answering the request frame) and compare, in order, the client\'s upgrade request headers, its frames, the callback events (`progress`/`text`/`tool`, interleaved with the frames), the clock steps, and `result`/`error` (message, wsCloseCode, partialToolCalls, pendingToolUse, providerErrorCode, ...) and `state`. `recorder-cleanup-close` is the recorder\'s own marker; the `ping` / `pong` pairs after a keepalive frame are the recorder\'s proof that the client handled the frame.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
 });
 // The stall policy reads host overrides once at load; the stream loads with the defaults.
@@ -41,13 +41,13 @@ function onToolCall(call) { world.note({ event: 'tool', call }); }
 function onTextDelta(chunk) { world.note({ event: 'text', chunk }); }
 
 // Server side of one connection: `plan` is consumed one entry per connection, when the request frame arrives (a connection past the plans
-// gets an empty plan: no frames, no close):
+// repeats the last plan: a failure the product retries is served again on every attempt, so the send ends with its own typed error once its budget is spent):
 // { frames, close: [code, reason] | null } (1006 = the server drops the connection).
 const serve = (plans) => {
   let n = 0;
   world.reset({
     onFrame: (conn) => {
-      const plan = plans[n++] ?? { frames: [], close: null };
+      const plan = plans[Math.min(n++, plans.length - 1)];
       for (const frame of plan.frames) conn.send(frame);
       if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
     },
@@ -70,13 +70,18 @@ const requestFrames = () => world.count((e) => e.event === 'frame' && e.dir === 
 const followReconnect = async (handled) => {
   await world.until((t) => t.some((e) => e.event === 'send-settled') || t.filter((e) => e.event === 'stage' && e.stage === 'reconnecting').length > handled, 'the send settled or decided to reconnect');
   if (world.count((e) => e.event === 'send-settled')) return false;
-  const dials = world.count((e) => e.event === 'dial');
-  await rec.clock.advance(0, { what: 'retry backoff armed', until: () => rec.clock.pending().length > 0 });
-  // The clock moves from armed timer to armed timer (each a recorded step) until the send dials again or settles.
-  while (world.count((e) => e.event === 'dial') === dials && !world.count((e) => e.event === 'send-settled')) {
-    if (!rec.clock.pending().length) throw new Error('recorder: the send is waiting for a retry with no timer armed');
-    await step(rec.clock.pending()[0].due - (Date.now() - rec.T0), { what: 'retry backoff', until: () => true });
-  }
+  const requesting = () => world.count((e) => e.event === 'stage' && e.stage === 'requesting');
+  const before = requesting();
+  const done = () => world.count((e) => e.event === 'send-settled') > 0 || requesting() > before;
+  // The retry sleeps a backoff on the virtual clock (a timer created by the product's sleep function is armed), or starts its next attempt at once, or the send ends: wait for whichever comes first.
+  const SLEEP = /at (async )?\S*[sS]leep\S* /;
+  await rec.clock.advance(0, { what: 'retry backoff armed', until: () => done() || rec.clock.pendingFrom(SLEEP).length > 0 });
+  if (world.count((e) => e.event === 'send-settled')) return false;
+  if (requesting() > before) return true;
+  // The clock moves to the backoff timer (a recorded step) and waits for the next attempt to start (the product's 'requesting' stage) or the send to end.
+  const sleep = rec.clock.pendingFrom(SLEEP)[0];
+  await step(sleep.due - (Date.now() - rec.T0), { what: 'retry backoff', until: done });
+  if (world.count((e) => e.event === 'send-settled')) return false;
   return true;
 };
 const settle = async (outcome, { stall = null } = {}) => {
@@ -103,19 +108,33 @@ async function end() {
 const snapshot = () => world.trace.map((e) => ({ ...e }));
 // A metadata frame every minute for `ms` of virtual time: the socket stays live.
 const KEEPALIVE = { type: 'response.in_progress', response: { id: 'resp_1' } };
+// A frame the client must have handled before the case goes on: the server sends it and then a ping; the client answers the ping (a recorded `pong` event) only after it has parsed and
+// dispatched every frame sent before it, so the pong is the observable proof that the frame was handled.
+// A client that already closed its socket (a watchdog fired) ends the delivery: nothing more is sent to it.
 const deliver = async (frame) => {
-  const handled = world.count((e) => e.event === 'client-frame-handled') + 1;
-  world.conns.at(-1).send(frame);
-  await world.until(() => world.count((e) => e.event === 'client-frame-handled') >= handled, `client handled ${frame.type}`);
+  const pongs = world.count((e) => e.event === 'pong') + 1;
+  const conn = world.conns.at(-1);
+  if (conn.ws.readyState !== 1) return false;
+  conn.send(frame);
+  conn.ping(`handled-${pongs}`);
+  await world.until(() => world.count((e) => e.event === 'pong') >= pongs || conn.ws.readyState !== 1, `client handled ${frame.type}`);
+  return world.count((e) => e.event === 'pong') >= pongs;
 };
 const step = async (ms, options) => {
   await rec.clock.advance(ms, options);
   world.note({ event: 'clock-step', advanceMs: ms, nowMs: Date.now() - rec.T0 });
 };
+// The caller stops the send once the watchdog has closed the socket (close code 4000): what follows is the send's own retry cascade (hedged redials on the virtual clock), which is not part
+// of these cases and is not deterministic against the real loopback latency.
+const stopAfterWatchdogClose = async (stopper, outcome) => {
+  await world.until((tr) => tr.some((e) => e.event === 'closed' && e.code === 4000), 'the watchdog closed the socket');
+  stopper.abort(new Error('caller cancelled after the watchdog closed the socket'));
+  return outcome;
+};
 const keepalivesFor = async (ms) => {
   for (let elapsed = 0; elapsed < ms; elapsed += 60_000) {
     await step(Math.min(60_000, ms - elapsed));
-    await deliver(KEEPALIVE);
+    if (!(await deliver(KEEPALIVE))) return;
   }
 };
 
@@ -193,23 +212,26 @@ await watchdog('silent-thinking-past-semantic-idle-until-first-output', 275, { f
   await end();
   return { ...out, events: snapshot() };
 });
-await watchdog('no-output-aborted-at-first-output-deadline', 298, { frames: [created, { type: 'response.output_item.added', item: reasoningItem }], keepalivesForMs: PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1, advanceMsAfter: 1 }, async () => {
+await watchdog('no-output-aborted-at-first-output-deadline', 298, { frames: [created, { type: 'response.output_item.added', item: reasoningItem }], keepalivesForMs: PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1, advanceMsAfter: 1, then: 'when the watchdog has closed the socket (code 4000) the caller aborts the send' }, async () => {
   serve([{ frames: [created, { type: 'response.output_item.added', item: reasoningItem }] }]);
-  const { outcome } = connect();
+  // The caller stops the send when the watchdog has closed the socket (close code 4000): what follows is the send's own retry cascade, which is not part of this case.
+  const stopper = new AbortController();
+  const { outcome } = connect({ externalSignal: stopper.signal });
   await world.until((t) => t.some((e) => e.event === 'progress'), 'reasoning handled');
   await keepalivesFor(PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1);
   await step(1);
-  const out = await settle(outcome);
+  const out = await stopAfterWatchdogClose(stopper, outcome);
   await end();
   return { ...out, events: snapshot() };
 });
 await watchdog('semantic-idle-applies-after-first-output', 313, { frames: [created, { type: 'response.output_text.delta', delta: 'kept' }], keepalivesForMs: PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1, advanceMsAfter: 1 }, async () => {
   serve([{ frames: [created, { type: 'response.output_text.delta', delta: 'kept' }] }]);
-  const { outcome } = connect();
+  const stopper = new AbortController();
+  const { outcome } = connect({ externalSignal: stopper.signal });
   await world.until((t) => t.some((e) => e.event === 'text'), 'text handled');
   await keepalivesFor(PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1);
   await step(1);
-  const out = await settle(outcome);
+  const out = await stopAfterWatchdogClose(stopper, outcome);
   await end();
   return { ...out, events: snapshot() };
 });
@@ -222,7 +244,8 @@ await watchdog('reopened-stream-aborts-at-original-request-deadline', 337, { ses
   const startedAt = sessionRequest(sessionId);
   serve([{ frames: [created, { type: 'response.output_item.added', item: reasoningItem }] }, { frames: [created] }]);
   try {
-    const { outcome } = connect({ poolKey: sessionId });
+    const stopper = new AbortController();
+    const { outcome } = connect({ poolKey: sessionId, externalSignal: stopper.signal });
     await world.until((tr) => tr.some((e) => e.event === 'progress'), 'reasoning handled');
     await keepalivesFor(400_000);
     world.conns.at(-1).terminate();
@@ -232,7 +255,7 @@ await watchdog('reopened-stream-aborts-at-original-request-deadline', 337, { ses
     const retryKeepaliveMs = startedAt + PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1 - Date.now();
     await keepalivesFor(retryKeepaliveMs);
     await step(1);
-    const result = await outcome;
+    const result = await stopAfterWatchdogClose(stopper, outcome);
     await end();
     return { startedAtMs: startedAt - rec.T0, retryKeepaliveMs, ...result, events: snapshot() };
   } finally {
@@ -247,11 +270,12 @@ await watchdog('ws-retry-after-output-stays-under-semantic-idle', 360, { session
     await markSessionStreamDelta(sessionId, 'reasoning');
     await step(10_000);
     updateSessionStage(sessionId, 'requesting');
-    const retry = connect({ poolKey: sessionId });
+    const stopper = new AbortController();
+    const retry = connect({ poolKey: sessionId, externalSignal: stopper.signal });
     await world.until((t) => t.some((e) => e.event === 'progress'), 'retry response.created handled');
     await keepalivesFor(PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1);
     await step(1);
-    const out = await retry.outcome;
+    const out = await stopAfterWatchdogClose(stopper, retry.outcome);
     await end();
     return { retry: out, events: snapshot() };
   } finally {
