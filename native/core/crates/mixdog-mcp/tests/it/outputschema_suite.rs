@@ -41,7 +41,11 @@ fn ctx() -> ToolContext {
         cancel: CancellationToken::new(),
         deadline: None,
         progress: Arc::new(MockProgress::default()),
-        io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+        io: ToolIo {
+            interactive: tokens.interactive_io,
+            durability: tokens.durability_io,
+            maintenance: tokens.maintenance_io,
+        },
         approvals: Arc::new(MockApprovalGate::default()),
         files: Arc::new(MockFileService::default()),
         processes: Arc::new(MockProcessManager::default()),
@@ -50,11 +54,67 @@ fn ctx() -> ToolContext {
     }
 }
 
-/// What the model reads of one recorded case: the connect failure and each call's answer.
+/// A call's whole answer as Node's `executeMcpTool` returns it: the text, or (when there is media) every part in order;
+/// a failure is its `Error: …` text. A part Node never returns (structured content) shows as itself.
+fn node_view(
+    answer: Result<
+        mixdog_core_api::domain::tool::ToolOutput,
+        mixdog_core_api::domain::tool::ToolError,
+    >,
+) -> Value {
+    use base64::Engine;
+    let out = match answer {
+        Ok(out) => out,
+        Err(error) => return Value::String(error.message_for_model),
+    };
+    if out.parts.iter().all(|p| matches!(p, ToolPart::Text(_))) {
+        return Value::String(
+            out.parts
+                .iter()
+                .map(|p| {
+                    if let ToolPart::Text(t) = p {
+                        t.as_str()
+                    } else {
+                        ""
+                    }
+                })
+                .collect(),
+        );
+    }
+    let parts: Vec<Value> = out
+        .parts
+        .iter()
+        .map(|part| match part {
+            ToolPart::Text(text) => json!({"type": "text", "text": text}),
+            ToolPart::Image { mime, data: mixdog_core_api::domain::tool::ImageData::Bytes(bytes) } => {
+                json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(bytes), "mimeType": mime})
+            }
+            other => json!({"unexpected": format!("{other:?}")}),
+        })
+        .collect();
+    json!({"content": parts})
+}
+
+/// What the model reads of one recorded case: the connect failure and each call's whole answer. A case naming a remote
+/// address is served with that address moved to a listener of this test, which must get no request.
 async fn replay(case: &Value, artifacts: &std::path::Path) -> Value {
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
-    let scenario = json!({"tools": case["tools"], "results": case["results"]});
+    let io = McpIo {
+        spawn: tokens.spawn_io,
+        durability: tokens.durability_io,
+    };
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let here = format!("http://{}", listener.local_addr().unwrap());
+    let recorded = case["remote"].as_str();
+    let moved = |value: &Value, from: &str, to: &str| -> Value {
+        match recorded {
+            Some(_) => serde_json::from_str(&value.to_string().replace(from, to)).unwrap(),
+            None => value.clone(),
+        }
+    };
+    let tools = moved(&case["tools"], recorded.unwrap_or_default(), &here);
+    let scenario = json!({"tools": tools, "results": case["results"]});
     let entry = json!({"command": MOCK, "env": {"MOCK_SCENARIO": scenario.to_string()}});
     let config = McpServerConfig::from_entry("srv", &entry, &std::env::vars().collect()).unwrap();
     // The hub a session's tools come from: the configured server is connected by the apply, and every call is made
@@ -77,27 +137,42 @@ async fn replay(case: &Value, artifacts: &std::path::Path) -> Value {
     for call in case["outputs"].as_array().unwrap() {
         let name = call["tool"].as_str().unwrap();
         let output = match hub.tool(&format!("mcp__srv__{name}")) {
-            Some(tool) => match tool.call(&ctx(), json!({"i": call["i"]})).await {
-                Ok(out) => out
-                    .parts
-                    .iter()
-                    .map(|p| {
-                        if let ToolPart::Text(t) = p {
-                            t.as_str()
-                        } else {
-                            ""
-                        }
-                    })
-                    .collect::<String>(),
-                Err(error) => error.message_for_model,
-            },
+            Some(tool) => node_view(tool.call(&ctx(), json!({"i": call["i"]})).await),
+            // A server whose connect failed publishes no tool; Node's call of one answers so.
+            None if !connect.is_null() => {
+                Value::String("Error: MCP server \"srv\" not connected".to_owned())
+            }
             None => panic!("{}: {name} is not published", case["name"]),
         };
         outputs.push(json!({"tool": name, "i": call["i"], "output": output}));
     }
     hub.close_all().await;
-    json!({"name": case["name"], "tools": case["tools"], "results": case["results"], "connect": connect, "outputs": outputs})
+    let mut replayed = json!({"name": case["name"], "tools": case["tools"], "results": case["results"], "connect": connect, "outputs": outputs});
+    if let Some(remote) = recorded {
+        let mut hits = 0;
+        while listener.accept().is_ok() {
+            hits += 1;
+        }
+        replayed = moved(&replayed, &here, remote);
+        replayed["remote"] = json!(remote);
+        replayed["remoteHits"] = json!(hits);
+    }
+    replayed
 }
+
+/// Where the core answers otherwise on purpose: `(case, tool, call, the core's answer)`. A reference cycle that never
+/// moves into the result (`a` → `b` → `a`, or `allOf: [{"$ref": "#"}]` at the root): Node's Ajv recurses until V8's
+/// stack overflows and the call fails with `Maximum call stack size exceeded`; jsonschema follows each reference once
+/// per place in the result, so the check ends and the result is valid.
+const DEPARTURES: &[(&str, &str, u64, &str)] = &[
+    ("recursive references and deep results", "loop", 0, "loop"),
+    (
+        "recursive references and deep results",
+        "endless",
+        0,
+        "endless",
+    ),
+];
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_result_is_checked_against_its_tools_output_schema_as_node_does() {
@@ -105,6 +180,22 @@ async fn a_result_is_checked_against_its_tools_output_schema_as_node_does() {
     let dir = tempfile::tempdir().unwrap();
     let mut differ = Vec::new();
     for case in golden["cases"].as_array().unwrap() {
+        let mut case = case.clone();
+        for output in case["outputs"]
+            .clone()
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            let (at, output) = output;
+            if let Some((.., answer)) = DEPARTURES.iter().find(|(name, tool, i, _)| {
+                case["name"] == *name && output["tool"] == *tool && output["i"] == *i
+            }) {
+                case["outputs"][at]["output"] = json!(answer);
+            }
+        }
+        let case = &case;
         let replayed = replay(case, dir.path()).await;
         if &replayed != case {
             let (want, got) = (&case["outputs"], &replayed["outputs"]);

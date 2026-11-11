@@ -2,15 +2,17 @@
 // Records what a tool with an `outputSchema` answers the model in Node: the MCP SDK client validates each `tools/call`
 // result against the listed schema (`client.mjs` `connectMcpServers` / `executeMcpTool`, with the lazy validator of
 // `lazy-output-validator.mjs`). Each case is a stdio server answering its `tools` and, for `tools/call {i}`,
-// `results[tool][i]`; recorded are the connect failure (`null` when it connected) and, per call, what `executeMcpTool`
-// returned or `Error: <message>` when it threw (`execute-call.mjs`). The Rust replay serves the same case from its mock
-// server.
+// `results[tool][i]`; recorded are the connect failure (`null` when it connected) and, per call, the whole of what
+// `executeMcpTool` returned (a text, or the parts in order) or `Error: <message>` when it threw (`execute-call.mjs`).
+// A case naming a remote `$ref` also records how many requests the server at that address got. The Rust replay serves
+// the same case from its mock server.
 //
 //   node benchmarks/rust-core/recorders/record-mcp-output-schema.mjs --tree <git archive export of b6f10295a> [--only <case name>]
 //
 // Output: native/core/fixtures/mcp-output-schema/golden.json (+ MANIFEST.json). With --only, that case is printed and
 // nothing is written.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -138,6 +140,75 @@ const KEYWORDS_BAD = {
   tuple: ['a', 'b'], cont: [0], maxp: { a: 1, b: 2 }, minp: {}, names: { AB: 1 }, deps: { a: 1, c: 2 }, pprops: { n1: 'x' },
   not: 'x', all: 0, one: 1, cond: 5, fals: [1], uniqt: ['a', 1, 2, 'a', 1.0], deps2: { a: 1 }, condelse: 'ab',
 };
+// `format: "regex"` (ajv-formats: `new RegExp(str)`, no flags, and no `\Z`).
+const REGEX_FORMAT = [
+  '(?i)a', 'a\\Z', 'a\\\\Z', '(?<=a)b', '(?<n>a)\\k<n>', '\\1(a)', 'a{', 'a{1', ']', '\\c', '[\\d-z]', '\\p{L}', '(?i:a)',
+  '\\u{61}', 'a**', '\\k', '(?<a>x)(?<a>y)', '[z-a]', '\\-',
+];
+// `pattern` (Ajv: `new RegExp(pattern, "u")`): each construct with values on both sides; the last ones do not compile
+// with the u flag.
+const PATTERNS = [
+  ['^\\d+$', ['12', '١٢']],
+  ['^\\w+$', ['ab_1', 'é']],
+  ['é\\b', ['éa', 'é ']],
+  ['(?<=a)b', ['ab', 'cb']],
+  ['^(?<y>\\d{4})-\\k<y>$', ['2024-2024', '2024-2025']],
+  ['^(a)\\1$', ['aa', 'ab']],
+  ['^.$', ['\u2028', 'x', '\u{1F600}']],
+  ['^\\s$', ['\uFEFF', '\u00A0']],
+  ['^\\p{Lu}$', ['É', 'é']],
+  ['^[^]$', ['x']],
+  ['^a$', ['a\n']],
+  ['^\\u{1F600}$', ['\u{1F600}']],
+  ['^[😀]$', ['😀', '😁']],
+  ['(?i)a', ['a']],
+  ['\\-', ['-']],
+];
+// Schemas Ajv cannot compile (or can), by kind.
+const NOT_COMPILING = [
+  ['an invalid pattern', { type: 'object', properties: { v: { type: 'string', pattern: '(' } } }],
+  ['a pattern valid only without the u flag', { type: 'object', properties: { v: { type: 'string', pattern: '\\-' } } }],
+  ['an invalid patternProperties key', { type: 'object', patternProperties: { '(': { type: 'string' } } }],
+  ['an unresolvable local $ref', { type: 'object', properties: { v: { $ref: '#/definitions/missing' } } }],
+  ['an invalid type in an array', { type: 'object', properties: { v: { type: ['string', 'bogus'] } } }],
+  ['a boolean schema', true],
+  ['a string schema', 'x'],
+  ['an array schema', [1]],
+];
+const k = (kind) => kind.replace(/\W+/g, '-');
+const ALL_ERRORS = {
+  type: 'object',
+  required: ['r1', 'r2'],
+  properties: {
+    a: { type: 'array', items: { type: 'number' }, maxItems: 2 },
+    m: { type: 'object', properties: { p: { type: 'number' }, q: { type: 'string' } }, required: ['s'] },
+    z: { type: 'number', minimum: 5 },
+  },
+  additionalProperties: false,
+};
+const STRICT_FORMATS = {
+  'date-time': ['2024-01-01T00:00:00.123+05:30', '2024-01-01T24:00:00Z', '2016-12-31T23:59:60Z', '2024-01-01T00:00:00+0530', '2024-01-01T00:00Z'],
+  date: ['2024-13-01', '0000-01-01', '2024-02-30', '20240101'],
+  time: ['12:34:56.789+01:00', '12:34:56+0100', '23:59:60+01:00', '12:34'],
+  uri: ['http://[::1]/', 'HTTP://A.test', 'a:b', 'http://a b', 'mailto:a@b.test'],
+  'uri-reference': ['', '\\x', '//a.test/p', '%zz'],
+  email: ['"a b"@c.test', 'a@[1.2.3.4]', 'é@a.test', 'a..b@c.test', 'a@b.c'],
+  hostname: ['xn--d1a.test', 'a_b.test', 'é.test', 'a.-b.test', 'a'.repeat(63)],
+  ipv4: ['1.2.3', '255.255.255.255', '1.2.3.4 '],
+  ipv6: ['::ffff:1.2.3.4', 'fe80::1%eth0', '1:2:3:4:5:6:7:8:9', ':::'],
+  uuid: ['123E4567-E89B-12D3-A456-426614174000', '{123e4567-e89b-12d3-a456-426614174000}', '123e4567e89b12d3a456426614174000'],
+  'json-pointer': ['/a~1b', '#/a', '/a~'],
+};
+// `n` arrays nested around `leaf`.
+const nested = (n, leaf) => (n === 0 ? leaf : [nested(n - 1, leaf)]);
+// A server a remote `$ref` names; every request it gets is counted, and the count recorded.
+let remoteHits = 0;
+const remoteServer = createServer((_, response) => {
+  remoteHits += 1;
+  response.end('{"type":"string"}');
+});
+await new Promise((done) => remoteServer.listen(0, '127.0.0.1', done));
+const REMOTE = `http://127.0.0.1:${remoteServer.address().port}`;
 const CASES = [
   {
     name: 'results checked against the output schema',
@@ -323,6 +394,170 @@ const CASES = [
     },
     calls: [['keywords', 0], ['keywords', 1]],
   },
+  {
+    name: 'whole results: every part in order, the error flag, structured content not shown',
+    tools: [{ name: 'whole', inputSchema: input, outputSchema: { type: 'object', properties: { n: { type: 'number' } } } }],
+    results: {
+      whole: [
+        { content: [...text('one'), { type: 'image', data: 'aGk=', mimeType: 'image/png' }, ...text('two')], structuredContent: { n: 1 } },
+        { content: [...text('a'), ...text('b')], structuredContent: { n: 2 } },
+        { content: [{ type: 'image', data: 'aGk=', mimeType: 'image/png' }, ...text('failed')], structuredContent: { n: 'x' }, isError: true },
+        { content: text('failed plainly'), structuredContent: { n: 'x' }, isError: true },
+        { content: text('fine'), structuredContent: { n: 3 }, isError: false },
+        { content: [...text('bad'), { type: 'image', data: 'aGk=', mimeType: 'image/png' }], structuredContent: { n: 'x' } },
+      ],
+    },
+    calls: [0, 1, 2, 3, 4, 5].map((i) => ['whole', i]),
+  },
+  {
+    name: 'format regex is a JavaScript regular expression without the u flag',
+    tools: [{ name: 'rx', inputSchema: input, outputSchema: { type: 'object', properties: { v: { format: 'regex' } } } }],
+    results: { rx: REGEX_FORMAT.map((v) => ({ content: text(v), structuredContent: { v } })) },
+    calls: REGEX_FORMAT.map((_, i) => ['rx', i]),
+  },
+  {
+    name: 'pattern matches as a JavaScript regular expression with the u flag',
+    tools: PATTERNS.map(([pattern], k) => ({
+      name: `p${k}`,
+      inputSchema: input,
+      outputSchema: { type: 'object', properties: { v: { type: 'string', pattern } } },
+    })),
+    results: Object.fromEntries(
+      PATTERNS.map(([, values], k) => [`p${k}`, values.map((v) => ({ content: text(JSON.stringify(v)), structuredContent: { v } }))])
+    ),
+    calls: PATTERNS.flatMap(([, values], k) => values.map((_, i) => [`p${k}`, i])),
+  },
+  {
+    name: 'patternProperties keys match as JavaScript regular expressions',
+    tools: [
+      {
+        name: 'pp',
+        inputSchema: input,
+        outputSchema: { type: 'object', patternProperties: { '^\\d+$': { type: 'number' }, 'é\\b': { type: 'number' } }, additionalProperties: { type: 'string' } },
+      },
+    ],
+    results: {
+      pp: [
+        { content: text('ascii digits'), structuredContent: { 12: 1 } },
+        { content: text('arabic digits'), structuredContent: { '١٢': 'x' } },
+        { content: text('boundary'), structuredContent: { éa: 1 } },
+        { content: text('no boundary'), structuredContent: { éa: 'x', é: 'y' } },
+      ],
+    },
+    calls: [0, 1, 2, 3].map((i) => ['pp', i]),
+  },
+  ...NOT_COMPILING.flatMap(([kind, schema]) => [
+    {
+      name: `a schema that does not compile (${kind}), without an $id: the other tool stays`,
+      tools: [
+        { name: 'fine', inputSchema: input, outputSchema: { type: 'object' } },
+        { name: 'broken', inputSchema: input, outputSchema: schema },
+      ],
+      results: {
+        fine: [{ content: text('fine'), structuredContent: {} }],
+        broken: [{ content: text('plain') }, { content: text('x'), structuredContent: { v: 'a' } }],
+      },
+      calls: [['fine', 0], ['broken', 0], ['broken', 1]],
+    },
+    ...(schema && typeof schema === 'object' && !Array.isArray(schema)
+      ? [
+          {
+            name: `a schema that does not compile (${kind}), with an $id: the listing`,
+            tools: [
+              { name: 'fine', inputSchema: input, outputSchema: { type: 'object' } },
+              { name: 'broken', inputSchema: input, outputSchema: { $id: `https://example.test/${k(kind)}.json`, ...schema } },
+            ],
+            results: { fine: [{ content: text('fine'), structuredContent: {} }] },
+            calls: [['fine', 0]],
+          },
+        ]
+      : []),
+  ]),
+  {
+    name: 'all errors, in the order Ajv reports them',
+    tools: [{ name: 'many', inputSchema: input, outputSchema: ALL_ERRORS }],
+    results: {
+      many: [
+        { content: text('bad'), structuredContent: { z: 'x', a: [1, 'b', 3, 'd'], m: { q: 1, p: 'x' }, extra: 1 } },
+        { content: text('nothing'), structuredContent: {} },
+      ],
+    },
+    calls: [['many', 0], ['many', 1]],
+  },
+  {
+    name: 'format strictness',
+    tools: Object.keys(STRICT_FORMATS).map((format) => ({
+      name: `s_${format.replaceAll('-', '_')}`,
+      inputSchema: input,
+      outputSchema: { type: 'object', properties: { v: { format } } },
+    })),
+    results: Object.fromEntries(
+      Object.entries(STRICT_FORMATS).map(([format, values]) => [
+        `s_${format.replaceAll('-', '_')}`,
+        values.map((v) => ({ content: text(JSON.stringify(v)), structuredContent: { v } })),
+      ])
+    ),
+    calls: Object.entries(STRICT_FORMATS).flatMap(([format, values]) => values.map((_, i) => [`s_${format.replaceAll('-', '_')}`, i])),
+  },
+  {
+    name: 'numbers: integers, large values',
+    tools: [
+      { name: 'int', inputSchema: input, outputSchema: { type: 'object', properties: { v: { type: 'integer' } } } },
+      { name: 'mul', inputSchema: input, outputSchema: { type: 'object', properties: { v: { multipleOf: 3 } } } },
+      { name: 'max', inputSchema: input, outputSchema: { type: 'object', properties: { v: { maximum: 9007199254740992 } } } },
+    ],
+    results: {
+      int: [1, 1.5, 9007199254740994, 1e21, -0, 1e308].map((v) => ({ content: text(String(v)), structuredContent: { v } })),
+      mul: [9007199254740994, 9007199254740995, 1e21, 0.30000000000000004].map((v) => ({ content: text(String(v)), structuredContent: { v } })),
+      max: [9007199254740992, 9007199254740994].map((v) => ({ content: text(String(v)), structuredContent: { v } })),
+    },
+    calls: [...[0, 1, 2, 3, 4, 5].map((i) => ['int', i]), ...[0, 1, 2, 3].map((i) => ['mul', i]), ['max', 0], ['max', 1]],
+  },
+  {
+    name: '$schema naming a later draft, and an unknown keyword',
+    tools: [
+      { name: 'd2019', inputSchema: input, outputSchema: { $schema: 'https://json-schema.org/draft/2019-09/schema', type: 'object', properties: { v: { type: 'number' } } } },
+      { name: 'd2020', inputSchema: input, outputSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', prefixItems: [{ type: 'number' }], properties: { v: { type: 'number' }, t: { prefixItems: [{ type: 'number' }] } } } },
+      { name: 'unknown', inputSchema: input, outputSchema: { type: 'object', frobnicate: { type: 'string' }, properties: { v: { type: 'number', alsoUnknown: true } } } },
+    ],
+    results: {
+      d2019: [{ content: text('x'), structuredContent: { v: 'x' } }],
+      d2020: [{ content: text('t'), structuredContent: { v: 1, t: ['x'] } }],
+      unknown: [{ content: text('ok'), structuredContent: { v: 1 } }, { content: text('bad'), structuredContent: { v: 'x' } }],
+    },
+    calls: [['d2019', 0], ['d2020', 0], ['unknown', 0], ['unknown', 1]],
+  },
+  {
+    name: 'a reference to a remote address is never fetched',
+    tools: [
+      { name: 'fine', inputSchema: input, outputSchema: { type: 'object' } },
+      { name: 'remote', inputSchema: input, outputSchema: { type: 'object', properties: { v: { $ref: `${REMOTE}/schema.json` } } } },
+    ],
+    results: { fine: [{ content: text('fine'), structuredContent: {} }] },
+    calls: [['fine', 0]],
+  },
+  {
+    name: 'recursive references and deep results',
+    tools: [
+      { name: 'tree', inputSchema: input, outputSchema: { type: 'object', properties: { v: { $ref: '#/definitions/node' } }, definitions: { node: { type: 'array', items: { $ref: '#/definitions/node' } } } } },
+      { name: 'loop', inputSchema: input, outputSchema: { type: 'object', properties: { v: { $ref: '#/definitions/a' } }, definitions: { a: { $ref: '#/definitions/b' }, b: { $ref: '#/definitions/a' } } } },
+      { name: 'self', inputSchema: input, outputSchema: { type: 'object', properties: { v: { $ref: '#' } } } },
+      { name: 'endless', inputSchema: input, outputSchema: { type: 'object', allOf: [{ $ref: '#' }] } },
+    ],
+    results: {
+      tree: [
+        { content: text('100 deep'), structuredContent: { v: nested(100, []) } },
+        { content: text('100 deep, bad leaf'), structuredContent: { v: nested(100, [1]) } },
+      ],
+      loop: [{ content: text('loop'), structuredContent: { v: 1 } }],
+      self: [
+        { content: text('self'), structuredContent: { v: { v: {} } } },
+        { content: text('self, bad'), structuredContent: { v: { v: 1 } } },
+      ],
+      endless: [{ content: text('endless'), structuredContent: {} }],
+    },
+    calls: [['tree', 0], ['tree', 1], ['loop', 0], ['self', 0], ['self', 1], ['endless', 0]],
+  },
 ];
 const cases = CASES.filter((scenario) => !only || scenario.name === only);
 if (!cases.length) throw new Error(`--only ${CASES.map((c) => c.name).join(' | ')}, got ${only}`);
@@ -330,6 +565,7 @@ if (!cases.length) throw new Error(`--only ${CASES.map((c) => c.name).join(' | '
 async function record(scenario, index) {
   const scopeId = `case${index}`;
   const entry = { name: scenario.name, tools: scenario.tools, results: scenario.results, connect: null, outputs: [] };
+  const hitsBefore = remoteHits;
   try {
     await within(
       `connecting ${scenario.name}`,
@@ -353,6 +589,7 @@ async function record(scenario, index) {
   } finally {
     await within(`disconnecting ${scenario.name}`, client.disconnectAll({ scopeId }));
   }
+  if (JSON.stringify(scenario.tools).includes(REMOTE)) Object.assign(entry, { remote: REMOTE, remoteHits: remoteHits - hitsBefore });
   return entry;
 }
 

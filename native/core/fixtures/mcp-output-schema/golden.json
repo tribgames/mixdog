@@ -3112,6 +3112,4533 @@
           "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/max must be <= 3, data/min must be >= 3, data/xmax must be < 3, data/xmin must be > 3, data/mult must be multiple of 0.5, data/maxl must NOT have more than 2 characters, data/minl must NOT have fewer than 2 characters, data/pat must match pattern \"^a+$\", data/maxi must NOT have more than 1 items, data/mini must NOT have fewer than 2 items, data/uniq must NOT have duplicate items (items ## 0 and 1 are identical), data/uniqt must NOT have duplicate items (items ## 4 and 1 are identical), data/deps2 must have properties b, c when property a is present, data/deps2 must have properties b, c when property a is present, data/condelse must NOT have fewer than 3 characters, data/condelse must match \"else\" schema, data/tuple must NOT have more than 1 items, data/cont/0 must be equal to constant, data/cont must contain at least 1 valid item(s), data/maxp must NOT have more than 1 properties, data/minp must NOT have fewer than 1 properties, data/names must match pattern \"^[a-z]+$\", data/names property name must be valid, data/deps must have property b when property a is present, data/deps must have required property 'd', data/pprops/n1 must be number, data/not must NOT be valid, data/all must be >= 1, data/one must match exactly one schema in oneOf, data/cond must be >= 10, data/cond must match \"then\" schema, data/fals/0 boolean schema is false"
         }
       ]
+    },
+    {
+      "name": "whole results: every part in order, the error flag, structured content not shown",
+      "tools": [
+        {
+          "name": "whole",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "whole": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "one"
+              },
+              {
+                "type": "image",
+                "data": "aGk=",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "text",
+                "text": "two"
+              }
+            ],
+            "structuredContent": {
+              "n": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ],
+            "structuredContent": {
+              "n": 2
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "image",
+                "data": "aGk=",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "text",
+                "text": "failed"
+              }
+            ],
+            "structuredContent": {
+              "n": "x"
+            },
+            "isError": true
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "failed plainly"
+              }
+            ],
+            "structuredContent": {
+              "n": "x"
+            },
+            "isError": true
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {
+              "n": 3
+            },
+            "isError": false
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              },
+              {
+                "type": "image",
+                "data": "aGk=",
+                "mimeType": "image/png"
+              }
+            ],
+            "structuredContent": {
+              "n": "x"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "whole",
+          "i": 0,
+          "output": {
+            "content": [
+              {
+                "type": "text",
+                "text": "one"
+              },
+              {
+                "type": "image",
+                "data": "aGk=",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "text",
+                "text": "two"
+              }
+            ]
+          }
+        },
+        {
+          "tool": "whole",
+          "i": 1,
+          "output": "a\nb"
+        },
+        {
+          "tool": "whole",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/n must be number"
+        },
+        {
+          "tool": "whole",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/n must be number"
+        },
+        {
+          "tool": "whole",
+          "i": 4,
+          "output": "fine"
+        },
+        {
+          "tool": "whole",
+          "i": 5,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/n must be number"
+        }
+      ]
+    },
+    {
+      "name": "format regex is a JavaScript regular expression without the u flag",
+      "tools": [
+        {
+          "name": "rx",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "regex"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "rx": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "(?i)a"
+              }
+            ],
+            "structuredContent": {
+              "v": "(?i)a"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "a\\Z"
+              }
+            ],
+            "structuredContent": {
+              "v": "a\\Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "a\\\\Z"
+              }
+            ],
+            "structuredContent": {
+              "v": "a\\\\Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "(?<=a)b"
+              }
+            ],
+            "structuredContent": {
+              "v": "(?<=a)b"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "(?<n>a)\\k<n>"
+              }
+            ],
+            "structuredContent": {
+              "v": "(?<n>a)\\k<n>"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\\1(a)"
+              }
+            ],
+            "structuredContent": {
+              "v": "\\1(a)"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "a{"
+              }
+            ],
+            "structuredContent": {
+              "v": "a{"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "a{1"
+              }
+            ],
+            "structuredContent": {
+              "v": "a{1"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "]"
+              }
+            ],
+            "structuredContent": {
+              "v": "]"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\\c"
+              }
+            ],
+            "structuredContent": {
+              "v": "\\c"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "[\\d-z]"
+              }
+            ],
+            "structuredContent": {
+              "v": "[\\d-z]"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\\p{L}"
+              }
+            ],
+            "structuredContent": {
+              "v": "\\p{L}"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "(?i:a)"
+              }
+            ],
+            "structuredContent": {
+              "v": "(?i:a)"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\\u{61}"
+              }
+            ],
+            "structuredContent": {
+              "v": "\\u{61}"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "a**"
+              }
+            ],
+            "structuredContent": {
+              "v": "a**"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\\k"
+              }
+            ],
+            "structuredContent": {
+              "v": "\\k"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "(?<a>x)(?<a>y)"
+              }
+            ],
+            "structuredContent": {
+              "v": "(?<a>x)(?<a>y)"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "[z-a]"
+              }
+            ],
+            "structuredContent": {
+              "v": "[z-a]"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\\-"
+              }
+            ],
+            "structuredContent": {
+              "v": "\\-"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "rx",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"regex\""
+        },
+        {
+          "tool": "rx",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"regex\""
+        },
+        {
+          "tool": "rx",
+          "i": 2,
+          "output": "a\\\\Z"
+        },
+        {
+          "tool": "rx",
+          "i": 3,
+          "output": "(?<=a)b"
+        },
+        {
+          "tool": "rx",
+          "i": 4,
+          "output": "(?<n>a)\\k<n>"
+        },
+        {
+          "tool": "rx",
+          "i": 5,
+          "output": "\\1(a)"
+        },
+        {
+          "tool": "rx",
+          "i": 6,
+          "output": "a{"
+        },
+        {
+          "tool": "rx",
+          "i": 7,
+          "output": "a{1"
+        },
+        {
+          "tool": "rx",
+          "i": 8,
+          "output": "]"
+        },
+        {
+          "tool": "rx",
+          "i": 9,
+          "output": "\\c"
+        },
+        {
+          "tool": "rx",
+          "i": 10,
+          "output": "[\\d-z]"
+        },
+        {
+          "tool": "rx",
+          "i": 11,
+          "output": "\\p{L}"
+        },
+        {
+          "tool": "rx",
+          "i": 12,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"regex\""
+        },
+        {
+          "tool": "rx",
+          "i": 13,
+          "output": "\\u{61}"
+        },
+        {
+          "tool": "rx",
+          "i": 14,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"regex\""
+        },
+        {
+          "tool": "rx",
+          "i": 15,
+          "output": "\\k"
+        },
+        {
+          "tool": "rx",
+          "i": 16,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"regex\""
+        },
+        {
+          "tool": "rx",
+          "i": 17,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"regex\""
+        },
+        {
+          "tool": "rx",
+          "i": 18,
+          "output": "\\-"
+        }
+      ]
+    },
+    {
+      "name": "pattern matches as a JavaScript regular expression with the u flag",
+      "tools": [
+        {
+          "name": "p0",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^\\d+$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p1",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^\\w+$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p2",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "é\\b"
+              }
+            }
+          }
+        },
+        {
+          "name": "p3",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "(?<=a)b"
+              }
+            }
+          }
+        },
+        {
+          "name": "p4",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^(?<y>\\d{4})-\\k<y>$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p5",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^(a)\\1$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p6",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^.$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p7",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^\\s$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p8",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^\\p{Lu}$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p9",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^[^]$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p10",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^a$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p11",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^\\u{1F600}$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p12",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "^[😀]$"
+              }
+            }
+          }
+        },
+        {
+          "name": "p13",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "(?i)a"
+              }
+            }
+          }
+        },
+        {
+          "name": "p14",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "\\-"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "p0": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"١٢\""
+              }
+            ],
+            "structuredContent": {
+              "v": "١٢"
+            }
+          }
+        ],
+        "p1": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"ab_1\""
+              }
+            ],
+            "structuredContent": {
+              "v": "ab_1"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"é\""
+              }
+            ],
+            "structuredContent": {
+              "v": "é"
+            }
+          }
+        ],
+        "p2": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"éa\""
+              }
+            ],
+            "structuredContent": {
+              "v": "éa"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"é \""
+              }
+            ],
+            "structuredContent": {
+              "v": "é "
+            }
+          }
+        ],
+        "p3": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"ab\""
+              }
+            ],
+            "structuredContent": {
+              "v": "ab"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"cb\""
+              }
+            ],
+            "structuredContent": {
+              "v": "cb"
+            }
+          }
+        ],
+        "p4": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-2024\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-2024"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-2025\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-2025"
+            }
+          }
+        ],
+        "p5": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"aa\""
+              }
+            ],
+            "structuredContent": {
+              "v": "aa"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"ab\""
+              }
+            ],
+            "structuredContent": {
+              "v": "ab"
+            }
+          }
+        ],
+        "p6": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\" \""
+              }
+            ],
+            "structuredContent": {
+              "v": " "
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"😀\""
+              }
+            ],
+            "structuredContent": {
+              "v": "😀"
+            }
+          }
+        ],
+        "p7": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"﻿\""
+              }
+            ],
+            "structuredContent": {
+              "v": "﻿"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\" \""
+              }
+            ],
+            "structuredContent": {
+              "v": " "
+            }
+          }
+        ],
+        "p8": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"É\""
+              }
+            ],
+            "structuredContent": {
+              "v": "É"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"é\""
+              }
+            ],
+            "structuredContent": {
+              "v": "é"
+            }
+          }
+        ],
+        "p9": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          }
+        ],
+        "p10": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a\\n\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a\n"
+            }
+          }
+        ],
+        "p11": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"😀\""
+              }
+            ],
+            "structuredContent": {
+              "v": "😀"
+            }
+          }
+        ],
+        "p12": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"😀\""
+              }
+            ],
+            "structuredContent": {
+              "v": "😀"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"😁\""
+              }
+            ],
+            "structuredContent": {
+              "v": "😁"
+            }
+          }
+        ],
+        "p13": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ],
+        "p14": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"-\""
+              }
+            ],
+            "structuredContent": {
+              "v": "-"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "p0",
+          "i": 0,
+          "output": "\"12\""
+        },
+        {
+          "tool": "p0",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^\\d+$\""
+        },
+        {
+          "tool": "p1",
+          "i": 0,
+          "output": "\"ab_1\""
+        },
+        {
+          "tool": "p1",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^\\w+$\""
+        },
+        {
+          "tool": "p2",
+          "i": 0,
+          "output": "\"éa\""
+        },
+        {
+          "tool": "p2",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"é\\b\""
+        },
+        {
+          "tool": "p3",
+          "i": 0,
+          "output": "\"ab\""
+        },
+        {
+          "tool": "p3",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"(?<=a)b\""
+        },
+        {
+          "tool": "p4",
+          "i": 0,
+          "output": "\"2024-2024\""
+        },
+        {
+          "tool": "p4",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^(?<y>\\d{4})-\\k<y>$\""
+        },
+        {
+          "tool": "p5",
+          "i": 0,
+          "output": "\"aa\""
+        },
+        {
+          "tool": "p5",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^(a)\\1$\""
+        },
+        {
+          "tool": "p6",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^.$\""
+        },
+        {
+          "tool": "p6",
+          "i": 1,
+          "output": "\"x\""
+        },
+        {
+          "tool": "p6",
+          "i": 2,
+          "output": "\"😀\""
+        },
+        {
+          "tool": "p7",
+          "i": 0,
+          "output": "\"﻿\""
+        },
+        {
+          "tool": "p7",
+          "i": 1,
+          "output": "\" \""
+        },
+        {
+          "tool": "p8",
+          "i": 0,
+          "output": "\"É\""
+        },
+        {
+          "tool": "p8",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^\\p{Lu}$\""
+        },
+        {
+          "tool": "p9",
+          "i": 0,
+          "output": "\"x\""
+        },
+        {
+          "tool": "p10",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^a$\""
+        },
+        {
+          "tool": "p11",
+          "i": 0,
+          "output": "\"😀\""
+        },
+        {
+          "tool": "p12",
+          "i": 0,
+          "output": "\"😀\""
+        },
+        {
+          "tool": "p12",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match pattern \"^[😀]$\""
+        },
+        {
+          "tool": "p13",
+          "i": 0,
+          "output": "Error: MCP error -32602: Failed to validate structured content: Invalid regular expression: /(?i)a/u: Invalid group"
+        },
+        {
+          "tool": "p14",
+          "i": 0,
+          "output": "Error: MCP error -32602: Failed to validate structured content: Invalid regular expression: /\\-/u: Invalid escape"
+        }
+      ]
+    },
+    {
+      "name": "patternProperties keys match as JavaScript regular expressions",
+      "tools": [
+        {
+          "name": "pp",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "patternProperties": {
+              "^\\d+$": {
+                "type": "number"
+              },
+              "é\\b": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "results": {
+        "pp": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "ascii digits"
+              }
+            ],
+            "structuredContent": {
+              "12": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "arabic digits"
+              }
+            ],
+            "structuredContent": {
+              "١٢": "x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "boundary"
+              }
+            ],
+            "structuredContent": {
+              "éa": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "no boundary"
+              }
+            ],
+            "structuredContent": {
+              "éa": "x",
+              "é": "y"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "pp",
+          "i": 0,
+          "output": "ascii digits"
+        },
+        {
+          "tool": "pp",
+          "i": 1,
+          "output": "arabic digits"
+        },
+        {
+          "tool": "pp",
+          "i": 2,
+          "output": "boundary"
+        },
+        {
+          "tool": "pp",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/éa must be number"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an invalid pattern), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "("
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "fine"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP error -32600: Tool broken has an output schema but did not return structured content"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP error -32602: Failed to validate structured content: Invalid regular expression: /(/u: Unterminated group"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an invalid pattern), with an $id: the listing",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/an-invalid-pattern.json",
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "("
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": "Invalid regular expression: /(/u: Unterminated group",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (a pattern valid only without the u flag), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "\\-"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "fine"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP error -32600: Tool broken has an output schema but did not return structured content"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP error -32602: Failed to validate structured content: Invalid regular expression: /\\-/u: Invalid escape"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (a pattern valid only without the u flag), with an $id: the listing",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/a-pattern-valid-only-without-the-u-flag.json",
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "string",
+                "pattern": "\\-"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": "Invalid regular expression: /\\-/u: Invalid escape",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an invalid patternProperties key), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "patternProperties": {
+              "(": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "fine"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP error -32600: Tool broken has an output schema but did not return structured content"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP error -32602: Failed to validate structured content: Invalid regular expression: /(/u: Unterminated group"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an invalid patternProperties key), with an $id: the listing",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/an-invalid-patternProperties-key.json",
+            "type": "object",
+            "patternProperties": {
+              "(": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": "Invalid regular expression: /(/u: Unterminated group",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an unresolvable local $ref), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "$ref": "#/definitions/missing"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "fine"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP error -32600: Tool broken has an output schema but did not return structured content"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP error -32602: Failed to validate structured content: can't resolve reference #/definitions/missing from id #"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an unresolvable local $ref), with an $id: the listing",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/an-unresolvable-local-ref.json",
+            "type": "object",
+            "properties": {
+              "v": {
+                "$ref": "#/definitions/missing"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": "can't resolve reference #/definitions/missing from id https://example.test/an-unresolvable-local-ref.json",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an invalid type in an array), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": [
+                  "string",
+                  "bogus"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "fine"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP error -32600: Tool broken has an output schema but did not return structured content"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP error -32602: Failed to validate structured content: type must be JSONType or JSONType[]: string,bogus"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an invalid type in an array), with an $id: the listing",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/an-invalid-type-in-an-array.json",
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": [
+                  "string",
+                  "bogus"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": "type must be JSONType or JSONType[]: string,bogus",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (a boolean schema), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": true
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\",\n      1,\n      \"outputSchema\"\n    ],\n    \"message\": \"Invalid input: expected object, received boolean\"\n  }\n]",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (a string schema), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": "x"
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\",\n      1,\n      \"outputSchema\"\n    ],\n    \"message\": \"Invalid input: expected object, received string\"\n  }\n]",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "a schema that does not compile (an array schema), without an $id: the other tool stays",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "broken",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": [
+            1
+          ]
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "broken": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          }
+        ]
+      },
+      "connect": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\",\n      1,\n      \"outputSchema\"\n    ],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        },
+        {
+          "tool": "broken",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        },
+        {
+          "tool": "broken",
+          "i": 1,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ]
+    },
+    {
+      "name": "all errors, in the order Ajv reports them",
+      "tools": [
+        {
+          "name": "many",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "required": [
+              "r1",
+              "r2"
+            ],
+            "properties": {
+              "a": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2
+              },
+              "m": {
+                "type": "object",
+                "properties": {
+                  "p": {
+                    "type": "number"
+                  },
+                  "q": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "s"
+                ]
+              },
+              "z": {
+                "type": "number",
+                "minimum": 5
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      ],
+      "results": {
+        "many": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              }
+            ],
+            "structuredContent": {
+              "z": "x",
+              "a": [
+                1,
+                "b",
+                3,
+                "d"
+              ],
+              "m": {
+                "q": 1,
+                "p": "x"
+              },
+              "extra": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "nothing"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "many",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data must have required property 'r1', data must have required property 'r2', data must NOT have additional properties, data/a must NOT have more than 2 items, data/a/1 must be number, data/a/3 must be number, data/m must have required property 's', data/m/p must be number, data/m/q must be string, data/z must be number"
+        },
+        {
+          "tool": "many",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data must have required property 'r1', data must have required property 'r2'"
+        }
+      ]
+    },
+    {
+      "name": "format strictness",
+      "tools": [
+        {
+          "name": "s_date_time",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_date",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "date"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_time",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "time"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_uri",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "uri"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_uri_reference",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "uri-reference"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_email",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "email"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_hostname",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "hostname"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_ipv4",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "ipv4"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_ipv6",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "ipv6"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_uuid",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "uuid"
+              }
+            }
+          }
+        },
+        {
+          "name": "s_json_pointer",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "json-pointer"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "s_date_time": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01T00:00:00.123+05:30\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01T00:00:00.123+05:30"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01T24:00:00Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01T24:00:00Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2016-12-31T23:59:60Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2016-12-31T23:59:60Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01T00:00:00+0530\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01T00:00:00+0530"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01T00:00Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01T00:00Z"
+            }
+          }
+        ],
+        "s_date": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-13-01\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-13-01"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"0000-01-01\""
+              }
+            ],
+            "structuredContent": {
+              "v": "0000-01-01"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-02-30\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-02-30"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"20240101\""
+              }
+            ],
+            "structuredContent": {
+              "v": "20240101"
+            }
+          }
+        ],
+        "s_time": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12:34:56.789+01:00\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12:34:56.789+01:00"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12:34:56+0100\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12:34:56+0100"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"23:59:60+01:00\""
+              }
+            ],
+            "structuredContent": {
+              "v": "23:59:60+01:00"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12:34\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12:34"
+            }
+          }
+        ],
+        "s_uri": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"http://[::1]/\""
+              }
+            ],
+            "structuredContent": {
+              "v": "http://[::1]/"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"HTTP://A.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "HTTP://A.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a:b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a:b"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"http://a b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "http://a b"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"mailto:a@b.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "mailto:a@b.test"
+            }
+          }
+        ],
+        "s_uri_reference": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"\""
+              }
+            ],
+            "structuredContent": {
+              "v": ""
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"\\\\x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "\\x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"//a.test/p\""
+              }
+            ],
+            "structuredContent": {
+              "v": "//a.test/p"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"%zz\""
+              }
+            ],
+            "structuredContent": {
+              "v": "%zz"
+            }
+          }
+        ],
+        "s_email": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"\\\"a b\\\"@c.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "\"a b\"@c.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a@[1.2.3.4]\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a@[1.2.3.4]"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"é@a.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "é@a.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a..b@c.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a..b@c.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a@b.c\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a@b.c"
+            }
+          }
+        ],
+        "s_hostname": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"xn--d1a.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "xn--d1a.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a_b.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a_b.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"é.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "é.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a.-b.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a.-b.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+              }
+            ],
+            "structuredContent": {
+              "v": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "s_ipv4": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"1.2.3\""
+              }
+            ],
+            "structuredContent": {
+              "v": "1.2.3"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"255.255.255.255\""
+              }
+            ],
+            "structuredContent": {
+              "v": "255.255.255.255"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"1.2.3.4 \""
+              }
+            ],
+            "structuredContent": {
+              "v": "1.2.3.4 "
+            }
+          }
+        ],
+        "s_ipv6": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"::ffff:1.2.3.4\""
+              }
+            ],
+            "structuredContent": {
+              "v": "::ffff:1.2.3.4"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"fe80::1%eth0\""
+              }
+            ],
+            "structuredContent": {
+              "v": "fe80::1%eth0"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"1:2:3:4:5:6:7:8:9\""
+              }
+            ],
+            "structuredContent": {
+              "v": "1:2:3:4:5:6:7:8:9"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\":::\""
+              }
+            ],
+            "structuredContent": {
+              "v": ":::"
+            }
+          }
+        ],
+        "s_uuid": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"123E4567-E89B-12D3-A456-426614174000\""
+              }
+            ],
+            "structuredContent": {
+              "v": "123E4567-E89B-12D3-A456-426614174000"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"{123e4567-e89b-12d3-a456-426614174000}\""
+              }
+            ],
+            "structuredContent": {
+              "v": "{123e4567-e89b-12d3-a456-426614174000}"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"123e4567e89b12d3a456426614174000\""
+              }
+            ],
+            "structuredContent": {
+              "v": "123e4567e89b12d3a456426614174000"
+            }
+          }
+        ],
+        "s_json_pointer": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"/a~1b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "/a~1b"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"#/a\""
+              }
+            ],
+            "structuredContent": {
+              "v": "#/a"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"/a~\""
+              }
+            ],
+            "structuredContent": {
+              "v": "/a~"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "s_date_time",
+          "i": 0,
+          "output": "\"2024-01-01T00:00:00.123+05:30\""
+        },
+        {
+          "tool": "s_date_time",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date-time\""
+        },
+        {
+          "tool": "s_date_time",
+          "i": 2,
+          "output": "\"2016-12-31T23:59:60Z\""
+        },
+        {
+          "tool": "s_date_time",
+          "i": 3,
+          "output": "\"2024-01-01T00:00:00+0530\""
+        },
+        {
+          "tool": "s_date_time",
+          "i": 4,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date-time\""
+        },
+        {
+          "tool": "s_date",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date\""
+        },
+        {
+          "tool": "s_date",
+          "i": 1,
+          "output": "\"0000-01-01\""
+        },
+        {
+          "tool": "s_date",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date\""
+        },
+        {
+          "tool": "s_date",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date\""
+        },
+        {
+          "tool": "s_time",
+          "i": 0,
+          "output": "\"12:34:56.789+01:00\""
+        },
+        {
+          "tool": "s_time",
+          "i": 1,
+          "output": "\"12:34:56+0100\""
+        },
+        {
+          "tool": "s_time",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"time\""
+        },
+        {
+          "tool": "s_time",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"time\""
+        },
+        {
+          "tool": "s_uri",
+          "i": 0,
+          "output": "\"http://[::1]/\""
+        },
+        {
+          "tool": "s_uri",
+          "i": 1,
+          "output": "\"HTTP://A.test\""
+        },
+        {
+          "tool": "s_uri",
+          "i": 2,
+          "output": "\"a:b\""
+        },
+        {
+          "tool": "s_uri",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uri\""
+        },
+        {
+          "tool": "s_uri",
+          "i": 4,
+          "output": "\"mailto:a@b.test\""
+        },
+        {
+          "tool": "s_uri_reference",
+          "i": 0,
+          "output": "\"\""
+        },
+        {
+          "tool": "s_uri_reference",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uri-reference\""
+        },
+        {
+          "tool": "s_uri_reference",
+          "i": 2,
+          "output": "\"//a.test/p\""
+        },
+        {
+          "tool": "s_uri_reference",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uri-reference\""
+        },
+        {
+          "tool": "s_email",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"email\""
+        },
+        {
+          "tool": "s_email",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"email\""
+        },
+        {
+          "tool": "s_email",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"email\""
+        },
+        {
+          "tool": "s_email",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"email\""
+        },
+        {
+          "tool": "s_email",
+          "i": 4,
+          "output": "\"a@b.c\""
+        },
+        {
+          "tool": "s_hostname",
+          "i": 0,
+          "output": "\"xn--d1a.test\""
+        },
+        {
+          "tool": "s_hostname",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"hostname\""
+        },
+        {
+          "tool": "s_hostname",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"hostname\""
+        },
+        {
+          "tool": "s_hostname",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"hostname\""
+        },
+        {
+          "tool": "s_hostname",
+          "i": 4,
+          "output": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+        },
+        {
+          "tool": "s_ipv4",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv4\""
+        },
+        {
+          "tool": "s_ipv4",
+          "i": 1,
+          "output": "\"255.255.255.255\""
+        },
+        {
+          "tool": "s_ipv4",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv4\""
+        },
+        {
+          "tool": "s_ipv6",
+          "i": 0,
+          "output": "\"::ffff:1.2.3.4\""
+        },
+        {
+          "tool": "s_ipv6",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv6\""
+        },
+        {
+          "tool": "s_ipv6",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv6\""
+        },
+        {
+          "tool": "s_ipv6",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv6\""
+        },
+        {
+          "tool": "s_uuid",
+          "i": 0,
+          "output": "\"123E4567-E89B-12D3-A456-426614174000\""
+        },
+        {
+          "tool": "s_uuid",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uuid\""
+        },
+        {
+          "tool": "s_uuid",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uuid\""
+        },
+        {
+          "tool": "s_json_pointer",
+          "i": 0,
+          "output": "\"/a~1b\""
+        },
+        {
+          "tool": "s_json_pointer",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"json-pointer\""
+        },
+        {
+          "tool": "s_json_pointer",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"json-pointer\""
+        }
+      ]
+    },
+    {
+      "name": "numbers: integers, large values",
+      "tools": [
+        {
+          "name": "int",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "name": "mul",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "multipleOf": 3
+              }
+            }
+          }
+        },
+        {
+          "name": "max",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "maximum": 9007199254740992
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "int": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1"
+              }
+            ],
+            "structuredContent": {
+              "v": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1.5"
+              }
+            ],
+            "structuredContent": {
+              "v": 1.5
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "9007199254740994"
+              }
+            ],
+            "structuredContent": {
+              "v": 9007199254740994
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1e+21"
+              }
+            ],
+            "structuredContent": {
+              "v": 1e+21
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "0"
+              }
+            ],
+            "structuredContent": {
+              "v": 0
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1e+308"
+              }
+            ],
+            "structuredContent": {
+              "v": 1e+308
+            }
+          }
+        ],
+        "mul": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "9007199254740994"
+              }
+            ],
+            "structuredContent": {
+              "v": 9007199254740994
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "9007199254740996"
+              }
+            ],
+            "structuredContent": {
+              "v": 9007199254740996
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1e+21"
+              }
+            ],
+            "structuredContent": {
+              "v": 1e+21
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "0.30000000000000004"
+              }
+            ],
+            "structuredContent": {
+              "v": 0.30000000000000004
+            }
+          }
+        ],
+        "max": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "9007199254740992"
+              }
+            ],
+            "structuredContent": {
+              "v": 9007199254740992
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "9007199254740994"
+              }
+            ],
+            "structuredContent": {
+              "v": 9007199254740994
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "int",
+          "i": 0,
+          "output": "1"
+        },
+        {
+          "tool": "int",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must be integer"
+        },
+        {
+          "tool": "int",
+          "i": 2,
+          "output": "9007199254740994"
+        },
+        {
+          "tool": "int",
+          "i": 3,
+          "output": "1e+21"
+        },
+        {
+          "tool": "int",
+          "i": 4,
+          "output": "0"
+        },
+        {
+          "tool": "int",
+          "i": 5,
+          "output": "1e+308"
+        },
+        {
+          "tool": "mul",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must be multiple of 3"
+        },
+        {
+          "tool": "mul",
+          "i": 1,
+          "output": "9007199254740996"
+        },
+        {
+          "tool": "mul",
+          "i": 2,
+          "output": "1e+21"
+        },
+        {
+          "tool": "mul",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must be multiple of 3"
+        },
+        {
+          "tool": "max",
+          "i": 0,
+          "output": "9007199254740992"
+        },
+        {
+          "tool": "max",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must be <= 9007199254740992"
+        }
+      ]
+    },
+    {
+      "name": "$schema naming a later draft, and an unknown keyword",
+      "tools": [
+        {
+          "name": "d2019",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$schema": "https://json-schema.org/draft/2019-09/schema",
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "name": "d2020",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "prefixItems": [
+              {
+                "type": "number"
+              }
+            ],
+            "properties": {
+              "v": {
+                "type": "number"
+              },
+              "t": {
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "unknown",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "frobnicate": {
+              "type": "string"
+            },
+            "properties": {
+              "v": {
+                "type": "number",
+                "alsoUnknown": true
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "d2019": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          }
+        ],
+        "d2020": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "t"
+              }
+            ],
+            "structuredContent": {
+              "v": 1,
+              "t": [
+                "x"
+              ]
+            }
+          }
+        ],
+        "unknown": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "structuredContent": {
+              "v": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "d2019",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must be number"
+        },
+        {
+          "tool": "d2020",
+          "i": 0,
+          "output": "t"
+        },
+        {
+          "tool": "unknown",
+          "i": 0,
+          "output": "ok"
+        },
+        {
+          "tool": "unknown",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must be number"
+        }
+      ]
+    },
+    {
+      "name": "a reference to a remote address is never fetched",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "remote",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "$ref": "http://127.0.0.1:53995/schema.json"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fine": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "fine"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": "can't resolve reference http://127.0.0.1:53995/schema.json from id #",
+      "outputs": [
+        {
+          "tool": "fine",
+          "i": 0,
+          "output": "Error: MCP server \"srv\" not connected"
+        }
+      ],
+      "remote": "http://127.0.0.1:53995",
+      "remoteHits": 0
+    },
+    {
+      "name": "recursive references and deep results",
+      "tools": [
+        {
+          "name": "tree",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "$ref": "#/definitions/node"
+              }
+            },
+            "definitions": {
+              "node": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/node"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "loop",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "$ref": "#/definitions/a"
+              }
+            },
+            "definitions": {
+              "a": {
+                "$ref": "#/definitions/b"
+              },
+              "b": {
+                "$ref": "#/definitions/a"
+              }
+            }
+          }
+        },
+        {
+          "name": "self",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "$ref": "#"
+              }
+            }
+          }
+        },
+        {
+          "name": "endless",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#"
+              }
+            ]
+          }
+        }
+      ],
+      "results": {
+        "tree": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "100 deep"
+              }
+            ],
+            "structuredContent": {
+              "v": [
+                [
+                  [
+                    [
+                      [
+                        [
+                          [
+                            [
+                              [
+                                [
+                                  [
+                                    [
+                                      [
+                                        [
+                                          [
+                                            [
+                                              [
+                                                [
+                                                  [
+                                                    [
+                                                      [
+                                                        [
+                                                          [
+                                                            [
+                                                              [
+                                                                [
+                                                                  [
+                                                                    [
+                                                                      [
+                                                                        [
+                                                                          [
+                                                                            [
+                                                                              [
+                                                                                [
+                                                                                  [
+                                                                                    [
+                                                                                      [
+                                                                                        [
+                                                                                          [
+                                                                                            [
+                                                                                              [
+                                                                                                [
+                                                                                                  [
+                                                                                                    [
+                                                                                                      [
+                                                                                                        [
+                                                                                                          [
+                                                                                                            [
+                                                                                                              [
+                                                                                                                [
+                                                                                                                  [
+                                                                                                                    [
+                                                                                                                      [
+                                                                                                                        [
+                                                                                                                          [
+                                                                                                                            [
+                                                                                                                              [
+                                                                                                                                [
+                                                                                                                                  [
+                                                                                                                                    [
+                                                                                                                                      [
+                                                                                                                                        [
+                                                                                                                                          [
+                                                                                                                                            [
+                                                                                                                                              [
+                                                                                                                                                [
+                                                                                                                                                  [
+                                                                                                                                                    [
+                                                                                                                                                      [
+                                                                                                                                                        [
+                                                                                                                                                          [
+                                                                                                                                                            [
+                                                                                                                                                              [
+                                                                                                                                                                [
+                                                                                                                                                                  [
+                                                                                                                                                                    [
+                                                                                                                                                                      [
+                                                                                                                                                                        [
+                                                                                                                                                                          [
+                                                                                                                                                                            [
+                                                                                                                                                                              [
+                                                                                                                                                                                [
+                                                                                                                                                                                  [
+                                                                                                                                                                                    [
+                                                                                                                                                                                      [
+                                                                                                                                                                                        [
+                                                                                                                                                                                          [
+                                                                                                                                                                                            [
+                                                                                                                                                                                              [
+                                                                                                                                                                                                [
+                                                                                                                                                                                                  [
+                                                                                                                                                                                                    [
+                                                                                                                                                                                                      [
+                                                                                                                                                                                                        [
+                                                                                                                                                                                                          [
+                                                                                                                                                                                                            [
+                                                                                                                                                                                                              [
+                                                                                                                                                                                                                [
+                                                                                                                                                                                                                  [
+                                                                                                                                                                                                                    [
+                                                                                                                                                                                                                      []
+                                                                                                                                                                                                                    ]
+                                                                                                                                                                                                                  ]
+                                                                                                                                                                                                                ]
+                                                                                                                                                                                                              ]
+                                                                                                                                                                                                            ]
+                                                                                                                                                                                                          ]
+                                                                                                                                                                                                        ]
+                                                                                                                                                                                                      ]
+                                                                                                                                                                                                    ]
+                                                                                                                                                                                                  ]
+                                                                                                                                                                                                ]
+                                                                                                                                                                                              ]
+                                                                                                                                                                                            ]
+                                                                                                                                                                                          ]
+                                                                                                                                                                                        ]
+                                                                                                                                                                                      ]
+                                                                                                                                                                                    ]
+                                                                                                                                                                                  ]
+                                                                                                                                                                                ]
+                                                                                                                                                                              ]
+                                                                                                                                                                            ]
+                                                                                                                                                                          ]
+                                                                                                                                                                        ]
+                                                                                                                                                                      ]
+                                                                                                                                                                    ]
+                                                                                                                                                                  ]
+                                                                                                                                                                ]
+                                                                                                                                                              ]
+                                                                                                                                                            ]
+                                                                                                                                                          ]
+                                                                                                                                                        ]
+                                                                                                                                                      ]
+                                                                                                                                                    ]
+                                                                                                                                                  ]
+                                                                                                                                                ]
+                                                                                                                                              ]
+                                                                                                                                            ]
+                                                                                                                                          ]
+                                                                                                                                        ]
+                                                                                                                                      ]
+                                                                                                                                    ]
+                                                                                                                                  ]
+                                                                                                                                ]
+                                                                                                                              ]
+                                                                                                                            ]
+                                                                                                                          ]
+                                                                                                                        ]
+                                                                                                                      ]
+                                                                                                                    ]
+                                                                                                                  ]
+                                                                                                                ]
+                                                                                                              ]
+                                                                                                            ]
+                                                                                                          ]
+                                                                                                        ]
+                                                                                                      ]
+                                                                                                    ]
+                                                                                                  ]
+                                                                                                ]
+                                                                                              ]
+                                                                                            ]
+                                                                                          ]
+                                                                                        ]
+                                                                                      ]
+                                                                                    ]
+                                                                                  ]
+                                                                                ]
+                                                                              ]
+                                                                            ]
+                                                                          ]
+                                                                        ]
+                                                                      ]
+                                                                    ]
+                                                                  ]
+                                                                ]
+                                                              ]
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      ]
+                                                    ]
+                                                  ]
+                                                ]
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ]
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "100 deep, bad leaf"
+              }
+            ],
+            "structuredContent": {
+              "v": [
+                [
+                  [
+                    [
+                      [
+                        [
+                          [
+                            [
+                              [
+                                [
+                                  [
+                                    [
+                                      [
+                                        [
+                                          [
+                                            [
+                                              [
+                                                [
+                                                  [
+                                                    [
+                                                      [
+                                                        [
+                                                          [
+                                                            [
+                                                              [
+                                                                [
+                                                                  [
+                                                                    [
+                                                                      [
+                                                                        [
+                                                                          [
+                                                                            [
+                                                                              [
+                                                                                [
+                                                                                  [
+                                                                                    [
+                                                                                      [
+                                                                                        [
+                                                                                          [
+                                                                                            [
+                                                                                              [
+                                                                                                [
+                                                                                                  [
+                                                                                                    [
+                                                                                                      [
+                                                                                                        [
+                                                                                                          [
+                                                                                                            [
+                                                                                                              [
+                                                                                                                [
+                                                                                                                  [
+                                                                                                                    [
+                                                                                                                      [
+                                                                                                                        [
+                                                                                                                          [
+                                                                                                                            [
+                                                                                                                              [
+                                                                                                                                [
+                                                                                                                                  [
+                                                                                                                                    [
+                                                                                                                                      [
+                                                                                                                                        [
+                                                                                                                                          [
+                                                                                                                                            [
+                                                                                                                                              [
+                                                                                                                                                [
+                                                                                                                                                  [
+                                                                                                                                                    [
+                                                                                                                                                      [
+                                                                                                                                                        [
+                                                                                                                                                          [
+                                                                                                                                                            [
+                                                                                                                                                              [
+                                                                                                                                                                [
+                                                                                                                                                                  [
+                                                                                                                                                                    [
+                                                                                                                                                                      [
+                                                                                                                                                                        [
+                                                                                                                                                                          [
+                                                                                                                                                                            [
+                                                                                                                                                                              [
+                                                                                                                                                                                [
+                                                                                                                                                                                  [
+                                                                                                                                                                                    [
+                                                                                                                                                                                      [
+                                                                                                                                                                                        [
+                                                                                                                                                                                          [
+                                                                                                                                                                                            [
+                                                                                                                                                                                              [
+                                                                                                                                                                                                [
+                                                                                                                                                                                                  [
+                                                                                                                                                                                                    [
+                                                                                                                                                                                                      [
+                                                                                                                                                                                                        [
+                                                                                                                                                                                                          [
+                                                                                                                                                                                                            [
+                                                                                                                                                                                                              [
+                                                                                                                                                                                                                [
+                                                                                                                                                                                                                  [
+                                                                                                                                                                                                                    [
+                                                                                                                                                                                                                      [
+                                                                                                                                                                                                                        1
+                                                                                                                                                                                                                      ]
+                                                                                                                                                                                                                    ]
+                                                                                                                                                                                                                  ]
+                                                                                                                                                                                                                ]
+                                                                                                                                                                                                              ]
+                                                                                                                                                                                                            ]
+                                                                                                                                                                                                          ]
+                                                                                                                                                                                                        ]
+                                                                                                                                                                                                      ]
+                                                                                                                                                                                                    ]
+                                                                                                                                                                                                  ]
+                                                                                                                                                                                                ]
+                                                                                                                                                                                              ]
+                                                                                                                                                                                            ]
+                                                                                                                                                                                          ]
+                                                                                                                                                                                        ]
+                                                                                                                                                                                      ]
+                                                                                                                                                                                    ]
+                                                                                                                                                                                  ]
+                                                                                                                                                                                ]
+                                                                                                                                                                              ]
+                                                                                                                                                                            ]
+                                                                                                                                                                          ]
+                                                                                                                                                                        ]
+                                                                                                                                                                      ]
+                                                                                                                                                                    ]
+                                                                                                                                                                  ]
+                                                                                                                                                                ]
+                                                                                                                                                              ]
+                                                                                                                                                            ]
+                                                                                                                                                          ]
+                                                                                                                                                        ]
+                                                                                                                                                      ]
+                                                                                                                                                    ]
+                                                                                                                                                  ]
+                                                                                                                                                ]
+                                                                                                                                              ]
+                                                                                                                                            ]
+                                                                                                                                          ]
+                                                                                                                                        ]
+                                                                                                                                      ]
+                                                                                                                                    ]
+                                                                                                                                  ]
+                                                                                                                                ]
+                                                                                                                              ]
+                                                                                                                            ]
+                                                                                                                          ]
+                                                                                                                        ]
+                                                                                                                      ]
+                                                                                                                    ]
+                                                                                                                  ]
+                                                                                                                ]
+                                                                                                              ]
+                                                                                                            ]
+                                                                                                          ]
+                                                                                                        ]
+                                                                                                      ]
+                                                                                                    ]
+                                                                                                  ]
+                                                                                                ]
+                                                                                              ]
+                                                                                            ]
+                                                                                          ]
+                                                                                        ]
+                                                                                      ]
+                                                                                    ]
+                                                                                  ]
+                                                                                ]
+                                                                              ]
+                                                                            ]
+                                                                          ]
+                                                                        ]
+                                                                      ]
+                                                                    ]
+                                                                  ]
+                                                                ]
+                                                              ]
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      ]
+                                                    ]
+                                                  ]
+                                                ]
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ]
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            }
+          }
+        ],
+        "loop": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "loop"
+              }
+            ],
+            "structuredContent": {
+              "v": 1
+            }
+          }
+        ],
+        "self": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "self"
+              }
+            ],
+            "structuredContent": {
+              "v": {
+                "v": {}
+              }
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "self, bad"
+              }
+            ],
+            "structuredContent": {
+              "v": {
+                "v": 1
+              }
+            }
+          }
+        ],
+        "endless": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "endless"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "tree",
+          "i": 0,
+          "output": "100 deep"
+        },
+        {
+          "tool": "tree",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0 must be array"
+        },
+        {
+          "tool": "loop",
+          "i": 0,
+          "output": "Error: MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded"
+        },
+        {
+          "tool": "self",
+          "i": 0,
+          "output": "self"
+        },
+        {
+          "tool": "self",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v/v must be object"
+        },
+        {
+          "tool": "endless",
+          "i": 0,
+          "output": "Error: MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded"
+        }
+      ]
     }
   ]
 }

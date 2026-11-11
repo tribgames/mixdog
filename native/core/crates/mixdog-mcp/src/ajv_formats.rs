@@ -2,6 +2,7 @@
 //! (`dist/formats.js` `fullFormats`, the SDK's `addFormats(ajv)`), an unknown format accepted (`strict: false`), and a
 //! duplicate reported by the indices Ajv's loops find it at.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use jsonschema::Keyword;
@@ -169,10 +170,10 @@ fn hostname(text: &str) -> bool {
     fits && HOSTNAME.is_match(text)
 }
 
-/// A pattern JavaScript compiles (as far as `fancy-regex` agrees) that does not use `\Z`.
+/// A pattern V8 compiles as `new RegExp(text)`, without flags (ajv-formats' `regex`), that does not use `\Z`.
 fn regex(text: &str) -> bool {
     static Z_ANCHOR: LazyLock<Regex> = LazyLock::new(|| pattern(r"[^\\]\\Z"));
-    !Z_ANCHOR.is_match(text) && fancy_regex::Regex::new(text).is_ok()
+    !Z_ANCHOR.is_match(text) && mixdog_js::js_regex_error(text, "").is_none()
 }
 
 /// `Number.isInteger`.
@@ -260,20 +261,49 @@ pub(crate) fn format_keyword<'a>(
     })
 }
 
-/// fast-deep-equal: numbers by value, objects by their keys whatever the order.
-fn js_equal(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a.as_f64() == b.as_f64(),
-        (Value::Array(a), Value::Array(b)) => {
-            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| js_equal(a, b))
+/// A text two values share exactly when fast-deep-equal calls them equal: numbers by their JavaScript value (`1` and
+/// `1.0` alike), strings, booleans and null by type and value (`1` and `"1"` apart), arrays item by item, objects by
+/// their entries whatever the order.
+fn equality_key(value: &Value, out: &mut String) {
+    match value {
+        Value::Number(number) => {
+            out.push('n');
+            out.push_str(&mixdog_js::number_to_string(
+                number.as_f64().unwrap_or(f64::NAN),
+            ));
         }
-        (Value::Object(a), Value::Object(b)) => {
-            a.len() == b.len()
-                && a.iter()
-                    .all(|(k, v)| b.get(k).is_some_and(|w| js_equal(v, w)))
+        Value::String(text) => {
+            out.push('s');
+            mixdog_js::json_quote(text, out);
         }
-        _ => a == b,
+        Value::Array(items) => {
+            out.push('[');
+            for item in items {
+                equality_key(item, out);
+                out.push(',');
+            }
+            out.push(']');
+        }
+        Value::Object(map) => {
+            let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+            entries.sort_unstable_by_key(|(key, _)| *key);
+            out.push('{');
+            for (key, item) in entries {
+                mixdog_js::json_quote(key, out);
+                out.push(':');
+                equality_key(item, out);
+                out.push(',');
+            }
+            out.push('}');
+        }
+        other => out.push_str(&other.to_string()),
     }
+}
+
+fn key_of(value: &Value) -> String {
+    let mut key = String::new();
+    equality_key(value, &mut key);
+    key
 }
 
 /// Whether `value` is of the Ajv data type `name`.
@@ -296,29 +326,38 @@ struct Unique {
 }
 
 impl Unique {
-    /// The pair Ajv reports: `(j, i)`, the item seen later in its backward walk second.
+    /// The pair Ajv reports, `(j, i)`, found in one pass over the items with a map of the ones seen (each item's key is
+    /// built once, so the work grows with the result's size, not with its square).
     fn duplicate(&self, items: &[Value]) -> Option<(usize, usize)> {
         if items.len() < 2 {
             return None;
         }
         if self.item_types.is_empty() {
-            return (0..items.len()).rev().find_map(|i| {
-                (0..i)
-                    .rev()
-                    .find(|&j| js_equal(&items[i], &items[j]))
-                    .map(|j| (j, i))
-            });
+            // Ajv's `loop2` reports the last item equal to an earlier one, with the nearest earlier one.
+            let mut last: HashMap<String, usize> = HashMap::with_capacity(items.len());
+            let mut found = None;
+            for (i, item) in items.iter().enumerate() {
+                if let Some(j) = last.insert(key_of(item), i) {
+                    found = Some((j, i));
+                }
+            }
+            return found;
         }
-        let mut seen: Vec<(&Value, usize)> = Vec::new();
+        // Ajv's `loopN` walks backwards and reports the first item equal to a later one, with the nearest later one.
+        let mut seen: HashMap<String, usize> = HashMap::with_capacity(items.len());
         for i in (0..items.len()).rev() {
             let item = &items[i];
             if !self.item_types.iter().any(|t| of_type(t, item)) {
                 continue;
             }
-            if let Some(&(_, j)) = seen.iter().find(|(other, _)| js_equal(other, item)) {
-                return Some((j, i));
+            match seen.entry(key_of(item)) {
+                std::collections::hash_map::Entry::Occupied(later) => {
+                    return Some((*later.get(), i));
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(i);
+                }
             }
-            seen.push((item, i));
         }
         None
     }
@@ -364,4 +403,85 @@ pub(crate) fn unique_items_keyword<'a>(
     Ok(Box::new(Unique {
         item_types: if scalar { item_types } else { Vec::new() },
     }))
+}
+
+/// Ajv's `multipleOf` (no `multipleOfPrecision`): the quotient `res = data / m` is a multiple exactly when
+/// `res === parseInt(String(res))`, which holds for an integer-valued quotient JavaScript prints in full (below 1e21).
+struct MultipleOf(f64);
+
+impl MultipleOf {
+    fn holds(&self, value: &Value) -> bool {
+        let Some(number) = value.as_f64().filter(|_| value.is_number()) else {
+            return true;
+        };
+        let quotient = number / self.0;
+        quotient.is_finite() && quotient.fract() == 0.0 && quotient.abs() < 1e21
+    }
+}
+
+impl<'i> Keyword<'i> for MultipleOf {
+    fn validate(&self, instance: &'i Value) -> Result<(), ValidationError<'i>> {
+        if self.holds(instance) {
+            Ok(())
+        } else {
+            Err(ValidationError::custom(format!(
+                "must be multiple of {}",
+                mixdog_js::number_to_string(self.0)
+            )))
+        }
+    }
+
+    fn is_valid(&self, instance: &'i Value) -> bool {
+        self.holds(instance)
+    }
+}
+
+/// The `multipleOf` keyword; a value that is not a number is Ajv's to ignore here (strict mode is off).
+pub(crate) fn multiple_of_keyword<'a>(
+    _: &'a Map<String, Value>,
+    value: &'a Value,
+    _: Location,
+) -> Result<Box<dyn for<'i> Keyword<'i>>, ValidationError<'a>> {
+    Ok(match value.as_f64() {
+        Some(divisor) => Box::new(MultipleOf(divisor)),
+        None => Box::new(Ignored),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Unique;
+    use serde_json::Value;
+    use serde_json::json;
+
+    /// Duplicates are found in one pass: 200 000 distinct items (twenty billion comparisons pairwise) take moments,
+    /// and the pair reported is Ajv's, `1` and `1.0` equal, `1` and `"1"` apart.
+    #[test]
+    fn unique_items_takes_one_pass_and_reports_ajvs_pair() {
+        let many: Vec<Value> = (0..200_000).map(|n| json!(n)).collect();
+        let started = std::time::Instant::now();
+        for types in [vec!["number".to_owned()], Vec::new()] {
+            assert_eq!(Unique { item_types: types }.duplicate(&many), None);
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
+        let scalar = Unique {
+            item_types: vec!["number".to_owned(), "string".to_owned()],
+        };
+        let items: Vec<Value> = serde_json::from_str(r#"["a", 1, 2, "a", 1.0, "1"]"#).unwrap();
+        assert_eq!(scalar.duplicate(&items), Some((4, 1)));
+        let any = Unique {
+            item_types: Vec::new(),
+        };
+        let items = vec![
+            json!({"a": 1, "b": [1]}),
+            json!(2),
+            json!({"b": [1.0], "a": 1}),
+            json!(2),
+        ];
+        assert_eq!(any.duplicate(&items), Some((1, 3)));
+    }
 }
