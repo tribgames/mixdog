@@ -26,6 +26,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 const MAX_ERROR_TEXT: usize = 16 * 1024;
+/// A stage or exclusion detail string (model-proxy-host.ts `scalarDetail`: `redactedText(entry, 2_000)`).
+const MAX_DETAIL_TEXT: usize = 2_000;
 
 /// A wire request that cannot be run.
 #[derive(Debug, PartialEq)]
@@ -405,7 +407,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ReturnedCalls(calls) => w::ProxyEvent::ReturnedCalls { calls: calls.iter().map(tool_call_out).collect() },
         E::ThinkingBlocks(value) => w::ProxyEvent::ThinkingBlocks { value: value.clone() },
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: state.to_json() },
-        E::Notice { message, warn } => w::ProxyEvent::Notice { message: message.clone(), warn: *warn },
+        E::Notice { message, warn } => w::ProxyEvent::Notice { message: redacted_text(message, MAX_DETAIL_TEXT), warn: *warn },
         E::ServedModel(model) => w::ProxyEvent::ServedModel { model: model.clone() },
         E::ProviderMetadata(value) => w::ProxyEvent::ProviderMetadata { value: value.clone() },
         E::ResponseId(id) => w::ProxyEvent::ResponseId { id: id.clone() },
@@ -414,10 +416,8 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
             account_id: r.account_id.clone(),
             session_account_id: r.session_account_id.clone(),
         },
-        E::AccountStage(p::AccountStage::Switching { message }) => w::ProxyEvent::AccountSwitching { message: message.clone() },
-        E::AccountStage(p::AccountStage::Changed { provider, account_id, at }) => {
-            w::ProxyEvent::AccountChanged { provider: provider.clone(), account_id: account_id.clone(), at: *at }
-        }
+        E::AccountStage(p::AccountStage::Switching { message }) => w::ProxyEvent::AccountSwitching { message: redacted_text(message, MAX_DETAIL_TEXT) },
+        E::AccountStage(p::AccountStage::Changed { provider, at, .. }) => w::ProxyEvent::AccountChanged { provider: provider.clone(), at: *at },
         E::WireRerouted(route) => w::ProxyEvent::WireRerouted { route: route.clone() },
         E::OutputStarted => w::ProxyEvent::OutputStarted,
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
@@ -441,6 +441,8 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
 #[derive(Debug, PartialEq)]
 pub enum Incoming {
     Event(p::StreamEvent),
+    /// A tool the PC's adapter left out: for the request's own `on_tool_excluded`.
+    Excluded(p::ToolExclusionReport),
     Discard,
     Abandoned(p::Usage, Option<String>),
 }
@@ -484,7 +486,11 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
             E::AccountRouting(p::AccountRouting { provider, account_id, session_account_id })
         }
         w::ProxyEvent::AccountSwitching { message } => E::AccountStage(p::AccountStage::Switching { message }),
-        w::ProxyEvent::AccountChanged { provider, account_id, at } => E::AccountStage(p::AccountStage::Changed { provider, account_id, at }),
+        // The PC keeps its account id: the server learns the provider and the time.
+        w::ProxyEvent::AccountChanged { provider, at } => E::AccountStage(p::AccountStage::Changed { provider, account_id: String::new(), at }),
+        w::ProxyEvent::ToolExcluded { name, index, pointer, reason, message } => {
+            return Ok(Incoming::Excluded(p::ToolExclusionReport { name, index: usize::try_from(index).unwrap_or(usize::MAX), pointer, reason, message }));
+        }
         w::ProxyEvent::WireRerouted { route } => E::WireRerouted(route),
         w::ProxyEvent::OutputStarted => E::OutputStarted,
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
@@ -865,17 +871,40 @@ pub struct ProxyRunner {
     pub catalog: Arc<mixdog_ai::catalog::CatalogService>,
 }
 
-struct EventSink<'a>(&'a dyn ProxyEvents);
+/// The events of a send, with the tools its adapter left out (reported to the request's sink while it encodes)
+/// sent ahead of the next event, in the order they happened.
+struct EventSink<'a> {
+    events: &'a dyn ProxyEvents,
+    excluded: std::sync::mpsc::Receiver<p::ToolExclusionReport>,
+}
+
+impl EventSink<'_> {
+    fn flush_excluded(&self) {
+        while let Ok(report) = self.excluded.try_recv() {
+            let text = |value: &str| redacted_text(value, MAX_DETAIL_TEXT);
+            self.events.emit(w::ProxyEvent::ToolExcluded {
+                name: text(&report.name),
+                index: report.index as u64,
+                pointer: text(&report.pointer),
+                reason: text(&report.reason),
+                message: text(&report.message),
+            });
+        }
+    }
+}
 
 impl AttemptSink for EventSink<'_> {
     fn event(&mut self, event: p::StreamEvent) {
-        self.0.emit(event_out(&event));
+        self.flush_excluded();
+        self.events.emit(event_out(&event));
     }
     fn discard(&mut self) {
-        self.0.emit(w::ProxyEvent::AttemptDiscarded);
+        self.flush_excluded();
+        self.events.emit(w::ProxyEvent::AttemptDiscarded);
     }
     fn abandoned(&mut self, usage: &p::Usage, model: Option<&str>) {
-        self.0.emit(w::ProxyEvent::AttemptAbandoned { usage: usage_out(usage), model: model.map(str::to_owned) });
+        self.flush_excluded();
+        self.events.emit(w::ProxyEvent::AttemptAbandoned { usage: usage_out(usage), model: model.map(str::to_owned) });
     }
 }
 
@@ -963,12 +992,19 @@ impl ProxyRunner {
             }
             w::ProxyCall::Send { provider, request } => {
                 let adapter = self.adapter(&provider).await?;
-                let request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
+                let mut request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
+                // The server's tools this PC's adapter leaves out go back to the server (Node's `onToolExcluded`).
+                let (excluded, reports) = std::sync::mpsc::channel();
+                request.options.on_tool_excluded = Some(p::ToolExclusionSink(Arc::new(move |report| {
+                    let _ = excluded.send(report);
+                })));
                 let key = LaneKey::new(provider.as_str().into(), "default");
                 let lane = self.broker.admission().lane(&key, process_lane_settings()(&key));
                 let send = SendRequest { request: Arc::new(request), lane, admission: AdmissionRequest::default() };
-                let mut sink = EventSink(events);
-                match self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await {
+                let mut sink = EventSink { events, excluded: reports };
+                let sent = self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await;
+                sink.flush_excluded();
+                match sent {
                     Ok(attempts) => Ok(w::ProxyAnswer::Sent { attempts }),
                     Err(SendError::Provider(e)) => Err(failure_out(&e, w::ProxyOutcome::Provider)),
                     Err(SendError::Exhausted(e)) => Err(failure_out(&e, w::ProxyOutcome::Exhausted)),
@@ -1030,10 +1066,16 @@ pub async fn remote_send(
         .map_err(|e| SendError::Provider(transient(&e, p::DeliveryState::NotSent)))?;
     let call = w::ProxyCall::Send { provider: provider.to_owned(), request: Box::new(request_out(&request)) };
     let call = serde_json::to_value(&call).map_err(|e| SendError::Provider(transient(&e.to_string(), p::DeliveryState::NotSent)))?;
+    let excluded = request.options.on_tool_excluded.clone();
     let mut on_event = |value: Value| {
         // An event this core cannot read is dropped: deltas are hints and the terminal event decides.
         match serde_json::from_value::<w::ProxyEvent>(value).ok().map(event_in) {
             Some(Ok(Incoming::Event(event))) => sink.event(event),
+            Some(Ok(Incoming::Excluded(report))) => {
+                if let Some(excluded) = &excluded {
+                    excluded.report(report);
+                }
+            }
             Some(Ok(Incoming::Discard)) => sink.discard(),
             Some(Ok(Incoming::Abandoned(usage, model))) => sink.abandoned(&usage, model.as_deref()),
             _ => {}

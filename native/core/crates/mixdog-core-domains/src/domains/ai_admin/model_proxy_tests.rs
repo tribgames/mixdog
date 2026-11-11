@@ -273,7 +273,15 @@ fn every_stream_event_survives_the_wire() {
     assert_eq!(seen, all, "a sample for every StreamEvent variant");
     for event in events {
         let text = serde_json::to_string(&event_out(&event)).unwrap();
-        assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(event), "{text}");
+        // The PC's account id stays on the PC: the server reads the change without it.
+        let arrives = match event {
+            p::StreamEvent::AccountStage(p::AccountStage::Changed { provider, at, .. }) => {
+                assert!(!text.contains("k2"), "{text}");
+                p::StreamEvent::AccountStage(p::AccountStage::Changed { provider, account_id: String::new(), at })
+            }
+            other => other,
+        };
+        assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(arrives), "{text}");
     }
     let wire = |event: p::StreamEvent| serde_json::to_value(event_out(&event)).unwrap();
     assert_eq!(wire(p::StreamEvent::Progress(p::ProgressKind::Tool)), json!({ "type": "progress", "kind": "tool" }));
