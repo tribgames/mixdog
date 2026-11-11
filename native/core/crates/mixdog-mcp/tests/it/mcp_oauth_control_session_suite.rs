@@ -4,15 +4,13 @@
 //! same calls in the same order to one `McpService` and compares each answer's value whole. As in Node, the registry is real and the
 //! MCP client is the recording's fake: its interactive connect announces the recorded authorize URL and the plain reconnect answers
 //! one unconnected server. A pasted URL is judged by the core's own parser (`oauth::callback::parse_pasted`) against the recorded
-//! redirect and state, so the refusal is the core's and is compared with Node's recorded one. As the desktop transport does, each
-//! call is addressed to the control thread the transport holds (`threadId`); a failed call (the read that is made to fail, the
-//! refused paste) drops it, and the count of the control sessions the transport then creates is compared with the recording's.
+//! redirect and state, so the refusal is the core's and is compared with Node's recorded one. The replacement of the control session
+//! after a failed call is the desktop lane's, not the core's: `apps/desktop/src/main/protocol/capability-route.test.mjs` replays it
+//! against the same recording.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
@@ -171,16 +169,11 @@ impl LoginBackend for Backend {
 /// (`getMcpServerOAuthState: { signedIn: false }`), its status lists no server, and clearing its sign-in revokes nothing.
 struct Runtime {
     logins: McpLogins,
-    /// The next read fails before it runs (the recording's `status unavailable`).
-    fail_next_read: Arc<AtomicBool>,
 }
 
 #[async_trait]
 impl McpRuntime for Runtime {
     async fn scope_of_request(&self, _: Option<&str>) -> Result<Option<String>, String> {
-        if self.fail_next_read.swap(false, Ordering::SeqCst) {
-            return Err("status unavailable".to_owned());
-        }
         Ok(None)
     }
     async fn catalog(&self) -> Catalog {
@@ -307,68 +300,33 @@ async fn a_sign_in_survives_between_begin_polls_and_the_paste_as_node_recorded()
     let state = url::Url::parse(&auth_url).expect("the recorded authorize URL").query_pairs().find(|(key, _)| key == "state").map(|(_, value)| value.into_owned()).expect("a state");
     let feeds = Arc::new(LoginFeeds::new(Arc::new(MockScopedFeeds::new(MockLimits::default()))));
     let backend = Arc::new(Backend { auth_url, redirect: redirect.to_string(), state });
-    let fail_next_read = Arc::new(AtomicBool::new(false));
-    let runtime = Arc::new(Runtime { logins: McpLogins::new(backend, feeds), fail_next_read: fail_next_read.clone() });
+    let runtime = Arc::new(Runtime { logins: McpLogins::new(backend, feeds) });
     let home = tempfile::tempdir().expect("home");
     let secrets = Arc::new(McpServerSecrets::new(Arc::new(Keychain::default()), Default::default()));
     let service = McpService::new(Arc::new(Config), Arc::new(Host), runtime, secrets, home.path().join("home"), Arc::new(NoToasts));
 
-    let mut transport = ControlTransport { service: &service, control: None, runtimes: 0 };
-    let sign_out = transport.invoke("mcp/signOutMcpServer", json!({ "name": "fixture" })).await;
+    let sign_out = invoke(&service, "mcp/signOutMcpServer", json!({ "name": "fixture" })).await;
     assert_eq!(sign_out["value"], value_of(observed.get("signOut")), "the sign-out");
-    let begun = transport.invoke("mcp/beginMcpOAuthLogin", json!({ "name": "fixture", "options": { "openBrowser": false } })).await;
+    let begun = invoke(&service, "mcp/beginMcpOAuthLogin", json!({ "name": "fixture", "options": { "openBrowser": false } })).await;
     let flow = begun["value"]["flowId"].as_str().expect("a flow id").to_owned();
     assert_eq!(masked(&begun["value"], &flow), value_of(observed.get("begun")), "the begin");
-    // The next read fails (the recording's `status unavailable`): the transport replaces its control session and reads again.
-    let began_on = transport.control;
-    fail_next_read.store(true, Ordering::SeqCst);
-    let status = transport.invoke("mcp/mcpStatus", json!({})).await;
-    assert_eq!(transport.control != began_on, observed.get("controlSessionReplaced").as_bool(), "the control session was replaced");
-    assert_eq!(transport.runtimes, observed.get("runtimesAfterFailedRead").as_f64() as u64, "the session runtimes after the failed read");
+    let status = invoke(&service, "mcp/mcpStatus", json!({})).await;
     assert_eq!(status["value"], value_of(observed.get("statusRead").get("value")), "the status read");
-    let polled = transport.invoke("mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
+    let polled = invoke(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
     assert_eq!(masked(&polled["value"], &flow), value_of(observed.get("statusAfterReplace")), "the status after the replacement");
-    let invalid = transport.invoke("mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": "garbage" })).await;
+    let invalid = invoke(&service, "mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": "garbage" })).await;
     assert_eq!(invalid, json!({ "threw": { "name": "Error", "message": refusal } }), "the invalid paste: the core's refusal is Node's");
-    // The refused call replaced the control session once more.
-    let still = transport.invoke("mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
+    let still = invoke(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
     assert_eq!(masked(&still["value"], &flow), value_of(observed.get("statusAfterInvalidPaste")), "the status after the invalid paste");
-    assert_eq!(transport.runtimes, observed.get("runtimesAfterInvalidPaste").as_f64() as u64, "the session runtimes after the invalid paste");
-    let corrected = transport.invoke("mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": callback })).await;
+    let corrected = invoke(&service, "mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": callback })).await;
     assert_eq!(masked(&corrected["value"], &flow), value_of(observed.get("correctedPaste")), "the corrected paste");
-    let last = transport.invoke("mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
+    let last = invoke(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
     assert_eq!(masked(&last["value"], &flow), value_of(observed.get("finalStatus")), "the final status");
 }
 
-/// The desktop's control session as `SessionHostTransport.invokeControlResult` holds it (session-host-transport.ts): it creates the
-/// control session when it has none (the transport numbers its session runtimes), addresses every call to it (`threadId`), and a call
-/// that failed drops it; a read (`READ_CAPABILITIES`) is then sent once more on a new session, a mutation is not.
-struct ControlTransport<'a> {
-    service: &'a McpService,
-    control: Option<u64>,
-    runtimes: u64,
-}
-
-impl ControlTransport<'_> {
-    async fn invoke(&mut self, method: &'static str, mut params: Value) -> Value {
-        let replayable = matches!(method, "mcp/mcpStatus" | "mcp/getMcpOAuthLoginStatus");
-        let mut attempt = 0;
-        loop {
-            let runtimes = &mut self.runtimes;
-            let control = *self.control.get_or_insert_with(|| {
-                *runtimes += 1;
-                *runtimes
-            });
-            params["threadId"] = json!(format!("control-{control}"));
-            let answer = call(self.service, method, params.clone()).await;
-            if answer.get("threw").is_none() {
-                return answer;
-            }
-            self.control = None;
-            attempt += 1;
-            if !replayable || attempt > 1 {
-                return answer;
-            }
-        }
-    }
+/// One call addressed to the control thread, as the desktop's capability lane addresses it (`threadId`). Which control thread a call
+/// goes to, and the thread that replaces it after a failed call, are the lane's (`capability-route.test.mjs`).
+async fn invoke(service: &McpService, method: &'static str, mut params: Value) -> Value {
+    params["threadId"] = json!("control-1");
+    call(service, method, params).await
 }
