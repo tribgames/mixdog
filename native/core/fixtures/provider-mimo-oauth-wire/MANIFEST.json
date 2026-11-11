@@ -8,20 +8,20 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs MimoOAuthProvider({ preconnect: false, ... }).send/.listModels/.isAvailable, mimo-oauth-tokens.mjs probeTokenPlanBaseUrl / ensureTokenPlanBaseUrl / loadTokens, mimo-oauth-profile.mjs chooseDefaultModel / SEED_MODELS, provider-catalog-cache.mjs providerCachedModelsSync, model-catalog.mjs getModelMetadataSync, runtime-core/effort.mjs effortOptionsFor, over a scripted loopback gateway (real fetch + the OpenAI SDK; credentials file MIMO_OAUTH_CREDENTIALS_PATH in the data directory). Not run: the widened stream waits and the private-hook supersession race (see the recorder header).",
+  "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs MimoOAuthProvider({ preconnect: false, ... }).send/.listModels/.isAvailable, mimo-oauth-tokens.mjs probeTokenPlanBaseUrl / ensureTokenPlanBaseUrl / loadTokens, mimo-oauth-profile.mjs chooseDefaultModel / SEED_MODELS, provider-catalog-cache.mjs providerCachedModelsSync, model-catalog.mjs getModelMetadataSync, runtime-core/effort.mjs effortOptionsFor, over a scripted loopback gateway (real fetch + the OpenAI SDK; credentials file MIMO_OAUTH_CREDENTIALS_PATH in the data directory). Not run: the private-hook supersession race of the stale-publish test (see the recorder header). The widened stream waits are recorded (widened-stream-waits-and-explicit-first-byte-allowance).",
   "exclusions": [
     "result.persisted.mtimeMs of the token-plan probe case is the real modification time of a file the product rewrote, written as a marker (it is not part of the behaviour)",
     "the n-th gateway of the recording listens on 127.0.0.1:47831+n (0-based, file order); the address appears literally in urls and stored credentials",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 204605,
+      "bytes": 237136,
       "path": "cases.json",
-      "sha256": "bdddad70083b4e3e0b953b5d99d1d8dc40203e845b263988c4a96d345f2200be"
+      "sha256": "2db513846e6c90164f33d72dca7195120b1bf89b2ded5a8dcf8ea56b797a3b98"
     }
   ],
   "inputs": [
@@ -43,7 +43,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-gateway.mjs",
@@ -51,7 +51,111 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "replays-stored-reasoning-never-invents",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "effort-maps-to-thinking-and-levels",
+      "level": "wire"
+    },
+    {
+      "id": "sampling-defaults-output-clamp-tool-choice",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "default-model-from-discovered-roster",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "discovery-drops-speech-keeps-names-seed-fallback",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "stale-or-other-credential-discovery-not-published",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "token-plan-probe-sgp-ams-cn-persists",
+      "level": "wire"
+    },
+    {
+      "id": "caller-cannot-move-mimo-to-responses",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "session-affinity-and-user-agent-headers",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "gateway-failures-keep-detail-relabel-quota-not-retried",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "plain-compat-provider-no-mimo-sampling-defaults",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "regional-probe-continues-past-failure",
+      "level": "wire"
+    },
+    {
+      "id": "topP-topK-forwarded",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "seeds-ultraspeed-lineage-limits",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "org-project-env-never-sent",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "three-regional-401s-typed-reauth",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "stored-key-redacted-in-logs-and-400",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "probe-finishing-after-newer-sign-in-does-not-overwrite",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "deleted-token-file-signs-out",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "abort-during-regional-probe-is-cancellation",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "widened-stream-waits-and-explicit-first-byte-allowance",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -73,9 +177,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mimo-oauth-wire.mjs",
-  "recorderSha256": "2be6a598e761e64d361d6442a5735dce910f845347e46ae9d8eb045318fd37ea",
+  "recorderSha256": "a8e9b5b5299c616ceb99a275d609aff159a6fa4859022d5395fd678cc86dfdf1",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-mimo-oauth-wire",
-  "totalBytes": 204605,
+  "totalBytes": 237136,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

@@ -466,21 +466,34 @@
           "contextWindow": 1048576,
           "outputTokens": 131072,
           "created": null,
-          "display": "MiMo-V2.6-Pro",
-          "inputCostPerM": 0.435,
-          "outputCostPerM": 0.87,
-          "cacheReadCostPerM": 0.0036,
-          "cacheWriteCostPerM": null,
+          "inputCostPerM": {
+            "$exact": "undefined"
+          },
+          "outputCostPerM": {
+            "$exact": "undefined"
+          },
+          "cacheReadCostPerM": {
+            "$exact": "undefined"
+          },
+          "cacheWriteCostPerM": {
+            "$exact": "undefined"
+          },
           "pricingTiers": [],
           "pricingModel": "mimo-v2.6-pro",
           "pricingProvider": "xiaomi",
-          "pricingSource": "models.dev",
+          "pricingSource": {
+            "$exact": "undefined"
+          },
           "supportsVision": true,
-          "supportsFunctionCalling": true,
+          "supportsFunctionCalling": {
+            "$exact": "undefined"
+          },
           "supportsWebSearch": {
             "$exact": "undefined"
           },
-          "supportsPromptCaching": true,
+          "supportsPromptCaching": {
+            "$exact": "undefined"
+          },
           "supportsReasoning": true,
           "reasoningOptions": [],
           "reasoningContentField": "reasoning_content",
@@ -1137,21 +1150,34 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Pro",
-              "inputCostPerM": 0.435,
-              "outputCostPerM": 0.87,
-              "cacheReadCostPerM": 0.0036,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-pro",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -1170,6 +1196,90 @@
               ]
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://raw.githubusercontent.com",
+          "path": "/BerriAI/litellm/main/model_prices_and_context_window.json",
+          "headers": [
+            [
+              "host",
+              "raw.githubusercontent.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 404,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"not scripted\"}}"
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "https://models.dev",
+          "path": "/api.json",
+          "headers": [
+            [
+              "host",
+              "models.dev"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 404,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"not scripted\"}}"
+          }
         }
       ]
     },
@@ -2509,21 +2619,35 @@
             "contextWindow": 1048576,
             "outputTokens": 131072,
             "created": null,
-            "display": "MiMo-V2.6-Pro",
-            "inputCostPerM": 0.435,
-            "outputCostPerM": 0.87,
-            "cacheReadCostPerM": 0.0036,
-            "cacheWriteCostPerM": null,
+            "display": "MiMo Pro",
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-pro",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -2548,21 +2672,34 @@
             "contextWindow": 5000,
             "outputTokens": 700,
             "created": null,
-            "display": "MiMo-V2.6-Flash",
-            "inputCostPerM": 0.14,
-            "outputCostPerM": 0.28,
-            "cacheReadCostPerM": 0.0028,
-            "cacheWriteCostPerM": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-flash",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -2607,21 +2744,35 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Pro",
-              "inputCostPerM": 0.435,
-              "outputCostPerM": 0.87,
-              "cacheReadCostPerM": 0.0036,
-              "cacheWriteCostPerM": null,
+              "display": "MiMo Pro",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-pro",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2646,21 +2797,34 @@
               "contextWindow": 5000,
               "outputTokens": 700,
               "created": null,
-              "display": "MiMo-V2.6-Flash",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-flash",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2685,21 +2849,37 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Pro-UltraSpeed",
-              "inputCostPerM": 4.35,
-              "outputCostPerM": 8.7,
-              "cacheReadCostPerM": 0.036,
-              "cacheWriteCostPerM": null,
-              "pricingTiers": [],
+              "display": "mimo-v2.6-pro-ultraspeed",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2.6-pro-ultraspeed",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2724,21 +2904,37 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.5-Pro",
-              "inputCostPerM": 0.435,
-              "outputCostPerM": 0.87,
-              "cacheReadCostPerM": 0.0036,
-              "cacheWriteCostPerM": null,
-              "pricingTiers": [],
+              "display": "mimo-v2.5-pro",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2.5-pro",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2763,21 +2959,37 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.5",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
-              "pricingTiers": [],
+              "display": "mimo-v2.5",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2.5",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2914,21 +3126,35 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Pro",
-              "inputCostPerM": 0.435,
-              "outputCostPerM": 0.87,
-              "cacheReadCostPerM": 0.0036,
-              "cacheWriteCostPerM": null,
+              "display": "MiMo Pro",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-pro",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2953,21 +3179,34 @@
               "contextWindow": 5000,
               "outputTokens": 700,
               "created": null,
-              "display": "MiMo-V2.6-Flash",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-flash",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -2992,21 +3231,37 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Pro-UltraSpeed",
-              "inputCostPerM": 4.35,
-              "outputCostPerM": 8.7,
-              "cacheReadCostPerM": 0.036,
-              "cacheWriteCostPerM": null,
-              "pricingTiers": [],
+              "display": "mimo-v2.6-pro-ultraspeed",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2.6-pro-ultraspeed",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -3031,21 +3286,37 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.5-Pro",
-              "inputCostPerM": 0.435,
-              "outputCostPerM": 0.87,
-              "cacheReadCostPerM": 0.0036,
-              "cacheWriteCostPerM": null,
-              "pricingTiers": [],
+              "display": "mimo-v2.5-pro",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2.5-pro",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -3070,21 +3341,37 @@
               "contextWindow": 1048576,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.5",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
-              "pricingTiers": [],
+              "display": "mimo-v2.5",
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
+              "pricingTiers": {
+                "$exact": "undefined"
+              },
               "pricingModel": "mimo-v2.5",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -3422,21 +3709,34 @@
             "contextWindow": 7000,
             "outputTokens": 131072,
             "created": null,
-            "display": "MiMo-V2.6-Flash",
-            "inputCostPerM": 0.14,
-            "outputCostPerM": 0.28,
-            "cacheReadCostPerM": 0.0028,
-            "cacheWriteCostPerM": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-flash",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -3463,21 +3763,37 @@
             "contextWindow": 7000,
             "outputTokens": 131072,
             "created": null,
-            "display": "MiMo-V2.6-Pro",
-            "inputCostPerM": 0.435,
-            "outputCostPerM": 0.87,
-            "cacheReadCostPerM": 0.0036,
-            "cacheWriteCostPerM": null,
-            "pricingTiers": [],
+            "display": "mimo-v2.6-pro",
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
+            "pricingTiers": {
+              "$exact": "undefined"
+            },
             "pricingModel": "mimo-v2.6-pro",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -3512,21 +3828,34 @@
               "contextWindow": 7000,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Flash",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-flash",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -3560,21 +3889,37 @@
             "contextWindow": 7000,
             "outputTokens": 131072,
             "created": null,
-            "display": "MiMo-V2.6-Pro",
-            "inputCostPerM": 0.435,
-            "outputCostPerM": 0.87,
-            "cacheReadCostPerM": 0.0036,
-            "cacheWriteCostPerM": null,
-            "pricingTiers": [],
+            "display": "mimo-v2.6-pro",
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
+            "pricingTiers": {
+              "$exact": "undefined"
+            },
             "pricingModel": "mimo-v2.6-pro",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -3609,21 +3954,34 @@
               "contextWindow": 7000,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Flash",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-flash",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -3658,21 +4016,34 @@
               "contextWindow": 7000,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Flash",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-flash",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -3706,21 +4077,34 @@
             "contextWindow": 7000,
             "outputTokens": 131072,
             "created": null,
-            "display": "MiMo-V2.6-Pro",
-            "inputCostPerM": 0.435,
-            "outputCostPerM": 0.87,
-            "cacheReadCostPerM": 0.0036,
-            "cacheWriteCostPerM": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-pro",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -3748,21 +4132,34 @@
               "contextWindow": 7000,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Flash",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-flash",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -3796,21 +4193,34 @@
             "contextWindow": 7000,
             "outputTokens": 131072,
             "created": null,
-            "display": "MiMo-V2.6-Pro",
-            "inputCostPerM": 0.435,
-            "outputCostPerM": 0.87,
-            "cacheReadCostPerM": 0.0036,
-            "cacheWriteCostPerM": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-pro",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -3838,21 +4248,34 @@
               "contextWindow": 7000,
               "outputTokens": 131072,
               "created": null,
-              "display": "MiMo-V2.6-Flash",
-              "inputCostPerM": 0.14,
-              "outputCostPerM": 0.28,
-              "cacheReadCostPerM": 0.0028,
-              "cacheWriteCostPerM": null,
+              "inputCostPerM": {
+                "$exact": "undefined"
+              },
+              "outputCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheReadCostPerM": {
+                "$exact": "undefined"
+              },
+              "cacheWriteCostPerM": {
+                "$exact": "undefined"
+              },
               "pricingTiers": [],
               "pricingModel": "mimo-v2.6-flash",
               "pricingProvider": "xiaomi",
-              "pricingSource": "models.dev",
+              "pricingSource": {
+                "$exact": "undefined"
+              },
               "supportsVision": true,
-              "supportsFunctionCalling": true,
+              "supportsFunctionCalling": {
+                "$exact": "undefined"
+              },
               "supportsWebSearch": {
                 "$exact": "undefined"
               },
-              "supportsPromptCaching": true,
+              "supportsPromptCaching": {
+                "$exact": "undefined"
+              },
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": "reasoning_content",
@@ -4239,17 +4662,21 @@
     {
       "id": "token-plan-probe-sgp-ams-cn-persists",
       "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:360",
-      "input": {},
+      "input": {
+        "answers": [
+          "connection reset",
+          "401 {\"error\":\"denied\"}",
+          "200 {}"
+        ],
+        "then": [
+          "persist through ensureTokenPlanBaseUrl",
+          "no probe for a non-token-plan key or a known URL",
+          "a 500 answer"
+        ]
+      },
       "result": {
         "first": {
           "probed": "https://token-plan-cn.xiaomimimo.com/v1",
-          "urls": [
-            "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
-            "https://token-plan-ams.xiaomimimo.com/v1/chat/completions",
-            "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
-          ],
-          "distinctSignals": 3,
-          "auth": "Bearer tp-abc",
           "regions": [
             "https://token-plan-sgp.xiaomimimo.com/v1",
             "https://token-plan-ams.xiaomimimo.com/v1",
@@ -4288,12 +4715,7 @@
         {
           "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
           "args": [
-            "tp-abc",
-            {
-              "fetchImpl": {
-                "callback": "fetchImpl"
-              }
-            }
+            "tp-abc"
           ]
         },
         {
@@ -4309,11 +4731,6 @@
               "baseUrl": "https://api.xiaomimimo.com/v1",
               "source": "own",
               "mtimeMs": 1700000012000
-            },
-            {
-              "fetchImpl": {
-                "callback": "fetchImpl"
-              }
             }
           ]
         },
@@ -4328,11 +4745,6 @@
               "apiKey": "sk-1",
               "uid": "",
               "baseUrl": ""
-            },
-            {
-              "fetchImpl": {
-                "callback": "fetchImpl"
-              }
             }
           ]
         },
@@ -4343,24 +4755,525 @@
               "apiKey": "tp-1",
               "uid": "",
               "baseUrl": "https://x.test/v1"
-            },
-            {
-              "fetchImpl": {
-                "callback": "fetchImpl"
-              }
             }
           ]
         },
         {
           "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
           "args": [
-            "tp-abc",
-            {
-              "fetchImpl": {
-                "callback": "fetchImpl"
-              }
-            }
+            "tp-abc"
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://token-plan-sgp.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-sgp.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "destroy": true
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-ams.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-ams.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"error\":\"denied\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-cn.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-cn.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-sgp.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-sgp.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "destroy": true
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-ams.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-ams.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"error\":\"denied\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-cn.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-cn.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-sgp.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-sgp.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 500,
+            "contentType": "text/plain",
+            "body": "nope"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-ams.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-ams.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 500,
+            "contentType": "text/plain",
+            "body": "nope"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-cn.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-cn.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 500,
+            "contentType": "text/plain",
+            "body": "nope"
+          }
         }
       ]
     },
@@ -5679,13 +6592,18 @@
     {
       "id": "regional-probe-continues-past-failure",
       "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:499",
-      "input": {},
+      "input": {
+        "answers": [
+          "503 busy",
+          "200 {}"
+        ],
+        "then": [
+          "every region 503",
+          "a pre-aborted signal"
+        ]
+      },
       "result": {
         "probed": "https://token-plan-ams.xiaomimimo.com/v1",
-        "urls": [
-          "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
-          "https://token-plan-ams.xiaomimimo.com/v1/chat/completions"
-        ],
         "down": {
           "error": {
             "$exact": "error",
@@ -5712,23 +6630,13 @@
         {
           "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
           "args": [
-            "tp-abc",
-            {
-              "fetchImpl": {
-                "callback": "fetchImpl"
-              }
-            }
+            "tp-abc"
           ]
         },
         {
           "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth-tokens.mjs.probeTokenPlanBaseUrl",
           "args": [
-            "tp-abc",
-            {
-              "fetchImpl": {
-                "callback": "fetchImpl"
-              }
-            }
+            "tp-abc"
           ]
         },
         {
@@ -5745,12 +6653,296 @@
                   "code": 20,
                   "props": {}
                 }
-              },
-              "fetchImpl": {
-                "callback": "fetchImpl"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://token-plan-sgp.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-sgp.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 503,
+            "contentType": "text/plain",
+            "body": "busy"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-ams.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-ams.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-sgp.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-sgp.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 503,
+            "contentType": "text/plain",
+            "body": "gone"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-ams.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-ams.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 503,
+            "contentType": "text/plain",
+            "body": "gone"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://token-plan-cn.xiaomimimo.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "token-plan-cn.xiaomimimo.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tp-abc"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "82"
+            ]
+          ],
+          "body": "{\"model\":\"mimo-v2.5\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "reply": {
+            "status": 503,
+            "contentType": "text/plain",
+            "body": "gone"
+          }
         }
       ]
     },
@@ -6013,21 +7205,34 @@
             "contextWindow": 1048576,
             "outputTokens": 131072,
             "created": null,
-            "display": "MiMo-V2.6-Pro-UltraSpeed",
-            "inputCostPerM": 4.35,
-            "outputCostPerM": 8.7,
-            "cacheReadCostPerM": 0.036,
-            "cacheWriteCostPerM": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-pro-ultraspeed",
             "pricingProvider": "xiaomi",
-            "pricingSource": "models.dev",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
-            "supportsFunctionCalling": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
             "supportsWebSearch": {
               "$exact": "undefined"
             },
-            "supportsPromptCaching": true,
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -6860,66 +8065,20 @@
           "fromMs": 0,
           "fired": [
             {
-              "id": 3,
               "dueMs": 499
             }
           ],
-          "toMs": 499,
-          "armed": [
-            {
-              "id": 232,
-              "dueMs": 2391
-            },
-            {
-              "id": 64,
-              "dueMs": 5000
-            },
-            {
-              "id": 59,
-              "dueMs": 60000
-            },
-            {
-              "id": 62,
-              "dueMs": 60000
-            }
-          ]
+          "toMs": 499
         },
         {
           "advanceMs": 1892,
           "fromMs": 499,
           "fired": [
             {
-              "id": 232,
               "dueMs": 2391
             }
           ],
-          "toMs": 2391,
-          "armed": [
-            {
-              "id": 233,
-              "dueMs": 3499
-            },
-            {
-              "id": 64,
-              "dueMs": 5000
-            },
-            {
-              "id": 59,
-              "dueMs": 60000
-            },
-            {
-              "id": 62,
-              "dueMs": 60000
-            },
-            {
-              "id": 234,
-              "dueMs": 287391
-            },
-            {
-              "id": 235,
-              "dueMs": 602391
-            }
-          ]
+          "toMs": 2391
         }
       ]
     },
@@ -7177,13 +8336,8 @@
       "id": "widened-stream-waits-and-explicit-first-byte-allowance",
       "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:466",
       "input": {
-        "firstByteTimeoutMs": 30,
-        "label": "x",
-        "providerName": "x",
-        "stream": "an async iterable whose next() never settles",
-        "advanceMs": [
-          30
-        ],
+        "gateway": "answers 200 with the SSE head and never writes a body byte",
+        "clock": "every armed timer in due order until the send ends",
         "plainSend": {
           "provider": "deepseek",
           "model": "deepseek-chat"
@@ -7219,46 +8373,206 @@
           "error": {
             "$exact": "error",
             "name": "ProviderTimeoutError",
-            "message": "x first byte timed out after 30ms",
+            "message": "mimo-oauth first byte attempt 1 timed out after 285000ms",
             "code": "EPROVIDERTIMEOUT",
             "props": {
               "name": "ProviderTimeoutError",
-              "timeoutPhase": "first-chunk",
-              "partialContent": "",
-              "partialToolCalls": {
-                "$exact": "undefined"
-              },
-              "pendingToolUse": false,
-              "partialModel": {
-                "$exact": "undefined"
-              },
-              "streamOutcome": {
-                "version": 1,
-                "provider": "openai-compat",
-                "transport": "sse",
-                "terminalObserved": false,
-                "continuation": true,
-                "declaredContinuation": false,
-                "textEmitted": false,
-                "textObservedChars": 0,
-                "reasoningEmitted": false,
-                "toolCallsStarted": false,
-                "toolCallsComplete": 0,
-                "toolCallsDispatched": 0,
-                "dispatchAmbiguous": false,
-                "pendingToolInput": false,
-                "userAbort": false,
-                "stallObserved": false,
-                "truncatedStream": false,
-                "visibleOutput": false,
-                "observedOutput": false,
-                "sideEffectDispatched": false,
-                "replayUnsafe": false,
-                "replaySafe": true,
-                "successEligible": false
+              "timeoutPhase": "headers",
+              "providerRecoveryExhausted": true,
+              "providerRecoveryTerminal": true,
+              "providerRecoveryOwner": "mimo-oauth-first-byte"
+            }
+          },
+          "requests": [
+            {
+              "method": "POST",
+              "url": "/v1/chat/completions",
+              "headers": [
+                [
+                  "host",
+                  "127.0.0.1:47846"
+                ],
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "x-stainless-retry-count",
+                  "0"
+                ],
+                [
+                  "x-stainless-lang",
+                  "js"
+                ],
+                [
+                  "x-stainless-package-version",
+                  "6.49.0"
+                ],
+                [
+                  "x-stainless-os",
+                  "Windows"
+                ],
+                [
+                  "x-stainless-arch",
+                  "x64"
+                ],
+                [
+                  "x-stainless-runtime",
+                  "node"
+                ],
+                [
+                  "x-stainless-runtime-version",
+                  "v22.20.0"
+                ],
+                [
+                  "authorization",
+                  "Bearer sk-wire"
+                ],
+                [
+                  "x-mimo-source",
+                  "mimocode-cli"
+                ],
+                [
+                  "accept",
+                  "application/json"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "user-agent",
+                  "mimocode/1.4.5"
+                ],
+                [
+                  "accept-language",
+                  "*"
+                ],
+                [
+                  "sec-fetch-mode",
+                  "cors"
+                ],
+                [
+                  "accept-encoding",
+                  "gzip, deflate"
+                ],
+                [
+                  "content-length",
+                  "170"
+                ]
+              ],
+              "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+              "body": {
+                "model": "mimo-v2.6-pro",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ],
+                "temperature": 1,
+                "max_completion_tokens": 128000,
+                "stream": true,
+                "stream_options": {
+                  "include_usage": true
+                }
+              }
+            },
+            {
+              "method": "POST",
+              "url": "/v1/chat/completions",
+              "headers": [
+                [
+                  "host",
+                  "127.0.0.1:47846"
+                ],
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "x-stainless-retry-count",
+                  "0"
+                ],
+                [
+                  "x-stainless-lang",
+                  "js"
+                ],
+                [
+                  "x-stainless-package-version",
+                  "6.49.0"
+                ],
+                [
+                  "x-stainless-os",
+                  "Windows"
+                ],
+                [
+                  "x-stainless-arch",
+                  "x64"
+                ],
+                [
+                  "x-stainless-runtime",
+                  "node"
+                ],
+                [
+                  "x-stainless-runtime-version",
+                  "v22.20.0"
+                ],
+                [
+                  "authorization",
+                  "Bearer sk-wire"
+                ],
+                [
+                  "x-mimo-source",
+                  "mimocode-cli"
+                ],
+                [
+                  "accept",
+                  "application/json"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "user-agent",
+                  "mimocode/1.4.5"
+                ],
+                [
+                  "accept-language",
+                  "*"
+                ],
+                [
+                  "sec-fetch-mode",
+                  "cors"
+                ],
+                [
+                  "accept-encoding",
+                  "gzip, deflate"
+                ],
+                [
+                  "content-length",
+                  "170"
+                ]
+              ],
+              "bodyText": "{\"model\":\"mimo-v2.6-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"temperature\":1,\"max_completion_tokens\":128000,\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+              "body": {
+                "model": "mimo-v2.6-pro",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ],
+                "temperature": 1,
+                "max_completion_tokens": 128000,
+                "stream": true,
+                "stream_options": {
+                  "include_usage": true
+                }
               }
             }
-          }
+          ]
         },
         "plainSendRequests": [
           {
@@ -7267,7 +8581,7 @@
             "headers": [
               [
                 "host",
-                "127.0.0.1:47846"
+                "127.0.0.1:47847"
               ],
               [
                 "connection",
@@ -7353,14 +8667,25 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
           "args": [
-            {},
             {
-              "label": "x",
-              "providerName": "x",
-              "firstByteTimeoutMs": 30
+              "preconnect": false
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "mimo-v2.6-pro",
+            [],
+            {}
           ]
         },
         {
@@ -7368,7 +8693,7 @@
           "args": [
             "deepseek",
             {
-              "baseURL": "http://127.0.0.1:47846/v1",
+              "baseURL": "http://127.0.0.1:47847/v1",
               "apiKey": "k",
               "preconnect": false
             }
@@ -7391,29 +8716,57 @@
       ],
       "clock": [
         {
-          "advanceMs": 30,
+          "advanceMs": 609,
           "fromMs": 2391,
           "fired": [
             {
-              "id": 251,
-              "dueMs": 2421
+              "dueMs": 3000
+            },
+            {
+              "dueMs": 3000
             }
           ],
-          "toMs": 2421,
-          "armed": [
+          "toMs": 3000
+        },
+        {
+          "advanceMs": 2000,
+          "fromMs": 3000,
+          "fired": [
             {
-              "id": 64,
               "dueMs": 5000
-            },
-            {
-              "id": 59,
-              "dueMs": 60000
-            },
-            {
-              "id": 62,
-              "dueMs": 60000
             }
-          ]
+          ],
+          "toMs": 5000
+        },
+        {
+          "advanceMs": 283000,
+          "fromMs": 5000,
+          "fired": [
+            {
+              "dueMs": 288000
+            }
+          ],
+          "toMs": 288000
+        },
+        {
+          "advanceMs": 1839,
+          "fromMs": 288000,
+          "fired": [
+            {
+              "dueMs": 289839
+            }
+          ],
+          "toMs": 289839
+        },
+        {
+          "advanceMs": 285000,
+          "fromMs": 289839,
+          "fired": [
+            {
+              "dueMs": 574839
+            }
+          ],
+          "toMs": 574839
         }
       ]
     }
