@@ -7,14 +7,23 @@
 //   node benchmarks/rust-core/recorders/record-provider-auth-api.mjs --tree <exact export of b6f10295a>
 import { register } from 'node:module';
 import { setImmediate } from 'node:timers/promises';
+// Waits for an effect the API starts in the background (no fixed number of turns): polls once per event-loop turn until `predicate`, failing after 5 s.
+const until = async (predicate, what) => {
+  const end = process.hrtime.bigint() + 5_000_000_000n;
+  while (!predicate()) {
+    if (process.hrtime.bigint() > end) throw new Error(`recorder: ${what} did not happen within 5 s`);
+    await setImmediate();
+  }
+};
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-auth-api',
   net: false,
-  entry: 'src/session-runtime/provider-auth-api.mjs createProviderAuthApi(deps) over stubbed ./services/provider-admin.mjs, providers/admission-scheduler.mjs, providers/registry.mjs, providers/oauth-usage.mjs (loader hook; the stubs record every call into `calls`). The test flushes with timers/promises setImmediate (one event-loop turn), as the recorder does; no timer is waited on.',
-  replay: 'mixdog-core-domains ai_account/provider_changes.rs:128,229 and ai_admin/account_actions.rs:121-164: perform the same API call against the Rust domain with recording collaborators and compare `calls` (ordered effects) and `result`. K1 gaps G8: the catalog refresh after a key save is OPEN in the core (dec:828), so the first case is expected to differ.',
+  entry: 'src/session-runtime/provider-auth-api.mjs createProviderAuthApi(deps) over stubbed ./services/provider-admin.mjs, providers/admission-scheduler.mjs, providers/registry.mjs, providers/oauth-usage.mjs (loader hook; the stubs record every call into `calls`). The test flushes with timers/promises setImmediate (polled per event-loop turn up to a 5 s deadline, never a fixed number of turns), as the recorder does; no timer is waited on.',
+  compare: 'mixdog-core-domains ai_account/provider_changes.rs:128,229 and ai_admin/account_actions.rs:121-164: perform the same API call against the Rust domain with recording collaborators and compare `calls` (ordered effects) and `result`. K1 gaps G8: the catalog refresh after a key save is OPEN in the core (dec:828), so the first case is expected to differ.',
+  replay: "Rust entry (pub, on o1): mixdog_core_domains ai_admin AccountActions (account_actions.rs:61, constructors new/over :113/:117) and ai_account spawn_provider_changes (provider_changes.rs:96) with LiveProviderEffects (provider_changes.rs:71). The catalog refresh after a key save is OPEN (K1 G8, dec:828): work for the Rust side.",
 });
 const NAMES = ['keychainIssueFor', 'beginOAuthProviderLogin', 'forgetProviderAuth', 'loginOAuthProvider', 'renderProviderStatus', 'saveOpenAIUsageSessionKey', 'saveProviderApiKey', 'saveCustomProvider', 'saveCustomProviderKey', 'removeCustomProvider', 'updateCustomProviderModel', 'saveModelPreferences', 'testCustomProvider', 'checkCustomProviderKeyEnv', 'discoverCustomProviderModels', 'listProviderAccounts', 'materializeProviderAccounts', 'updateProviderAccounts'];
 const STUBS = { 'services/provider-admin.mjs': NAMES, 'agent/orchestrator/providers/admission-scheduler.mjs': ['resetProviderAdmissionCooldowns'], 'agent/orchestrator/providers/registry.mjs': ['getProvider'], 'agent/orchestrator/providers/oauth-usage.mjs': ['fetchOAuthUsageSnapshot'] };
@@ -84,7 +93,7 @@ const run = (id, line, input, fn) => rec.run(id, `${SRC}:${line}`, input, async 
 await run('save-api-key-reload-cooldowns-catalogs-then-caches', 110, { op: 'saveProviderApiKey', args: ['oauth', 'sk-1'] }, async () => {
   const api = fixture();
   const result = await api.saveProviderApiKey('oauth', 'sk-1');
-  await setImmediate();
+  await until(() => calls.filter(([name]) => name === 'warm').length >= 2, 'the catalog refresh settled');
   return { result };
 });
 await run('vertex-credentials-forward-location-and-project', 117, { op: 'saveProviderApiKey', args: ['vertex-ai', '{"type":"service_account"}', { location: 'us-east5', projectId: 'override-project' }] }, async () => {
@@ -104,7 +113,7 @@ await run('custom-provider-save-remove-refresh-like-credentials', 131, {}, async
   const api = fixture({ onCustomProviderRemoved: (id) => removed.push(id) });
   const out = {};
   out.save = await api.saveCustomProvider({ name: 'x' });
-  await setImmediate();
+  await until(() => calls.filter(([name]) => name === 'warm').length >= 2, 'the catalog refresh settled');
   out.afterSave = structuredClone(calls);
   calls.length = 0;
   await api.removeCustomProvider('custom-1');
@@ -134,11 +143,11 @@ await run('begin-oauth-login-wraps-callback-and-code-completion', 180, { op: 'be
   calls.length = 0;
   pendingCallback.resolve(true);
   out.callback = await login.waitForCallback;
-  await setImmediate();
+  await until(() => calls.filter(([name]) => name === 'warm').length >= 2, 'the catalog refresh settled');
   out.afterCallback = structuredClone(calls);
   calls.length = 0;
   out.code = await login.completeCode('1234');
-  await setImmediate();
+  await until(() => calls.filter(([name]) => name === 'warm').length >= 2, 'the catalog refresh settled');
   out.afterCode = structuredClone(calls);
   return out;
 });
@@ -146,12 +155,14 @@ await run('account-roster-paints-immediately-one-usage-sweep', 197, { providers:
   const api = fixture();
   const pool = api.getProviderAccounts('oauth');
   const out = { accountCount: pool.accounts.length, immediately: structuredClone(calls) };
-  await setImmediate();
-  await setImmediate();
+  await until(() => calls.filter(([name]) => name === 'usage').length >= 5, 'the five usage sweeps');
+  
   out.usageCalls = calls.filter(([name]) => name === 'usage');
   calls.length = 0;
   api.getProviderAccounts('plain');
-  await setImmediate();
+  // Negative check: once the keychain step ran, 1 ms of virtual time (due timers run, microtasks drained) shows no sweep follows.
+  await until(() => calls.some(([name]) => name === 'keychain'), 'the plain roster reached the keychain step');
+  await rec.clock.advance(1);
   out.plainCalls = structuredClone(calls);
   return out;
 });
@@ -166,7 +177,7 @@ await run('switching-selected-account-releases-cooldowns-prefetches-usage', 215,
 await run('provider-setup-quick-snapshot-then-forced', 234, {}, async () => {
   const api = fixture({ isKeychainPrewarmReady: () => false });
   const out = { quick: await api.getProviderSetup(), firstCall: calls[0] };
-  await setImmediate();
+  await until(() => calls.at(-1)?.[0] === 'setup' && Object.keys(calls.at(-1)[1]).length === 0, 'the authoritative setup');
   out.lastCallAfterPrewarm = calls.at(-1);
   calls.length = 0;
   out.forced = await api.getProviderSetup({ force: true });
