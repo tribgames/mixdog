@@ -1,0 +1,216 @@
+{
+  "scenario": "startup-interrupted-post-behind-detach",
+  "listFirst": false,
+  "calls": [
+    "create",
+    "continue-held",
+    "restart-and-update"
+  ],
+  "startup": "interrupted",
+  "startupOrder": "recovery-first",
+  "startupClaim": "post-behind-detach",
+  "taskWorkspace": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
+  "room": {
+    "sessionId": "sess_room_mq3i4vkg0000004a",
+    "roomId": "mq3i4vkg0000004a"
+  },
+  "steps": [
+    {
+      "step": "create",
+      "listingFails": true,
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mq3i4vkg0000004a",
+            "roomId": "mq3i4vkg0000004a"
+          }
+        }
+      ]
+    },
+    {
+      "step": "continue-held",
+      "listingFails": false,
+      "loadedBefore": false,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "exchange-held"
+        },
+        {
+          "kind": "answered",
+          "value": null
+        },
+        {
+          "kind": "published",
+          "origin": "room-call-background-listing",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg0000004a",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
+              "messageCount": 0,
+              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg0000004a",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                },
+                "running": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "restart-and-update",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "prune-checked",
+          "ids": [
+            "alpha",
+            "beta",
+            "gamma"
+          ]
+        },
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "published",
+          "origin": "room-call-background-listing",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg0000004a",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1780819752000,
+              "activityAt": 1780819752000,
+              "messageCount": 0,
+              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg0000004a",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg0000004a",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1780819752000,
+              "activityAt": 1780819752000,
+              "messageCount": 0,
+              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg0000004a",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 4,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mq3i4vkg0000004a",
+            "name": "Room One",
+            "members": [
+              "alpha",
+              "beta",
+              "gamma"
+            ],
+            "maxRounds": 4,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta",
+              "gamma": "Gamma"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

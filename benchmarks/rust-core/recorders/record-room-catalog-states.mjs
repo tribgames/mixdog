@@ -21,7 +21,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import crypto from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, REPO_ROOT, exactProductIdentity, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
@@ -101,8 +101,10 @@ const SCENARIOS = {
   'startup-update-before-recovery-update-first': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-and-update'], startup: 'update-before-recovery', startupOrder: 'update-first' },
   'startup-recovery-joins': { listFirst: false, failing: (step) => step === 0, spare: true, calls: ['create', 'restart-and-update'], startup: 'recovery-joins', startupOrder: 'recovery-first' },
   'startup-recovery-joins-update-first': { listFirst: false, failing: (step) => step === 0, spare: true, calls: ['create', 'restart-and-update'], startup: 'recovery-joins', startupOrder: 'update-first' },
-  'startup-interrupted': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'continue-held', 'restart-and-update'], startup: 'interrupted', startupOrder: 'recovery-first' },
-  'startup-interrupted-update-first': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'continue-held', 'restart-and-update'], startup: 'interrupted', startupOrder: 'update-first' },
+  'startup-interrupted': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'continue-held', 'restart-and-update'], startup: 'interrupted', startupOrder: 'recovery-first', startupClaim: 'released-first' },
+  'startup-interrupted-update-first': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'continue-held', 'restart-and-update'], startup: 'interrupted', startupOrder: 'update-first', startupClaim: 'released-first' },
+  // Last: a full run's room ids count on from the scenarios before it.
+  'startup-interrupted-post-behind-detach': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'continue-held', 'restart-and-update'], startup: 'interrupted', startupOrder: 'recovery-first', startupClaim: 'post-behind-detach' },
 };
 // How a scenario's reset forces the order of its catalog publications, each order its own scenario, forced, never sampled. A room
 // reset starts the room log's own listing without awaiting it (`session-host-lifecycle.ts:401`, inside `startOver`,
@@ -163,6 +165,19 @@ const STARTUP = {
       "the start-up's read of the room records is held; a bot in no room is forgotten (forgetMember, agent-rooms.ts:339-341, as the agent deletion calls it, session-host.ts:253): its ready() starts the first load; the read is released and the recovery joins it; the update is called while the first load is held at its member check (agentDefinitionPresence under pruneDeleted, agent-room-membership.ts:67) and registers after the recovery",
     interrupted:
       "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery",
+  },
+  // The interrupted room's post (`appendRoomRows`, `agent-room-delivery.mjs:199`) against the daemon's release of the room log's writer
+  // claim: the earlier host's disposal closes its connection, and the daemon detaches the room log (`lifecycle-barriers.mjs:122`: a
+  // generation bump, then the claim its exchange took is let go, `session-writer-claim.mjs:137`) when it notices, on its own time. A
+  // post that finds the detach done writes its notice; one admitted behind the detach's queued record is dropped by its generation
+  // fence (`store.mjs` `_dropsAgainst`) and the room log keeps no row of it. (A third interleaving, the post's drain meeting the
+  // claim on its way out, refuses it with "changed by another Mixdog process", `session-writers.mjs:73-74`: it was not reproducible
+  // here and is not recorded.) Each order recorded is its own case.
+  claims: {
+    'released-first':
+      "the earlier host's connection is closed by its disposal and the recorder waits for the daemon's release of the room log's writer claim (its lock file in session-writer-locks gone, a fs.watch event) before the first load's member check is released: the post takes the claim again and its notice is written",
+    'post-behind-detach':
+      "the earlier host's connection close is kept back (the disposal's close answers at once, the call made later); it is made before the first load's member check is released, and the daemon's detach of the room log (lifecycle-barriers.mjs:122: its record queued, the generation bumped) is held at its write's check of the log's json (fs/promises.stat on a stack through _jsonDiverged, session-log-writer.mjs:1198); the member check is then released and the post's save is admitted at the daemon behind the detach (store.mjs _admit publishes the room log live: observed through the daemon's subscribeLiveSessions); the detach goes on: the post's save is dropped by its generation fence (store.mjs _dropsAgainst), the post answers and writes nothing, the recovery logs nothing",
   },
   orders: {
     'recovery-first':
@@ -306,7 +321,7 @@ process.execArgv = ['--require', join(REPO_ROOT, DAEMON_READ_HOLD)];
 let daemonHello = null;
 const holdServer = (await import('node:net')).createServer((socket) => {
   socket.setEncoding('utf8');
-  const link = { socket, hold: null, watching: null, onAppended: null, rebuild: null, settled: null };
+  const link = { socket, hold: null, watching: null, onAppended: null, rebuild: null, settled: null, liveWatching: null, live: null };
   let buffer = '';
   socket.on('data', (chunk) => {
     buffer += chunk;
@@ -322,7 +337,11 @@ const holdServer = (await import('node:net')).createServer((socket) => {
       else if (message.ev === 'settled') {
         if (message.ok) link.settled.resolve();
         else link.settled.reject(new RecorderError(`the daemon's summary index writes did not settle: ${message.error ?? 'abandoned'}`));
-      } else if (message.ev === 'rebuild-armed') link.rebuild?.armed.resolve();
+      } else if (message.ev === 'live-watching') {
+        if (message.error) link.liveWatching.reject(new RecorderError(`the daemon could not watch live-session publications: ${message.error}`));
+        else link.liveWatching.resolve();
+      } else if (message.ev === 'live') link.live.resolve();
+      else if (message.ev === 'rebuild-armed') link.rebuild?.armed.resolve();
       else if (message.ev === 'rebuild-reached') link.rebuild?.reached.resolve();
       else if (message.ev === 'rebuild-landed') {
         // Rebuilds nothing armed are the daemon's own business; the armed one's answer is awaited.
@@ -338,7 +357,7 @@ const holdServer = (await import('node:net')).createServer((socket) => {
     link.hold?.armed.reject(failed);
     link.watching?.reject(failed);
     link.settled?.reject(failed);
-    for (const part of ['armed', 'reached', 'landed']) link.rebuild?.[part].reject(failed);
+    link.liveWatching?.reject(failed);    for (const part of ['armed', 'reached', 'landed']) link.rebuild?.[part].reject(failed);
   });
 });
 await new Promise((resolve) => holdServer.listen(0, '127.0.0.1', resolve));
@@ -450,6 +469,8 @@ async function record(name) {
     let presenceHold = null;
     let namesHold = null;
     let recoveryPostHold = null;
+    // While set, the host's connection close (its disposal's) is kept here and made by the step that releases it (`released-mid-post`).
+    let closesKept = null;
     const recoveryReported = (listing) => {
       const told = recoveryRepublished;
       recoveryRepublished = null;
@@ -504,7 +525,11 @@ async function record(name) {
             asked.then(settled, settled);
             return asked;
           },
-          close: (reason) => attached.close(reason),
+          close: (reason) => {
+            if (!closesKept) return attached.close(reason);
+            closesKept.push(() => attached.close(reason));
+            return Promise.resolve();
+          },
         });
       },
     };
@@ -792,7 +817,7 @@ async function record(name) {
         return answer;
       },
       // The host made again (no definition deleted), its start-up's recovery against a room update (`STARTUP`).
-      'restart-and-update': () => startupRace(scenario.startup, scenario.startupOrder),
+      'restart-and-update': () => startupRace(scenario.startup, scenario.startupOrder, scenario.startupClaim),
       'restart-and-list': async () => {
         await restart(false);
         await deadline.race(host.agentRooms.ready(), 'the first load after the restart');
@@ -872,12 +897,16 @@ async function record(name) {
       return await resetting;
     };
     // The start-up's recovery and a room update that awaited the same first load, in `order` (`STARTUP`): the update's answer.
-    const startupRace = async (waiters, order) => {
+    const startupRace = async (waiters, order, claim) => {
       const read = gateOf();
       roomsRead = read;
       const presence = gateOf();
       presenceHold = presence;
+      const midPost = claim === 'post-behind-detach';
+      const kept = [];
+      if (midPost) closesKept = kept;
       await restart(false);
+      closesKept = null;
       await deadline.race(read.arrived, "the start-up's read of the room records");
       // The daemon's summary writes of the earlier host's sessions (its disposal's) landed before any call of the new host reads
       // the catalog: the update's listing reads them whichever order it runs in.
@@ -901,10 +930,54 @@ async function record(name) {
       updating ??= update();
       const recovered = latch();
       recoveryRepublished = recovered;
+      // The daemon's release of the room log's writer claim (the earlier host's connection closed): a Windows release removes the
+      // claim's lock file (`session-writer-claim.mjs:_dropLock`), so its absence, seen on the directory's change events, is the release.
+      const claimReleased = async () => {
+        const dir = join(paths.dataDir, 'session-writer-locks');
+        const lock = join(dir, `${room.sessionId}.lock`);
+        const gone = latch();
+        const watcher = watch(dir, () => {
+          if (!existsSync(lock)) gone.resolve();
+        });
+        try {
+          if (!existsSync(lock)) gone.resolve();
+          await deadline.race(gone.promise, "the daemon's release of the room log's writer claim");
+        } finally {
+          watcher.close();
+        }
+      };
+      let detachWrite = null;
+      let postAdmitted = null;
+      const recoveryListed = gateOf();
+      if (claim === 'post-behind-detach') recoveryListingHold = recoveryListed;
+      if (waiters === 'interrupted') {
+        if (midPost) {
+          // The earlier host's connection is closed now: the daemon's detach of the room log runs ahead of the post, held at its
+          // write's check of the log's json (`session-log-writer.mjs:1198` → `_jsonDiverged`), its record queued.
+          detachWrite = await armDaemonRead('stat', `${room.sessionId}.json`, '_jsonDiverged');
+          for (const close of kept) await deadline.race(close(), "the earlier host's connection close");
+          await deadline.race(detachWrite.reached, "the daemon's detach of the room log reaching its write");
+          daemonLink.liveWatching = latch();
+          postAdmitted = daemonLink.live = latch();
+          daemonLink.socket.write(`${JSON.stringify({ op: 'watch-live', id: room.sessionId })}\n`);
+          await deadline.race(daemonLink.liveWatching.promise, "the daemon watching the room log's live publications");
+        } else await claimReleased();
+      }
       if (order === 'recovery-first') {
         const names = gateOf();
         namesHold = names;
         presence.release();
+        if (detachWrite) {
+          // The post's save is admitted (`store.mjs` _admit publishes the room log live) behind the detach's queued record: its
+          // generation is the log's recorded one and past the post's (`_dropsAgainst`), the save is dropped.
+          await deadline.race(postAdmitted.promise, "the recovery's post admitted at the daemon");
+          // The recovery's listing (it starts once the post has answered) is held at its daemon call until the detach has landed, its
+          // summary row (the log's new `updatedAt`) settled in the daemon's index: it reads the index after the detach.
+          detachWrite.release();
+          await claimReleased();
+          await summaryIndexSettled();
+          recoveryListed.release();
+        }
         await deadline.race(names.arrived, "the update's names refresh");
         const { listing } = await deadline.race(recovered.promise, "the recovery's republish");
         if (listing) await deadline.race(listing, "the recovery's listing to its end");
@@ -1113,7 +1186,7 @@ if (!only) {
             ...(s.resetRead ? { resetRead: { order: s.resetRead, how: RESET_READ.orders[s.resetRead] } } : {}),
             ...(s.resetListings ? { resetListings: { order: s.resetListings, how: FORCED.resetListings[s.resetListings] } } : {}),
             ...(s.resetRefresh ? { resetRefresh: { order: s.resetRefresh, how: FORCED.resetRefresh[s.resetRefresh] } } : {}),
-            ...(s.startupOrder ? { startupOrder: { waiters: s.startup, order: s.startupOrder, how: `${STARTUP.waiters[s.startup]}; ${STARTUP.orders[s.startupOrder]}` } } : {}),
+            ...(s.startupOrder ? { startupOrder: { waiters: s.startup, order: s.startupOrder, how: `${STARTUP.waiters[s.startup]}; ${STARTUP.orders[s.startupOrder]}${s.startupClaim ? `; ${STARTUP.claims[s.startupClaim]}` : ''}` } } : {}),
           },
         ])
       ),
@@ -1128,9 +1201,13 @@ if (!only) {
           recoveryListing: "the daemon call session.list of the listing the recovery's republish starts (its publishCatalogs on a stack through recover)",
           recoveryPost: "the host's control call appendRoomRows on a stack through recover (agent-room-log.ts:61)",
           updateSave: "the room records' save (atomic-file.mjs temp open of agent-rooms.json), agent-rooms.ts:310",
+          claimRelease: "observed: the room log's writer lock file (session-writer-locks/<room log>.lock) gone, on fs.watch events of its directory (session-writer-claim.mjs:_dropLock)",
+          detachWrite: `${DAEMON_READ_HOLD}: the daemon's first fs/promises.stat of the room log's json on a stack through _jsonDiverged (session-log-writer.mjs:926-929, called from the drain, :1198), armed before the earlier host's close is made: the detach's write (post-behind-detach only)`,
+          postAdmitted: `${DAEMON_READ_HOLD}: observed, not held: the daemon's next live-session publication of the room log (subscribeLiveSessions, session-observers.mjs:27, published by the save's admission, store.mjs _admit) after the detach reached its hold (post-behind-detach only)`,
+          connectionClose: "the earlier host's session client close, kept and made by the step (post-behind-detach only)",
           exchange: "the host's read of the room log's session (readItems, session-host.ts:325) from the exchange's rows (agent-room-exchange.ts:186)",
         },
-        cases: Object.fromEntries(Object.entries(SCENARIOS).filter(([, s]) => s.startupOrder).map(([n, s]) => [n, { waiters: s.startup, order: s.startupOrder }])),
+        cases: Object.fromEntries(Object.entries(SCENARIOS).filter(([, s]) => s.startupOrder).map(([n, s]) => [n, { waiters: s.startup, order: s.startupOrder, ...(s.startupClaim ? { claim: s.startupClaim } : {}) }])),
       },
       // The race a reset with the catalog loaded leaves to timing, its Node source lines, and the holds that order it (`RESET_READ`).
       resetReadRace: {

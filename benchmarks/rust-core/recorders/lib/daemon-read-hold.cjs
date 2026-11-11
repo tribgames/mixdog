@@ -13,7 +13,10 @@
 //                      {"op":"settle"}                                        reported once every summary index op queued so
 //                                                                             far has landed (the daemon's own
 //                                                                             `settleSummaryIndexWrites`, store-summary-index.mjs:495)
-//   daemon → recorder  {"ev":"hello","pid":…}  {"ev":"armed"}  {"ev":"reached","file":…}  {"ev":"ended","file":…}
+//                      {"op":"watch-live","id":<session id>}                 the next live-session publication of that session
+//                                                                             (`_publishLiveSession`, store.mjs `_admit`: a save's
+//                                                                             admission, synchronous, before any write) is reported
+//   daemon → recorder  {"ev":"hello","pid":…}  {"ev":"live-watching","error"?:…}  {"ev":"live","id":…}  {"ev":"armed"}  {"ev":"reached","file":…}  {"ev":"ended","file":…}
 //                      {"ev":"watching"}  {"ev":"appended","file":…,"text":…}
 //                      {"ev":"rebuild-armed"}  {"ev":"rebuild-reached"}  {"ev":"rebuild-landed","ok":…} (every rebuild)
 //                      {"ev":"settled","ok":…,"error"?:…}
@@ -39,10 +42,12 @@ if (isMainThread && port > 0) {
   let rebuildRelease = null;
   // The URL the daemon loads its summary index module under (its own instance, whose queue `settle` asks about), as resolved.
   let summaryIndexUrl = null;
+  let observersUrl = null;
   require('node:module').registerHooks({
     resolve(specifier, context, next) {
       const resolved = next(specifier, context);
       if (!summaryIndexUrl && resolved.url.endsWith('/orchestrator/session/store-summary-index.mjs')) summaryIndexUrl = resolved.url;
+      if (!observersUrl && resolved.url.endsWith('/orchestrator/session/store/session-observers.mjs')) observersUrl = resolved.url;
       return resolved;
     },
   });
@@ -69,6 +74,19 @@ if (isMainThread && port > 0) {
       } else if (message.op === 'watch') {
         watched = message.file;
         send({ ev: 'watching' });
+      } else if (message.op === 'watch-live') {
+        if (!observersUrl) send({ ev: 'live-watching', error: 'the daemon has not loaded session-observers.mjs' });
+        else
+          import(observersUrl)
+            .then((observers) => {
+              const off = observers.subscribeLiveSessions((session) => {
+                if (session?.id !== message.id) return;
+                off();
+                send({ ev: 'live', id: message.id });
+              });
+              send({ ev: 'live-watching' });
+            })
+            .catch((error) => send({ ev: 'live-watching', error: String(error?.message ?? error) }));
       } else if (message.op === 'settle') {
         if (!summaryIndexUrl) send({ ev: 'settled', ok: false, error: 'the daemon has not loaded store-summary-index.mjs' });
         else

@@ -344,6 +344,21 @@
         ],
         "scenario": "startup-interrupted-update-first",
         "step": "restart-and-update"
+      },
+      {
+        "compareWith": "startup-interrupted",
+        "node": [
+          "catalog [<room log 0>]",
+          "catalog [<room log 0>]"
+        ],
+        "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
+        "part": "before the answer",
+        "reason": "Detach race (MANIFEST startupRace.cases.startup-interrupted-post-behind-detach, forcedOrders.startupOrder): the earlier host's connection closes and the daemon detaches the room log (lifecycle-barriers.mjs:122: a generation bump, then the writer claim goes), a daemon operation in the log's order. The start-up recovery's post of the interrupted row (agent-rooms.ts:474 → agent-room-delivery.mjs:199 → saveSessionAsync with the copy's expectedGeneration) that is admitted behind the detach's queued record is dropped by its generation fence (store.mjs _dropsAgainst): the post answers, no row is written, both catalogs Node publishes carry messageCount 0. The core has no daemon and no second process: the room log is its own store's, the recovery posts into it in-process (live.rs recover → view.post) and nothing detaches it, so the row is always written. The core's part is compared whole with Node's startup-interrupted part (the same step and part), the order in which the post lands, which Node also produces when the detach has landed before the post (the claim let go, then taken again: startup-interrupted).",
+        "rust": [
+          "native/core/crates/mixdog-core-rooms/src/rooms/live.rs:336-351 (LiveRooms::recover: the interrupted row posted into the room log, in-process, with no detach ahead of it)"
+        ],
+        "scenario": "startup-interrupted-post-behind-detach",
+        "step": "restart-and-update"
       }
     ],
     "rowFields": [
@@ -358,112 +373,117 @@
     ]
   },
   "exact": true,
-  "fileCount": 21,
+  "fileCount": 22,
   "files": [
     {
       "bytes": 4861,
       "path": "loaded-failing.json",
-      "sha256": "3eedecd8ceb5aa0d7cc2169f6fc4fcce462995bd68995cdf2f9722e1078155d7"
+      "sha256": "3ecf0016eb165b93b24c9c987832ea7d42adac17be9d984d4ea4f22abd1a19ad"
     },
     {
       "bytes": 8758,
       "path": "loaded-read-after-answer.json",
-      "sha256": "416fd67d3d30d4c11b2a3b3941e5ee9f19713eae69a23df9f2b19b414b665f23"
+      "sha256": "de86b363e61fa91ca760ef0cd51de87ceb47694e29cc6d1011544d4564ca94b0"
     },
     {
       "bytes": 2274,
       "path": "loaded-reconnect.json",
-      "sha256": "be5703cf9f3692f9e68c0def22a69b9a015d7e9fc47740d126c92f14f69241aa"
+      "sha256": "eabc1313d6f806200d3fe481fde4fe6c55a7748efeb28f385da1a5aeeb0ade62"
     },
     {
       "bytes": 4108,
       "path": "loaded-refresh-before-answer.json",
-      "sha256": "4cf74493a0d2e0eb9e3b8cd7b87c5f172829aeb0c06f4a511a948b1af32c3a2d"
+      "sha256": "70719b8b1b8549ab83617e7fbf944f4c58193b0d475919cc3b99f972f1cdd767"
     },
     {
       "bytes": 8643,
       "path": "loaded-reset-listing-first.json",
-      "sha256": "7b60a79a9924b7a0761a39d38e9f25546ec5af3b212d8471636bfb84d3369fa8"
+      "sha256": "e2e9a91ad5fee81e1ac470064bc75639c841de117673ec4b6437dff51747d5c7"
     },
     {
       "bytes": 8891,
       "path": "loaded-reset-refresh-in-io-read-after-answer.json",
-      "sha256": "484fdaa3542a7484b46d6b79dd993842d9f0e87497f8b9f6ff855fca2eb7c016"
+      "sha256": "bd50f12e03acf0502a287c3c5b25c5220f83ce89de9b87d1813431e54f3a7bef"
     },
     {
       "bytes": 7536,
       "path": "loaded-reset-refresh-in-io.json",
-      "sha256": "32367b58eeff731d489ef807d28d5c67b52075a2bdd6f97f087a743c1c29b5aa"
+      "sha256": "c37884d41984a9d4dabbaf8e62ad841cfad19f981277e69ca2940ac8e6f3008d"
     },
     {
       "bytes": 7423,
       "path": "loaded.json",
-      "sha256": "b33e4914d41ac91a9f9def938db3169920764a9fd11f1a4f6f417791c995e705"
+      "sha256": "11fd7a1cd09ebfb0fc15c1a38fcf2ab783e23c7e123cc5b58dd3c70115558b78"
     },
     {
       "bytes": 1586,
       "path": "not-loaded-failing.json",
-      "sha256": "5f88ed2d89e6d51be60d2860999efa4121e8042b96f12243a0aa077563d4f78a"
+      "sha256": "61c2fd95238d584de8306002a06d25a81867aac35b61b10ba99b7b7a684e843b"
     },
     {
       "bytes": 78128,
       "path": "not-loaded-large.json",
-      "sha256": "68a7ab77bba046c5c7ef1ea4d0625ad8101ed2055775617a0d6f38fee31401ea"
+      "sha256": "3f0bf9c6edd65ed677fd8297356b8dedd2cee71195899835ef0e370af57da257"
     },
     {
       "bytes": 3867,
       "path": "not-loaded.json",
-      "sha256": "a69337713ad821ce0ab96cf64a93dbcac6bce27156a987eecad7a46587e6067e"
+      "sha256": "f91ea8678d4227e8d566d4dbe54596413200d75c745c70639586e25b73a0d42c"
     },
     {
       "bytes": 6183,
       "path": "prune-failed-then-update.json",
-      "sha256": "de4daf304754d1cd6f8bc06ef5229c65d9b8479a1734b6431794c268a571089c"
+      "sha256": "3ad3aed4897ff28e33cdf3f953bdb1f9c765dd6d29cb440198b61b3ad6efe0b4"
     },
     {
       "bytes": 5460,
       "path": "prune-failed.json",
-      "sha256": "2c644ddd3262b6673e606da5a89878db5ab47aadd3fd57cabf0556d829afe490"
+      "sha256": "47882a8d172d822719f2ece070a8d4d1e9cf97418345969f41d82f994be8a236"
     },
     {
       "bytes": 5620,
       "path": "prune-held.json",
-      "sha256": "32f1deea9bb896ceca1113591ede645e9016d768121abeee1b2d040e256e2b3f"
+      "sha256": "05cb7903ff935dc6842127e6a455a1541eb66a70920f4b97d493f9df100aa6a4"
     },
     {
       "bytes": 6944,
       "path": "pruned-at-load.json",
-      "sha256": "20de364841f922b3230510582614e09e37cc13f32b80cbddb800ea3bd5973f83"
+      "sha256": "7042109a45b4e6143f260d05f18ed209a3659f713a347785edd4a6dfc5796774"
     },
     {
-      "bytes": 5990,
+      "bytes": 6058,
+      "path": "startup-interrupted-post-behind-detach.json",
+      "sha256": "b51285547f96fd5d615bf78cbdaece2f86c2f5d2f8029b81c7efdf0cfdb1bd11"
+    },
+    {
+      "bytes": 6026,
       "path": "startup-interrupted-update-first.json",
-      "sha256": "1afc912a221f8afc2cc66efb2ae1a8c35bb7f36404eed0c1bd0c165308eda0c1"
+      "sha256": "d397c024a0661a015c7b5d078b490586a6f2ae2415727c046684b318a795f65a"
     },
     {
-      "bytes": 5923,
+      "bytes": 5959,
       "path": "startup-interrupted.json",
-      "sha256": "93c08f2c5ed57445c0d4420ec5773f2a92db1757ed7d3491a8e47d7f21fe04f8"
+      "sha256": "bc48f0107117b8bf0ad9c7c7139d22b8e3fb4625044bfdad9af54900ee585eda"
     },
     {
       "bytes": 3170,
       "path": "startup-recovery-joins-update-first.json",
-      "sha256": "1be93dc46697115d520aa2e50763f69bff962bad3255dd185adcc30ce2177644"
+      "sha256": "f32003329184197955150492d90aa05318d6654f7cb779f8dfc43e2ea26cbea1"
     },
     {
       "bytes": 4356,
       "path": "startup-recovery-joins.json",
-      "sha256": "4ef49d7ac5d9fea0e1223fedb6e57e62428f745e2204da111dfc9c0c5bc5afb5"
+      "sha256": "dbd7bf6ce53d9daa8a665943c664cb2d4f999ae722d893fbe0503bcf9c8fc846"
     },
     {
       "bytes": 3140,
       "path": "startup-update-before-recovery-update-first.json",
-      "sha256": "85f677fe353b1da74d35565bd5fb3d128079a3a97147a2bc8d151b03b97450f4"
+      "sha256": "40b42c41824a0dbf7022b451b151620acaf5a7bcc34d08e5c35820dd98a2cf41"
     },
     {
       "bytes": 4334,
       "path": "startup-update-before-recovery.json",
-      "sha256": "6e40db28e6978211b4d7b928f3e76aa87da5fe39968429012e67cca67e361da8"
+      "sha256": "0518447f9f577acf35dcb3681e4f9ec3de208c41f0395e88c36411194f7b8bc0"
     }
   ],
   "fixedAtSource": {
@@ -623,7 +643,19 @@
     },
     "startup-interrupted": {
       "startupOrder": {
-        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change",
+        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change; the earlier host's connection is closed by its disposal and the recorder waits for the daemon's release of the room log's writer claim (its lock file in session-writer-locks gone, a fs.watch event) before the first load's member check is released: the post takes the claim again and its notice is written",
+        "order": "recovery-first",
+        "waiters": "interrupted"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "startup-interrupted-post-behind-detach": {
+      "startupOrder": {
+        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change; the earlier host's connection close is kept back (the disposal's close answers at once, the call made later); it is made before the first load's member check is released, and the daemon's detach of the room log (lifecycle-barriers.mjs:122: its record queued, the generation bumped) is held at its write's check of the log's json (fs/promises.stat on a stack through _jsonDiverged, session-log-writer.mjs:1198); the member check is then released and the post's save is admitted at the daemon behind the detach (store.mjs _admit publishes the room log live: observed through the daemon's subscribeLiveSessions); the detach goes on: the post's save is dropped by its generation fence (store.mjs _dropsAgainst), the post answers and writes nothing, the recovery logs nothing",
         "order": "recovery-first",
         "waiters": "interrupted"
       },
@@ -635,7 +667,7 @@
     },
     "startup-interrupted-update-first": {
       "startupOrder": {
-        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; update-before-recovery, recovery-joins: the recovery's listing is held at its daemon call (session.list) until the update's save of its change (agent-rooms.ts:310, the room records' temp file open) is reached, then runs to its end, and the save goes on: the recovery's catalog is read after the update's change. interrupted: the recovery's post of the interrupted row (appendRoomRows, agent-rooms.ts:474) is held until the update has answered and its own listing (agent-rooms.ts:312, the catalog not loaded) has run to its end; then the recovery saves and republishes",
+        "how": "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery; update-before-recovery, recovery-joins: the recovery's listing is held at its daemon call (session.list) until the update's save of its change (agent-rooms.ts:310, the room records' temp file open) is reached, then runs to its end, and the save goes on: the recovery's catalog is read after the update's change. interrupted: the recovery's post of the interrupted row (appendRoomRows, agent-rooms.ts:474) is held until the update has answered and its own listing (agent-rooms.ts:312, the catalog not loaded) has run to its end; then the recovery saves and republishes; the earlier host's connection is closed by its disposal and the recorder waits for the daemon's release of the room log's writer claim (its lock file in session-writer-locks gone, a fs.watch event) before the first load's member check is released: the post takes the claim again and its notice is written",
         "order": "update-first",
         "waiters": "interrupted"
       },
@@ -706,7 +738,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs",
-      "sha256": "a3db23b1c9d920917d062d4f27e31beaee3fbd930402a44fe7bacc84d75b1eec"
+      "sha256": "cfabb25eb3d774187cdbb3cb546480dcb1e71d8bdaa2baee988d40b1350ed03a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -718,7 +750,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/room-catalog-core-differences.json",
-      "sha256": "538b688e8c65a48583408733e5ecc94e4cd2f046a1ff48fae307636295417fb1"
+      "sha256": "141c425267c70e347c076dbfde4ae2c445cdd5ba3e4874b7c974113a96520da8"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -745,7 +777,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
-  "recorderSha256": "5a53db50f74086cab6c71dd7e655f2cc228bfd56bd26f86859f30284638fe55d",
+  "recorderSha256": "c7b39c55ff4d074cff8cde9614f74f3f14e8fa576224c5fd83435af7ffffd7ad",
   "resetReadRace": {
     "cases": {
       "loaded": {
@@ -801,16 +833,24 @@
     "startup-recovery-joins",
     "startup-recovery-joins-update-first",
     "startup-interrupted",
-    "startup-interrupted-update-first"
+    "startup-interrupted-update-first",
+    "startup-interrupted-post-behind-detach"
   ],
   "set": "room-catalog-states",
   "startupRace": {
     "cases": {
       "startup-interrupted": {
+        "claim": "released-first",
+        "order": "recovery-first",
+        "waiters": "interrupted"
+      },
+      "startup-interrupted-post-behind-detach": {
+        "claim": "post-behind-detach",
         "order": "recovery-first",
         "waiters": "interrupted"
       },
       "startup-interrupted-update-first": {
+        "claim": "released-first",
         "order": "update-first",
         "waiters": "interrupted"
       },
@@ -832,9 +872,13 @@
       }
     },
     "holds": {
+      "claimRelease": "observed: the room log's writer lock file (session-writer-locks/<room log>.lock) gone, on fs.watch events of its directory (session-writer-claim.mjs:_dropLock)",
+      "connectionClose": "the earlier host's session client close, kept and made by the step (post-behind-detach only)",
+      "detachWrite": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: the daemon's first fs/promises.stat of the room log's json on a stack through _jsonDiverged (session-log-writer.mjs:926-929, called from the drain, :1198), armed before the earlier host's close is made: the detach's write (post-behind-detach only)",
       "exchange": "the host's read of the room log's session (readItems, session-host.ts:325) from the exchange's rows (agent-room-exchange.ts:186)",
       "memberCheck": "the host's control call agentDefinitionPresence on a stack through pruneDeleted (agent-room-membership.ts:67)",
       "namesRefresh": "the host's control call listAgents on a stack through refreshNames (agent-room-records.ts:56-59), armed after the first load's own refresh",
+      "postAdmitted": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: observed, not held: the daemon's next live-session publication of the room log (subscribeLiveSessions, session-observers.mjs:27, published by the save's admission, store.mjs _admit) after the detach reached its hold (post-behind-detach only)",
       "recordsRead": "fs/promises.readFile of agent-rooms.json (readJsonState, atomic-file.mjs:551-553, under loadRecords)",
       "recoveryListing": "the daemon call session.list of the listing the recovery's republish starts (its publishCatalogs on a stack through recover)",
       "recoveryPost": "the host's control call appendRoomRows on a stack through recover (agent-room-log.ts:61)",
@@ -843,5 +887,5 @@
     "recovery": "agent-rooms.ts:465-480 (recover: loadRecords :466, ready :469, the interrupted rooms :470-478, deps.republishCatalog :479), started by session-host.ts:430-432; republishCatalog → session-host.ts:353-356 (not loaded: void publishCatalogs, session-host-catalog.ts:217-238, rows read at session-host.ts:806-809)",
     "update": "agent-rooms.ts:293-320 (update: ready :294, refreshNames :302, the change :308-309, persist :310, deps.republishCatalog :312)"
   },
-  "totalBytes": 187195
+  "totalBytes": 193325
 }
