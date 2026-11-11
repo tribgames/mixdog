@@ -2762,6 +2762,302 @@ mod tests {
         assert_eq!((fork.model.as_str(), fork.options.session_id.as_deref()), ("m", Some(id.as_str())));
     }
 
+    /// A transcript of text only: a media part is a failure of the replay.
+    struct ManualMeters;
+    impl mixdog_agent::compact::estimate::MediaMeter for ManualMeters {
+        fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+            panic!("media part in a text-only replay: {part:?}")
+        }
+    }
+    impl mixdog_agent::compact::pressure::ImageIdentities for ManualMeters {
+        fn images(&self, _: &mixdog_agent::message::AgentMessage) -> Vec<mixdog_agent::compact::pressure::ImageDescriptor> {
+            Vec::new()
+        }
+    }
+    impl mixdog_agent::compact::triggers::ToolMediaMeter for ManualMeters {
+        fn bytes(&self, _: &mixdog_core_api::domain::provider::Content, _: bool) -> u64 {
+            0
+        }
+        fn count(&self, _: &mixdog_core_api::domain::provider::Content, _: bool) -> u64 {
+            0
+        }
+    }
+    #[async_trait]
+    impl mixdog_agent::compact::fresh::AttachmentSeam for ManualMeters {
+        async fn reference_media(&self, message: &mixdog_agent::message::AgentMessage) -> mixdog_agent::message::AgentMessage {
+            message.clone()
+        }
+        fn has_referencable_media(&self, _: &mixdog_agent::message::AgentMessage) -> bool {
+            false
+        }
+        fn attachment_tokens(&self, _: &mixdog_agent::message::AgentMessage) -> u64 {
+            0
+        }
+    }
+    impl mixdog_agent::compact::dropped::Redactor for ManualMeters {
+        fn redact(&self, rows: Vec<Value>) -> Vec<Value> {
+            rows
+        }
+    }
+    impl mixdog_agent::compact::triggers::CacheWarmLedger for ManualMeters {
+        fn last_use_at(&self) -> u64 {
+            0
+        }
+        fn route_use_at(&self) -> Option<u64> {
+            None
+        }
+    }
+    impl mixdog_agent::compact::triggers::CacheTail for ManualMeters {
+        fn agent_owner(&self) -> bool {
+            false
+        }
+        fn five_minute_tail(&self) -> bool {
+            false
+        }
+        fn last_provider_send_at(&self) -> u64 {
+            0
+        }
+        fn now_ms(&self) -> u64 {
+            0
+        }
+    }
+
+    /// The summary route's one answer: the recording's fixed summary, the requests counted.
+    struct ManualSummary {
+        text: String,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    #[async_trait]
+    impl mixdog_agent::compact::summary_run::SummarySender for ManualSummary {
+        async fn send(
+            &self,
+            _: &str,
+            _: &str,
+            _: &mixdog_agent::compact::summary_run::SummaryCall,
+        ) -> Result<mixdog_agent::compact::summary_run::SummaryResponse, mixdog_agent::compact::summary_run::SummaryFailure> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(mixdog_agent::compact::summary_run::SummaryResponse {
+                text: self.text.clone(),
+                tool_call: false,
+                usage: Some(mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() }),
+            })
+        }
+    }
+    /// The conversation's own model is the only summary route (`summaryMode: session`).
+    struct ManualHost {
+        sender: Arc<ManualSummary>,
+        route: super::super::summary_routes::SessionRoute,
+        calibration: f64,
+    }
+    #[async_trait]
+    impl super::super::summary_routes::SummaryHost for ManualHost {
+        fn session(&self) -> super::super::summary_routes::SessionRoute {
+            self.route.clone()
+        }
+        fn maintainer_route(&self) -> Option<super::super::summary_routes::MaintainerRoute> {
+            None
+        }
+        async fn provider_ready(&self, _: &str) -> Result<bool, mixdog_agent::compact::summary_run::SummaryFailure> {
+            Ok(true)
+        }
+        fn whole_window(&self, _: &str, _: &str) -> u64 {
+            self.route.context_window.expect("a window")
+        }
+        fn calibration(&self, _: &str, _: &str) -> f64 {
+            self.calibration
+        }
+        fn sender(&self, _: &str) -> Arc<dyn mixdog_agent::compact::summary_run::SummarySender> {
+            self.sender.clone()
+        }
+        async fn saved_catalog(&self, _: &str) -> Option<Vec<Value>> {
+            None
+        }
+    }
+    struct ManualNoFork;
+    #[async_trait]
+    impl super::super::summary_routes::ForkSender for ManualNoFork {
+        async fn send(&self, _: &mixdog_agent::compact::summary_run::SummaryRoute) -> Result<mixdog_agent::compact::summary_run::SummaryResponse, mixdog_agent::compact::summary_run::SummaryFailure> {
+            panic!("a session without a warm request forks nothing")
+        }
+    }
+    struct ManualCompactionWorld(Arc<ManualHost>);
+    #[async_trait]
+    impl super::super::compactors::CompactionWorld for ManualCompactionWorld {
+        async fn facts(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: &[Value]) -> super::super::compactors::CompactionFacts {
+            super::super::compactors::CompactionFacts {
+                media: Arc::new(ManualMeters),
+                tool_media: Arc::new(ManualMeters),
+                native_pdf: false,
+                attachments: Arc::new(ManualMeters),
+                redactor: Arc::new(ManualMeters),
+                cache: Arc::new(ManualMeters),
+                summary: self.0.clone(),
+                saved_request: None,
+                fork_sender: Arc::new(ManualNoFork),
+            }
+        }
+        fn compaction_config(&self) -> Option<Value> {
+            Some(json!({ "summaryMode": "self" }))
+        }
+        fn retire_fork(&self, _: &ThreadId) {}
+    }
+    /// The thread's own header and route over a window the recording had; no media.
+    struct ManualWorld {
+        threads: Arc<dyn mixdog_core_ports::ports::threads::ThreadState>,
+        window: u64,
+    }
+    #[async_trait]
+    impl mixdog_core_session::session::thread_context::ContextWorld for ManualWorld {
+        async fn snapshot(&self, thread: Option<&ThreadId>) -> Result<Option<mixdog_core_session::session::thread_context::ContextSnapshot>, mixdog_core_api::CoreError> {
+            let header = self.threads.header(thread.expect("a thread")).await.expect("the thread's header");
+            let text = |key: &str| header.get(key).and_then(Value::as_str).expect("a route").to_owned();
+            let (provider, model) = (text("provider"), text("model"));
+            Ok(Some(mixdog_core_session::session::thread_context::ContextSnapshot {
+                header,
+                replay_owner: ProviderId::from(provider.as_str()),
+                provider,
+                model,
+                context_window: json!(self.window),
+                cwd: Value::Null,
+                mode: Value::Null,
+                messages: Vec::new(),
+                active: true,
+                request_native: Vec::new(),
+                request_defined: Vec::new(),
+                session_defined: Vec::new(),
+                agent_mode: false,
+                annotations: std::collections::HashMap::new(),
+                media: Arc::new(ManualMeters),
+                images: Arc::new(ManualMeters),
+                rows: Arc::new(super::super::context_world::StoredBodies),
+            }))
+        }
+        fn lowering(&self, _: &ThreadId, _: &str) -> (Arc<dyn mixdog_agent::compact::estimate::MediaMeter>, Arc<dyn mixdog_agent::compact::pressure::ImageIdentities>) {
+            (Arc::new(ManualMeters), Arc::new(ManualMeters))
+        }
+    }
+    /// The test `Config`, whose sessions have the compaction policy `.0`.
+    struct ManualConfig(mixdog_agent::boundary::CompactSettings);
+    #[async_trait]
+    impl super::super::host_seams::ConfigSeams for ManualConfig {
+        fn hidden_agent(&self, agent: Option<&str>) -> bool {
+            super::super::host_seams::ConfigSeams::hidden_agent(&Config, agent)
+        }
+        fn synced_compaction(&self, header: &mixdog_store::schema::record::Header, install: bool) -> Option<Value> {
+            super::super::host_seams::ConfigSeams::synced_compaction(&Config, header, install)
+        }
+        fn route_config(&self, header: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
+            super::super::host_seams::ConfigSeams::route_config(&Config, header)
+        }
+        fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+            None
+        }
+        fn run_settings(&self, thread: &ThreadId, header: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {
+            let mut settings = super::super::host_seams::ConfigSeams::run_settings(&Config, thread, header);
+            settings.compact = Some(self.0.clone());
+            settings
+        }
+        fn stored_instruction_files(&self) -> Option<Value> {
+            None
+        }
+        fn response_language(&self) -> Option<(String, String)> {
+            None
+        }
+    }
+    struct ManualNoHooks;
+    #[async_trait]
+    impl super::super::compact_hooks::CompactHooks for ManualNoHooks {
+        async fn pre(&self, _: &ThreadId, _: &str) {}
+        async fn post(&self, _: &ThreadId, _: &str) {}
+    }
+    struct ManualGauge;
+    impl mixdog_core_session::session::route_session::ContextStatusCache for ManualGauge {
+        fn invalidate(&self, _: &ThreadId) {}
+    }
+
+    /// `fixtures/cache-break` `compactions` `manual` through the core's real manual compaction (`HostManualCompaction::compact`):
+    /// the recording's three prompts run as real turns of a real thread, then the thread is compacted by the run host's own entry
+    /// over its stored rows, the compactor the session gets from `SessionCompactors`, and the directory's commit. What the core parks in the
+    /// thread's header for the next send is the intent Node recorded (`pendingCacheBreakIntent`), and the pass asked for the
+    /// summaries Node's did.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_manual_compaction_parks_the_intent_node_recorded() {
+        use mixdog_core_ports::ports::threads::ThreadState;
+        use mixdog_core_session::session::turn_ops::ManualCompaction;
+
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/cache-break/golden.json")).unwrap();
+        let scenario = golden["compactions"].as_array().unwrap().iter().find(|s| s["name"] == "manual").expect("the manual scenario");
+        let turns: Vec<&Value> = scenario["steps"].as_array().unwrap().iter().filter(|s| s["name"].as_str().unwrap().starts_with("turn")).collect();
+        let script = turns
+            .iter()
+            .map(|turn| vec![StreamEvent::TextDelta(turn["answer"].as_str().unwrap().into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }])
+            .collect::<VecDeque<_>>();
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(script),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let World { workspace, rig, next, directory, .. } = turn_world(provider.clone()).await;
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        let session = scenario["header"].as_object().unwrap();
+        handle
+            .request(CoreRequest {
+                method: Method("thread/header/patch"),
+                params: json!({ "threadId": id, "set": { "provider": "scripted", "model": "m", "compaction": session["compaction"], "providerCacheOpts": session["providerCacheOpts"], "contextWindow": session["contextWindow"], "rawContextWindow": session["rawContextWindow"], "effectiveContextWindowPercent": session["effectiveContextWindowPercent"] } }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await
+            .expect("route");
+        let stored_roles = || -> usize {
+            rig.store.records(&id).into_iter().filter(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"].is_string()))).count()
+        };
+        for (n, turn) in turns.iter().enumerate() {
+            let op = format!("op-{n}");
+            let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": turn["prompt"] } }), &op)).await.expect("turn/start");
+            let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+            assert_eq!(started["kind"], "started");
+            eventually_on_awaiting(|| format!("turn {n}'s two rows stored and the thread idle"), &[&rig.store.committed, handle.stepped()], || (stored_roles() >= 2 * (n + 1) && !handle.turn_busy()).then_some(())).await;
+        }
+
+        let window = scenario["contextWindow"].as_u64().unwrap();
+        let calibration = scenario["tokenCalibration"].as_f64().unwrap();
+        let settings = mixdog_agent::boundary::CompactSettings { auto: true, context_window: Some(window), token_calibration: calibration, ..Default::default() };
+        let threads: Arc<dyn ThreadState> = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+        let host = Arc::new(ManualHost {
+            sender: Arc::new(ManualSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default() }),
+            route: super::super::summary_routes::SessionRoute { provider: scenario["provider"].as_str().unwrap().into(), model: scenario["model"].as_str().unwrap().into(), context_window: Some(window) },
+            calibration,
+        });
+        let tokens = mixdog_rt::testing::tokens();
+        let manual = super::super::manual_compaction::HostManualCompaction::new(super::super::manual_compaction::ManualParts {
+            world: Arc::new(ManualWorld { threads: threads.clone(), window }),
+            threads: threads.clone(),
+            config: Arc::new(ManualConfig(settings)),
+            compactors: Arc::new(super::super::compactors::SessionCompactors::new(Arc::new(ManualCompactionWorld(host.clone())), Arc::new(Fixed))),
+            next,
+            hooks: Arc::new(ManualNoHooks),
+            gauge: Arc::new(ManualGauge),
+            clock: Arc::new(Fixed),
+            recover: Arc::new(|_| {}),
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            data_dir: workspace.path().join("data"),
+            blobs: Arc::new(NoBlobs),
+        });
+        let answer = manual.compact(&id, "manual", false).await.expect("the compaction").expect("a compaction answer");
+        assert_eq!(answer["changed"], true, "{answer}");
+        assert_eq!(host.sender.calls.load(std::sync::atomic::Ordering::SeqCst) as u64, scenario["compaction"]["summaryRequests"].as_u64().unwrap(), "the summary requests of the pass");
+        let header = threads.header(&id).await.expect("the header");
+        assert_eq!(header.get("pendingCacheBreakIntent").cloned().unwrap_or(Value::Null), scenario["compaction"]["pending"], "the intent the core parks for the next send");
+    }
+
     /// The test function the scripted MCP servers run as (`mixdog_testkit::mcp_server`): nothing unless started as one.
     #[test]
     fn scripted_server() {

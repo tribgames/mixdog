@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 173030,
+      "bytes": 433082,
       "path": "golden.json",
-      "sha256": "bccff192992b38627cb5db11eb599bedf08d0da697c6044f51bb8cbba33ba2f9"
+      "sha256": "25b488b6bc7665ba2d1669b200f68d4e10d0a237d11acef0b4e08dcbf7c60353"
     }
   ],
   "inputs": [
@@ -23,7 +23,7 @@
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
-  "keptWhole": "the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request's message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per compaction scenario its compaction outcome, summary request count, parked intent, the transcript after, and per turn the sends (summary or turn, message count), rows, stderr lines and the parked intent, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes",
+  "keptWhole": "the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request's message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per compaction scenario its compaction outcome, summary request count, parked intent, the transcript after, the sends of the whole scenario in the order the provider received them (the compaction pass's summary requests and each turn's: summary or turn, every message's role and content), and per turn the sends (summary or turn, message count), rows, stderr lines and the parked intent, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes",
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -43,7 +43,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-cache-break.mjs",
-  "recorderSha256": "0e73a1ab58e5b1393688d69646d051f1b503a515629fae4ff97d01a380635ed9",
+  "recorderSha256": "2ff52cebe3bf3e06034811055baf62166e370d51571dbd88e1d897b520b28f21",
   "set": "cache-break",
   "syntheticInputs": [
     "the loop: a system prompt and one user turn of text and one image; a provider named anthropic whose first send throws \"Could not process image\" with status 400 and whose second answers \"ok\"",
@@ -54,5 +54,5 @@
     "the guard cases: synthetic transcripts and request prefixes reaching every prepareProviderPrefixGuard branch",
     "the prefix bodies: synthetic Anthropic request bodies moving each fingerprinted block, marker and message breakpoint"
   ],
-  "totalBytes": 173030
+  "totalBytes": 433082
 }
