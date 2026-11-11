@@ -1,0 +1,366 @@
+{
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs --tree D:\\mixdog-build\\tmp\\b6f-tree",
+  "exact": true,
+  "exclusions": [],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 441639,
+      "path": "golden.json",
+      "sha256": "9a5a2a85b80090c57ac632a2226d1f7bbd3ab1f965ce05d786c33b8994407ca4"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-cases.mjs",
+      "sha256": "b2599464d0b804760b9b12aab840e932d36bfa627ab4ef5bcf4331f237956d6d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
+      "sha256": "8814e37d0c183cb5b83166c075ce0b615389584abeb84b1402ead796569e26b6"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+      "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+      "sha256": "07bec252644efbc5645c2e15ebf3aa3302b405deb7313637b712a26e719a9177"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "427b08aeea7b43e88c5efcc611982a5d983153488daee055ddf1a0ff9e42e66e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalisations": [],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
+  "recorderSha256": "e975a58ec21c7b0ac7f5fb02e16ac5fb4bd9e1fd89d5da78d9c44ad5389cfef1",
+  "refusedByRule": {
+    "cases": [
+      {
+        "case": "mcp-add-header-lone",
+        "coreMustAnswer": {
+          "code": -32602,
+          "data": {
+            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in mcp/addMcpServer.params/input/headers/X-Token",
+            "path": "mcp/addMcpServer.params/input/headers/X-Token",
+            "reason": "invalidParams"
+          },
+          "kind": "rpc",
+          "message": "invalidParams",
+          "reason": "invalidParams"
+        },
+        "field": "mcp/addMcpServer.params/input/headers/X-Token",
+        "nodeAnswered": {
+          "connected": {
+            "error": "[mcp-client] 1 MCP server(s) failed to connect — lone-header: Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+            "failures": [
+              {
+                "msg": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                "name": "lone-header"
+              }
+            ],
+            "ok": false
+          },
+          "saved": "{\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}"
+        },
+        "nodeRequests": []
+      },
+      {
+        "case": "mcp-save-header-lone",
+        "coreMustAnswer": {
+          "code": -32602,
+          "data": {
+            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in mcp/saveMcpServer.params/input/headers/X-Token",
+            "path": "mcp/saveMcpServer.params/input/headers/X-Token",
+            "reason": "invalidParams"
+          },
+          "kind": "rpc",
+          "message": "invalidParams",
+          "reason": "invalidParams"
+        },
+        "field": "mcp/saveMcpServer.params/input/headers/X-Token",
+        "nodeAnswered": {
+          "connected": {
+            "error": "[mcp-client] 1 MCP server(s) failed to connect — lone-header-save: Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+            "failures": [
+              {
+                "msg": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                "name": "lone-header-save"
+              }
+            ],
+            "ok": false
+          },
+          "saved": "{\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}"
+        },
+        "nodeRequests": []
+      },
+      {
+        "case": "lsp-rename-lone",
+        "coreMustAnswer": {
+          "code": -32602,
+          "data": {
+            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in lsp/request.params/request/params/newName",
+            "path": "lsp/request.params/request/params/newName",
+            "reason": "invalidParams"
+          },
+          "kind": "rpc",
+          "message": "invalidParams",
+          "reason": "invalidParams"
+        },
+        "field": "lsp/request.params/request/params/newName",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "capabilities": {
+              "callHierarchy": false,
+              "codeAction": false,
+              "codeActionKinds": [],
+              "codeActionResolve": false,
+              "codeLens": false,
+              "codeLensResolve": false,
+              "completion": false,
+              "completionResolve": false,
+              "completionTriggerCharacters": [],
+              "declaration": false,
+              "definition": false,
+              "documentColor": false,
+              "documentHighlight": false,
+              "documentLink": false,
+              "documentLinkResolve": false,
+              "documentSymbol": false,
+              "executeCommand": true,
+              "foldingRange": false,
+              "formatting": false,
+              "hover": false,
+              "implementation": false,
+              "inlayHint": false,
+              "inlayHintResolve": false,
+              "linkedEditingRange": false,
+              "onTypeFormatting": false,
+              "onTypeFormattingTriggerCharacters": [],
+              "prepareRename": false,
+              "rangeFormatting": false,
+              "references": false,
+              "rename": true,
+              "selectionRange": false,
+              "semanticTokens": false,
+              "semanticTokensDelta": false,
+              "semanticTokensLegend": {
+                "tokenModifiers": [],
+                "tokenTypes": []
+              },
+              "semanticTokensRange": false,
+              "signatureHelp": false,
+              "signatureHelpRetriggerCharacters": [],
+              "signatureHelpTriggerCharacters": [],
+              "typeDefinition": false,
+              "workspaceSymbol": true
+            },
+            "result": {
+              "received": {
+                "newName": "x\ud83d",
+                "position": {
+                  "character": 3,
+                  "line": 0
+                },
+                "textDocument": {
+                  "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+                }
+              }
+            },
+            "server": "rust-analyzer",
+            "status": "ready"
+          }
+        },
+        "nodeRequests": []
+      },
+      {
+        "case": "lsp-workspace-symbol-lone",
+        "coreMustAnswer": {
+          "code": -32602,
+          "data": {
+            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in lsp/request.params/request/params/query",
+            "path": "lsp/request.params/request/params/query",
+            "reason": "invalidParams"
+          },
+          "kind": "rpc",
+          "message": "invalidParams",
+          "reason": "invalidParams"
+        },
+        "field": "lsp/request.params/request/params/query",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "capabilities": {
+              "callHierarchy": false,
+              "codeAction": false,
+              "codeActionKinds": [],
+              "codeActionResolve": false,
+              "codeLens": false,
+              "codeLensResolve": false,
+              "completion": false,
+              "completionResolve": false,
+              "completionTriggerCharacters": [],
+              "declaration": false,
+              "definition": false,
+              "documentColor": false,
+              "documentHighlight": false,
+              "documentLink": false,
+              "documentLinkResolve": false,
+              "documentSymbol": false,
+              "executeCommand": true,
+              "foldingRange": false,
+              "formatting": false,
+              "hover": false,
+              "implementation": false,
+              "inlayHint": false,
+              "inlayHintResolve": false,
+              "linkedEditingRange": false,
+              "onTypeFormatting": false,
+              "onTypeFormattingTriggerCharacters": [],
+              "prepareRename": false,
+              "rangeFormatting": false,
+              "references": false,
+              "rename": true,
+              "selectionRange": false,
+              "semanticTokens": false,
+              "semanticTokensDelta": false,
+              "semanticTokensLegend": {
+                "tokenModifiers": [],
+                "tokenTypes": []
+              },
+              "semanticTokensRange": false,
+              "signatureHelp": false,
+              "signatureHelpRetriggerCharacters": [],
+              "signatureHelpTriggerCharacters": [],
+              "typeDefinition": false,
+              "workspaceSymbol": true
+            },
+            "result": {
+              "received": {
+                "query": "m\ud83d"
+              }
+            },
+            "server": "rust-analyzer",
+            "status": "ready"
+          }
+        },
+        "nodeRequests": []
+      },
+      {
+        "case": "lsp-execute-command-lone",
+        "coreMustAnswer": {
+          "code": -32602,
+          "data": {
+            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in lsp/request.params/request/params/command",
+            "path": "lsp/request.params/request/params/command",
+            "reason": "invalidParams"
+          },
+          "kind": "rpc",
+          "message": "invalidParams",
+          "reason": "invalidParams"
+        },
+        "field": "lsp/request.params/request/params/command",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "capabilities": {
+              "callHierarchy": false,
+              "codeAction": false,
+              "codeActionKinds": [],
+              "codeActionResolve": false,
+              "codeLens": false,
+              "codeLensResolve": false,
+              "completion": false,
+              "completionResolve": false,
+              "completionTriggerCharacters": [],
+              "declaration": false,
+              "definition": false,
+              "documentColor": false,
+              "documentHighlight": false,
+              "documentLink": false,
+              "documentLinkResolve": false,
+              "documentSymbol": false,
+              "executeCommand": true,
+              "foldingRange": false,
+              "formatting": false,
+              "hover": false,
+              "implementation": false,
+              "inlayHint": false,
+              "inlayHintResolve": false,
+              "linkedEditingRange": false,
+              "onTypeFormatting": false,
+              "onTypeFormattingTriggerCharacters": [],
+              "prepareRename": false,
+              "rangeFormatting": false,
+              "references": false,
+              "rename": true,
+              "selectionRange": false,
+              "semanticTokens": false,
+              "semanticTokensDelta": false,
+              "semanticTokensLegend": {
+                "tokenModifiers": [],
+                "tokenTypes": []
+              },
+              "semanticTokensRange": false,
+              "signatureHelp": false,
+              "signatureHelpRetriggerCharacters": [],
+              "signatureHelpTriggerCharacters": [],
+              "typeDefinition": false,
+              "workspaceSymbol": true
+            },
+            "result": {
+              "received": {
+                "arguments": [],
+                "command": "stub.run\ud83d"
+              }
+            },
+            "server": "rust-analyzer",
+            "status": "ready"
+          }
+        },
+        "nodeRequests": []
+      }
+    ],
+    "check": "the client failure detail equals coreMustAnswer whole; the local server got no request; for an MCP server, mcp/getMcpServerConfig answers for its name as for a name never added",
+    "decision": "decisions.md \"frame-lone-surrogate\": a lone surrogate outside the free-text fields refuses the request whole before any service runs"
+  },
+  "replayedByRustTest": [
+    {
+      "case": "hf-search-lone",
+      "test": "mixdog-services local_provider::hugging_face::tests::a_query_holding_a_lone_surrogate_is_the_url_node_fetched"
+    }
+  ],
+  "set": "lone-surrogate-wire",
+  "totalBytes": 441639
+}

@@ -2058,14 +2058,12 @@
   },
   {
    "class": "free",
-   "reason": "A server's arguments, environment values and header values as a person typed them (the names stay identifiers).",
+   "reason": "A server's arguments and environment values as a person typed them (the names stay identifiers): given to the server's process as Node's spawn gave them (U+FFFD).",
    "fields": [
     "request mcp/addMcpServer /input/args/*",
     "request mcp/addMcpServer /input/env/*",
-    "request mcp/addMcpServer /input/headers/*",
     "request mcp/saveMcpServer /input/args/*",
     "request mcp/saveMcpServer /input/env/*",
-    "request mcp/saveMcpServer /input/headers/*",
     "request thread/agentControl /args/context",
     "request thread/agentControl /args/message",
     "request thread/agentControl /args/prompt",
@@ -4325,6 +4323,14 @@
    "fields": [
     "request initialize /clientInfo/name",
     "request initialize /clientInfo/title"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "an MCP server's header value, sent on every request to the server: Node saves the config and its fetch refuses the value when it connects (`Cannot convert argument to a ByteString`), sending nothing; the core's HTTP library would send the U+FFFD bytes, so the request is refused before anything is saved (recorded: native/core/fixtures/lone-surrogate-wire mcp-add-header-lone, mcp-save-header-lone)",
+   "fields": [
+    "request mcp/addMcpServer /input/headers/*",
+    "request mcp/saveMcpServer /input/headers/*"
    ]
   }
  ]
