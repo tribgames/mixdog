@@ -59,7 +59,7 @@ await set.run('closed Lead and agent records apply the same checkpoint-marker po
       recorder.record({ currentUserContent: 'checkpoint prompt', turnOutgoing: [{ role: 'user', content: 'checkpoint prompt' }] });
       await settleTurnCheckpointWrites(id);
       const projected = await projectStoredTranscript(id, doc, { includeMessages: true, itemLimit: 100 });
-      results.push({ marked, owner, doc, messages: projected.messages });
+      results.push({ marked, owner, doc, projected });
       recorder.stop();
     }
   }
@@ -110,8 +110,8 @@ await set.finish({
   entry: { runs: 'store-summary-visibility.mjs, store-summary-index.mjs, store-summary-reader.mjs, store/listing.mjs, store-transcript-projection.mjs projectStoredTranscript, manager/turn-checkpoint.mjs recorder, all over session files in a temp data dir', notRun: 'no live runtime: only the stored records and indexes' },
   replay: { entry: 'mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages', normalised: { dataDir: 'temp, not in the recording' } },
   replaceInText: roots.map((r) => [r, '<data>']),
-  replaceRegex: [[/^\d+(:[0-9a-z]+:[A-Za-z0-9+\/=_-]+\/whole)$/, '<epoch>$1']],
-  normaliseReason: 'the temp data dir is written <data>; a projection stamp starts with the transcript worker epoch (a per-run number), written <epoch>',
+  replaceRegex: [[/^\d+(:[0-9a-z]+:[A-Za-z0-9+\/=_-]+\/whole)$/, '<epoch>$1'], [/^\d+(:[0-9a-z]+:\d+)$/, '<pid>$1']],
+  normaliseReason: 'the temp data dir is written <data>; a projection stamp starts with the transcript worker epoch (a per-run number), written <epoch>; a projection stamp without a fingerprint is <process id>:<clock>:<counter>, the process id written <pid>',
 });
 for (const r of roots) rmSync(r, { recursive: true, force: true });
 process.exit(0);
