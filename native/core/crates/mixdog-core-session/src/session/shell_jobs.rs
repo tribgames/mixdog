@@ -51,6 +51,19 @@ impl OwnedShells for ShellControl {
     }
 }
 
+/// A thread's strip as it stands when its session loads: Node's host holds every session's `shellJobs` from the poller, so a session
+/// shown (or shown again after it was let go with a job running) carries its pane at once; the core's strip publisher only sends
+/// changes. `None`: no shell runtime behind the session.
+pub trait ShellStrips: Send + Sync {
+    fn strip(&self, thread: &ThreadId) -> Option<Value>;
+}
+
+impl ShellStrips for ShellControl {
+    fn strip(&self, thread: &ThreadId) -> Option<Value> {
+        Some(thread_strip(&self.tasks().thread_state(thread.as_str())))
+    }
+}
+
 /// `workspaceSees(targetCwd, viewerCwd)`: whether a session working in `viewer` sees work done
 /// in `target`.
 #[async_trait]

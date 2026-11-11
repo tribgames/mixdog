@@ -350,6 +350,8 @@ pub struct SessionDeps {
     pub agent_status: Arc<dyn agent_activity::AgentStatus>,
     /// The code-graph prewarm this session's events schedule and wake (`prewarm_signals.rs`).
     pub code_graph_prewarm: Arc<dyn prewarm_signals::CodeGraphPrewarmSignals>,
+    /// The session's shell-job strip at load (`shell_jobs::ShellStrips`).
+    pub shell_strips: Arc<dyn shell_jobs::ShellStrips>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).
     pub agent_signals: Arc<dyn agent_activity::AgentSignals>,
     pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,
