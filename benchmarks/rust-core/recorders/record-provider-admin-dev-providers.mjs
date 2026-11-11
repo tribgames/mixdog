@@ -11,7 +11,7 @@ const rec = await startRecording({
   net: false,
   entry: 'src/session-runtime/services/provider-admin.mjs providerSetup({}, { checkSecrets: false, detectLocal: false }).oauth / providerStatus({}) / isKnownProvider / listProviderAccounts, with src/runtime/shared/config.mjs updateSection("agent", ...) over the recording data dir (MIXDOG_CONFIG_READ_TTL_MS=0).',
   compare: 'mixdog-core-domains ai_admin provider list (admin_providers): per step, apply the `developer` flags and compare `oauthIds`, `known` and `statusDevIds`; `listAccountsError` is the error text for an unknown OAuth provider.',
-  replay: "Rust entry: no pub item located on o1 for the developer-option gating of OAuth providers (ai/service/admin_models.rs:427-450 and registry/effective.rs:31-33 are private): the case is work for the Rust side.",
+  replay: "Rust entry (pub, on o1): mixdog_ai::service::admin_models developer_option_for_provider (service/admin_models.rs:427), developer_option_enabled (:438) and provider_available (:445) over the stored `developer` section (`pub mod admin_models`, service/mod.rs:5): replay `provider_available(name, client_mode, stored_developer)` per option state; the provider setup list that the Node test also reads (`oauth` rows) is the registry listing built over it (registry/effective.rs:31-33).",
 });
 process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
 process.env.MIXDOG_USER_DATA_BACKUP_ROOT = `${rec.dataDir}/backups`;
@@ -20,7 +20,6 @@ const { providerSetup, providerStatus, isKnownProvider, listProviderAccounts } =
 const SRC = 'src/standalone/provider-admin-dev-providers.test.mjs';
 const DEV = ['mimo-oauth', 'cursor-oauth', 'devin-oauth', 'antigravity-oauth'];
 const KNOWN = [...DEV, 'openai-oauth', 'muse-code-oauth', 'command-code-oauth', 'openai', 'mixdog-local'];
-const oauthIds = async () => (await providerSetup({}, { checkSecrets: false, detectLocal: false })).oauth.map((row) => row.id);
 const step = async (developer) => {
   if (developer) updateSection('agent', (current) => ({ ...current, developer }));
   const listAccountsError = {};
@@ -34,10 +33,9 @@ const step = async (developer) => {
   }
   return {
     developer: developer ?? null,
-    oauthIds: await oauthIds(),
+    setup: await providerSetup({}, { checkSecrets: false, detectLocal: false }),
     known: Object.fromEntries(KNOWN.map((id) => [id, isKnownProvider(id)])),
-    statusOauthIds: providerStatus({}).filter((row) => row.type === 'oauth').map((row) => row.id),
-    statusDevIds: providerStatus({}).filter((row) => row.type === 'oauth').map((row) => row.id).filter((id) => DEV.includes(id)),
+    status: providerStatus({}),
     listAccountsError,
   };
 };
