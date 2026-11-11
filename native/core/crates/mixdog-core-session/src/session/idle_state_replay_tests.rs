@@ -99,13 +99,18 @@ async fn an_idle_thread_with_a_running_goal_and_agent_job_sends_the_phone_nothin
     assert_eq!(snapshot["params"]["state"]["goal"]["status"], "active", "the baseline holds the running Goal");
     assert_eq!(snapshot["params"]["state"]["agents"]["agentJobs"][0]["status"], "running", "and the agent job");
 
+    // A read the recording marks undelivered is compared whole: the phone received exactly no frame by the time the actor has
+    // handled every timer due and every message before a round trip through its inbox (`caught_up`, with its deadline).
     let mut delivered = Vec::new();
+    let mut quiet = Vec::new();
     let tick = |rig: &Rig| rig.clock.0.fetch_add(TICK.as_millis() as u64, Ordering::SeqCst);
     for _ in 0..pulses {
         tick(&rig);
         tokio::time::advance(TICK).await;
-        tokio::task::yield_now().await;
-        delivered.push(!received(&phone, &sub).is_empty());
+        super::tests::caught_up(&handle).await;
+        let frames = received(&phone, &sub);
+        delivered.push(!frames.is_empty());
+        quiet.push(frames);
     }
 
     tick(&rig);
@@ -125,10 +130,15 @@ async fn an_idle_thread_with_a_running_goal_and_agent_job_sends_the_phone_nothin
 
     tick(&rig);
     tokio::time::advance(TICK).await;
-    tokio::task::yield_now().await;
-    delivered.push(!received(&phone, &sub).is_empty());
+    super::tests::caught_up(&handle).await;
+    let later = received(&phone, &sub);
+    delivered.push(!later.is_empty());
 
+    // The undelivered reads whole (Node's `delivered: null` is no frame at all), then where frames came.
     for wire in recorded.get("wires").as_array() {
+        let pulses_recorded: Vec<Vec<Value>> = wire.get("framesAfterBaseline").as_array().iter().map(|_| Vec::new()).collect();
+        assert_eq!(quiet, pulses_recorded, "compact: {:?}", wire.get("compact"));
+        assert_eq!(later, Vec::<Value>::new(), "the paused Goal read later, compact: {:?}", wire.get("compact"));
         assert_eq!(delivered, recorded_pattern(wire), "compact: {:?}", wire.get("compact"));
     }
 }

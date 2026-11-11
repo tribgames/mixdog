@@ -10,7 +10,10 @@
 //  - `rows`: each conversation row delivered since the step's frames were cleared, as `[conversation, text]` in order (Node: the
 //    session-state frames, one per published row; K1: the rows' `item/completed` on the connections that follow it);
 //  - the outcome of a late registration (rejected) and the acceptance of a restarted desktop's first one.
-// The agent pool frame of case 1 is not compared: it reaches every connection over the app feed, whatever conversations it shows.
+// Compared in recorded order, nothing sorted. Declared out, by name: frames of kind `agent-pool` (they reach every connection over
+// the app feed, whatever conversations it shows); of a `session-state` frame its `wire` (Node's delta encoding, which no K1
+// connection carries) is compared as the row it delivered; of a step, `envelopes`, `sameServiceId`, `adaptersCreated`,
+// `firstInit` and `replacementInit` (Node's DesktopServiceRegistry bookkeeping, no K1 counterpart; `accepted` is compared below).
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { fromExact } from './lib/exact.mjs';
@@ -41,7 +44,7 @@ function world() {
   const visible = async () => {
     const ids = [];
     for (const desktop of desktops.values()) if (!desktop.closed) ids.push(...(await core.call('subscribed', { conn: desktop.conn })));
-    return [...new Set(ids.map((id) => names.get(id)))].sort();
+    return [...new Set(ids.map((id) => names.get(id)))];
   };
   const threadOf = async (name) => {
     if (!threads.has(name)) {
@@ -115,8 +118,9 @@ async function replay(name, script) {
     await script(w);
     const expected = node.trace.map((t) => ({
       step: t.step,
-      visible: [...(t.registrations.at(-1) ?? [])].sort(),
-      rows: t.frames.filter((f) => f.kind === 'session-state').map(nodeRow),
+      visible: [...(t.registrations.at(-1) ?? [])],
+      // Every frame in recorded order; `agent-pool` is the one kind declared out (header).
+      rows: t.frames.filter((f) => f.kind !== 'agent-pool').map(nodeRow),
     }));
     const actual = w.marks.map(({ step, visible, rows }) => ({ step, visible, rows }));
     if (!isDeepStrictEqual(actual, expected)) failures.push({ case: name, actual, expected });
