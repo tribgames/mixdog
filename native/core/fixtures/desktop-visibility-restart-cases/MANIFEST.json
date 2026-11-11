@@ -2,6 +2,7 @@
   "cases": 6,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-desktop-visibility-restart-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "hops": "No wire in the Node test: the registry emits frames to a local onFrame; each frame envelope is recorded whole.",
     "notRun": "the daemon transport (the registry's onFrame is a local array); the host is a scripted object (registrations and published lane rows)",
     "runs": "DesktopServiceRegistry (init / invoke setVisibleSessions / releaseClient / unsubscribe) with the real createDesktopServiceStateSync adapter over a scripted host, the lifecycle-desktop-service fixture module, and the real snapshot delta decoder"
   },
@@ -63,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop-visibility-restart-cases.mjs",
-  "recorderSha256": "945650614811c4317dd4e5bfb6607b8b578daf0db15b058140e7836a9b20a49e",
+  "recorderSha256": "8144cc3dd2d4fd091dba3dbcfa8ae67e41416c8935eb3a7879c9eb71ca738c1f",
   "replay": {
     "compare": "mixdog-app-server connection.rs (desktop registration): replay each trace step: the same init/invoke/release/unsubscribe calls and published rows; compare registrations after each step and the frames (kind, sessionId, wire) whole",
     "entry": "Drive these public items on o1: thread/resume (setVisibleSessions, mixdog-app-protocol/src/inventory.rs:1125).",

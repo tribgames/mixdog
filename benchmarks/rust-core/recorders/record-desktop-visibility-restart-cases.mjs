@@ -151,7 +151,7 @@ await run('unsubscribing one desktop retains shared conversations until their la
 });
 
 await set.finish({
-  entry: {
+  entry: { hops: "No wire in the Node test: the registry emits frames to a local onFrame; each frame envelope is recorded whole.",
     runs: 'DesktopServiceRegistry (init / invoke setVisibleSessions / releaseClient / unsubscribe) with the real createDesktopServiceStateSync adapter over a scripted host, the lifecycle-desktop-service fixture module, and the real snapshot delta decoder',
     notRun: 'the daemon transport (the registry\'s onFrame is a local array); the host is a scripted object (registrations and published lane rows)',
   },
