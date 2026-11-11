@@ -110,25 +110,102 @@
     "workspace-folder-name-lone": "7b226964223a313032322c226d6574686f64223a2273617665576f726b7370616365222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a6563745c5c747269702e636f64652d776f726b7370616365222c5b7b2270617468223a22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226e616d65223a2254726970205c7564383364227d5d5d7d",
     "write-lone-name": "7b226964223a32352c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75643833642e747874222c227a222c2268695c6e225d7d"
   },
+  "mapping": {
+    "decision": "decisions.md \"Lone UTF-16 surrogates in client strings\"",
+    "files": {
+      "747269702e636f64652d776f726b7370616365": [
+        {
+          "pointer": "/folders/0/name"
+        }
+      ]
+    },
+    "helper": "benchmarks/rust-core/recorders/lib/lone-mapping.mjs mapAt",
+    "how": "each unpaired UTF-16 surrogate of the string, or the object key, at a listed JSON pointer becomes U+FFFD (String.prototype.toWellFormed); nothing else changes",
+    "preferences": [],
+    "steps": {
+      "alias-120-units-lone-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "alias-after-refusals-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "alias-high-at-end-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "alias-high-then-escape-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "alias-low-at-start-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "alias-reversed-pair-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "alias-two-highs-then-low-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "alias-upper-hex-listed": [
+        {
+          "pointer": "/value/0/name"
+        },
+        {
+          "pointer": "/value/0/alias"
+        }
+      ],
+      "method-name-lone": [
+        {
+          "pointer": "/error"
+        }
+      ],
+      "workspace-folder-name-lone": [
+        {
+          "pointer": "/value/folders/0/name"
+        }
+      ]
+    }
+  },
   "nodeVersion": "v22.20.0",
   "normalisations": [
     {
-      "allowedBy": "decisions.md \"frame-lone-surrogate\" (a)",
-      "what": "every string and object key of Node's answers (wellFormed): a lone surrogate becomes U+FFFD; two keys of one object that become one fail the replay",
-      "where": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs:38 wellFormed(), applied at :172 (answers) and :200 (preferences)",
-      "why": "the core reads an unpaired surrogate escape as U+FFFD, so what it echoes holds U+FFFD where Node echoed the lone unit"
-    },
-    {
-      "allowedBy": "decisions.md \"frame-lone-surrogate\" (a); FORMAT.md `projects` table",
-      "what": "golden.preferences (desktop-projects.json) is compared as {aliases, hidden} with the core's `projects` rows (state/core.sqlite), after wellFormed",
+      "allowedBy": "FORMAT.md `projects` table",
+      "what": "golden.preferences (desktop-projects.json) is compared as {aliases, hidden} with the core's `projects` rows (state/core.sqlite), after the mapping",
       "where": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs, after the project folder",
       "why": "the core keeps project preferences in that table (DS §4.1), not in a JSON file; `version` is the file format's, not state"
-    },
-    {
-      "allowedBy": "decisions.md \"frame-lone-surrogate\": \"JSON files the core writes hold EF BF BD where Node wrote the six-byte escape\"",
-      "what": "the bytes of trip.code-workspace in golden.files: each six-byte \\udXXX escape JSON.stringify wrote (it escapes only lone surrogates; an escaped backslash before `ud` is left) becomes the UTF-8 of U+FFFD; nothing else changes",
-      "where": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs jsonEscapesRead(), applied to the project folder comparison",
-      "why": "the core writes JSON files with EF BF BD where Node wrote the escape"
     },
     {
       "allowedBy": "not a value change: both sides get the same string",
@@ -158,7 +235,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs",
-      "sha256": "90cedd8782616f2fdcfddc058b51ce8fe177ed99b054e7385dcd9fac32871900"
+      "sha256": "7a69ae851a10dc3934149c6bc8514911ba9c4d13b8c4629dff08b8a5f7401d82"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-cases.mjs",
@@ -166,7 +243,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs",
-      "sha256": "79dd77b6032e839835ee42f7a24b16e0320d23b17dea88c92cc3593a3295a876"
+      "sha256": "1270921e4c1b2f4d4fce9f33bfe8708010427059bf805d93ca11ad4b8df03052"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/raw-frame-bytes.mjs",
@@ -195,6 +272,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
       "sha256": "c21b47dd1896f6245063ad1765a84b4f5faf4c8f5d472881b3c1d094ae1051a6"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/lone-mapping.mjs",
+      "sha256": "9a8a960606fd1571a349f6eb136894caeb630fb6edd499f1c0a476bcf2a9b0cd"
     }
   ],
   "refusedByRule": {

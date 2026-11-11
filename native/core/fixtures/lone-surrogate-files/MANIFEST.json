@@ -151,16 +151,139 @@
     "remote-access-settings": "{\"name\":\"PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP😀tail\",\"alias\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA😀tail\",\"enabled\":true}",
     "worktree-registry": "{\"branch\":\"topic-\\ud83d\"}"
   },
+  "mapping": {
+    "at": {
+      "agent-definition": [
+        {
+          "pointer": "/before/agents~1helper~1agent.json/name"
+        },
+        {
+          "pointer": "/before/agents~1helper~1agent.json/description"
+        },
+        {
+          "pointer": "/nodeRead/identityLine"
+        }
+      ],
+      "config-profile": [
+        {
+          "pointer": "/before/mixdog-config.json/agent/profile/title"
+        },
+        {
+          "pointer": "/after/mixdog-config.json/agent/profile/title"
+        }
+      ],
+      "editor-backup": [
+        {
+          "pointer": "/before/3373c1eec284c17f3ebb03898d5bfb97d80cdd3969d9de48fb091d482856715b.json/content"
+        },
+        {
+          "pointer": "/nodeRead/content"
+        },
+        {
+          "pointer": "/op/writeEditorBackup/content"
+        },
+        {
+          "pointer": "/after/3373c1eec284c17f3ebb03898d5bfb97d80cdd3969d9de48fb091d482856715b.json/content"
+        }
+      ],
+      "event-queue": [
+        {
+          "pointer": "/before/events~1queue~11794355203000-00000000-vv43.json/prompt"
+        },
+        {
+          "pointer": "/after/events~1queue~11794355203000-00000000-vv43.json/prompt"
+        }
+      ],
+      "media-store": [
+        {
+          "pointer": "/before/index.json/assets/0/prompt"
+        },
+        {
+          "pointer": "/before/boards.json/boards/1/name"
+        },
+        {
+          "pointer": "/nodeRead/boards/boards/1/name"
+        },
+        {
+          "pointer": "/after/index.json/assets/0/prompt"
+        },
+        {
+          "pointer": "/after/boards.json/boards/1/name"
+        }
+      ],
+      "mixy-identity": [
+        {
+          "pointer": "/before/agents~1lead~1agent.json/name"
+        },
+        {
+          "pointer": "/nodeRead/mixyDisplayName"
+        }
+      ],
+      "project-recovery": [
+        {
+          "pointer": "/before/record~1state.json/message"
+        },
+        {
+          "pointer": "/nodeRead/message"
+        },
+        {
+          "pointer": "/after/record~1state.json/message"
+        }
+      ],
+      "project-recovery-lone-path": [
+        {
+          "pointer": "/before/record~1manifest.json/files/0/relPath"
+        },
+        {
+          "pointer": "/before/record~1manifest.json/files/0/destination"
+        },
+        {
+          "pointer": "/after/inspected/files/0/relPath"
+        },
+        {
+          "pointer": "/after/restored/files/0/relPath"
+        },
+        {
+          "pointer": "/after/state/restored/0"
+        }
+      ],
+      "remote-access-settings": [
+        {
+          "pointer": "/before/remote-access-settings.json/name"
+        },
+        {
+          "pointer": "/before/remote-access-settings.json/deviceAliases/client-a"
+        },
+        {
+          "pointer": "/nodeRead/settings/name"
+        },
+        {
+          "pointer": "/nodeRead/deviceAliases/client-a"
+        },
+        {
+          "pointer": "/after/remote-access-settings.json/name"
+        },
+        {
+          "pointer": "/after/remote-access-settings.json/deviceAliases/client-a"
+        }
+      ],
+      "worktree-registry": [
+        {
+          "pointer": "/before/worktrees-v1~1registry.json/entries/topic-one/branch"
+        },
+        {
+          "pointer": "/nodeRead/entries/topic-one/branch"
+        },
+        {
+          "pointer": "/after/worktrees-v1~1registry.json/entries/topic-one/branch"
+        }
+      ]
+    },
+    "decision": "decisions.md \"Lone UTF-16 surrogates in client strings\"",
+    "helper": "benchmarks/rust-core/recorders/lib/lone-mapping.mjs mapAt",
+    "how": "each unpaired UTF-16 surrogate of the string, or the object key, at a listed JSON pointer becomes U+FFFD (String.prototype.toWellFormed); nothing else changes"
+  },
   "nodeVersion": "v22.20.0",
-  "normalisations": [
-    {
-      "allowedBy": "decisions.md \"frame-lone-surrogate\" (a): the core reads an unpaired surrogate escape as U+FFFD; files the core writes hold EF BF BD where Node wrote the escape",
-      "input": "each case keeps its input as the JSON text Node wrote of it (`input`), escape included",
-      "what": "every string and object key of each case in cases.json (documents, nodeRead, op, after): a lone surrogate becomes U+FFFD; two keys of one object that become one fail the recording",
-      "where": "benchmarks/rust-core/recorders/record-lone-surrogate-files.mjs:82 wellFormedCase(), applied at :120 (record) and in documentOf()",
-      "why": "cases.json is read by serde_json, which cannot hold a lone unit; U+FFFD is what the core reads Node's escape as"
-    }
-  ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -182,7 +305,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-lone-surrogate-files.mjs",
-      "sha256": "1cb85a119402b8e60d324dee4aeaba26fb8fbda982125e28d036235974b3ca1b"
+      "sha256": "e953c5460d9e721cfec45735de9ef6e299894c933de29fa8a9dd4ceb28367f6d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -191,6 +314,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/lone-mapping.mjs",
+      "sha256": "9a8a960606fd1571a349f6eb136894caeb630fb6edd499f1c0a476bcf2a9b0cd"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ts-register.mjs",

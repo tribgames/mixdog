@@ -3,8 +3,8 @@
 // remote-protocol-files.ts), as phone-files-replay.mjs makes it; its outcome is compared whole with Node's answer frame. A `raw` step is
 // sealed as it stands and the close the phone is told is compared whole with Node's.
 //
-// Expected values are Node's, with one rule applied: under the decision of decisions.md "frame-lone-surrogate" (a), the core reads an
-// unpaired surrogate escape as U+FFFD, so a lone code unit Node echoed back is expected as U+FFFD (`String.prototype.toWellFormed`).
+// Expected values are Node's, through one mapping only (decisions.md "Lone UTF-16 surrogates in client strings", lone-mapping.mjs):
+// at each place the manifest lists (`mapping`), a lone code unit Node echoed back is expected as U+FFFD.
 // A step marked `refused` (a lone surrogate where no shipped client sends one) is refused by the core by decision: its outcome is
 // compared whole with that refusal (loneRefusal: the sentence naming the field and the JSON-RPC error under it), and Node's recorded
 // answer is shown beside it as the declared difference.
@@ -15,7 +15,8 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
 import { frame } from './raw-frame-bytes.mjs';
-import { PROJECT, loneRefusal, STEPS, WORKSPACE, buildWorld } from './inbound-lone-surrogate-cases.mjs';
+import { PROJECT, loneRefusal, STEPS, buildWorld } from './inbound-lone-surrogate-cases.mjs';
+import { mapAt } from './lone-mapping.mjs';
 import { startRelay } from './phone-relay-core.mjs';
 import { killTree, startCore } from './phone-files-replay.mjs';
 
@@ -35,27 +36,15 @@ function within(promise, what) {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 
-/** Node's value as the core must give it under (a): every string well formed, keys included. Two keys of one object that become
- *  one fail the replay: a merged object is never compared. */
-function wellFormed(value) {
-  if (typeof value === 'string') return value.toWellFormed();
-  if (Array.isArray(value)) return value.map(wellFormed);
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value).map(([key, item]) => [key.toWellFormed(), wellFormed(item)]);
-    const keys = new Set(entries.map(([key]) => key));
-    if (keys.size !== entries.length) throw new Error(`two keys of Node's answer read as one under (a): ${JSON.stringify(Object.keys(value))}`);
-    return Object.fromEntries(entries);
-  }
-  return value;
-}
-
-/** The bytes (hex) of a JSON file Node wrote with `JSON.stringify`, as the core writes them under decisions.md "frame-lone-surrogate"
- *  (JSON files hold EF BF BD where Node wrote the six-byte escape): `JSON.stringify` escapes only lone surrogates, so every
- *  `\udXXX` escape in its output is one, and becomes U+FFFD. Nothing else of the file changes. */
-function jsonEscapesRead(bytes) {
+/** The bytes (hex) of a JSON file Node wrote as `JSON.stringify(value, null, 2)` and a newline, with the manifest's mapping applied
+ *  at `places` of its value (the core writes U+FFFD as its UTF-8 where Node wrote the escape). A file that is not that writer's
+ *  output fails the replay. */
+function mappedJsonFile(bytes, places) {
   const text = Buffer.from(bytes, 'hex').toString('utf8');
-  // An escape, not an escaped backslash followed by `ud…`: an even run of backslashes before it.
-  return hex(Buffer.from(text.replace(/(?<=(?:^|[^\\])(?:\\\\)*)\\ud[89a-f][0-9a-f]{2}/g, '\ufffd'), 'utf8'));
+  const write = (value) => `${JSON.stringify(value, null, 2)}\n`;
+  const value = JSON.parse(text);
+  if (write(value) !== text) throw new Error(`a listed file is not JSON.stringify(value, null, 2) output: ${JSON.stringify(text.slice(0, 200))}`);
+  return hex(Buffer.from(write(mapAt(value, places)), 'utf8'));
 }
 
 /** The first frame `take` yields that `matches` (other frames are passed over), or the close; one deadline for the whole wait. */
@@ -69,7 +58,7 @@ function firstFrame(take, matches, what) {
   return within(scan(), what);
 }
 
-export async function replay({ exe, golden, only }) {
+export async function replay({ exe, golden, manifest, only }) {
   const relay = await startRelay({ repoRoot: REPO_ROOT, clients: [], capabilities: { textFrames: 1, maxFrameBytes: 1_048_576 } });
   const core = await startCore(exe, join(WORLDS, 'core'), relay);
   const clients = [];
@@ -192,7 +181,8 @@ export async function replay({ exe, golden, only }) {
         );
         if (got.closed !== undefined) phone = await openRouter();
       }
-      const expectedOf = (recorded) => (recorded.closed !== undefined ? { closed: recorded.closed } : { answer: wellFormed(recorded.answer) });
+      const expectedOf = (recorded) =>
+        recorded.closed !== undefined ? { closed: recorded.closed } : { answer: mapAt(recorded.answer, manifest.mapping.steps[recorded.name] ?? []) };
       const expected = expectedOf(node);
       compared += 1;
       if (step.accepted) {
@@ -213,7 +203,7 @@ export async function replay({ exe, golden, only }) {
         .sort((a, b) => (a.name < b.name ? -1 : 1))
         .map((entry) => ({ name: hex(Buffer.from(entry.name)), ...(entry.isDirectory() ? { dir: true } : { bytes: hex(readFileSync(join(PROJECT, entry.name))) }) }));
       compared += 1;
-      const nodeFiles = golden.files.map((file) => (file.name === hex(Buffer.from(WORKSPACE)) ? { ...file, bytes: jsonEscapesRead(file.bytes) } : file));
+      const nodeFiles = golden.files.map((file) => (manifest.mapping.files[file.name] ? { ...file, bytes: mappedJsonFile(file.bytes, manifest.mapping.files[file.name]) } : file));
       if (!isDeepStrictEqual(files, nodeFiles)) unexpected.push({ step: 'project folder', node: nodeFiles, core: files });
       // Node's preferences file (desktop-projects.json `{version:2, aliases{path:name}, hidden[path]}`) is the core's `projects` rows
       // (DS §4.1): `aliases` every row's alias, `hidden` the hidden rows in `hidden_rank` order.
@@ -221,7 +211,7 @@ export async function replay({ exe, golden, only }) {
       const rows = db.prepare('SELECT path, alias, hidden FROM projects ORDER BY hidden_rank, path').all();
       db.close();
       const stored = { aliases: Object.fromEntries(rows.filter((row) => row.alias).map((row) => [row.path, row.alias])), hidden: rows.filter((row) => row.hidden).map((row) => row.path) };
-      const { aliases, hidden } = wellFormed(JSON.parse(golden.preferences));
+      const { aliases, hidden } = mapAt(JSON.parse(golden.preferences), manifest.mapping.preferences);
       compared += 1;
       if (!isDeepStrictEqual(stored, { aliases, hidden })) unexpected.push({ step: 'preferences', node: { aliases, hidden }, core: stored });
     }
