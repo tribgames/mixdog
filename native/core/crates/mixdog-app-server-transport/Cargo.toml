@@ -31,8 +31,8 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-app-protocol = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-protocol = { workspace = true, features = ["codegen"] }
+mixdog-protocol = { workspace = true }
