@@ -312,7 +312,7 @@ impl ManualCompaction for HostManualCompaction {
         parts.hooks.pre(thread, trigger).await;
         let output = match compactor.compact(request(require)).await {
             Ok(output) => output,
-            Err(CompactError::Overflow(message) | CompactError::Failed(message)) => {
+            Err(CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _)) => {
                 return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
             Err(CompactError::Aborted) => {
@@ -414,7 +414,7 @@ impl ManualCompaction for HostManualCompaction {
         compactor.prepare(&messages).await;
         let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
         let output = compactor.compact(request).await.map_err(|error| match error {
-            CompactError::Overflow(message) | CompactError::Failed(message) => failed(DOMAIN, message),
+            CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _) => failed(DOMAIN, message),
             CompactError::Aborted => failed(DOMAIN, "compact aborted"),
         })?;
         Ok(Some(output.messages.iter().map(row_of).collect()))
