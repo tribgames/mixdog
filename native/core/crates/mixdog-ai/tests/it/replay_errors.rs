@@ -261,7 +261,17 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "attempts" => assert_eq!(left.attempts, Some(value.as_f64() as u32), "{what}: {mapping}"),
         // The Devin wire error's server text, which the error's message carries.
         "detail" | "cursorDetail" => assert!(left.error(field).message.contains(value.as_str()), "{what}: {mapping}: {:?}", left.error(field).message),
-        "cursorCode" => assert_eq!(left.error(field).code.as_deref(), opt_str(value), "{what}: {mapping}"),
+        // The Connect code the server named. An oversized request is `request_too_large` (`parseEndStream`), so its
+        // Connect code is the one the message names.
+        "cursorCode" => {
+            let error = left.error(field);
+            if error.code.as_deref() == Some("request_too_large") {
+                let named = format!("Cursor {}: ", value.as_str());
+                assert!(error.message.starts_with(&named), "{what}: {mapping}: {:?}", error.message);
+            } else {
+                assert_eq!(error.code.as_deref(), opt_str(value), "{what}: {mapping}");
+            }
+        }
         "providerQuota" | "quotaExceeded" => assert_eq!(
             left.error(field).kind == mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted,
             opt_bool(value),
