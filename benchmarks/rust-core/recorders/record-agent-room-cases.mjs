@@ -287,7 +287,7 @@ await set.run('a supervisor step runs once on the Maintainer route with no promp
   const unrouted = createRoomSupervisorCompletion({ loadConfig: () => ({}), resolveMaintenanceRoute: () => null });
   return {
     scriptedReplies: replies, first, second, routeCalls, sent, sendCount: sent.length,
-    log: logged.map((line) => line.replace(/ms=\d+/, 'ms=<n>')), normalized: 'the ms= figure is the elapsed time',
+    log: logged,
     unrouted: await unrouted({ members }),
   };
 });
@@ -337,8 +337,8 @@ await set.run('the message budget ranges from every member once plus one up to t
 await set.run('a pass is nothing, or a reply ending in "(pass)"', () => ({ cases: ['', ' (PASS) ', 'Mixy already answered, so I will skip this turn.\n\n(pass)', '(pass) but also'].map((text) => ({ text, result: isPassReply(text) })) }));
 await set.run('member session ids round-trip and stay distinct from homes', () => {
   const id = roomMemberSessionId('abc123', 'github.watcher');
-  let threw = null;
-  try { normalizeRoomConfig({ name: 'x', members: ['a'] }); } catch (e) { threw = { name: e.name, message: e.message }; }
+  let threw;
+  try { normalizeRoomConfig({ name: 'x', members: ['a'] }); } catch (e) { threw = e; }
   return { id, roundTrip: roomMemberOfSession(id), home: roomMemberOfSession('sess_home_gh'), normalizeRoomConfigThrew: threw };
 });
 await set.run('peer text stays data: fake frames and instructions cannot escape the boundary', () => {
@@ -378,7 +378,7 @@ await set.run("a user row's files reach the members it addresses, right after it
     files, rows,
     asGh: roomTurnPrompt({ ...base, rows }),
     asBench: roomTurnPrompt({ ...base, self: { id: 'bench', name: 'Bench' }, rows: [toBench] }),
-    plainRowPromptIsString: typeof roomTurnPrompt({ ...base, rows: [{ id: 'u3', kind: 'user', text: 'plain' }] }),
+    plainRowPrompt: roomTurnPrompt({ ...base, rows: [{ id: 'u3', kind: 'user', text: 'plain' }] }),
   };
 });
 await set.run('a user row keeps its stored files through the log and a restore; no bytes; peer speech keeps only its produced files', () => {
@@ -446,6 +446,8 @@ await set.finish({
     normalised: { supervisorElapsed: 'the ms= figure of the completion log line is <n>', randomness: 'the budget cases give roomMessageBudget the recorded random values or the recorded seeded generator' },
   },
   replaceInText: [[dataDir, '<data>']],
+  replaceRegex: [[/ms=\d+/g, 'ms=<n>']],
+  normaliseReason: 'the temp data dir is written <data>; the ms= figure of the supervisor completion log line is the elapsed time, written ms=<n>',
 });
 rmSync(dataDir, { recursive: true, force: true });
 process.exit(0);

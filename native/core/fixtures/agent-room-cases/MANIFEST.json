@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 244571,
+      "bytes": 246165,
       "path": "golden.json",
-      "sha256": "58a81fab14d9ad57ed165065ea2b89bfd48622f66bc06632928cbe42d7c0d4b0"
+      "sha256": "13024c01b21bd3991a6706c23fead35c6de3bdf29865a9870b26764ecce5e111"
     }
   ],
   "inputs": [
@@ -42,8 +42,11 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "paths": [],
-    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+    "paths": [
+      "$.cases[31].observed.log[0]",
+      "$.cases[31].observed.log[1]"
+    ],
+    "reason": "the temp data dir is written <data>; the ms= figure of the supervisor completion log line is the elapsed time, written ms=<n>"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -63,7 +66,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-room-cases.mjs",
-  "recorderSha256": "4605a295be76ddcc4b8221eeaec1303a0bbcba4b9a35f974071be21188074eab",
+  "recorderSha256": "0d9bc1aa7f94bccefe0d644852f4b05559150daac5cd82a29fc31c818dae244f",
   "replay": {
     "compare": "mixdog-core-rooms (config, exchange, live, calls): parse_room_ask, mention, row/prompt builders, run_room_exchange (feed spec.plan / spec.choose; compare result, spoken, every turn handed to speak and every step shown to decide), supervisor parser/prompt, completion request, delivery append",
     "entry": "Drive these public items on o1: mixdog-core-rooms/src/rooms/config.rs:157 parse_room_ask; mixdog-core-rooms/src/rooms/config.rs:206 room_mention_of; mixdog-core-rooms/src/rooms/row_message.rs:228 room_row_message; mixdog-core-rooms/src/rooms/turn_prompt.rs:296 room_turn_prompt; mixdog-core-rooms/src/rooms/exchange.rs:302 run_room_exchange; mixdog-core-rooms/src/rooms/supervisor.rs:115 supervisor_prompt; mixdog-core-rooms/src/rooms/supervisor.rs:100 supervisor_rows; mixdog-core-rooms/src/rooms/supervisor.rs:300 parse_room_decision; mixdog-core-rooms/src/rooms/turn_post.rs:137 post_speech.",
@@ -127,6 +130,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "agent-room-cases",
-  "totalBytes": 244571,
+  "totalBytes": 246165,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
