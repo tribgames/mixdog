@@ -79,7 +79,8 @@ impl Held {
         let started = self.started_tx.clone();
         move |_| {
             started.send(n).unwrap();
-            let _ = held.recv();
+            // A release or its sender dropping both free the thread; only the deadline is a failure.
+            assert_ne!(held.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Timeout), "the held job was never released by its test");
         }
     }
 
@@ -248,7 +249,8 @@ fn a_cpu_lane_does_not_grow_its_jobs_wait_for_its_threads() {
                 .cpu_interactive
                 .submit(&CancellationToken::new(), move |_| {
                     started.send(()).unwrap();
-                    let _ = held.recv();
+                    // A release or its sender dropping both free the thread; only the deadline is a failure.
+            assert_ne!(held.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Timeout), "the held job was never released by its test");
                 })
                 .unwrap(),
         );
