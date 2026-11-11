@@ -60,8 +60,10 @@ impl ChannelSettings for FakeSettings {
 }
 
 #[derive(Default)]
-struct FakeServices {
+pub(super) struct FakeServices {
     log: Mutex<Vec<String>>,
+    /// A reload's sync fails with this cause (a receiver that did not come back).
+    pub(super) reload_fails: Mutex<Option<String>>,
     /// The sync waits for a permit of this semaphore (a listener that has not bound yet).
     sync_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     /// Notified when a sync has been entered.
@@ -78,6 +80,9 @@ impl AutomationServices for FakeServices {
     async fn sync(&self, reload: bool) -> Result<(), String> {
         self.log.lock().unwrap().push(format!("sync:{reload}"));
         self.entered.notify_one();
+        if let Some(cause) = self.reload_fails.lock().unwrap().clone().filter(|_| reload) {
+            return Err(cause);
+        }
         let gate = self.sync_gate.lock().unwrap().clone();
         if let Some(gate) = gate {
             gate.acquire().await.expect("the gate stays open").forget();
@@ -140,15 +145,15 @@ impl WebhookProbe for FakeProbe {
     }
 }
 
-struct Env {
+pub(super) struct Env {
     host: Arc<FakeHost>,
     admin: Arc<ChannelAdmin>,
-    runtime: Arc<ChannelRuntime>,
-    routines: Arc<RoutineRuntime>,
+    pub(super) runtime: Arc<ChannelRuntime>,
+    pub(super) routines: Arc<RoutineRuntime>,
     schedules: Arc<StateScheduleStore>,
     webhooks: Arc<StateWebhookStore>,
     settings: Arc<FakeSettings>,
-    services: Arc<FakeServices>,
+    pub(super) services: Arc<FakeServices>,
     agent: Arc<FakeAgent>,
     probe: Arc<FakeProbe>,
     base: Arc<FakeBase>,
@@ -158,7 +163,7 @@ struct Env {
     _dir: tempfile::TempDir,
 }
 
-async fn env() -> Env {
+pub(super) async fn env() -> Env {
     env_with(false).await
 }
 
@@ -606,13 +611,13 @@ fn request(method: &'static str, params: Value, op: Option<&str>) -> CoreRequest
     CoreRequest { method: Method(method), params, op: op.map(OpId::from), ctx: CallContext::internal("test") }
 }
 
-fn service(e: &Env) -> ChannelService {
+pub(super) fn service(e: &Env) -> ChannelService {
     let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
     ChannelService::new(e.admin.clone(), calls)
 }
 
-async fn ask(service: &ChannelService, method: &'static str, params: Value) -> Result<Value, CoreError> {
+pub(super) async fn ask(service: &ChannelService, method: &'static str, params: Value) -> Result<Value, CoreError> {
     match service.call(request(method, params, Some("op-1"))).await? {
         Reply::Value(value) => Ok(value),
         Reply::Subscribe(_) => panic!("channel methods never subscribe"),
