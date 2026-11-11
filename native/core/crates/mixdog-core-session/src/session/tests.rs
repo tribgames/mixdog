@@ -3666,6 +3666,9 @@ impl mixdog_core_goal::goal::hooks::GoalViewHooks for HeldSettle {
     async fn goal_status(&self, thread: &ThreadId) -> mixdog_core_goal::goal::GoalResult<Option<mixdog_core_goal::goal::js::Goal>> {
         mixdog_core_goal::goal::hooks::GoalViewHooks::goal_status(&self.goals, thread).await
     }
+    async fn stored_goal(&self, thread: &ThreadId) -> mixdog_core_goal::goal::GoalResult<Option<mixdog_core_goal::goal::js::Goal>> {
+        mixdog_core_goal::goal::hooks::GoalViewHooks::stored_goal(&self.goals, thread).await
+    }
     async fn goal_control(&self, thread: &ThreadId, request: Value) -> mixdog_core_goal::goal::GoalResult<Value> {
         mixdog_core_goal::goal::hooks::GoalViewHooks::goal_control(&self.goals, thread, request).await
     }

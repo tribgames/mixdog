@@ -346,6 +346,7 @@ impl Run {
                 trigger: trigger_kind.clone(),
                 require_reduction,
                 reference_latest_attachments: false,
+                latest_user_prefix: "",
             };
             should = compactor.reduces(&request).await;
         }
@@ -396,6 +397,7 @@ impl Run {
             trigger: trigger_kind.clone(),
             require_reduction,
             reference_latest_attachments: reactive,
+            latest_user_prefix: "",
         };
         let outcome = or_cancelled(&self.cancel, compactor.compact(request))
             .await

@@ -212,6 +212,7 @@ impl Replay {
                     trigger: CompactTrigger::Auto,
                     require_reduction: false,
                     reference_latest_attachments: false,
+                    latest_user_prefix: "",
                 };
                 match compactor.compact(request).await {
                     Ok(output) => {

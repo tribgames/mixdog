@@ -145,6 +145,7 @@ use mixdog_core_base::approvals::request_frame;
 use mixdog_core_base::approvals::request_params;
 use mixdog_core_base::approvals::resolved_frame;
 
+mod compaction_reminder;
 mod turn_ops;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
@@ -351,6 +352,8 @@ pub(crate) enum JobDone {
     Resumed(Box<ResumeDone>),
     /// The model context a manual compaction's commit reconciles with (`commitSessionCompaction`).
     CompactionRows(Box<CommitRows>),
+    /// The Goal the runtime shows, read for a pre-send compaction's reminder.
+    CompactionReminder(Box<compaction_reminder::ReminderRead>),
 }
 
 /// A manual compaction's result and the context read to reconcile it with.
@@ -1534,7 +1537,7 @@ impl SessionActor {
                 // earlier Goal calls of this thread.
                 let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
                 self.goal_call(Box::pin(async move {
-                    let goal = goals.goal_status(&thread).await.ok().flatten();
+                    let goal = goals.stored_goal(&thread).await.ok().flatten();
                     JobDone::ReminderGoal(start, goal)
                 }));
             }
@@ -1558,6 +1561,7 @@ impl SessionActor {
             JobDone::QuotaFireChecked { generation, tx, retained, provenance } => self.quota_fire_checked(generation, tx, retained, provenance),
             JobDone::Resumed(done) => self.resumed(*done),
             JobDone::CompactionRows(done) => self.compaction_rows(*done),
+            JobDone::CompactionReminder(read) => self.compaction_reminder_read(*read),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);
@@ -1700,20 +1704,8 @@ impl SessionActor {
     /// (`markPendingGoalReminder`: one more revision, the next turn's tail carries it), then the
     /// next continuation carries the full rules again.
     fn mark_goal_reminder(&mut self, reason: &str) {
-        // `Math.max(0, Number(x) || 0)`.
-        let number = |value: Option<&Value>| value.and_then(Value::as_f64).filter(|n| !n.is_nan()).unwrap_or(0.0).max(0.0);
-        let header = &self.projected.header;
-        let pending = number(header.get("pendingGoalReminder").and_then(|pending| pending.get("revision")));
-        let revision = mixdog_js::json_number(pending.max(number(header.get("goalReminderRevision"))) + 1.0);
-        let reason = match mixdog_js::js_trim(reason) {
-            "" => "compaction",
-            reason => reason,
-        };
-        let mut set = serde_json::Map::new();
-        set.insert("goalReminderRevision".into(), revision.clone());
-        set.insert("pendingGoalReminder".into(), json!({ "version": 1, "type": "goal_state", "revision": revision, "reason": reason }));
-        set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        let change = super::goal_reminder::mark(&self.projected.header, reason, self.deps.clock.now_ms());
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
         self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
     }
@@ -3331,6 +3323,8 @@ impl SessionActor {
                     None => drop(ack.send(Ok(()))),
                 }
             }
+            ProducerMsg::GoalReminder { turn, preview, reply } => self.compaction_reminder_asked(turn, preview, reply),
+            ProducerMsg::GoalReminderAcknowledged { revision } => self.compaction_reminder_acknowledged(revision),
             ProducerMsg::Header { turn, change, ack } => {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));

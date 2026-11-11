@@ -126,6 +126,9 @@ impl GoalViewHooks for Spy {
     async fn goal_status(&self, thread: &ThreadId) -> GoalResult<Option<Goal>> {
         self.pin_or(self.inner.goal_status(thread).await)
     }
+    async fn stored_goal(&self, thread: &ThreadId) -> GoalResult<Option<Goal>> {
+        self.inner.stored_goal(thread).await
+    }
     async fn goal_control(&self, thread: &ThreadId, request: Value) -> GoalResult<Value> {
         self.inner.goal_control(thread, request).await
     }
