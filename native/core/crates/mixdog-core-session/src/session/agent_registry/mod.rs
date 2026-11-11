@@ -1299,8 +1299,7 @@ impl KeptRows {
 
     /// Writes `session`'s kept map (`None`: it is kept no more, and its row leaves the table). Memory follows the table: it
     /// changes only once the write is committed, so a failed write leaves every later listing as the table is. (Node's index
-    /// queue keeps a failed write queued and retries it, `index-write-queue.mjs:231-245`; here the registry keeps its own copy
-    /// and the session's next write puts the map again.)
+    /// queue keeps a failed write queued and retries it, `index-write-queue.mjs:231-245`; `StoreWorkers`' writer does the same.)
     pub async fn put(&self, session: &str, worker: Option<Row>) -> Result<(), String> {
         let mut rows = self.loaded().await?;
         let key = format!("{KEPT_PREFIX}{session}");
@@ -1327,6 +1326,19 @@ impl KeptRows {
     }
 }
 
+/// Node's `RETRY_AFTER_FAILURE_MS`: how long a failed kept write waits for a retry when nothing else writes.
+const KEPT_RETRY_AFTER: std::time::Duration = std::time::Duration::from_millis(15_000);
+
+/// Puts the owed kept writes again, in order; those the table refuses again stay owed.
+async fn retry_owed(keeper: &KeptRows, owed: &mut Vec<(String, Option<Row>)>) {
+    for (session, worker) in std::mem::take(owed) {
+        if let Err(error) = keeper.put(&session, worker.clone()).await {
+            tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
+            owed.push((session, worker));
+        }
+    }
+}
+
 /// Whether `path` names a directory.
 #[allow(clippy::disallowed_methods, reason = "runs on the interactive-io lane job (lane proof argument)")]
 fn is_dir(_lane: &InLane<InteractiveIo>, path: &str) -> bool {
@@ -1339,12 +1351,33 @@ impl StoreWorkers {
         let (writes, mut rx) = mpsc::unbounded_channel::<WriteOp>();
         let (patcher, keeper) = (threads.clone(), kept.clone());
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
-            while let Some(op) = rx.recv().await {
+            // Kept writes the table refused, in order, each session's newest only: they stay queued ahead of newer writes and
+            // are retried by the next write, a flush (`settled`) or the retry timer, as Node's index queue requeues a failed
+            // batch (`index-write-queue.mjs:231-245`).
+            let mut owed: Vec<(String, Option<Row>)> = Vec::new();
+            loop {
+                let op = if owed.is_empty() {
+                    rx.recv().await
+                } else {
+                    tokio::select! {
+                        op = rx.recv() => op,
+                        () = tokio::time::sleep(KEPT_RETRY_AFTER) => {
+                            retry_owed(&keeper, &mut owed).await;
+                            continue;
+                        }
+                    }
+                };
+                let Some(op) = op else { break };
+                if let WriteOp::Keep(session, _) = &op {
+                    owed.retain(|(id, _)| id != session);
+                }
+                retry_owed(&keeper, &mut owed).await;
                 let (session, worker) = match op {
                     WriteOp::Write(session, worker) => (session, worker),
                     WriteOp::Keep(session, worker) => {
-                        if let Err(error) = keeper.put(&session, worker).await {
-                            tracing::warn!(%error, "[agent] a kept worker row was not saved");
+                        if let Err(error) = keeper.put(&session, worker.clone()).await {
+                            tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
+                            owed.push((session, worker));
                         }
                         continue;
                     }

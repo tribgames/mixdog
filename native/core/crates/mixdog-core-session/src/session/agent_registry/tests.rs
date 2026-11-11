@@ -860,6 +860,7 @@ struct Core {
     threads: Arc<crate::session::thread_state::SessionThreads>,
     workers: Arc<StoreWorkers>,
     registry: AgentRegistry,
+    state: mixdog_store::state::CoreState,
     _rig: crate::session::testing::Rig,
 }
 
@@ -880,9 +881,9 @@ impl Core {
         let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(rig.deps_parts(store))));
         let threads = Arc::new(crate::session::thread_state::SessionThreads::new(directory.clone()));
         let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &data.join("core.sqlite")).expect("core state");
-        let workers = Arc::new(StoreWorkers::new(index, threads.clone(), t.interactive_io, Arc::new(KeptRows::new(state))));
+        let workers = Arc::new(StoreWorkers::new(index, threads.clone(), t.interactive_io, Arc::new(KeptRows::new(state.clone()))));
         let registry = AgentRegistry::new(workers.clone(), directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
-        Self { directory, threads, workers, registry, _rig: rig }
+        Self { directory, threads, workers, registry, state, _rig: rig }
     }
 
     async fn start(&self, op: &str, session: Value) -> ThreadId {
@@ -915,6 +916,93 @@ impl Core {
         self.workers.settled().await;
         told
     }
+}
+
+/// `command`'s output, hidden, within `deadline`: a child still running then is killed and the test fails naming `what`.
+fn output_within(mut command: std::process::Command, deadline: std::time::Duration, what: &str) -> std::process::Output {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let child = command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().expect("the child started");
+    let pid = child.id().to_string();
+    let (ended, ending) = std::sync::mpsc::channel::<()>();
+    let reaper = std::thread::spawn(move || {
+        let output = child.wait_with_output().expect("the child's output");
+        let _ = ended.send(());
+        output
+    });
+    if ending.recv_timeout(deadline).is_err() {
+        #[cfg(windows)]
+        let mut kill = {
+            let mut kill = std::process::Command::new("taskkill");
+            kill.args(["/T", "/F", "/PID", &pid]);
+            std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
+            kill
+        };
+        #[cfg(not(windows))]
+        let mut kill = {
+            let mut kill = std::process::Command::new("kill");
+            kill.args(["-9", &pid]);
+            kill
+        };
+        let _ = kill.output();
+        let _ = reaper.join();
+        panic!("{what}: the child ended within the deadline");
+    }
+    reaper.join().expect("the reaper")
+}
+
+/// A child that outlives the deadline is killed and fails the test, rather than hanging it.
+#[test]
+#[should_panic(expected = "the child ended within the deadline")]
+fn a_child_that_outlives_its_deadline_fails_the_test() {
+    #[cfg(windows)]
+    let command = {
+        let mut command = std::process::Command::new("ping");
+        command.args(["-n", "30", "127.0.0.1"]);
+        command
+    };
+    #[cfg(not(windows))]
+    let command = {
+        let mut command = std::process::Command::new("sleep");
+        command.arg("30");
+        command
+    };
+    let _ = output_within(command, std::time::Duration::from_secs(1), "a sleeping child");
+}
+
+/// A kept write the table refused stays queued and reaches the table once it takes writes again (Node's index queue keeps a
+/// failed write and retries it, `index-write-queue.mjs:231-245`), with no later write of the session to carry it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_row_the_table_refused_reaches_it_when_the_table_takes_writes_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::up(dir.path()).await;
+    // A second writer holding the file's write lock: the table refuses every write until it lets go.
+    let t = mixdog_rt::testing::tokens();
+    let (other, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let (locked, lock_held) = std::sync::mpsc::channel::<()>();
+    let (unlock, unlocked) = std::sync::mpsc::channel::<()>();
+    let holder = tokio::spawn(async move {
+        other
+            .write(move |_| {
+                locked.send(()).unwrap();
+                unlocked.recv_timeout(std::time::Duration::from_secs(60)).expect("the test lets the lock go");
+                Ok(())
+            })
+            .await
+    });
+    lock_held.recv_timeout(std::time::Duration::from_secs(60)).expect("the lock was taken within the deadline");
+    let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
+    WorkerStore::keep(&*core.workers, "s-owed", Some(row.clone()));
+    core.workers.settled().await;
+    let stored = || async { core.state.meta_prefix("agent-kept-worker:").await.unwrap() };
+    assert!(stored().await.is_empty(), "the table refused the write");
+    unlock.send(()).unwrap();
+    holder.await.unwrap().unwrap();
+    core.workers.settled().await;
+    assert_eq!(stored().await, [("agent-kept-worker:s-owed".to_owned(), serde_json::to_string(&row).unwrap())], "the table took the write once it could");
 }
 
 /// `restart-notify.mjs:104-109`: the notice is stored under its stable id before the row is stamped. A real process (this test
@@ -952,12 +1040,9 @@ async fn a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after
             owner
         };
         let test = format!("{}::{NAME}", module_path!().trim_start_matches("mixdog_core_session::"));
-        let child = std::process::Command::new(std::env::current_exe().expect("the test binary"))
-            .args(["--exact", &test, "--nocapture", "--test-threads=1"])
-            .env(DATA, dir.path())
-            .env("MIXDOG_NEW_TASK_CRASH_AT", point)
-            .output()
-            .expect("the child ran");
+        let mut command = std::process::Command::new(std::env::current_exe().expect("the test binary"));
+        command.args(["--exact", &test, "--nocapture", "--test-threads=1"]).env(DATA, dir.path()).env("MIXDOG_NEW_TASK_CRASH_AT", point);
+        let child = output_within(command, std::time::Duration::from_secs(120), point);
         let stderr = String::from_utf8_lossy(&child.stderr);
         assert!(!child.status.success() && !stderr.contains("panicked"), "{point}: the gate ended the child: {stderr}");
 
