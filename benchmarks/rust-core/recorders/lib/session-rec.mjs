@@ -4,9 +4,11 @@
 //   await runSessionRecorder(import.meta.url, { set, testFile, entry, replay, exclusions }, async ({ imp, tree }) => ({ cases }));
 import { rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
 import { exact } from './exact.mjs';
 import { recorderProvenance } from './provenance.mjs';
+
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 
 export async function runSessionRecorder(recorderUrl, meta, build) {
   const cli = parseArgs();
@@ -21,7 +23,8 @@ export async function runSessionRecorder(recorderUrl, meta, build) {
     set: meta.set,
     recorder,
     command: `node ${recorder} --tree <tree>`,
-    identityTree: cli.get('identity-tree') ?? tree,
+    // The product the cases ran: an exact export of Node's reference commit (patched cases say so in `patch`).
+    identity: exactProductIdentity(tree, NODE_COMMIT),
     extra: { ...provenance, testFile: meta.testFile, entry: meta.entry, replay: meta.replay, ...(meta.values ? { values: meta.values } : {}), exclusions: meta.exclusions, ...(meta.patch ? { patch: meta.patch } : {}) },
   });
   commitStage(stage, outDir);

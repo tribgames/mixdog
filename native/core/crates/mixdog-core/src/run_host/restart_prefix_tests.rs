@@ -154,6 +154,11 @@ impl Tool for NodeTool {
     fn spec(&self) -> &ToolSpec {
         &self.spec
     }
+    /// The turn path requires a delegated agent's `git`/`task` definition (`check_pool`); the recording has only the
+    /// Lead's, and no delegated agent runs here.
+    fn agent_spec(&self) -> Option<&ToolSpec> {
+        matches!(self.spec.name.as_str(), "git" | "task").then_some(&self.spec)
+    }
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let read = self.read.as_ref().expect("only read is called");
         let n = self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
@@ -181,29 +186,7 @@ impl RunParts for Session {
     }
 
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
-        let read = Arc::new(mixdog_tools::fs::ReadTool::new(None, None));
-        let tools: Vec<Arc<dyn Tool>> = self
-            .tools
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|tool| {
-                let name = tool["name"].as_str().unwrap().to_owned();
-                let spec = ToolSpec {
-                    name: name.clone(),
-                    title: None,
-                    trigger: None,
-                    public: true,
-                    aliases: Vec::new(),
-                    description: tool["description"].as_str().unwrap().to_owned(),
-                    input_schema: tool["input_schema"].clone(),
-                    annotations: ToolAnnotations::default(),
-                    parallel_safe: name == "read",
-                    exclusive_with: Vec::new(),
-                };
-                Arc::new(NodeTool { spec, read: (name == "read").then(|| read.clone()), reads: self.reads.clone(), hang_at: self.hang_at, kill: self.kill.clone() }) as Arc<dyn Tool>
-            })
-            .collect();
+        let tools = node_tools(&self.tools, &self.reads, self.hang_at, &self.kill);
         let tokens = mixdog_rt::testing::tokens();
         let context = crate::run_host::tail::tail_context(input.header, || None);
         Ok(Assembled {
@@ -255,6 +238,32 @@ impl RunParts for Session {
     }
 }
 
+/// Node's tool definitions as tools, `read` calling the core's read tool.
+fn node_tools(tools: &Value, reads: &Arc<AtomicUsize>, hang_at: Option<usize>, kill: &tokio::sync::mpsc::UnboundedSender<&'static str>) -> Vec<Arc<dyn Tool>> {
+    let read = Arc::new(mixdog_tools::fs::ReadTool::new(None, None));
+    tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| {
+            let name = tool["name"].as_str().unwrap().to_owned();
+            let spec = ToolSpec {
+                name: name.clone(),
+                title: None,
+                trigger: None,
+                public: true,
+                aliases: Vec::new(),
+                description: tool["description"].as_str().unwrap().to_owned(),
+                input_schema: tool["input_schema"].clone(),
+                annotations: ToolAnnotations::default(),
+                parallel_safe: name == "read",
+                exclusive_with: Vec::new(),
+            };
+            Arc::new(NodeTool { spec, read: (name == "read").then(|| read.clone()), reads: reads.clone(), hang_at, kill: kill.clone() }) as Arc<dyn Tool>
+        })
+        .collect()
+}
+
 /// What a process of the fixture is started with.
 #[derive(Clone)]
 struct Boot {
@@ -274,8 +283,8 @@ struct Process {
     directory: SessionDirectory,
 }
 
-/// Run inside the process's own runtime: the store, its index and every task the session starts belong to it.
-async fn process(boot: Boot) -> Process {
+/// The data directory's real thread store and the production Anthropic adapter sending to the test's server.
+async fn opened(boot: &Boot) -> (mixdog_core_session::session::StoreThreads, Arc<dyn ProviderAdapter>) {
     let tokens = mixdog_rt::testing::tokens();
     let root = boot.data.clone();
     let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
@@ -294,12 +303,90 @@ async fn process(boot: Boot) -> Process {
     config.base_url = boot.url.clone();
     let session = Arc::new(mixdog_ai::providers::anthropic::OAuthSession::new(file, http.clone()));
     let provider: Arc<dyn ProviderAdapter> = Arc::new(AnthropicAdapter::oauth(config, http, session, false, tokens.cpu_bulk));
+    (threads, provider)
+}
+
+/// Run inside the process's own runtime: the store, its index and every task the session starts belong to it.
+async fn process(boot: Boot) -> Process {
+    let (threads, provider) = opened(&boot).await;
     let rig = Rig::new();
     let mut deps = rig.deps_parts(Arc::new(threads));
     let session = Session { provider, workspace: boot.workspace.clone(), tools: boot.tools.clone(), reads: Arc::default(), hang_at: boot.hang_at, kill: boot.kill.clone() };
     deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(session)));
     let directory = SessionDirectory::new(Arc::new(deps));
     Process { rig, directory }
+}
+
+struct NoProbe;
+
+#[async_trait]
+impl mixdog_ai::accounts::rotation::UsageProbe for NoProbe {
+    async fn measure(&self, _: &str, _: &str, _: bool) {}
+}
+
+struct Switched;
+
+impl mixdog_ai::warmer::gate::ProviderSwitch for Switched {
+    fn available(&self, _: &str) -> bool {
+        true
+    }
+}
+
+impl mixdog_ai::warmer::gate::QuotaResumes for Switched {
+    fn paused(&self, _: &str) -> bool {
+        false
+    }
+}
+
+#[async_trait]
+impl mixdog_ai::warmer::gate::UsageSnapshots for Switched {
+    /// A reading taken now with room: Node's recorded warm is the rebuilt body (`cache-warm.mjs:356`), sent past its
+    /// gate, so the replay's account has room.
+    async fn cached(&self, _: &str) -> Option<(Vec<mixdog_ai::accounts::Window>, i64)> {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        Some((vec![mixdog_ai::accounts::Window { label: "5h".to_owned(), used_pct: Some(10.0), ..Default::default() }], now))
+    }
+}
+
+/// Node's `rearmCacheWarmsAfterRestart` in a restarted process (`cache-warm.mjs:771`): the warm of the session's last sent
+/// request, rebuilt from the stored session (`lastSentMainRequest`, `side-question.mjs:108`, whose system prompt is the
+/// one the session stored) and sent once. Here through the production pieces: the turn path's assembly
+/// (`HostRunParts::next_request` behind `NextRequestSource::last_sent`, over the reopened store with Node's tools as its
+/// tool pool), `SessionsWarm::last_sent_request` and `ProvidersWarm::send` to the production adapter, whose body the
+/// test's server keeps. Opened and dropped before the process that runs the next task opens the directory. `false` when
+/// the session has no request to warm (`lastSentMainRequest` null: Node then sends none).
+async fn warm_after_restart(boot: &Boot, id: &ThreadId) -> bool {
+    use mixdog_ai::warmer::process::WarmProviders;
+    use mixdog_ai::warmer::process::WarmSessions;
+    let tokens = mixdog_rt::testing::tokens();
+    let (threads, provider) = opened(boot).await;
+    // The turn path's `Skill` tool, which the session's list leaves out when no skill is visible (`NoSkills`), as Node's
+    // recorded tool list does.
+    let mut pool = node_tools(&boot.tools, &Arc::default(), None, &boot.kill);
+    pool.push(super::named("Skill"));
+    let world = super::turn_world_over(provider, Some(Arc::new(threads)), Some(pool)).await;
+    world.directory.open_handle(id, &CallContext::internal("test")).await.expect("the stored session opens");
+    let catalog = crate::run_host::process_tests::world(&[], json!({}), Vec::new()).await;
+    let caps = crate::run_host::builder_env::CatalogCaps::new(catalog.services.catalog.clone(), &*catalog.services.env);
+    let tail: Arc<dyn crate::run_host::warm_ports::WarmTail> = world.next.clone();
+    let sessions = crate::run_host::warm_ports::SessionsWarm::new(world.next.clone(), world.path.registry.clone(), caps, tail);
+    let Some(request) = sessions.last_sent_request(id.as_str()).await.expect("the session reads") else { return false };
+    let dir = tempfile::tempdir().unwrap();
+    let store = mixdog_ai::accounts::AccountStore::new(dir.path().to_path_buf(), mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let rotation = Arc::new(mixdog_ai::accounts::rotation::AccountRotation::new(store.clone(), Arc::new(NoProbe), Arc::new(mixdog_ai::oauth::SystemPace)));
+    let gate = mixdog_ai::warmer::gate::AccountGate::new(
+        Arc::new(mixdog_ai::admission::Admission::new()),
+        Arc::new(|_: &mixdog_ai::admission::LaneKey| mixdog_ai::admission::LaneSettings::default()),
+        store,
+        rotation,
+        Arc::new(Switched),
+        Arc::new(Switched),
+        Arc::new(Switched),
+    );
+    let providers = crate::run_host::warm_ports::ProvidersWarm::new(world.path.registry.clone(), catalog.services.catalog.clone(), Arc::new(gate), mixdog_core_api::domain::cache_warm::Deadlines::DEFAULT, Arc::new(|_: &str| {}));
+    let target = mixdog_ai::warmer::chain::WarmTarget { account_id: String::new() };
+    providers.send(&*request, &target, &mixdog_rt::CancellationToken::new(), &mut |_| {}).await.expect("the warm is sent");
+    true
 }
 
 impl Process {
@@ -363,11 +450,49 @@ fn same(core: &[u8], node: &Value, what: &str) {
     panic!("{what}: the bytes differ at {at} (core {} bytes, node {})\ncore …{}…\nnode …{}…\n{}", core.len(), expected.len(), around(core), around(&expected), out.join("\n"));
 }
 
+/// The conversation of a `thread/read` answer, in order: each user message's text and each agent message's text.
+fn read_conversation(read: &Value) -> Vec<(String, String)> {
+    read["items"]
+        .as_array()
+        .expect("the read's items")
+        .iter()
+        .filter_map(|item| match item["type"].as_str()? {
+            "userMessage" => Some(("user".to_owned(), item["content"].as_array()?.iter().filter_map(|part| part["text"].as_str()).collect::<String>())),
+            "agentMessage" => Some(("assistant".to_owned(), item["text"].as_str()?.to_owned())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The conversation Node's first request after the restart carries before the new task: each user message's text blocks
+/// (not tool results, not the turn reminders Node sends as system messages) and each assistant message's text, in order.
+/// The new task rides the request's last user message, after the restart notice (its own text block, or folded into a
+/// cancelled tool result's content), so that message is not part of what was resumed.
+fn node_conversation(body: &Value) -> Vec<(String, String)> {
+    let messages = body["messages"].as_array().unwrap();
+    let last = messages.iter().rposition(|message| message["role"] == "user").expect("Node's request has a user message");
+    let tail = messages[last]["content"].as_array().and_then(|parts| parts.last()).expect("the last user message's parts");
+    let tail = tail["text"].as_str().or_else(|| tail["content"].as_str()).unwrap_or_default();
+    assert!(tail.ends_with("third task"), "Node's request ends with the new task: {tail:?}");
+    messages[..last]
+        .iter()
+        .filter_map(|message| {
+            let role = message["role"].as_str()?;
+            if role != "user" && role != "assistant" {
+                return None;
+            }
+            let text: String = message["content"].as_array()?.iter().filter(|part| part["type"] == "text").filter_map(|part| part["text"].as_str()).collect();
+            (!text.is_empty()).then(|| (role.to_owned(), text))
+        })
+        .collect()
+}
+
 /// What both processes of a case are started with, rebuilt by each from the recording and the case's paths.
 struct Case {
     phase: String,
     before: Vec<Value>,
     after: Vec<Value>,
+    warm: Value,
     set: Value,
     tools: Value,
 }
@@ -385,7 +510,8 @@ fn case(name: &str) -> Case {
         "bp3EnvSplit": true, "sessionStartMetaInjected": true,
         "promptBase": text(1), "promptStable": text(2), "bp3CoreContext": text(3), "promptEnv": text(4),
     });
-    Case { phase: case["input"]["phases"][0].as_str().unwrap().to_owned(), tools: before[0]["tools"].clone(), before, after, set }
+    let warm = result["after"]["warmBody"].clone();
+    Case { phase: case["input"]["phases"][0].as_str().unwrap().to_owned(), tools: before[0]["tools"].clone(), before, after, warm, set }
 }
 
 async fn boot(dir: &std::path::Path, url: String, case: &Case, hang_at: Option<usize>, kill: tokio::sync::mpsc::UnboundedSender<&'static str>) -> Boot {
@@ -430,6 +556,9 @@ async fn restart_prefix_first_process() {
     let cache = crate::run_host::session_cache_opts::session_provider_cache_opts("anthropic-oauth", id.as_str(), Some("lead"), &lead, &json!({}));
     let mut set = case.set.clone();
     set["providerCacheOpts"] = cache.unwrap_or(Value::Null);
+    // Node's `session.tools`, the session's active tools a rebuilt request lists (`side-question.mjs:83`): the surface's
+    // `tools` (`SessionSurface::from_header`), as Node's session holds them.
+    set["tools"] = case.tools.clone();
     let handle = first.directory.handle(&id).unwrap();
     handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": set, "unset": [] }), op: None, ctx: CallContext::internal("test") }).await.expect("the session's route and prompt");
     println!("RP:SESSION {}", id.as_str());
@@ -502,6 +631,7 @@ async fn replay(name: &str) {
     };
     let (kill, mut killed) = tokio::sync::mpsc::unbounded_channel();
     let mut script: VecDeque<Step> = script.into();
+    script.push_back(Step::Text("warm"));
     script.push_back(Step::Text("resumed"));
     let wire = Arc::new(Wire { bodies: Mutex::new(Vec::new()), script: Mutex::new(script), kill: kill.clone() });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
@@ -539,19 +669,42 @@ async fn replay(name: &str) {
     assert_eq!(at, expected, "{name}: the kill point");
     child.0.kill().expect("the first process is killed");
     child.0.wait().expect("the first process ended");
+    // Shown only when the test fails.
+    eprintln!("{name}: the first process wrote:\n{}", said());
     let sent = lock(&wire.bodies).clone();
     assert_eq!(sent.len(), case.before.len(), "{name}: requests before the restart");
     for (n, (core, node)) in sent.iter().zip(&case.before).enumerate() {
         same(core, node, &format!("{name}: request {n} before the restart"));
     }
 
-    // The second process opens the same data directory.
-    let resumed = process(boot(dir.path(), url, &case, None, kill).await).await;
+    // The restarted process re-arms the session's warm (`rearmCacheWarmsAfterRestart`): the body the provider receives is
+    // Node's `warmBody`.
+    // Node's `warmBody` is null after a restart inside a turn: its rebuilt request does not end in the reply it produced.
+    let second = boot(dir.path(), url, &case, None, kill).await;
+    let warmed = warm_after_restart(&second, &id).await;
+    assert_eq!(warmed, !case.warm.is_null(), "{name}: a warm after the restart");
+    let warms = usize::from(warmed);
+    let sent = lock(&wire.bodies).clone();
+    assert_eq!(sent.len(), case.before.len() + warms, "{name}: the warm request");
+    if warmed {
+        same(&sent[case.before.len()], &case.warm, &format!("{name}: the warm after the restart"));
+    } else {
+        // The script's warm answer is never asked for.
+        assert!(matches!(lock(&wire.script).pop_front(), Some(Step::Text("warm"))));
+    }
+
+    // The second process opens the same data directory. What a client reads of the session then is what Node resumed
+    // from (`turn-checkpoint-recovery.mjs`): the conversation its next request carries, before the new task.
+    let resumed = process(second).await;
     resumed.directory.open_handle(&id, &CallContext::internal("test")).await.expect("the stored session opens");
+    let handle = resumed.directory.handle(&id).expect("loaded");
+    let read = handle.request(request("thread/read", json!({ "threadId": id }), "op-read")).await.expect("thread/read");
+    let Reply::Value(read) = read else { panic!("thread/read answers a value") };
+    assert_eq!(read_conversation(&read), node_conversation(&case.after[0]), "{name}: the session a client reads after the restart");
     resumed.turn(&id, "third task", "op-3").await;
     resumed.settled(&id, 1).await;
     let sent = lock(&wire.bodies).clone();
-    let sent = &sent[case.before.len()..];
+    let sent = &sent[case.before.len() + warms..];
     assert_eq!(sent.len(), case.after.len(), "{name}: requests after the restart");
     for (n, (core, node)) in sent.iter().zip(&case.after).enumerate() {
         same(core, node, &format!("{name}: request {n} after the restart"));
