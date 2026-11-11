@@ -3164,31 +3164,113 @@ mod tests {
 
     // ---- `$skill` chips: the skills a prompt loaded, stamped on its row (`fixtures/applied-skills`) ----
 
-    struct SkillSet(std::collections::HashSet<String>);
-
-    #[async_trait]
-    impl mixdog_mcp::skill_select::SkillNames for SkillSet {
-        async fn names(&self, _: &std::path::Path) -> Result<std::collections::HashSet<String>, String> {
-            Ok(self.0.clone())
+    struct SkillDefaults;
+    impl mixdog_mcp::skill_catalog::SkillSettingsSource for SkillDefaults {
+        fn current(&self) -> mixdog_mcp::skill_catalog::SkillSettings {
+            mixdog_mcp::skill_catalog::SkillSettings::default()
         }
     }
 
-    /// The `Skill` tool as the product answers a skill it loads: the loaded line, the body as its follow-up.
-    struct LoadsSkills(ToolSpec);
-
+    /// The recorded skills name no deferred tools: a load arms nothing.
+    struct NothingToArm;
     #[async_trait]
-    impl Tool for LoadsSkills {
-        fn spec(&self) -> &ToolSpec {
-            &self.0
+    impl mixdog_mcp::skill_port::DeferredToolArm for NothingToArm {
+        async fn arm(&self, _: &ThreadId, _: &mixdog_mcp::skill_deps::SkillToolDependencies) -> Result<mixdog_tools::orch::skill::ArmNotice, mixdog_tools::orch::util::PortError> {
+            Ok(mixdog_tools::orch::skill::ArmNotice::default())
         }
-        async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-            let name = args["name"].as_str().unwrap_or_default();
-            Ok(ToolOutput {
-                parts: vec![ToolPart::Text(format!("Loaded skill: {name}"))],
-                follow_up_messages: vec![mixdog_core_api::domain::tool::FollowUpMessage { text: format!("# {name}\nFollow it."), meta: Some("skill".to_owned()) }],
-                ..ToolOutput::default()
-            })
+    }
+
+    /// No skill's body is in a recorded thread before its turn loads it.
+    struct NoBodies;
+    #[async_trait]
+    impl mixdog_mcp::skill_port::TranscriptTexts for NoBodies {
+        async fn user_texts(&self, _: &ThreadId) -> Result<Vec<String>, mixdog_tools::orch::util::PortError> {
+            Ok(Vec::new())
         }
+    }
+
+    /// The skill catalog over `<data>/skills` and the `Skill` tool that loads from it (`CatalogSkillPort`), as the core
+    /// composes them: the selection lists from the catalog and loads through the tool.
+    fn real_skills(data: &std::path::Path) -> (Arc<mixdog_mcp::skill_catalog::SkillCatalog>, mixdog_mcp::skills_watch::SkillsWatch, super::super::assemble::SkillParts) {
+        let tokens = mixdog_rt::testing::tokens();
+        let root = mixdog_mcp::skills::SkillRoot { dir: data.join("skills"), source: mixdog_mcp::skills::SkillSource::Global, plugin: None };
+        let watch = mixdog_mcp::skills_watch::SkillsWatch::new();
+        let catalog = mixdog_mcp::skill_catalog::SkillCatalog::new(
+            data.to_path_buf(),
+            tokens.maintenance_io,
+            Arc::new(move |_| vec![root.clone()]),
+            Arc::new(SkillDefaults),
+            &watch,
+        );
+        let port = mixdog_mcp::skill_port::CatalogSkillPort::new(catalog.clone(), Arc::new(NothingToArm), Arc::new(NoBodies));
+        let tool: Arc<dyn Tool> = Arc::new(mixdog_tools::orch::skill::SkillTool::new(Arc::new(port)));
+        (catalog.clone(), watch, super::super::assemble::SkillParts { names: catalog, tool })
+    }
+
+    /// The thread's model conversation as stored (`thread/messages/read`, Node's `session.messages`): its user rows.
+    async fn stored_user_rows(handle: &dyn ThreadHandle, id: &ThreadId) -> Vec<Value> {
+        let read = CoreRequest { method: Method("thread/messages/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
+        let Reply::Value(read) = handle.request(read).await.expect("thread/messages/read") else { panic!("thread/messages/read answers a value") };
+        read["messages"].as_array().expect("messages").iter().filter(|message| message["role"] == "user").cloned().collect()
+    }
+
+    struct NoPromptBlobs;
+    impl mixdog_protocol::message_class::user_text::Blobs for NoPromptBlobs {
+        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+            Err(mixdog_protocol::message_class::user_text::ReadError::Missing)
+        }
+    }
+
+    /// The user rows the transcript restores from stored rows (`restoreTranscriptItems`), each row by itself.
+    fn restored_user_rows(rows: &[Value]) -> Vec<Value> {
+        use mixdog_core_session::session::transcript::Restored;
+        let mut restored = Vec::new();
+        for (n, row) in rows.iter().enumerate() {
+            let mut record: mixdog_store::schema::record::ItemRecord =
+                serde_json::from_value(json!({ "iid": format!("m{n}"), "form": "message", "model": true, "visible": true, "refs": [], "body": { "inline": {} } })).expect("a record");
+            // The record's facts as the session writes them at commit (`user_facts`); these prompts are plain text.
+            let mut body = row.clone();
+            let facts = mixdog_core_session::session::user_facts::user_facts(&mut body, &NoPromptBlobs);
+            record.visible = facts.visible;
+            record.prompt = facts.prompt.map(Slot::Inline);
+            record.body = Slot::Inline(body.clone());
+            for item in mixdog_core_session::session::transcript::restore(&record, &body) {
+                if let Restored::Row { row, .. } = item
+                    && row.get("kind") == Some(&json!("user"))
+                {
+                    restored.push(Value::Object(row));
+                }
+            }
+        }
+        restored
+    }
+
+    /// `got` with the identities the core draws itself set to the recorded ones, each only where both rows have one: a row's
+    /// `messageId`, `attemptId` and `checkpointId` (Node's came from the client turn's transcript meta, Rust's core draws its
+    /// own), a steered prompt's `submissionIds`, and no restored `id` (Node counts `hist_<session>_<n>`). Everything else is
+    /// compared as it is.
+    fn with_recorded_ids(mut got: Value, want: &Value) -> Value {
+        for path in ["/meta/transcript/messageId", "/meta/transcript/attemptId", "/meta/transcript/checkpointId", "/messageId", "/attemptId", "/checkpointId"] {
+            if let (Some(recorded), Some(slot)) = (want.pointer(path).filter(|v| v.is_string()), got.pointer_mut(path).filter(|v| v.is_string())) {
+                *slot = recorded.clone();
+            }
+        }
+        if let (Some(Value::Array(recorded)), Some(Value::Array(ids))) = (want.pointer("/meta/submissionIds"), got.pointer_mut("/meta/submissionIds"))
+            && recorded.len() == ids.len()
+        {
+            *ids = recorded.clone();
+        }
+        if let Some(row) = got.as_object_mut() {
+            row.shift_remove("id");
+        }
+        got
+    }
+
+    /// Each of `got` against each of `want`, whole, but for the identities `with_recorded_ids` sets.
+    fn assert_rows(got: &[Value], want: &[Value], what: &str) {
+        let want: Vec<Value> = want.iter().map(|row| with_recorded_ids(row.clone(), row)).collect();
+        let got: Vec<Value> = got.iter().zip(want.iter().chain(std::iter::repeat(&Value::Null))).map(|(row, recorded)| with_recorded_ids(row.clone(), recorded)).collect();
+        assert_eq!(got, want, "{what}");
     }
 
     /// A tool that holds its call until the test lets it go, so a prompt can be queued into the running turn.
@@ -3274,17 +3356,51 @@ mod tests {
             .collect()
     }
 
-    /// Each recorded case as a real turn (the session actor starts it, the loop prepares the prompt's skills through the
-    /// `Skill` tool, a prompt queued into the running turn is prepared at its drain): the chips each user line shows, live and
-    /// after the thread is opened again over the same store, are the ones Node's restored rows show (`fixtures/applied-skills`,
-    /// recorded by `record-applied-skills.mjs`; Node's seeded earlier turn is not part of the replayed thread).
+    /// Each recorded case (`fixtures/applied-skills`, `record-applied-skills.mjs`: Node's real `askSession` over SKILL.md files)
+    /// as a real turn over the same files: the session actor starts it, the loop selects the prompt's skills from the skill
+    /// catalog and loads them through the real `Skill` tool, a prompt queued into the running turn is prepared at its drain, a
+    /// fork is the directory's `thread/fork`. Compared whole with Node's: every user row the thread stores (live and after the
+    /// thread is opened again over the same store), every user row the transcript restores from them, and the chips each
+    /// user line shows. The compaction case is Node's compacted rows carried through the conversion a compaction writes
+    /// them back with (`message_of` -> `row_of`) and restored.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_prompts_loaded_skills_are_its_rows_chips_as_node_restores_them() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/applied-skills/golden.json")).expect("golden");
-        let skills: std::collections::HashSet<String> = golden["skills"].as_array().expect("skills").iter().map(|s| s.as_str().expect("name").to_owned()).collect();
+    async fn a_prompts_loaded_skills_are_its_rows_chips_as_node_stores_and_restores_them() {
+        const GOLDEN: &str = include_str!("../../../../fixtures/applied-skills/golden.json");
+        let count = serde_json::from_str::<Value>(GOLDEN).expect("golden")["cases"].as_array().expect("cases").len();
         let mut compared = 0;
-        for case in golden["cases"].as_array().expect("cases") {
+        for index in 0..count {
+            let sandbox = tempfile::tempdir().unwrap();
+            let data = sandbox.path().join("mixdog_data_dir");
+            let escaped = serde_json::to_string(&sandbox.path().to_string_lossy().replace('\\', "/")).unwrap();
+            let golden: Value = serde_json::from_str(&GOLDEN.replace("<SANDBOX>", &escaped[1..escaped.len() - 1])).expect("golden");
+            let case = &golden["cases"][index];
             let label = case["name"].as_str().expect("name");
+            let want_rows = case["userRows"].as_array().expect("userRows");
+            let want_restored = case["restoredUserRows"].as_array().expect("restoredUserRows");
+            let chips_of = |rows: &[Value]| rows.iter().map(|row| row.get("appliedSkills").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>();
+            if case.get("compaction").is_some() {
+                let carried: Vec<Value> = want_rows.iter().map(|row| super::super::message_row::row_of(&super::super::message_row::message_of(row).expect("a stored row"))).collect();
+                assert_rows(&carried, want_rows, &format!("{label}: the compacted rows written back"));
+                assert_rows(&restored_user_rows(&carried), want_restored, &format!("{label}: the restored rows"));
+                compared += 1;
+                continue;
+            }
+            for name in golden["skills"].as_array().expect("skills") {
+                let name = name.as_str().expect("name");
+                std::fs::create_dir_all(data.join("skills").join(name)).unwrap();
+                std::fs::write(data.join("skills").join(name).join("SKILL.md"), format!("---\nname: {name}\ndescription: Exercise persisted skill selection.\n---\n# {name}\nFollow it.\n")).unwrap();
+            }
+            let (catalog, watch, skill_parts) = real_skills(&data);
+            // A skill removed after the listing was read: the skills watcher reports the removal (as Node's root watcher did
+            // before its turn), so the next listing no longer names it and its mention stays prose.
+            if let Some(removed) = case["removed"].as_array() {
+                use mixdog_mcp::skill_select::SkillNames as _;
+                catalog.names(sandbox.path()).await.expect("the listing");
+                for name in removed {
+                    std::fs::remove_file(data.join("skills").join(name.as_str().expect("name")).join("SKILL.md")).unwrap();
+                }
+                mixdog_workspace::watcher::ChangeSink::changed(&*watch.sink(), "mcp.skills:root", Vec::new(), mixdog_workspace::watcher::ChangeKind::Removed);
+            }
             let queued = case["queued"].as_str();
             let (started, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
             let script = if queued.is_some() {
@@ -3312,7 +3428,6 @@ mod tests {
             let workspace = tempfile::tempdir().unwrap();
             let hold: Arc<dyn Tool> = Arc::new(Hold { spec: named_spec("hold"), started: started.clone(), release: release.clone() });
             let late = Arc::new(std::sync::OnceLock::new());
-            let skill_parts = super::super::assemble::SkillParts { names: Arc::new(SkillSet(skills.clone())), tool: Arc::new(LoadsSkills(named_spec("Skill"))) };
             let factory = |more: Vec<Arc<dyn Tool>>| {
                 let parts = Skilled { inner: Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more, settle: None }, skills: skill_parts.clone(), directory: late.clone() };
                 Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)))
@@ -3331,27 +3446,13 @@ mod tests {
             let handle = directory.handle(&id).expect("loaded");
             handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": case["prompt"] } }), "op-1")).await.expect("turn/start");
             if let Some(queued) = queued {
-                started.notified().await;
+                mixdog_core_session::session::testing::awaiting(|| format!("{label}: the held tool to start"), started.notified()).await;
                 handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": queued } }), "op-2")).await.expect("the queued prompt");
-                // The drain hands over durable entries only: the tool is let go once the queued row is shown.
-                let shown = || {
-                    let read = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
-                    let handle = handle.clone();
-                    async move {
-                        let Ok(Reply::Value(read)) = handle.request(read).await else { return false };
-                        read["state"]["queued"].as_array().is_some_and(|queued| !queued.is_empty())
-                    }
-                };
-                let mut waited = 0;
-                while !shown().await {
-                    waited += 1;
-                    assert!(waited < 2_000, "{label}: the queued prompt is never shown");
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                }
+                // The drain hands over durable entries only: the tool is let go once the queued entry is in the store.
+                let durable = || rig.store.records(&id).iter().any(|(_, record)| matches!(record, Record::Queue(_)));
+                eventually_on_awaiting(|| format!("{label}: the queued entry in the store"), &[&rig.store.committed, handle.stepped()], || durable().then_some(())).await;
                 release.notify_one();
             }
-            // Node's restored user rows of the replayed turn, in order: the chips each shows.
-            let expected: Vec<Value> = case["restoredUserRows"].as_array().expect("rows").iter().filter(|row| row["messageId"] != "msg_earlier").map(|row| row["appliedSkills"].clone()).collect();
             let chips = |lines: Vec<(String, Value)>| lines.into_iter().map(|(_, chips)| chips).collect::<Vec<_>>();
             // The skills are prepared (and stamped) before the request the reply answers.
             let replies = if queued.is_some() { 2 } else { 1 };
@@ -3367,16 +3468,33 @@ mod tests {
                     == replies
             };
             eventually_on_awaiting(|| format!("{label}: the turn's reply in the store"), &[handle.stepped()], || replied().then_some(())).await;
-            assert_eq!(chips(user_lines(&*handle, &id).await), expected, "{label}: the live lines");
+            // A fork: the directory's `thread/fork` carries the conversation into a new thread, which is what is compared.
+            let (id, handle) = if case["name"] == "a fork" {
+                let Reply::Value(forked) = directory.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork") else {
+                    panic!("thread/fork answers a value")
+                };
+                let heir = ThreadId::from(forked["thread"]["id"].as_str().expect("the heir"));
+                let handle = directory.handle(&heir).expect("the heir is loaded");
+                (heir, handle)
+            } else {
+                (id, handle)
+            };
+            let rows = stored_user_rows(&*handle, &id).await;
+            assert_rows(&rows, want_rows, &format!("{label}: the stored user rows"));
+            assert_rows(&restored_user_rows(&rows), want_restored, &format!("{label}: the restored user rows"));
+            assert_eq!(chips(user_lines(&*handle, &id).await), chips_of(want_restored.as_slice()), "{label}: the live lines");
+            let applied: Vec<Value> = rows.iter().filter_map(|row| row.pointer("/meta/transcript/appliedSkills")).flat_map(|names| names.as_array().cloned().unwrap_or_default()).collect();
+            assert_eq!(Value::Array(applied), case["applied"], "{label}: the skills the turn applied");
             // The thread opened again over the same store reads the stamps back from the stored rows.
             let mut reopened = rig.deps_parts(rig.store.clone());
             reopened.runs = factory(Vec::new());
             reopened.transcript = projection();
             let again = SessionDirectory::new(Arc::new(reopened));
             let handle = again.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
-            assert_eq!(chips(user_lines(&*handle, &id).await), expected, "{label}: the restored lines");
+            assert_rows(&stored_user_rows(&*handle, &id).await, want_rows, &format!("{label}: the stored user rows, reopened"));
+            assert_eq!(chips(user_lines(&*handle, &id).await), chips_of(want_restored.as_slice()), "{label}: the restored lines");
             compared += 1;
         }
-        assert_eq!(compared, 4);
+        assert_eq!(compared, count);
     }
 }

@@ -1,8 +1,9 @@
 {
-  "note": "recordAppliedSkills through the real persist path: the applied names, the stored user rows and the restored chips",
+  "note": "recordAppliedSkills through a real askSession: the applied names, every stored user row and every restored user row, whole",
   "skills": [
     "selected-guide",
-    "other-guide"
+    "other-guide",
+    "broken-guide"
   ],
   "cases": [
     {
@@ -12,27 +13,58 @@
         "selected-guide",
         "other-guide"
       ],
-      "userTranscripts": [
+      "userRows": [
         {
-          "messageId": "msg_earlier"
+          "role": "user",
+          "content": "Review with $selected-guide then $other-guide and $HOME.",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn",
+              "appliedSkills": [
+                "selected-guide",
+                "other-guide"
+              ]
+            }
+          }
         },
         {
-          "messageId": "msg_turn",
-          "appliedSkills": [
-            "selected-guide",
-            "other-guide"
-          ]
+          "role": "user",
+          "meta": {
+            "source": "skill-context"
+          },
+          "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: selected-guide\n</system-reminder>"
         },
-        null,
-        null
+        {
+          "role": "user",
+          "content": "<skill>\n<name>selected-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/selected-guide</base-dir>\n# selected-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        },
+        {
+          "role": "user",
+          "meta": {
+            "source": "skill-context"
+          },
+          "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: other-guide\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "<skill>\n<name>other-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/other-guide</base-dir>\n# other-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        }
       ],
       "restoredUserRows": [
         {
-          "messageId": "msg_earlier",
-          "appliedSkills": null
-        },
-        {
+          "kind": "user",
+          "id": "hist_session_4_1",
+          "text": "Review with $selected-guide then $other-guide and $HOME.",
           "messageId": "msg_turn",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn",
           "appliedSkills": [
             "selected-guide",
             "other-guide"
@@ -46,25 +78,45 @@
       "applied": [
         "selected-guide"
       ],
-      "userTranscripts": [
+      "userRows": [
         {
-          "messageId": "msg_earlier"
+          "role": "user",
+          "content": "Skill: \"selected-guide\"\n\nDo the work.",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn",
+              "appliedSkills": [
+                "selected-guide"
+              ]
+            }
+          }
         },
         {
-          "messageId": "msg_turn",
-          "appliedSkills": [
-            "selected-guide"
-          ]
+          "role": "user",
+          "meta": {
+            "source": "skill-context"
+          },
+          "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: selected-guide\n</system-reminder>"
         },
-        null
+        {
+          "role": "user",
+          "content": "<skill>\n<name>selected-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/selected-guide</base-dir>\n# selected-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        }
       ],
       "restoredUserRows": [
         {
-          "messageId": "msg_earlier",
-          "appliedSkills": null
-        },
-        {
+          "kind": "user",
+          "id": "hist_session_4_1",
+          "text": "Skill: \"selected-guide\"\n\nDo the work.",
           "messageId": "msg_turn",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn",
           "appliedSkills": [
             "selected-guide"
           ]
@@ -78,27 +130,68 @@
       "applied": [
         "other-guide"
       ],
-      "userTranscripts": [
+      "userRows": [
         {
-          "messageId": "msg_earlier"
+          "role": "user",
+          "content": "First task",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn"
+            }
+          }
         },
-        null,
-        null
+        {
+          "role": "user",
+          "content": "Next: use $other-guide.",
+          "meta": {
+            "source": "steering",
+            "submissionIds": [
+              "a9ba8d21f2f8cf5a045db97b"
+            ],
+            "transcript": {
+              "messageId": "msg_5cef929591ba4b7688c194f3cdf674cc",
+              "appliedSkills": [
+                "other-guide"
+              ]
+            }
+          }
+        },
+        {
+          "role": "user",
+          "meta": {
+            "source": "skill-context"
+          },
+          "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: other-guide\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "<skill>\n<name>other-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/other-guide</base-dir>\n# other-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        }
       ],
       "restoredUserRows": [
         {
-          "messageId": "msg_earlier",
-          "appliedSkills": null
+          "kind": "user",
+          "id": "hist_session_4_1",
+          "text": "First task",
+          "messageId": "msg_turn",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn"
         },
         {
-          "messageId": null,
-          "appliedSkills": null
-        },
-        {
-          "messageId": "msg_queued",
+          "kind": "user",
+          "id": "hist_session_6_1",
+          "text": "Next: use $other-guide.",
+          "messageId": "msg_5cef929591ba4b7688c194f3cdf674cc",
           "appliedSkills": [
             "other-guide"
-          ]
+          ],
+          "steered": true
         }
       ]
     },
@@ -106,22 +199,374 @@
       "name": "no skill named",
       "prompt": "Nothing to load, $nobody.",
       "applied": [],
-      "userTranscripts": [
+      "userRows": [
         {
-          "messageId": "msg_earlier"
-        },
-        {
-          "messageId": "msg_turn"
+          "role": "user",
+          "content": "Nothing to load, $nobody.",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn"
+            }
+          }
         }
       ],
       "restoredUserRows": [
         {
-          "messageId": "msg_earlier",
-          "appliedSkills": null
+          "kind": "user",
+          "id": "hist_session_4_1",
+          "text": "Nothing to load, $nobody.",
+          "messageId": "msg_turn",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn"
+        }
+      ]
+    },
+    {
+      "name": "a duplicate",
+      "prompt": "Skill: \"selected-guide\"\n\nUse $selected-guide, then $selected-guide again.",
+      "applied": [
+        "selected-guide"
+      ],
+      "userRows": [
+        {
+          "role": "user",
+          "content": "Skill: \"selected-guide\"\n\nUse $selected-guide, then $selected-guide again.",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn",
+              "appliedSkills": [
+                "selected-guide"
+              ]
+            }
+          }
         },
         {
+          "role": "user",
+          "meta": {
+            "source": "skill-context"
+          },
+          "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: selected-guide\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "<skill>\n<name>selected-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/selected-guide</base-dir>\n# selected-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        }
+      ],
+      "restoredUserRows": [
+        {
+          "kind": "user",
+          "id": "hist_session_4_1",
+          "text": "Skill: \"selected-guide\"\n\nUse $selected-guide, then $selected-guide again.",
           "messageId": "msg_turn",
-          "appliedSkills": null
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn",
+          "appliedSkills": [
+            "selected-guide"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a skill that fails to load",
+      "prompt": "Use $broken-guide and $other-guide.",
+      "applied": [
+        "other-guide"
+      ],
+      "userRows": [
+        {
+          "role": "user",
+          "content": "Use $broken-guide and $other-guide.",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn",
+              "appliedSkills": [
+                "other-guide"
+              ]
+            }
+          }
+        },
+        {
+          "role": "user",
+          "meta": {
+            "source": "skill-context"
+          },
+          "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: other-guide\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "<skill>\n<name>other-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/other-guide</base-dir>\n# other-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        }
+      ],
+      "restoredUserRows": [
+        {
+          "kind": "user",
+          "id": "hist_session_4_1",
+          "text": "Use $broken-guide and $other-guide.",
+          "messageId": "msg_turn",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn",
+          "appliedSkills": [
+            "other-guide"
+          ]
+        }
+      ],
+      "removed": [
+        "broken-guide"
+      ]
+    },
+    {
+      "name": "a fork",
+      "prompt": "Fork me with $selected-guide.",
+      "applied": [
+        "selected-guide"
+      ],
+      "userRows": [
+        {
+          "role": "user",
+          "content": "Fork me with $selected-guide.",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn",
+              "appliedSkills": [
+                "selected-guide"
+              ]
+            }
+          }
+        },
+        {
+          "role": "user",
+          "meta": {
+            "source": "skill-context"
+          },
+          "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: selected-guide\n</system-reminder>"
+        },
+        {
+          "role": "user",
+          "content": "<skill>\n<name>selected-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/selected-guide</base-dir>\n# selected-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        }
+      ],
+      "restoredUserRows": [
+        {
+          "kind": "user",
+          "id": "hist_session_4_1",
+          "text": "Fork me with $selected-guide.",
+          "messageId": "msg_turn",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn",
+          "appliedSkills": [
+            "selected-guide"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a compaction",
+      "prompt": "Start with $selected-guide.",
+      "applied": [
+        "selected-guide"
+      ],
+      "compaction": {
+        "changed": true
+      },
+      "userRows": [
+        {
+          "role": "user",
+          "content": "[mixdog-runtime] Compact boundary.",
+          "meta": {
+            "source": "compact-skill-window",
+            "synthetic": true,
+            "span": 15
+          }
+        },
+        {
+          "role": "user",
+          "content": "<skill>\n<name>selected-guide</name>\n<base-dir><SANDBOX>/mixdog_data_dir/skills/selected-guide</base-dir>\n# selected-guide\nFollow it.\n</skill>",
+          "meta": "skill"
+        },
+        {
+          "role": "user",
+          "content": "Start with $selected-guide. context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context ",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_turn",
+              "attemptId": "attempt_msg_turn",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_turn",
+              "appliedSkills": [
+                "selected-guide"
+              ]
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "request 0 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context ",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_0",
+              "attemptId": "attempt_msg_0",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_0"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "request 1 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context ",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_1",
+              "attemptId": "attempt_msg_1",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_1"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "request 2 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context ",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_2",
+              "attemptId": "attempt_msg_2",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_2"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "request 3 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context ",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_3",
+              "attemptId": "attempt_msg_3",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_3"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "request 4 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context ",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_4",
+              "attemptId": "attempt_msg_4",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_4"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "request 5 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context ",
+          "meta": {
+            "transcript": {
+              "messageId": "msg_5",
+              "attemptId": "attempt_msg_5",
+              "at": 1000,
+              "device": "desktop-1",
+              "checkpointId": "checkpoint_msg_5"
+            }
+          }
+        }
+      ],
+      "restoredUserRows": [
+        {
+          "kind": "user",
+          "id": "hist_session_6_1",
+          "text": "Start with $selected-guide. context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context",
+          "messageId": "msg_turn",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_turn",
+          "appliedSkills": [
+            "selected-guide"
+          ]
+        },
+        {
+          "kind": "user",
+          "id": "hist_session_8_1",
+          "text": "request 0 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context",
+          "messageId": "msg_0",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_0"
+        },
+        {
+          "kind": "user",
+          "id": "hist_session_10_1",
+          "text": "request 1 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context",
+          "messageId": "msg_1",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_1"
+        },
+        {
+          "kind": "user",
+          "id": "hist_session_12_1",
+          "text": "request 2 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context",
+          "messageId": "msg_2",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_2"
+        },
+        {
+          "kind": "user",
+          "id": "hist_session_14_1",
+          "text": "request 3 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context",
+          "messageId": "msg_3",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_3"
+        },
+        {
+          "kind": "user",
+          "id": "hist_session_16_1",
+          "text": "request 4 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context",
+          "messageId": "msg_4",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_4"
+        },
+        {
+          "kind": "user",
+          "id": "hist_session_18_1",
+          "text": "request 5 context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context context",
+          "messageId": "msg_5",
+          "at": 1000,
+          "device": "desktop-1",
+          "checkpointId": "checkpoint_msg_5"
         }
       ]
     }

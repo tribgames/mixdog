@@ -383,7 +383,8 @@ const ASK_CALLBACKS: [&str; 21] = [
 /// Node's pushed user row and the message Node's runtime was asked to run (`asked`: the `runtime.ask` content and its options), as the
 /// record Rust stores for the prompt, whole. The options are a closed table: `id` and `submissionIds` are the submission id the record
 /// keeps as `clientSubmissionId`, `submittedAt` is the submit time (`at`), `transcriptMeta` is the message's `meta.transcript` (every key of
-/// it is kept, but `at`, Node's submit time against Rust's clock, and the random `attemptId`); the rest is Node-only. Rust's record adds
+/// it is kept, but `at`, Node's submit time against Rust's clock, the random `attemptId`, and `completionVerb`, which Node's persisted
+/// prompt drops); the rest is Node-only. Rust's record adds
 /// what Node keeps elsewhere: the row's text (`displayText`, only when it differs from the prompt), the row's id (`clientSubmissionId`)
 /// and the item's own id (`checkpointId`, which Node's `stampCheckpoint` stamps on the history message too).
 fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
@@ -405,6 +406,11 @@ fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
     assert_eq!(transcript["attemptId"], json!("<uuid>"));
     transcript["at"] = json!(clock);
     transcript["attemptId"] = json!("<random>");
+    // The turn's verb stays with the turn: Node's persisted prompt leaves it out (`persistedUserTranscriptMetadata`,
+    // transcript-metadata.mjs:92), and the `applied-skills` replay compares Rust's record with that persisted row whole.
+    if let Some(meta) = transcript.as_object_mut() {
+        meta.remove("completionVerb");
+    }
     // Node keeps the shown text only as the row's `text`; Rust's record also holds it when it differs from the prompt.
     if asked["content"] != row["text"] {
         transcript["displayText"] = row["text"].clone();

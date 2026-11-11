@@ -116,6 +116,8 @@ mod transcript_rows;
 pub use self::transcript_response::Completion;
 pub use self::transcript_response::Delivery;
 pub use self::transcript_response::agent_response;
+pub use self::transcript_rows::Restored;
+pub use self::transcript_rows::restore;
 
 pub(super) use self::transcript_boundary::fold_model_switches;
 pub(super) use self::transcript_rows::normalize_reactions;

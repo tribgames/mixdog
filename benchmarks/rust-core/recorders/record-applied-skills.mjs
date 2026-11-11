@@ -1,158 +1,179 @@
 #!/usr/bin/env node
-// What a `$skill` chip is made of (`recordAppliedSkills`, session/explicit-skills.mjs): the skills a user turn loaded,
-// stamped on that turn's stored row (`meta.transcript.appliedSkills`) and read back as the row's chips after a restart.
-// The three paths of Node's explicit-skills-persist.test.mjs, driven as the product drives them over the real session
-// store, the real Skill tool and two skills on disk: inline `$name` mentions on an ask turn, a header-only selection
-// (`skillSelectionHeader`), and a prompt queued into a running turn (the loop's drain). Per case: the prompt, the names
-// the preparation reported applied, every stored user row's `meta.transcript` as the durable record holds it, and the
-// restored user rows (`restoreTranscriptItems`) with their chips.
+// What a `$skill` chip is made of (`recordAppliedSkills`, session/explicit-skills.mjs), recorded through the product's own turn: a
+// real `askSession` (createSession, the ask turn's `prepareExplicitSkills` with the real Skill tool over SKILL.md files on disk) against
+// a scripted provider, the store's own writes, the fork the desktop makes (`createInheritance().inheritFrom`) and a manual compaction
+// (`compactSessionMessages`). Per case: the prompt(s), the names the turn reported applied (`onSkillsApplied`), every user row the
+// durable record holds (whole: role, content, meta) and every user row `restoreTranscriptItems` restores from it (whole).
 //
-//   node benchmarks/rust-core/recorders/record-applied-skills.mjs --tree <exact export of b6f10295a>
+// Cases: inline `$name` mentions; a header-only selection (`skillSelectionHeader`); a prompt queued into the running turn
+// (`enqueuePendingMessage` while the first request is held; the loop's drain prepares it); no skill named; a duplicate (the header
+// and two inline mentions of one skill); a skill that fails to load (listed, its SKILL.md removed before the turn); a fork of a session
+// whose prompt has chips; the same after a manual compaction.
+//
+// The clock and the random draws are the deterministic world's (lib/deterministic-world.mjs); the sandbox folder becomes <SANDBOX>.
+//
+//   node benchmarks/rust-core/recorders/record-applied-skills.mjs --tree <exact export of b6f10295a with node_modules>
 // Output: native/core/fixtures/applied-skills/golden.json
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recorderProvenance } from './lib/provenance.mjs';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { installDeterministicWorld } from './lib/deterministic-world.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-applied-skills.mjs';
-const SKILLS = ['selected-guide', 'other-guide'];
+const SKILLS = ['selected-guide', 'other-guide', 'broken-guide'];
 
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, NODE_COMMIT);
-const root = mkdtempSync(join(tmpdir(), 'mixdog-applied-skills-'));
-process.env.MIXDOG_DATA_DIR = root;
+const sandbox = mkdtempSync(join(process.env.MIXDOG_RECORDER_SCRATCH ?? tmpdir(), 'rec-applied-skills-'));
+for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[name] = join(sandbox, name.toLowerCase());
+for (const [k, v] of Object.entries(JSON.parse(readFileSync(join(tree, 'src/runtime/shared/pristine-execution-contract.json'), 'utf8')).guardEnv)) {
+  if (k !== 'MIXDOG_DISABLE_MCP' && k !== 'MIXDOG_DISABLE_SKILLS') process.env[k] = v;
+}
+process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
+process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+process.env.MIXDOG_DISABLE_PROVIDER_WARMUP = '1';
+process.env.MIXDOG_DISABLE_MODEL_PREFETCH = '1';
+process.env.MIXDOG_DISABLE_MODEL_CATALOG_WARMUP = '1';
+const data = process.env.MIXDOG_DATA_DIR;
+const work = join(sandbox, 'work');
+mkdirSync(work, { recursive: true });
+const skillFile = (name) => join(data, 'skills', name, 'SKILL.md');
 for (const name of SKILLS) {
-  mkdirSync(join(root, 'skills', name), { recursive: true });
-  writeFileSync(join(root, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: Exercise persisted skill selection.\n---\n# ${name}\nFollow it.\n`);
+  mkdirSync(join(data, 'skills', name), { recursive: true });
+  writeFileSync(skillFile(name), `---\nname: ${name}\ndescription: Exercise persisted skill selection.\n---\n# ${name}\nFollow it.\n`);
 }
 
+const world = installDeterministicWorld({ start: 1_800_000_000_000, pid: 4242 });
 const orch = 'src/runtime/agent/orchestrator';
-const { saveSessionAsync } = await importFrom(tree, `${orch}/session/store.mjs`);
-const { readDurableSessionRecord } = await importFrom(tree, `${orch}/session/store/transcript-durability.mjs`);
-const { settleSessionSummaryIndex } = await importFrom(tree, `${orch}/session/store/listing.mjs`);
-const { invalidateSkillsCache } = await importFrom(tree, `${orch}/context/collect.mjs`);
-const { prepareExplicitSkills, recordAppliedSkills } = await importFrom(tree, `${orch}/session/explicit-skills.mjs`);
-const { restoreTranscriptItems } = await importFrom(tree, `${orch}/session/transcript-restore/restore.mjs`);
-const { skillSelectionHeader } = await importFrom(tree, 'src/runtime/shared/skill-selection.mjs');
-const { SKILL_TOOL } = await importFrom(tree, `${orch}/runtime-core/tool-defs.mjs`);
-const { applyDeferredToolSurface } = await importFrom(tree, `${orch}/runtime-core/tool-catalog.mjs`);
-const { agentLoop } = await importFrom(tree, `${orch}/session/agent-loop.mjs`);
-invalidateSkillsCache(root);
+const load = (rel) => importFrom(tree, rel);
+const manager = await load(`${orch}/session/manager.mjs`);
+const { saveSession } = await load(`${orch}/session/store.mjs`);
+const { _withRegisteredProviderForTestAsync } = await load(`${orch}/providers/registry.mjs`);
+const { readDurableSessionRecord } = await load(`${orch}/session/store/transcript-durability.mjs`);
+const { settleRecorder } = await load(`${orch}/session/store/session-writers.mjs`);
+const { awaitPreviousTurnDurable } = await load(`${orch}/session/manager/turn-durability.mjs`);
+const { restoreTranscriptItems } = await load(`${orch}/session/transcript-restore/restore.mjs`);
+const { skillSelectionHeader } = await load('src/runtime/shared/skill-selection.mjs');
+const { createInheritance } = await load('src/session-runtime/lifecycle/inheritance.mjs');
+
+const PROVIDER = 'skills-stub';
+// Each request is held until the script lets it go; a summary request (the compaction's) answers a summary.
+const sends = [];
+const held = [];
+const stub = {
+  name: PROVIDER,
+  contextWindow: 128000,
+  async send(messages) {
+    const last = [...messages].reverse().find((m) => m.role === 'user');
+    const text = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content ?? '');
+    sends.push(text);
+    if (holding) await new Promise((resolve) => held.push(resolve));
+    const summary = /summar|compact/i.test(text);
+    return { content: summary ? 'a summary of the conversation' : 'Done.', toolCalls: [], stopReason: 'end_turn', usage: { inputTokens: 100, outputTokens: 20 } };
+  },
+};
+let holding = false;
+const route = { provider: PROVIDER, model: 'stub-model' };
+const placeholder = (value) => JSON.parse(JSON.stringify(value).split(JSON.stringify(sandbox).slice(1, -1)).join('<SANDBOX>').split(sandbox.replaceAll('\\', '/')).join('<SANDBOX>'));
+
+async function settled(id) {
+  await within('the turn durable', awaitPreviousTurnDurable(id));
+  await within('the writer settled', settleRecorder(id));
+}
+
+// The user rows as a restarted app reads them: the durable record, and what restore makes of it.
+async function stored(id) {
+  await settled(id);
+  const disk = readDurableSessionRecord(id);
+  return {
+    userRows: disk.messages.filter((message) => message.role === 'user'),
+    restoredUserRows: restoreTranscriptItems(disk.messages).filter((item) => item.kind === 'user'),
+  };
+}
 
 let sequence = 0;
 function newSession() {
+  world.advance(1000);
   sequence += 1;
-  const now = Date.now();
-  const session = {
-    id: `sess_applied_skills_${sequence}`,
-    owner: 'user',
-    status: 'idle',
-    createdAt: now,
-    updatedAt: now,
-    provider: 'openai-oauth',
-    cwd: root,
-    toolSpec: 'full',
-    tools: [SKILL_TOOL],
-    messages: [
-      { role: 'system', content: 'Stable instructions.' },
-      { role: 'user', content: 'Earlier task', meta: { transcript: { messageId: 'msg_earlier' } } },
-      { role: 'assistant', content: 'Earlier answer.' },
-    ],
-    compaction: { auto: false },
-  };
-  applyDeferredToolSurface(session, 'full');
-  return session;
+  return manager.createSession({ ...route, id: `sess_applied_skills_${sequence}`, owner: 'user', sourceType: 'lead', agent: 'lead', cwd: work });
 }
 
-// The stored rows as a restarted app reads them: the durable record (its log, never a cached copy).
-function stored(session) {
-  const disk = readDurableSessionRecord(session.id);
-  const users = disk.messages.filter((message) => message.role === 'user' && !message.meta?.source);
-  return {
-    userTranscripts: users.map((message) => message.meta?.transcript ?? null),
-    restoredUserRows: restoreTranscriptItems(disk.messages)
-      .filter((item) => item.kind === 'user')
-      .map((item) => ({ messageId: item.messageId ?? null, appliedSkills: item.appliedSkills ?? null })),
-  };
+// What a client's turn carries for its prompt row (the desktop draws the ids, the time and the completion verb, and names its
+// device); the replay's core draws its own, which the comparison takes as identities.
+const turnMeta = (messageId) => ({ messageId, attemptId: `attempt_${messageId}`, checkpointId: `checkpoint_${messageId}`, at: 1000, device: 'desktop-1', completionVerb: 'Mapped' });
+
+async function ask(id, prompt, messageId, applied) {
+  world.advance(1000);
+  await within(`ask ${id}`, manager.askSession(id, prompt, null, undefined, work, undefined, { transcriptMeta: turnMeta(messageId), onSkillsApplied: (names) => applied.push(...names) }));
 }
 
-// One ask turn the way prepareAskTurn/runAskAgentLoop drive it.
-async function askTurn(prompt) {
+async function askCase(name, prompt) {
   const session = newSession();
-  const userMessage = { role: 'user', content: prompt, meta: { transcript: { messageId: 'msg_turn' } } };
-  const outgoing = [...session.messages, userMessage];
-  const beforeCount = outgoing.length;
-  session.messages = outgoing.slice();
-  await saveSessionAsync(session);
-  const applied = await prepareExplicitSkills(prompt, outgoing, session, { cwd: root });
-  recordAppliedSkills(outgoing, outgoing[beforeCount - 1], applied);
-  session.messages = outgoing.slice();
-  outgoing.push({ role: 'assistant', content: 'Done.' });
-  session.messages = outgoing.slice();
-  await saveSessionAsync(session);
-  return { prompt, applied, ...stored(session) };
-}
-
-// A prompt queued into a running turn: drained after the first reply, prepared before the next request.
-async function queuedTurn(first, queued) {
-  const session = newSession();
-  const outgoing = [...session.messages, { role: 'user', content: first }];
-  session.messages = outgoing.slice();
-  await saveSessionAsync(session);
-  let sends = 0;
-  let drained = false;
   const applied = [];
-  await agentLoop(
-    {
-      name: 'openai-oauth',
-      async send() {
-        sends += 1;
-        return { content: 'Done.', toolCalls: [], stopReason: 'end_turn' };
-      },
-    },
-    outgoing,
-    'fake-model',
-    session.tools,
-    null,
-    root,
-    {
-      session,
-      onSkillsApplied: (names) => applied.push(...names),
-      drainSteering() {
-        if (sends !== 1 || drained) return [];
-        drained = true;
-        return [{ mode: 'prompt', content: queued, transcriptMeta: { messageId: 'msg_queued' } }];
-      },
-    }
-  );
-  session.messages = outgoing.slice();
-  await saveSessionAsync(session);
-  return { prompt: first, queued, applied, ...stored(session) };
+  await ask(session.id, prompt, 'msg_turn', applied);
+  return { name, prompt, applied, ...(await stored(session.id)) };
 }
 
-const cases = [
-  { name: 'inline mentions', ...(await askTurn('Review with $selected-guide then $other-guide and $HOME.')) },
-  { name: 'header-only selection', ...(await askTurn(`${skillSelectionHeader('selected-guide')}Do the work.`)) },
-  { name: 'queued prompt', ...(await queuedTurn('First task', 'Next: use $other-guide.')) },
-  { name: 'no skill named', ...(await askTurn('Nothing to load, $nobody.')) },
-];
+async function queuedCase(name, first, queued) {
+  const session = newSession();
+  const applied = [];
+  holding = true;
+  const sent = sends.length;
+  world.advance(1000);
+  const turn = manager.askSession(session.id, first, null, undefined, work, undefined, { transcriptMeta: turnMeta('msg_turn'), onSkillsApplied: (names) => applied.push(...names) });
+  while (sends.length === sent) await new Promise((resolve) => setImmediate(resolve));
+  manager.enqueuePendingMessage(session.id, { mode: 'prompt', content: queued, transcriptMeta: { messageId: 'msg_queued' } });
+  holding = false;
+  for (const release of held.splice(0)) release();
+  await within('the queued turn', turn);
+  return { name, prompt: first, queued, applied, ...(await stored(session.id)) };
+}
 
-await settleSessionSummaryIndex();
-await (await importFrom(tree, `${orch}/session/store/lifecycle-barriers.mjs`)).flushSessionCloseMetrics();
-invalidateSkillsCache(root);
-(await importFrom(tree, `${orch}/session/store/session-writer-claim.mjs`)).releaseHeldSessionWriters();
-rmSync(root, { recursive: true, force: true });
+const cases = [];
+await _withRegisteredProviderForTestAsync(PROVIDER, stub, async () => {
+  cases.push(await askCase('inline mentions', 'Review with $selected-guide then $other-guide and $HOME.'));
+  cases.push(await askCase('header-only selection', `${skillSelectionHeader('selected-guide')}Do the work.`));
+  cases.push(await queuedCase('queued prompt', 'First task', 'Next: use $other-guide.'));
+  cases.push(await askCase('no skill named', 'Nothing to load, $nobody.'));
+  cases.push(await askCase('a duplicate', `${skillSelectionHeader('selected-guide')}Use $selected-guide, then $selected-guide again.`));
+  // The earlier turns read the listing with broken-guide in it; its file is removed, and the next turn's listing no longer
+  // names it, so its mention stays prose and only other-guide loads.
+  rmSync(skillFile('broken-guide'));
+  cases.push({ ...(await askCase('a skill that fails to load', 'Use $broken-guide and $other-guide.')), removed: ['broken-guide'] });
+  // The desktop's fork (`inheritSession`): an heir created where the source is, then inheritFrom carries the conversation into it.
+  const source = newSession();
+  const sourceApplied = [];
+  await ask(source.id, 'Fork me with $selected-guide.', 'msg_turn', sourceApplied);
+  await settled(source.id);
+  world.advance(60_000);
+  const heir = manager.createSession({ ...route, owner: 'user', sourceType: 'lead', agent: 'lead', cwd: work });
+  const inheritance = createInheritance(
+    { getSession: () => manager.getSession(heir.id), getRoute: () => route, mgr: manager, createCurrentSession: null, invalidateContextStatusCache() {}, getReservedSessionId: () => null },
+    { compactConversation: async () => null, saveSession }
+  );
+  await within('inherit', inheritance.inheritFrom(source.id, { compact: false }));
+  cases.push({ name: 'a fork', prompt: 'Fork me with $selected-guide.', applied: sourceApplied, ...(await stored(heir.id)) });
+  // A manual compaction of a session whose first prompt has chips, after enough turns that it really trims.
+  const compacted = newSession();
+  const compactedApplied = [];
+  await ask(compacted.id, `Start with $selected-guide. ${'context '.repeat(400)}`, 'msg_turn', compactedApplied);
+  for (let turn = 0; turn < 6; turn += 1) await ask(compacted.id, `request ${turn} ${'context '.repeat(400)}`, `msg_${turn}`, compactedApplied);
+  world.advance(1000);
+  const result = await within('compact', manager.compactSessionMessages(compacted.id));
+  cases.push({ name: 'a compaction', prompt: 'Start with $selected-guide.', applied: compactedApplied, compaction: { changed: result?.changed ?? null }, ...(await stored(compacted.id)) });
+});
 
 const finalOut = join(FIXTURES_ROOT, 'applied-skills');
 const out = stageSet(finalOut);
-writeJson(join(out, 'golden.json'), {
-  note: 'recordAppliedSkills through the real persist path: the applied names, the stored user rows and the restored chips',
+writeJson(join(out, 'golden.json'), placeholder({
+  note: 'recordAppliedSkills through a real askSession: the applied names, every stored user row and every restored user row, whole',
   skills: SKILLS,
   cases,
-});
+}));
 writeSetManifest(out, {
   set: 'applied-skills',
   recorder,
@@ -162,13 +183,15 @@ writeSetManifest(out, {
     ...recorderProvenance(import.meta.url),
     cases: cases.length,
     syntheticInputs: [
-      'the sessions: three stored rows before the turn (system, an earlier user turn, its answer), the Skill tool only',
-      'the skills: two SKILL.md files under MIXDOG_DATA_DIR/skills',
-      'the provider of the queued case: one that answers "Done." and calls no tool',
+      'the provider: one that answers "Done." (a summary request: "a summary of the conversation") and calls no tool',
+      'the skills: three SKILL.md files under MIXDOG_DATA_DIR/skills; broken-guide\'s file is removed before its case',
+      'each prompt\'s transcriptMeta, as a client turn carries it: { messageId (msg_turn, msg_<n>), attemptId, checkpointId, at: 1000, device: "desktop-1", completionVerb: "Mapped" }',
     ],
-    keptWhole: 'per case: the prompt, the applied names, every stored user row meta.transcript, the restored user rows',
+    keptWhole: 'per case: the prompt(s), the applied names, every stored user row, every restored user row',
   },
 });
 commitStage(out, finalOut);
+(await load(`${orch}/session/store/session-writer-claim.mjs`)).releaseHeldSessionWriters();
+rmSync(sandbox, { recursive: true, force: true });
 console.log(`cases=${cases.length}`);
 process.exit(0);

@@ -5033,8 +5033,8 @@ impl SessionActor {
                 meta.entry("device").or_insert_with(|| json!(submitter.device));
             }
             meta.entry("attemptId").or_insert_with(|| json!(new_id()));
-            // `beginTurn` stamps the verb the turn will complete with on the same metadata the runtime persists.
-            meta.entry("completionVerb").or_insert_with(|| json!(super::live_end::done_verb(self.turns_closed)));
+            // The turn's `completionVerb` stays with the turn (`slot.verb`): Node's persisted user metadata leaves it out
+            // (`persistedUserTranscriptMetadata`, transcript-metadata.mjs:92).
             for (key, value) in route {
                 meta.entry(key).or_insert(value);
             }
