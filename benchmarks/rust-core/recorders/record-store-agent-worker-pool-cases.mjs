@@ -126,13 +126,13 @@ await set.run('a session rewrite that keeps its size and mtime is still read, se
   const { path, index } = writeSingleWorker(root, 'AAAA');
   const { mtime } = statSync(path);
   const pool = await freshPool();
-  const titles = [pool.listStoredAgentWorkers()[0].title];
+  const lists = [structuredClone(pool.listStoredAgentWorkers())];
   const rewrite = (title) => { writeFileSync(path, JSON.stringify({ id: 'stamp-child', owner: 'agent', title, messages: [] })); utimesSync(path, mtime, mtime); };
-  rewrite('BBBB'); titles.push(pool.listStoredAgentWorkers()[0].title);
+  rewrite('BBBB'); lists.push(structuredClone(pool.listStoredAgentWorkers()));
   age(root);
-  titles.push(pool.listStoredAgentWorkers()[0].title); // settled and cached
-  rewrite('CCCC'); titles.push(pool.listStoredAgentWorkers()[0].title);
-  return { index, record: { id: 'stamp-child', owner: 'agent', title: 'AAAA', messages: [] }, aged: AGE_INPUT, titlesSeen: titles, steps: ['first read AAAA', 'rewrite BBBB same size and mtime', 'age every store file', 'read again (cached)', 'rewrite CCCC same size and mtime'] };
+  lists.push(structuredClone(pool.listStoredAgentWorkers())); // settled and cached
+  rewrite('CCCC'); lists.push(structuredClone(pool.listStoredAgentWorkers()));
+  return { index, record: { id: 'stamp-child', owner: 'agent', title: 'AAAA', messages: [] }, aged: AGE_INPUT, listsSeen: lists, steps: ['first read AAAA', 'rewrite BBBB same size and mtime', 'age every store file', 'read again (cached)', 'rewrite CCCC same size and mtime'] };
 }));
 await set.run('a settled, unchanged header is served from the cache, however many there are', () => withDataDir(async (root) => {
   const ids = Array.from({ length: 300 }, (_, index) => `many-${String(index).padStart(3, '0')}`);
@@ -173,10 +173,10 @@ await set.run('a worker index rewrite that keeps its size and mtime is still rea
   write('AAAA');
   const { mtime } = statSync(indexPath);
   const pool = await freshPool();
-  const a = pool.listStoredAgentWorkers()[0].title;
+  const a = structuredClone(pool.listStoredAgentWorkers());
   write('BBBB');
   utimesSync(indexPath, mtime, mtime);
-  return { first: a, afterRewrite: pool.listStoredAgentWorkers()[0].title, links: pool.listStoredAgentWorkerLinks() };
+  return { first: a, afterRewrite: pool.listStoredAgentWorkers(), links: pool.listStoredAgentWorkerLinks() };
 }));
 
 // ---- persisted header cache --------------------------------------------------------------------------------------------
@@ -225,7 +225,7 @@ async function corruptCacheCases(root, reference) {
     else writeFileSync(cachePath(root), text);
     const restarted = await runDaemon();
     const recovered = await runDaemon();
-    results.push({ label, damage: text === null ? { removed: true } : { text: text.length > 400 ? '<the valid cache with the change named by the label>' : text }, rows: restarted.rows, reads: restarted.reads, expectedReads, recoveredRows: recovered.rows, recoveredReads: recovered.reads });
+    results.push({ label, damage: text === null ? { removed: true } : { text: maskedText(text) }, rows: restarted.rows, reads: restarted.reads, expectedReads, recoveredRows: recovered.rows, recoveredReads: recovered.reads });
   }
   return { cache: maskFsStamps(valid), tamperedEntries: { [IDS[2]]: 'stamp[3] replaced by "1"', [IDS[3]]: 'stamp "garbage"', [IDS[5]]: 'header an array', [IDS[7]]: 'header plus unknownField', '../escape': 'a copy of another entry under a path-like id' }, results };
 }
@@ -235,6 +235,7 @@ function maskFsStamps(cache) {
   for (const entry of Object.values(copy.sessions ?? {})) if (Array.isArray(entry?.stamp)) for (const slot of [4, 6, 7]) if (slot in entry.stamp) entry.stamp[slot] = '<fs>';
   return copy;
 }
+const maskedText = (text) => { try { const parsed = JSON.parse(text); return parsed && typeof parsed === 'object' ? JSON.stringify(maskFsStamps(parsed)) : text; } catch { return text; } };
 await set.run('the persisted header cache across daemon restarts', () => withDataDir(async (root) => {
   writeStoreFiles(root);
   age(root);
@@ -336,7 +337,7 @@ await set.run('listing a large index costs a bounded number of fs calls, whateve
 
 await set.finish({
   entry: {
-    maskedFsStamps: 'the cache record in the `corrupt` phase holds sessions.*.stamp[4], [6], [7] (inode, birth time, change time of the recording machine) as "<fs>"; the rest of the cache is whole', runs: 'store-agent-worker-rows.mjs (listStoredAgentWorkers, listStoredAgentWorkersAsync, listStoredAgentWorkerLinks, storedAgentWorkerHeaderStats, flushStoredAgentWorkerHeaderCache) in a fresh module instance per cold reader / restarted daemon, over stores in a temp data dir', notRun: 'raw cache stamps are machine values and are not recorded' },
+    maskedFsStamps: 'the cache record (and each damaged cache text written back, in the `corrupt` phase) holds sessions.*.stamp[4], [6], [7] (inode, birth time, change time of the recording machine) as "<fs>"; the rest of the cache is whole', runs: 'store-agent-worker-rows.mjs (listStoredAgentWorkers, listStoredAgentWorkersAsync, listStoredAgentWorkerLinks, storedAgentWorkerHeaderStats, flushStoredAgentWorkerHeaderCache) in a fresh module instance per cold reader / restarted daemon, over stores in a temp data dir', notRun: 'raw cache stamps are machine values and are not recorded' },
   replay: { entry: 'mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count', normalised: { dataDir: 'temp, not in the recording' } },
   replaceInText: roots.map((r) => [r, '<data>']),
 });
