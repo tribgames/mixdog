@@ -847,50 +847,30 @@
           "declared-child",
           "legacy-child",
           "ordinary-user",
-          "projection_agent_false",
-          "projection_agent_true",
-          "projection_user_false",
-          "projection_user_true",
           "root-lead"
         ],
         "ordinarySummariesAsync": [
           "declared-child",
           "legacy-child",
           "ordinary-user",
-          "projection_agent_false",
-          "projection_agent_true",
-          "projection_user_false",
-          "projection_user_true",
           "root-lead"
         ],
         "storedSessions": [
           "declared-child",
           "legacy-child",
           "ordinary-user",
-          "projection_agent_false",
-          "projection_agent_true",
-          "projection_user_false",
-          "projection_user_true",
           "root-lead"
         ],
         "storedSessionsIncludingAgentOnly": [
           "declared-child",
           "legacy-child",
           "ordinary-user",
-          "projection_agent_false",
-          "projection_agent_true",
-          "projection_user_false",
-          "projection_user_true",
           "root-lead"
         ],
         "internalSummaries": [
           "declared-child",
           "legacy-child",
           "ordinary-user",
-          "projection_agent_false",
-          "projection_agent_true",
-          "projection_user_false",
-          "projection_user_true",
           "root-lead"
         ],
         "internalVisibility": {

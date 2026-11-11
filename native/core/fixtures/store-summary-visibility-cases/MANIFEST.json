@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 28280,
+      "bytes": 27580,
       "path": "golden.json",
-      "sha256": "797e57b5f2dc8e5dcf84b97a5ea91b60e42a465d4aacc9db4d03c4cc193f5996"
+      "sha256": "7566f80a903a2f785d7795baf9b304a38db42534e69c1db167f78a7ac462d075"
     }
   ],
   "inputs": [
@@ -47,7 +47,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-summary-visibility-cases.mjs",
-  "recorderSha256": "9f85e6d0d0a888bda49e2b686ba75943470aa128a9c1346bbaed553ca08bac0e",
+  "recorderSha256": "02aa955ee7beb2f1afb8319bddaa447bbc09b753ec4db1c724855b979c30e31e",
   "replay": {
     "entry": "mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages",
     "normalised": {
@@ -55,5 +55,5 @@
     }
   },
   "set": "store-summary-visibility-cases",
-  "totalBytes": 28280
+  "totalBytes": 27580
 }
