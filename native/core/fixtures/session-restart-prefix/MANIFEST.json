@@ -4,6 +4,12 @@
   "exclusions": [
     "the OS temp dir (os.tmpdir(), separators as Node produced them) -> <TMP>, in string values of system[*].text of every recorded request body and of input.environment only (the system prompt's cwd/scratch/git lines name the fixed rec-restart-prefix dir under it); a replay injects input.environment with <TMP> replaced by its own temp dir. Otherwise no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat",
     "the system prompt's environment block (cwd under the fixed base dir in the OS temp dir, shell tools present/absent on PATH, git state, cwd entries) is the recording machine's: it is recorded as it was, and extracted whole into each case's input.environment for the replay to inject verbatim",
+    "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
+    "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
+    "BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production",
+    "BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store's own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed",
+    "BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)",
+    "BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step",
     "the kill phases are stopped with SIGKILL when READY is printed; their output file is the one the fixture wrote before READY (bodies and changes of the killed process)"
   ],
   "fileCount": 1,
@@ -40,19 +46,23 @@
       "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
       "sha256": "8334dff58ba82de81a53d40dec6d01e375f3733904968c148d8c47579645b4ba"
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch",
-      "sha256": "7754c93bed8f4319a77e73d19c1dac89f3d781591272cc85735048106e5314b9"
+      "sha256": "6a7973fcc69819526c40c8cdb350b3f88162c08295bd591b11257717ae16680c"
     }
   ],
   "nodeVersion": "v22.20.0",
   "patch": {
     "applied": "to a temporary copy of the tree's src (restart-prefix-parity.fixture.mjs only)",
     "file": "benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch",
-    "fixes": "the scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY; the sleep is dropped, the first settle (the journal write lane idle, true) is the event it waited for"
+    "fixes": "The scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY. The sleep guarded nothing: the turn checkpoint header (an \"open\" op) and every journal append are ops of the one write lane (turn-checkpoint-journal.mjs _journalWrites) that settleTurnJournalWrites waits on until nothing is queued and nothing is writing, i.e. the header and journal files are written (ask-turn-execute.mjs also awaits checkpoint.landed() before a request is sent); the first settle already returns only then, and nothing enqueues after it because the process is parked in the hook. So the single settle (checked: it must return true) gives the same durability. New Node test restart-prefix-settle.test.mjs asserts, at READY, header and journal on disk and whole, and that the fixture arms no timer of 100 ms or more itself: it fails on the unpatched fixture (a 300 ms timer) and passes with the patch"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -71,7 +81,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-restart-prefix.mjs",
-  "recorderSha256": "df099b3e638bafe18e3b28b69dce4d70c22b80d0a07e2ef3428cf4ac59f3fbff",
+  "recorderSha256": "9f261c865a3593bfbecef4a82535a2fbe65a4511749e54ddf2a1e8843e6f36cc",
   "replay": "The Rust core's restart path is the thread/resume + turn/start protocol (native/core/crates/mixdog-app-protocol methods.rs: thread/resume, turn/start, turn/interrupt) over mixdog-core-session recovery and the Anthropic request builder (mixdog-ai, the anthropic-oauth request body); the cache warmer is native/core/crates/mixdog-ai warmer (chain_tests.rs op rearm). Replay each scenario with the scripted provider steps (the script of the fixture: toolStep/textStep), restart the core at the recorded point (idle, in a tool run, request on the wire), and compare every request body block for block (\bodies), the prefix changes, the re-armed warmBody (null when killed mid-turn) and comparisons (derived by the test's own block walk). \u001bnvironment is an input: the system prompt's machine-derived environment text (cwd, shell tools, git state, cwd entries) as the recording machine produced it; the replay injects that text verbatim into the system prompt instead of computing its own.",
   "set": "session-restart-prefix",
   "testFile": "src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs",
