@@ -312,6 +312,23 @@ impl TurnStamp {
     }
 }
 
+/// A task that carries a turn's events to its session (the run's shown events, its commits): a replay's settled signal counts
+/// it with the turn (mixdog-ai `replay_bytes::in_run`), so the turn is not settled while an event it sent is still on the way.
+fn turn_task<F: std::future::Future>(task: F) -> impl std::future::Future<Output = F::Output> {
+    #[cfg(feature = "replay-bytes")]
+    return mixdog_ai::transport::replay_bytes::in_run(task);
+    #[cfg(not(feature = "replay-bytes"))]
+    task
+}
+
+/// A [`turn_task`]'s wait for the turn's next event: a wait on the turn, parked for a replay's settled signal.
+fn turn_input<F: std::future::Future>(wait: F) -> impl std::future::Future<Output = F::Output> {
+    #[cfg(feature = "replay-bytes")]
+    return mixdog_ai::transport::replay_bytes::parked(wait);
+    #[cfg(not(feature = "replay-bytes"))]
+    wait
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -331,8 +348,8 @@ impl PortSink {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
         let worker = port.clone();
-        drop(mixdog_rt::spawn("run-commit", TaskClass::Work, async move {
-            while let Some(job) = queue.recv().await {
+        drop(mixdog_rt::spawn("run-commit", TaskClass::Work, turn_task(async move {
+            while let Some(job) = turn_input(queue.recv()).await {
                 let n = match job {
                     Job::Commit(n, item) => {
                         // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
@@ -350,7 +367,7 @@ impl PortSink {
                 };
                 done_tx.send_replace(n);
             }
-        }));
+        })));
         Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None) })
     }
 
@@ -1130,8 +1147,8 @@ async fn drive(
     };
     let (shown_tx, mut shown_rx) = mpsc::unbounded_channel::<Shown>();
     let shown_port = port.clone();
-    drop(mixdog_rt::spawn("run-shown", TaskClass::Work, async move {
-        while let Some(shown) = shown_rx.recv().await {
+    let forward = async move {
+        while let Some(shown) = turn_input(shown_rx.recv()).await {
             let _ = match shown {
                 Shown::Section(section) => shown_port.section(section).await,
                 Shown::Started(item) => shown_port.item_started(item).await,
@@ -1154,7 +1171,8 @@ async fn drive(
                 }
             };
         }
-    }));
+    };
+    drop(mixdog_rt::spawn("run-shown", TaskClass::Work, turn_task(forward)));
     // `registerNativeWebSearchUsageSink(session.id, options.onNativeWebSearchUsage)` (`turn-run.mjs`): from the first send to the
     // ask's end the newest entry of this thread's session hears every search the turn runs, in the order the other reports reach the port.
     let search_tx = shown_tx.clone();

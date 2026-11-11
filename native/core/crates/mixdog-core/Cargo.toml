@@ -60,6 +60,9 @@ windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win3
 # Test-only: the work counters the hot-path tests read, here and in the crates below. A test build of this crate (the
 # self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
 count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
+# A replay's settled signal counts the run's forwarding tasks as part of its turn (mixdog-ai transport/replay_bytes.rs): development
+# builds only.
+replay-bytes = ["mixdog-ai/replay-bytes"]
 
 [dev-dependencies]
 mixdog-core = { path = ".", features = ["count-work"] }
