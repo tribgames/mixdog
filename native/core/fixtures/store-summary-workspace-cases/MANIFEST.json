@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 10454,
+      "bytes": 10814,
       "path": "golden.json",
-      "sha256": "4a6b04fc954b87f78358a35b0443b3214476ddb30f13b1c7b24dcc4ce3af8c2e"
+      "sha256": "f58cc88c04f8f15a43b9e5990a54bdab02537ceef18667e62671243536e80458"
     }
   ],
   "inputs": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-summary-workspace-cases.mjs",
-  "recorderSha256": "1c0c50fc2b030065f4b72b3ffe07204c62da38774b3cc9488813a35b88ed686f",
+  "recorderSha256": "759ea08892fa6e77cf78f3034a2b7fd139642366538a10c1f6a375585c45b2a4",
   "replay": {
     "compare": "mixdog-store summary.rs workspace_summary (and the summary row builder/normaliser): compare each result whole",
     "entry": "Drive these public items on o1: mixdog-store/src/summary.rs:107 workspace_summary.",
@@ -80,6 +80,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "store-summary-workspace-cases",
-  "totalBytes": 10454,
+  "totalBytes": 10814,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
