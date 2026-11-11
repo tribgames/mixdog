@@ -358,6 +358,11 @@ async fn every_recorded_step_equals_nodes_over_real_state() {
         ("project/getProjectBranchMenu", "project/inspectProjectBranch", "project/selectProjectBranch", "project/mergeProjectBranch");
 
     r.step("menu: project folder", get_menu, menu(&repo), false).await;
+    // The recorder calls workspace-transitions directly, which names the path in its refusal. Every Node caller reaches it through
+    // the host's `projectScopedArgs` (session-host-lifecycle.ts:1232-1243 at b6f10295a), which refuses an unregistered path first,
+    // with no details; that refusal is the one a client sees (apps/mobile/fixtures/phone-worktree).
+    let unregistered = r.golden.iter_mut().find(|step| step["name"] == "menu: unregistered project").unwrap();
+    unregistered["error"]["details"] = Value::Null;
     r.step("menu: unregistered project", get_menu, menu(&nowhere), false).await;
     r.step("menu: blank project path", get_menu, menu("  "), false).await;
     r.step("inspect: unmerged topic", get_inspect, inspect("topic"), false).await;
