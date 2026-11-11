@@ -108,7 +108,7 @@ fn remote_viewing_lists_the_visualize_panels_paired_devices_view() {
     registry.connect_relay(2, "peer-a");
     let panels = ["b".to_owned(), "a".to_owned()];
     let report = |panels| mixdog_remote::registry::ScreenReport {
-        sessions: ["screen".to_owned()].into_iter().collect(),
+        sessions: Some(["screen".to_owned()].into_iter().collect()),
         browser_id: None,
         visualize: Some(panels),
         foreground: None,

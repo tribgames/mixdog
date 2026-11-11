@@ -288,6 +288,9 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(1)
 }
 
+/// The folder of the data dir that holds every project's journal store (Node kept them in `<userData>/editor-recovery`).
+pub const JOURNALS_DIR: &str = "recovery";
+
 /// The journal store of one process.
 pub struct RecoveryStore {
     base: PathBuf,

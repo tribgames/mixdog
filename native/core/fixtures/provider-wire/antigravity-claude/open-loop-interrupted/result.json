@@ -1,0 +1,56 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "claude-opus-4-6-thinking",
+    "providerReplay": {
+      "version": 1,
+      "provider": "antigravity",
+      "items": [
+        {
+          "text": "The answer "
+        },
+        {
+          "text": "is 42."
+        }
+      ],
+      "requestContext": {
+        "model": "claude-opus-4-6-thinking"
+      }
+    },
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "promptTokens": 20,
+      "totalTokens": 28,
+      "raw": {
+        "promptTokenCount": 20,
+        "candidatesTokenCount": 8,
+        "totalTokenCount": 28
+      }
+    }
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer "
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "is 42."
+    }
+  ]
+}
