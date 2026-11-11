@@ -26,7 +26,7 @@ crash-gates = ["mixdog-core-session/crash-gates"]
 virtual-clock = ["mixdog-core-session/virtual-clock"]
 # Every replay control, and for every library `mixdogd` links the features a test build gives it, so a test run and
 # this build compile each library once (D:\mixdog-build\tools\unify-test-features.py writes it; cargo-gate adds it).
-dev-controls = ["crash-gates", "replay-controls", "terminal-lease-clock", "virtual-clock", "mixdog-agent/test-support", "mixdog-ai/count-work", "mixdog-ai/test-support", "mixdog-core/count-work", "mixdog-core-api/mock", "mixdog-core-base/test-support", "mixdog-core-config/count-work", "mixdog-core-domains/count-work", "mixdog-core-review/test-support", "mixdog-core-run/replay-controls", "mixdog-core-run/test-support", "mixdog-core-session/crash-gates", "mixdog-core-session/test-support", "mixdog-core-session/virtual-clock", "mixdog-js/fixture-tools", "mixdog-mcp/test-support", "mixdog-migrate/crash-hook", "mixdog-rt/test-support", "mixdog-secrets/count-work", "mixdog-secrets/test-support", "mixdog-spawn/core", "mixdog-spawn/core-test", "mixdog-spawn/lease-clock", "mixdog-store/crash-hook", "mixdog-store/test-support", "mixdog-workspace/count-jobs", "mixdog-workspace/kill-points", "mixdog-workspace/replay-controls"]
+dev-controls = ["crash-gates", "replay-controls", "terminal-lease-clock", "virtual-clock", "mixdog-agent/test-support", "mixdog-ai/count-work", "mixdog-ai/test-support", "mixdog-core/count-work", "mixdog-core-api/mock", "mixdog-core-base/test-support", "mixdog-core-config/count-work", "mixdog-core-domains/count-work", "mixdog-core-review/test-support", "mixdog-core-run/replay-controls", "mixdog-core-run/test-support", "mixdog-core-session/crash-gates", "mixdog-core-session/test-support", "mixdog-core-session/virtual-clock", "mixdog-js/fixture-tools", "mixdog-mcp/test-support", "mixdog-migrate/crash-hook", "mixdog-rt/test-support", "mixdog-rt/virtual-clock", "mixdog-secrets/count-work", "mixdog-secrets/test-support", "mixdog-spawn/core", "mixdog-spawn/core-test", "mixdog-spawn/lease-clock", "mixdog-store/crash-hook", "mixdog-store/test-support", "mixdog-workspace/count-jobs", "mixdog-workspace/kill-points", "mixdog-workspace/replay-controls"]
 
 [dependencies]
 # Reached through mixdog-app-server-daemon; named here only so the features above reach them.
@@ -77,7 +77,7 @@ mixdog-core-session = { workspace = true, features = ["crash-gates", "test-suppo
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
