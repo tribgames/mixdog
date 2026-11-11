@@ -1,0 +1,626 @@
+{
+  "set": "provider-session-provider-replay",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "strip-keeps-messages-order-no-native-state",
+      "source": "src/runtime/agent/orchestrator/session/manager/provider-replay.test.mjs:55",
+      "input": {
+        "turns": {
+          "anthropic": [
+            {
+              "role": "user",
+              "content": "read a.txt then summarize"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "toolu_1",
+                  "name": "read",
+                  "arguments": {
+                    "path": "a.txt"
+                  }
+                }
+              ],
+              "thinkingBlocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "plan",
+                  "signature": "anthropic-sig"
+                }
+              ],
+              "assistantBlocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "plan",
+                  "signature": "anthropic-sig"
+                },
+                {
+                  "type": "tool_use",
+                  "id": "toolu_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a.txt"
+                  }
+                }
+              ],
+              "providerReplay": {
+                "version": 1,
+                "provider": "anthropic",
+                "items": [
+                  {
+                    "type": "thinking",
+                    "thinking": "plan",
+                    "signature": "anthropic-sig"
+                  },
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "read",
+                    "input": {
+                      "path": "a.txt"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "role": "tool",
+              "toolCallId": "toolu_1",
+              "content": "file body"
+            }
+          ],
+          "openai": [
+            {
+              "role": "user",
+              "content": "read a.txt then summarize"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "call_1",
+                  "name": "read",
+                  "arguments": {
+                    "path": "a.txt"
+                  }
+                }
+              ],
+              "reasoningItems": [
+                {
+                  "type": "reasoning",
+                  "id": "rs_1",
+                  "encrypted_content": "openai-enc",
+                  "summary": []
+                }
+              ],
+              "reasoningContent": "plan",
+              "providerReplay": {
+                "version": 1,
+                "provider": "openai-responses",
+                "items": [
+                  {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "encrypted_content": "openai-enc",
+                    "summary": []
+                  },
+                  {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "read",
+                    "arguments": "{\"path\":\"a.txt\"}"
+                  }
+                ]
+              }
+            },
+            {
+              "role": "tool",
+              "toolCallId": "call_1",
+              "content": "file body"
+            }
+          ],
+          "gemini": [
+            {
+              "role": "user",
+              "content": "read a.txt then summarize"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "gem_1",
+                  "name": "read",
+                  "arguments": {
+                    "path": "a.txt"
+                  },
+                  "thoughtSignature": "gemini-real-sig"
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "gem_1",
+              "content": "file body"
+            }
+          ]
+        }
+      },
+      "result": {
+        "anthropic": {
+          "stripped": [
+            {
+              "role": "user",
+              "content": "read a.txt then summarize"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "toolu_1",
+                  "name": "read",
+                  "arguments": {
+                    "path": "a.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "toolu_1",
+              "content": "file body"
+            }
+          ],
+          "sourceUntouched": true
+        },
+        "openai": {
+          "stripped": [
+            {
+              "role": "user",
+              "content": "read a.txt then summarize"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "call_1",
+                  "name": "read",
+                  "arguments": {
+                    "path": "a.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "call_1",
+              "content": "file body"
+            }
+          ],
+          "sourceUntouched": true
+        },
+        "gemini": {
+          "stripped": [
+            {
+              "role": "user",
+              "content": "read a.txt then summarize"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "gem_1",
+                  "name": "read",
+                  "arguments": {
+                    "path": "a.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "gem_1",
+              "content": "file body"
+            }
+          ],
+          "sourceUntouched": true
+        }
+      }
+    },
+    {
+      "id": "anthropic-to-openai-plain-pair",
+      "source": "src/runtime/agent/orchestrator/session/manager/provider-replay.test.mjs:69",
+      "input": {
+        "turn": [
+          {
+            "role": "user",
+            "content": "read a.txt then summarize"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "toolu_1",
+                "name": "read",
+                "arguments": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            "thinkingBlocks": [
+              {
+                "type": "thinking",
+                "thinking": "plan",
+                "signature": "anthropic-sig"
+              }
+            ],
+            "assistantBlocks": [
+              {
+                "type": "thinking",
+                "thinking": "plan",
+                "signature": "anthropic-sig"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            "providerReplay": {
+              "version": 1,
+              "provider": "anthropic",
+              "items": [
+                {
+                  "type": "thinking",
+                  "thinking": "plan",
+                  "signature": "anthropic-sig"
+                },
+                {
+                  "type": "tool_use",
+                  "id": "toolu_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a.txt"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "role": "tool",
+            "toolCallId": "toolu_1",
+            "content": "file body"
+          }
+        ]
+      },
+      "result": {
+        "input": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "read a.txt then summarize"
+              }
+            ]
+          },
+          {
+            "type": "function_call",
+            "call_id": "toolu_1",
+            "name": "read",
+            "arguments": "{\"path\":\"a.txt\"}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "toolu_1",
+            "output": "file body"
+          }
+        ]
+      }
+    },
+    {
+      "id": "openai-to-anthropic-tool-pair",
+      "source": "src/runtime/agent/orchestrator/session/manager/provider-replay.test.mjs:83",
+      "input": {
+        "turn": [
+          {
+            "role": "user",
+            "content": "read a.txt then summarize"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "read",
+                "arguments": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            "reasoningItems": [
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "openai-enc",
+                "summary": []
+              }
+            ],
+            "reasoningContent": "plan",
+            "providerReplay": {
+              "version": 1,
+              "provider": "openai-responses",
+              "items": [
+                {
+                  "type": "reasoning",
+                  "id": "rs_1",
+                  "encrypted_content": "openai-enc",
+                  "summary": []
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "call_1",
+                  "name": "read",
+                  "arguments": "{\"path\":\"a.txt\"}"
+                }
+              ]
+            }
+          },
+          {
+            "role": "tool",
+            "toolCallId": "call_1",
+            "content": "file body"
+          }
+        ]
+      },
+      "result": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "read a.txt then summarize"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "call_1",
+                "content": "file body"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "gemini-signature-never-crosses-account",
+      "source": "src/runtime/agent/orchestrator/session/manager/provider-replay.test.mjs:100",
+      "input": {
+        "gemini": [
+          {
+            "role": "user",
+            "content": "read a.txt then summarize"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "gem_1",
+                "name": "read",
+                "arguments": {
+                  "path": "a.txt"
+                },
+                "thoughtSignature": "gemini-real-sig"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "gem_1",
+            "content": "file body"
+          }
+        ],
+        "anthropic": [
+          {
+            "role": "user",
+            "content": "read a.txt then summarize"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "toolu_1",
+                "name": "read",
+                "arguments": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            "thinkingBlocks": [
+              {
+                "type": "thinking",
+                "thinking": "plan",
+                "signature": "anthropic-sig"
+              }
+            ],
+            "assistantBlocks": [
+              {
+                "type": "thinking",
+                "thinking": "plan",
+                "signature": "anthropic-sig"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            "providerReplay": {
+              "version": 1,
+              "provider": "anthropic",
+              "items": [
+                {
+                  "type": "thinking",
+                  "thinking": "plan",
+                  "signature": "anthropic-sig"
+                },
+                {
+                  "type": "tool_use",
+                  "id": "toolu_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a.txt"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "role": "tool",
+            "toolCallId": "toolu_1",
+            "content": "file body"
+          }
+        ]
+      },
+      "result": {
+        "geminiToAnthropic": [
+          {
+            "role": "user",
+            "content": "read a.txt then summarize"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "gem_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "gem_1",
+                "content": "file body"
+              }
+            ]
+          }
+        ],
+        "geminiToGemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "read a.txt then summarize"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "read",
+                  "args": {
+                    "path": "a.txt"
+                  },
+                  "id": "gem_1"
+                },
+                "thoughtSignature": "skip_thought_signature_validator"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "read",
+                  "response": {
+                    "result": "file body"
+                  },
+                  "id": "gem_1"
+                }
+              }
+            ]
+          }
+        ],
+        "anthropicToGemini": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "read a.txt then summarize"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "read",
+                  "args": {
+                    "path": "a.txt"
+                  },
+                  "id": "toolu_1"
+                },
+                "thoughtSignature": "skip_thought_signature_validator"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "read",
+                  "response": {
+                    "result": "file body"
+                  },
+                  "id": "toolu_1"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
