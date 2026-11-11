@@ -1289,6 +1289,8 @@ impl DirInner {
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(test)]
+            ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
         });

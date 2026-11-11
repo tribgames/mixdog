@@ -257,6 +257,10 @@ pub(crate) enum Inbox {
     /// A test's injected unwind of the actor.
     #[cfg(test)]
     Unwind(UnwindAt),
+    /// The end of a test's marked turn (`ControlCell::ask_marked`; Node's `markSessionDone`): the mark is cleared and
+    /// the prune the turn stopped runs, as a turn's end runs it (`run_ended`).
+    #[cfg(test)]
+    AskEnded,
 }
 
 /// Where a test's injected unwind of the actor happens.
@@ -3066,7 +3070,17 @@ impl SessionActor {
     /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its
     /// Goal settlement (`publishTurnClose`).
     fn ui_busy(&self) -> bool {
-        self.run.is_some() || self.starting
+        self.run.is_some() || self.starting || self.ask_marked()
+    }
+
+    #[cfg(test)]
+    fn ask_marked(&self) -> bool {
+        self.cell.ask_marked.load(SeqCst)
+    }
+
+    #[cfg(not(test))]
+    fn ask_marked(&self) -> bool {
+        false
     }
 
     /// `shouldRunGoalContinuation(entry)` for a dequeued Goal entry: a closeout reads the
@@ -3951,6 +3965,11 @@ impl SessionActor {
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
             #[cfg(test)]
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
+            #[cfg(test)]
+            Inbox::AskEnded => {
+                self.cell.ask_marked.store(false, SeqCst);
+                self.run_deferred_prune();
+            }
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {

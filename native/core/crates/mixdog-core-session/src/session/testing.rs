@@ -307,6 +307,9 @@ pub struct MemStore {
     /// The next batch holding a `meta` record that sets `compaction` (a manual compaction's header) tells `.0` it arrived, then
     /// waits for `.1` before it becomes durable.
     pub header_gate: CommitGate,
+    /// Runs once, inline, as the next batch that sets `compaction` reaches the store and before it is written: what
+    /// happens to the session between a compaction's adoption and its save (Node's commit timing line). Holds nothing.
+    pub on_compaction: CompactionHook,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
 }
@@ -323,6 +326,9 @@ impl MemStore {
         lock(&self.logs).entry(id.clone()).or_default().clone()
     }
 }
+
+/// What [`MemStore::on_compaction`] runs.
+pub type CompactionHook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 
 /// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
 type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
@@ -345,6 +351,7 @@ struct MemLog {
     fail_after_write: Arc<AtomicBool>,
     commit_gate: CommitGate,
     header_gate: CommitGate,
+    on_compaction: CompactionHook,
     committed: Arc<tokio::sync::Notify>,
 }
 
@@ -554,6 +561,7 @@ impl ThreadStore for MemStore {
             fail_after_write: self.fail_after_write.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            on_compaction: self.on_compaction.clone(),
             committed: self.committed.clone(),
         }))
     }
@@ -575,6 +583,7 @@ impl ThreadStore for MemStore {
             fail_after_write: self.fail_after_write.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            on_compaction: self.on_compaction.clone(),
             committed: self.committed.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
