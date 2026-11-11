@@ -100,6 +100,9 @@ use crate::providers::openai::config::ModelFactsSource;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::providers::openai::config::WireContext;
 use crate::providers::openai::oauth::OpenAiOAuth;
+use crate::providers::openai::switch::TransportMode;
+use crate::providers::openai::transport_policy;
+use crate::providers::openai::transport_policy::Mode as PolicyMode;
 use crate::transport::BidiOpen;
 use crate::transport::HttpSend;
 use crate::transport::preconnect::Preconnect;
@@ -546,16 +549,18 @@ impl ApiKeySource for OpenCodeKey {
     }
 }
 
-/// The wire `openai` and `openai-oauth` speak (`MIXDOG_OAI_TRANSPORT`):
-/// `http-sse` and its spellings pin HTTP/SSE; every other mode (`auto`,
-/// `ws-full`, `ws-delta`, unset or unknown) is WebSocket-first, and the
-/// HTTP replay on a WebSocket failure is decided above the adapter.
-fn openai_transport(raw: Option<String>) -> TransportKind {
-    let v = raw.unwrap_or_default().trim().to_lowercase();
-    let v: String = v.split(|c: char| c.is_whitespace() || c == '_').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
-    match v.as_str() {
-        "http-sse" | "httpsse" | "http" | "sse" | "http/sse" => TransportKind::Http1,
-        _ => TransportKind::WebSocket,
+/// The wire and WebSocket mode `openai` and `openai-oauth` speak
+/// (`MIXDOG_OAI_TRANSPORT` through `resolveOpenAiTransportPolicy`): `http-sse`
+/// pins HTTP/SSE, `ws-full` pins full frames, `ws-delta` pins delta frames,
+/// and `auto` (unset or unknown) is WebSocket-first with the HTTP replay on a
+/// WebSocket failure.
+fn openai_transport(raw: Option<String>) -> (TransportKind, TransportMode) {
+    let policy = transport_policy::resolve_openai(raw.as_deref());
+    match policy.mode {
+        PolicyMode::HttpSse => (TransportKind::Http1, TransportMode::Auto),
+        PolicyMode::WsFull => (TransportKind::WebSocket, TransportMode::WsFull),
+        PolicyMode::WsDelta => (TransportKind::WebSocket, TransportMode::WsDelta),
+        PolicyMode::Auto => (TransportKind::WebSocket, TransportMode::Auto),
     }
 }
 
@@ -637,7 +642,7 @@ impl DefaultProviderBuilder {
     fn build_openai(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         let context: Arc<dyn WireContext> = self.env.openai_context.clone();
         let facts = self.env.openai_facts.clone();
-        let transport = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
+        let (transport, mode) = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
         let (config, credentials): (OpenAiConfig, Arc<dyn CredentialSource>) = if name == "openai" {
             (
                 OpenAiConfig::api_key(flag(cfg, "store").unwrap_or(true), facts, context),
@@ -660,7 +665,8 @@ impl DefaultProviderBuilder {
                 context: self.env.openai_context.clone(),
                 listing: self.env.listing.clone(),
             },
-        )))
+        )
+        .with_mode(mode)))
     }
 
     fn compat_config(
