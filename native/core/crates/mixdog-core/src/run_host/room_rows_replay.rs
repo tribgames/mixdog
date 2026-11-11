@@ -145,6 +145,18 @@ impl Log {
         mixdog_testkit::tree(self._data.path()).into_iter().filter(|(name, _)| !name.contains(".sqlite")).collect()
     }
 
+    /// Every table of every index database of the data folder, by file name.
+    pub(super) fn database_tables(&self) -> Vec<(String, Vec<(String, Vec<Vec<String>>)>)> {
+        mixdog_testkit::tree(self._data.path())
+            .into_iter()
+            .filter(|(name, _)| name.ends_with(".sqlite"))
+            .map(|(name, _)| {
+                let tables = mixdog_store::state::dump_tables(&self._data.path().join(&name));
+                (name, tables)
+            })
+            .collect()
+    }
+
     /// The attachment store's files (their names under the store, sorted).
     #[allow(clippy::disallowed_methods, reason = "the test lists the attachment store it checks")]
     pub(super) fn stored_files(&self) -> Vec<String> {
