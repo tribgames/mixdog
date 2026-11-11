@@ -71,10 +71,19 @@
   "recorderSha256": "8d48e158578c9f053d9f6f155dc12423357ec7b4577cddcd35a439806310b5a1",
   "replay": {
     "compare": "mixdog-app-server thread feed batching: replay the steps against the Rust mailbox on a virtual clock; compare the frames (sequence, value, critical) and pending-timer counts after every step, and for the encoder cases the wires",
-    "entry": "NO RUST ENTRY ON o1: the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates.",
+    "entry": "NO RUST ENTRY: in K1 the phone is a protocol connection of the core (mixdog-app-server-transport/src/relay.rs) that reads the thread feed; the relay writer (mixdog-app-server-transport/src/writer.rs) sends every feed frame in order and batches none. The phone's frame publication is being changed on branch phone-chat-live (session actor thread/frame, mixdog-core-session session/phone_frame.rs), which is where a 90 ms text batch for the phone belongs. No case is replayed on replay-k1-session-host-a (see cases).",
+    "cases": {
+      "the desktop and daemon partial-append suffix checks agree on every input": "not replayed: parity of two Node helpers over Node's snapshot patch (desktop shared/streaming-partial.ts, daemon session-state-patch.mjs); the K1 phone receives text as item deltas, the core makes no snapshot patch",
+      "a text burst sends its first append at once, then one latest snapshot per batch window": "not replayed: needs the phone frame publication of branch phone-chat-live",
+      "completion, replay, and unknown approval fields bypass batching and remain critical": "not replayed: needs the phone frame publication of branch phone-chat-live",
+      "backpressure cannot downgrade queued approval state and disconnect clears delayed work": "not replayed: needs the phone frame publication of branch phone-chat-live",
+      "partial-line growth batches as a text append; a partial for another row does not": "not replayed: needs the phone frame publication of branch phone-chat-live",
+      "a decoder that predates streamingPartial keeps painting the line-gated tail": "not replayed: an old phone decoder; old installed phone builds are not supported in K1 (decisions.md: the phone speaks only the new protocol)",
+      "batching reduces real compact packet bytes while preserving decoder state": "not replayed: needs the phone frame publication of branch phone-chat-live; its bytes are Node's compact delta wire"
+    },
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates"
+      "the remote streaming mailbox (REMOTE_STREAM_BATCH_MS text batching per phone, critical frames): not in the core's relay path"
     ],
     "normalised": {},
     "protocolMethods": [],
