@@ -93,7 +93,72 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnStateScope": null,
+                "turnStateTurnId": "bd8c929e-5d86-7b61-bb65-e63a120717d0",
+                "currentTurnId": "bd8c929e-5d86-7b61-bb65-e63a120717d0",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": {
+                "$exact": "undefined"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "$exact": "undefined"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 0,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": {
+                  "$exact": "undefined"
+                },
+                "iteration": {
+                  "$exact": "undefined"
+                },
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         }
@@ -189,7 +254,72 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnStateScope": null,
+                "turnStateTurnId": "bd8c929e-5d86-7b61-bb65-e63a120717d0",
+                "currentTurnId": "bd8c929e-5d86-7b61-bb65-e63a120717d0",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": {
+                "$exact": "undefined"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "$exact": "undefined"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 0,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": {
+                  "$exact": "undefined"
+                },
+                "iteration": {
+                  "$exact": "undefined"
+                },
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         }
@@ -285,7 +415,72 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnStateScope": null,
+                "turnStateTurnId": "bd8c929e-5d86-7b61-bb65-e63a120717d0",
+                "currentTurnId": "bd8c929e-5d86-7b61-bb65-e63a120717d0",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": {
+                "$exact": "undefined"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "$exact": "undefined"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 0,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": {
+                  "$exact": "undefined"
+                },
+                "iteration": {
+                  "$exact": "undefined"
+                },
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         }
@@ -435,7 +630,61 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnState": null,
+                "turnStateScope": "oauth-reasoning-close-fallback",
+                "turnStateTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "currentTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": null,
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 0,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": "oauth-reasoning-close-fallback",
+                "iteration": null,
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         },
@@ -443,7 +692,61 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnState": null,
+                "turnStateScope": "oauth-reasoning-close-fallback",
+                "turnStateTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "currentTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": null,
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 1,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": "oauth-reasoning-close-fallback",
+                "iteration": null,
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         },
@@ -451,7 +754,61 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnState": null,
+                "turnStateScope": "oauth-reasoning-close-fallback",
+                "turnStateTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "currentTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": null,
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 2,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": "oauth-reasoning-close-fallback",
+                "iteration": null,
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         },
@@ -459,7 +816,61 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnState": null,
+                "turnStateScope": "oauth-reasoning-close-fallback",
+                "turnStateTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "currentTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": null,
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 3,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": "oauth-reasoning-close-fallback",
+                "iteration": null,
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         },
@@ -467,7 +878,61 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnState": null,
+                "turnStateScope": "oauth-reasoning-close-fallback",
+                "turnStateTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "currentTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": null,
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 4,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": "oauth-reasoning-close-fallback",
+                "iteration": null,
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         },
@@ -475,7 +940,61 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "socket": {
+                  "$scriptedSocket": "an event emitter standing in for the connection: it receives the case's frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3"
+                },
+                "ephemeral": true,
+                "replayReasoning": true,
+                "turnState": null,
+                "turnStateScope": "oauth-reasoning-close-fallback",
+                "turnStateTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "currentTurnId": "28a13ab5-8008-773b-8532-ee75a1ff9805",
+                "lastFrameHeaderHash": "ee6321bccae01535",
+                "lastFrameItemHashes": []
+              },
+              "externalSignal": null,
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStreamItemStart": null,
+              "state": {
+                "attemptIndex": 5,
+                "sawResponseCreated": false,
+                "sawCompleted": false,
+                "emittedText": false,
+                "sessionId": "oauth-reasoning-close-fallback",
+                "iteration": null,
+                "model": "gpt-5.6-sol",
+                "traceProvider": "openai-oauth",
+                "sendSpan": {
+                  "admissionQueueWaitMs": "<ms, real clock>",
+                  "providerConcurrentRequests": "<ms, real clock>",
+                  "providerQueuedRequests": "<ms, real clock>",
+                  "poolOwnerWaitMs": "<ms, real clock>",
+                  "poolAcquireMs": "<ms, real clock>",
+                  "requestBuildSerializationMs": "<ms, real clock>",
+                  "preResponseCreatedMs": "<ms, real clock>",
+                  "firstEventMs": "<ms, real clock>",
+                  "retryBackoffMs": "<ms, real clock>",
+                  "handshakeRetries": "<ms, real clock>",
+                  "acquireAttempts": "<ms, real clock>",
+                  "acquireMode": "ephemeral",
+                  "emitted": false,
+                  "timing": null,
+                  "emit": {
+                    "callback": "emit"
+                  }
+                },
+                "sendStartedAt": "<performance.now(), real clock>"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "traceProvider": "openai-oauth",
+              "_timeouts": null,
+              "knownToolNames": {
+                "$exact": "set",
+                "values": []
+              }
             }
           ]
         },

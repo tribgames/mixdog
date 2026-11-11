@@ -41,7 +41,7 @@ const realClearTimeout = globalThis.clearTimeout;
 /** A failure bound on one case on the real clock (the product's own timers are virtual and never fire). */
 export const CASE_DEADLINE_MS = 60_000;
 
-export async function startRecording({ recorderUrl, set, entry, replay, compare, dataFiles = [], exclusions = [], net = true }) {
+export async function startRecording({ recorderUrl, set, entry, replay, compare, dataFiles = [], exclusions = [], net = true, maskRow = null }) {
   const args = parseArgs();
   const tree = resolveTree(args);
   const only = args.get('only');
@@ -284,6 +284,8 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       }
       current = null;
       if (calls.length) row.calls = calls;
+      // Declared real-clock paths (the recorder's `maskRow`, each named in its manifest exclusions) are replaced by a marker here, never by a global rewrite.
+      maskRow?.(row);
       if (clock.trace.length) row.clock = clock.trace.map((x) => ({ ...x }));
       if (hub.records.length) row.requests = hub.records.map((r) => view(r));
       cases.push(row);
