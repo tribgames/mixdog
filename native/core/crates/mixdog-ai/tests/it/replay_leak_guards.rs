@@ -275,16 +275,22 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
         });
     }
     recorded.get("events").assert_eq(&format!("{}: events", case.id), &observed(&firsts));
-    recorded.get("first").assert_as(&format!("{}: first", case.id), |w| replay_anthropic::comparable(set, w), &results[0]);
-    recorded.get("second").assert_as(&format!("{}: second", case.id), |w| replay_anthropic::comparable(set, w), &results[1]);
+    recorded.get("first").assert_eq(&format!("{}: first", case.id), &results[0]);
+    recorded.get("second").assert_eq(&format!("{}: second", case.id), &results[1]);
     set.assert_requests(case, &endpoint.arrivals(), None);
 }
 
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "leak-guards", run: every_case_replays_as_nodes }];
 
-#[tokio::test(start_paused = true)]
-async fn every_case_replays_as_nodes() {
+/// Run in the replay's own scope (`run_scoped`), on the paused clock: its scripted draws and wall time are its own.
+#[test]
+fn every_case_replays_as_nodes() {
+    mixdog_ai::random::run_scoped(every_case());
+}
+
+async fn every_case() {
     use futures::FutureExt as _;
+    tokio::time::pause();
     let set = CaseSet::load("leak-guards");
     // Node's guards drew each recovered id from `randomBytes(8)` of the recording process, in order over the whole
     // recording: the core's draws are those bytes, computed as the recorder drew them.

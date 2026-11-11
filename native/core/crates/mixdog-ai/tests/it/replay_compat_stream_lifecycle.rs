@@ -32,10 +32,8 @@ enum End {
 
 /// Sends the case's recorded send (`entry`: `#send`, or `sendCompatResponses` with the provider first) through the
 /// adapter of its recorded provider and compares the arrivals.
-async fn replay_requests(id: &str, entry: &str, end: End) {
-    let set = CaseSet::load(SET);
-    let case = set.only(id, "each replayed case has its own test function in this file; the rest are group B's replay, not in this branch");
-    set.not_replayed(&[id], "this test compares the requests only; the outcome's replay is group B's, not in this branch");
+async fn replay_requests(set: &CaseSet, id: &str, entry: &str, end: End) {
+    let case = set.case(id);
     let endpoint = Endpoint::start().await;
     endpoint.serve(case);
     let home = tempfile::tempdir().expect("a home");
@@ -76,7 +74,8 @@ async fn replay_requests(id: &str, entry: &str, end: End) {
             .await;
     }
     set.assert_requests(case, &endpoint.arrivals(), None);
-    case.recorded().checked(|result| compare_result(&format!("{SET} {id}"), result, &Left::of(&sent, &events), &sent));
+    // The outcome is group B's replay (declared below); its fields are still checked against what left the core.
+    compare_result(&format!("{SET} {id}"), case.recorded().raw(), &Left::of(&sent, &events), &sent);
 }
 
 /// The case's `{ error, outcome, classification, ... }` against what left the provider layer.
@@ -106,29 +105,26 @@ fn compare_result(what: &str, result: &Exact, left: &Left<'_>, sent: &Result<u32
     }
 }
 
-pub const REPLAYS: &[crate::provider_case::Replay] = &[
-    crate::provider_case::Replay { set: SET, run: chat_in_band_fatal_error_stays_terminal },
-    crate::provider_case::Replay { set: SET, run: responses_in_band_fatal_error_stays_terminal },
-    crate::provider_case::Replay { set: SET, run: chat_cancel_releases_pending_read_and_signal_listener },
-    crate::provider_case::Replay { set: SET, run: responses_cancel_releases_pending_read_and_signal_listener },
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: SET, run: every_wire_case_sends_as_nodes }];
+
+/// The WIRE cases this branch replays, each with its recorded entry and how it ends.
+const REPLAYED: [(&str, &str, End); 4] = [
+    ("chat-in-band-fatal-error-stays-terminal", "OpenAICompatProvider#send", End::Served),
+    ("responses-in-band-fatal-error-stays-terminal", "sendCompatResponses", End::Served),
+    ("chat-cancel-releases-pending-read-and-signal-listener", "OpenAICompatProvider#send", End::Cancelled),
+    ("responses-cancel-releases-pending-read-and-signal-listener", "sendCompatResponses", End::Cancelled),
 ];
 
+/// Every case of the set in one test, so the set's drop holds each: the WIRE cases' requests compared here, the rest
+/// named with the branch that replays them.
 #[tokio::test(start_paused = true)]
-async fn chat_in_band_fatal_error_stays_terminal() {
-    replay_requests("chat-in-band-fatal-error-stays-terminal", "OpenAICompatProvider#send", End::Served).await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn responses_in_band_fatal_error_stays_terminal() {
-    replay_requests("responses-in-band-fatal-error-stays-terminal", "sendCompatResponses", End::Served).await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn chat_cancel_releases_pending_read_and_signal_listener() {
-    replay_requests("chat-cancel-releases-pending-read-and-signal-listener", "OpenAICompatProvider#send", End::Cancelled).await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn responses_cancel_releases_pending_read_and_signal_listener() {
-    replay_requests("responses-cancel-releases-pending-read-and-signal-listener", "sendCompatResponses", End::Cancelled).await;
+async fn every_wire_case_sends_as_nodes() {
+    let set = CaseSet::load(SET);
+    let replayed: Vec<&str> = REPLAYED.iter().map(|(id, _, _)| *id).collect();
+    let others: Vec<&str> = set.ids().into_iter().filter(|id| !replayed.contains(id)).collect();
+    set.not_replayed(&others, "the set's other cases: group B's replay, not in this branch");
+    set.not_replayed(&replayed, "this test compares the requests only; the outcome's replay is group B's, not in this branch");
+    for (id, entry, end) in REPLAYED {
+        replay_requests(&set, id, entry, end).await;
+    }
 }

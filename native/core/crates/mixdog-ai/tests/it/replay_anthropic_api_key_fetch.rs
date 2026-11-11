@@ -97,31 +97,6 @@ async fn response(response: HttpResponse) -> Exact {
     ])
 }
 
-/// Node's result with each `{ response, text }` without the response fields the manifest declares not compared, the
-/// response(s) first.
-fn recorded_result(set: &CaseSet, node: &Exact) -> Exact {
-    let mut want = Vec::new();
-    match node.try_get("response") {
-        Some(one) => want.push(("response".to_owned(), recorded_response(set, one))),
-        None => want.push(("responses".to_owned(), Exact::Array(node.get("responses").as_array().iter().map(|r| recorded_response(set, r)).collect()))),
-    }
-    want.extend(node.entries().iter().filter(|(k, _)| k != "response" && k != "responses").cloned());
-    Exact::Object(want)
-}
-
-/// Node's `{ response, text }` without the response fields the manifest declares not compared.
-fn recorded_response(set: &CaseSet, node: &Exact) -> Exact {
-    known_keys(node, &["response", "text"]);
-    Exact::Object(vec![("response".into(), set.compared("response.", node.get("response"))), ("text".into(), node.get("text").clone())])
-}
-
-#[track_caller]
-fn known_keys(node: &Exact, keys: &[&str]) {
-    for (key, _) in node.entries() {
-        assert!(keys.contains(&key.as_str()), "a recorded property this replay does not read: {key}");
-    }
-}
-
 /// Node's `gzipSync(raw)`, for the case's gated compressor.
 fn gzip_sync(raw: &[u8]) -> Vec<u8> {
     let os = if cfg!(windows) { 10 } else if cfg!(target_os = "macos") { 19 } else { 3 };
@@ -222,28 +197,26 @@ async fn every_case_replays_as_nodes() {
                 }
             }
         }
-        // The core's answers in the recorded result's shape: its responses, then each recorded latch reading taken where
-        // the recorder took it.
+        // The core's answers in the recorded result's shape, in its key order: its response(s) (`{ response, text }`) and
+        // each latch reading taken where the recorder took it.
         let recorded = case.recorded();
         let mut got = Vec::new();
-        if recorded.try_get("response").is_some() {
-            assert_eq!(responses.len(), 1, "{}: one fetch", case.id);
-            got.push(("response".to_owned(), responses.remove(0)));
-        } else {
-            got.push(("responses".to_owned(), Exact::Array(responses)));
-        }
         for (key, _) in recorded.entries() {
-            match key {
-                "response" | "responses" => {}
-                "requestsAfterFirstSend" | "latchDisabledAfterFirst" => {
-                    let (_, mine) = extra.iter().find(|(k, _)| *k == key).unwrap_or_else(|| panic!("{}: {key}", case.id));
-                    got.push((key.to_owned(), mine.clone()));
+            let mine = match key {
+                "response" => {
+                    assert_eq!(responses.len(), 1, "{}: one fetch", case.id);
+                    responses.remove(0)
                 }
-                "latchDisabled" | "latchDisabledAfterSecond" => got.push((key.to_owned(), Exact::Bool(gzip_latched()))),
+                "responses" => Exact::Array(std::mem::take(&mut responses)),
+                "requestsAfterFirstSend" | "latchDisabledAfterFirst" => {
+                    extra.iter().find(|(k, _)| *k == key).unwrap_or_else(|| panic!("{}: {key}", case.id)).1.clone()
+                }
+                "latchDisabled" | "latchDisabledAfterSecond" => Exact::Bool(gzip_latched()),
                 other => panic!("{}: result field {other} not replayed", case.id),
-            }
+            };
+            got.push((key.to_owned(), mine));
         }
-        recorded.assert_as(&format!("{}: result", case.id), |node| recorded_result(&set, node), &Exact::Object(got));
+        recorded.assert_eq(&format!("{}: result", case.id), &Exact::Object(got));
         set.assert_requests(case, &endpoint.arrivals(), None);
     }
     reset_gzip_latch();

@@ -169,6 +169,22 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
             });
             assert_eq!(left.error(field).retry_after, delay.map(|s| Duration::from_millis((s * 1000.0).ceil() as u64)), "{what}: {mapping}");
         }
+        // The Anthropic SDK's `error` is the API's whole envelope (`{ type: "error", error: { type, message } }`): its own
+        // `type` names the envelope; the inner error's type is the error's code, and its message is in the body text the
+        // error's message quotes (that message is compared whole as `message`).
+        "error" if value.try_get("type").is_some_and(|t| *t == Exact::String("error".into())) && value.try_get("error").is_some() => {
+            let error = left.error(field);
+            for (key, _) in value.entries() {
+                assert!(matches!(key.as_str(), "type" | "error"), "{what}.{key}: a recorded property this comparison does not read");
+            }
+            let inner = value.get("error");
+            for (key, _) in inner.entries() {
+                assert!(matches!(key.as_str(), "type" | "message"), "{what}.error.{key}: a recorded property this comparison does not read");
+            }
+            assert_eq!(error.code.as_deref(), Some(inner.get("type").as_str()), "{what}.error.type: {mapping}");
+            let message = inner.get("message").as_str();
+            assert!(error.message.contains(message), "{what}.error.message: {mapping}: {:?} does not carry {message:?}", error.message);
+        }
         "error" | "providerError" | "payload" => {
             let error = left.error(field);
             // Every key of the body's error object is one this comparison reads.

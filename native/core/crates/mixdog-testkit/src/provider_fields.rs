@@ -76,6 +76,7 @@ pub const ERROR_FIELDS: &[(&str, &str, &str)] = &[
     ("userMessage", "unread", ""),
     ("wsCloseCode", "ProviderError.transport = WsClose { code }", "o/providers/openai-oauth-dispatch.mjs:129 o/providers/openai-ws-send-attempts/attempt-context.mjs:27 o/providers/openai-ws-terminal.mjs:94 o/providers/provider-error-kind.mjs:262 o/providers/retry-classification.mjs:246 o/providers/retry-midstream.mjs:186 o/providers/retry-midstream.mjs:346 o/session/send-with-recovery.mjs:376 o/session/send-with-recovery.mjs:842 o/session/send-with-recovery.mjs:847"),
     ("wsCloseReason", "unread", ""),
+    ("workspaceID", "unread: the Anthropic SDK's `APIError` sets it from `anthropic-workspace-id`; `workspaceID` over src/ (b6f10295a, tests included) finds no reader", ""),
     ("wsFailurePhase", "ProviderError.delivery (handshake: NotSent)", "o/providers/openai-oauth-dispatch.mjs:39 o/providers/openai-ws.mjs:43"),
     ("wsHttpFallbackEligible", "observable: the HTTP fallback request on the wire", "o/providers/openai-oauth-dispatch.mjs:40 o/providers/openai-ws.mjs:43"),
     ("wsRetriesExhausted", "observable: the HTTP fallback request on the wire", "o/providers/openai-oauth-dispatch.mjs:86"),

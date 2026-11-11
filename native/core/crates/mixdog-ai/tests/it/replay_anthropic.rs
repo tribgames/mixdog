@@ -154,17 +154,6 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
     Send { result: Exact::Object(result), tool_calls: Exact::Array(calls), stream_deltas: Exact::Array(deltas) }
 }
 
-/// Node's result without the keys the set's manifest declares not compared.
-pub fn comparable(set: &CaseSet, node: &Exact) -> Exact {
-    set.compared("", node)
-}
-
-/// Node's `onStreamDelta` kinds, without `transport` where the manifest declares it not compared.
-pub fn semantic_deltas(set: &CaseSet, node: &Exact) -> Exact {
-    let transport = set.excludes("onStreamDelta('transport')");
-    Exact::Array(node.as_array().iter().filter(|k| !(transport && k.as_str() == "transport")).cloned().collect())
-}
-
 /// The recorder's derived keys (`usageSlots`, the invalid-args markers, `toolCallsIsUndefined`) from `result`.
 pub fn derived(key: &str, result: &Exact, tool_calls: &Exact) -> Exact {
     let marker = |calls: &Exact| match calls {
@@ -183,15 +172,22 @@ pub fn derived(key: &str, result: &Exact, tool_calls: &Exact) -> Exact {
     }
 }
 
+/// The exclusion line of Node's per-read `onStreamDelta('transport')` calls.
+const TRANSPORT_DELTAS: &str = "onStreamDelta('transport')";
+
 /// The recorded `{result, toolCalls, streamDeltas, ...derived}` of `id` against the core's send, each property whole.
 #[track_caller]
 pub fn assert_send(set: &CaseSet, id: &str, recorded: &Recorded<'_>, got: &Send) {
     for (key, want) in recorded.entries() {
         let what = format!("{id}: {key}");
         match key {
-            "result" => want.assert_as(&what, |w| comparable(set, w), &got.result),
+            "result" => want.assert_eq(&what, &got.result),
             "toolCalls" => want.assert_eq(&what, &got.tool_calls),
-            "streamDeltas" => want.assert_as(&what, |w| semantic_deltas(set, w), &got.stream_deltas),
+            // Node's `onStreamDelta` kinds, less `transport` where the manifest declares it not compared.
+            "streamDeltas" if set.excludes(TRANSPORT_DELTAS) => {
+                want.assert_filtered(&what, TRANSPORT_DELTAS, |kind| kind.as_str() != "transport", &got.stream_deltas)
+            }
+            "streamDeltas" => want.assert_eq(&what, &got.stream_deltas),
             other => want.assert_eq(&what, &derived(other, &got.result, &got.tool_calls)),
         }
     }
