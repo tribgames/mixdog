@@ -111,12 +111,20 @@ pub struct GraphBinary {
     downloader: Arc<dyn AssetDownloader>,
     now: NowMs,
     flight: tokio::sync::Semaphore,
+    /// This host's manifest keys, best first ([`platform_key_candidates`]).
+    platforms: Vec<String>,
 }
 
 impl GraphBinary {
     /// `manifest` is [`bundled_manifest`] in the product.
     pub fn new(data_dir: PathBuf, manifest: Value, durability: DurabilityIo, bulk: CpuBulk, downloader: Arc<dyn AssetDownloader>, now: NowMs) -> Self {
-        Self { data_dir, manifest, durability, bulk, downloader, now, flight: tokio::sync::Semaphore::new(1) }
+        Self { data_dir, manifest, durability, bulk, downloader, now, flight: tokio::sync::Semaphore::new(1), platforms: platform_key_candidates() }
+    }
+
+    /// The fetcher as it runs on a host whose `std::env::consts` are `os` and `arch`.
+    #[cfg(test)]
+    fn on_host(self, os: &str, arch: &str) -> Self {
+        Self { platforms: crate::tidy::install::platform_key_candidates_for(os, arch), ..self }
     }
 
     fn dir(&self) -> PathBuf {
@@ -133,7 +141,7 @@ impl GraphBinary {
 
     /// `resolvePlatformKey`: the first host key the manifest has a trusted asset for, else the native key.
     fn platform_key(&self) -> String {
-        let candidates = platform_key_candidates();
+        let candidates = &self.platforms;
         candidates.iter().find(|key| valid_asset(&self.manifest, key).is_some()).unwrap_or(&candidates[0]).clone()
     }
 

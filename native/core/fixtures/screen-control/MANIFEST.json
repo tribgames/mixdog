@@ -5,7 +5,7 @@
     {
       "bytes": 3270,
       "path": "adapter/MANIFEST.json",
-      "sha256": "8dcac825ebac5346c196c70aab3bb140deefbc3a1dfb654cd90e671d28d6a45e"
+      "sha256": "c9a18f97aaa478d5feb4ec1fb1d84047cfeccae992908399c5e6549688f35904"
     },
     {
       "bytes": 54812,
@@ -15,7 +15,7 @@
     {
       "bytes": 3338,
       "path": "client/MANIFEST.json",
-      "sha256": "9bbc94fa81a25e04f94b2386aba1acbc38c571169d38e940eab22cdf4dec1ee9"
+      "sha256": "944b3fa4f5dd74e0842566d27fcaa12bc7d6508b4915f4c505f67c8eb04b04cb"
     },
     {
       "bytes": 25065,
@@ -25,7 +25,7 @@
     {
       "bytes": 2707,
       "path": "composed/MANIFEST.json",
-      "sha256": "41b909871ac2cfe22fd0c2630bce36d095b2972102cf722959f4969ba8fbb42c"
+      "sha256": "077ff95fd54c80ea13cf8f6a852273a103be1af4b2c812cf4c73ffd35bef9baa"
     },
     {
       "bytes": 28164,
@@ -35,7 +35,7 @@
     {
       "bytes": 4244,
       "path": "install/MANIFEST.json",
-      "sha256": "53a08367897a521e5e3af554e2e7f4c711fa46fe00e2d0d2a8f1ace5756bec9b"
+      "sha256": "99a2c3adbccabe96debb6fceef2ec8acbb917ea1d63df8705474f2f83124169a"
     },
     {
       "bytes": 96861,
@@ -45,7 +45,7 @@
     {
       "bytes": 3690,
       "path": "lease/MANIFEST.json",
-      "sha256": "8d1967efd6ae362cc2e93cae8f5fd07106529900ef4fee1bdddcc797e6391f31"
+      "sha256": "74d1790ae4feb9851717fe0fbb6aaca1a991fad8ec1f3550b6baed5e849be699"
     },
     {
       "bytes": 67456,
@@ -55,7 +55,7 @@
     {
       "bytes": 4751,
       "path": "router/MANIFEST.json",
-      "sha256": "dfad90d2ab4cf9f1bd8c9f10e5ee92f7350bbc38c0a82cf1599f5f11f9aa5505"
+      "sha256": "518a2a04810a607844690f586977340a9c4e096027c91db2be616ced08c29013"
     },
     {
       "bytes": 143546,
@@ -65,7 +65,7 @@
     {
       "bytes": 4422,
       "path": "session/MANIFEST.json",
-      "sha256": "062349cf8fc82d59b82ec8947b4679874e96fb4b79dcfda0038e594f4801075f"
+      "sha256": "2538e247630ff17694e65ae631664b164750cc06323f5ff7cfc59ac7451ffe8d"
     },
     {
       "bytes": 131084,
@@ -75,7 +75,7 @@
     {
       "bytes": 2522,
       "path": "switch/MANIFEST.json",
-      "sha256": "6fae22d71283793bd61bc41f516b0c6653c19fe5bca3029429a1501e6ed7bdb3"
+      "sha256": "25b8da0ef5f4683750b823101dd216bd21207a35ef2bab4c5fe4ed524234f62a"
     },
     {
       "bytes": 31781,
@@ -95,7 +95,7 @@
     {
       "bytes": 3866,
       "path": "video/MANIFEST.json",
-      "sha256": "c764d81c3afbf9bccb10afd396112dd27185fc7c711098966f5dbd9ad69cc9bc"
+      "sha256": "7f8573117567f7b159f6b389aa6ac8b17987279dc17b94a7cc0d69b012d8bf2e"
     },
     {
       "bytes": 54750,
@@ -104,7 +104,7 @@
     }
   ],
   "product": {
-    "appsSha256": "18993e38af8ff30e2c3db944433187c7c9ab55f9ab560239caddd40ac6dcaf8a",
+    "appsSha256": "8059ee7b64965104dc76b62aee205144ddcef8382a7d44de8f66e85b1e48958c",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",

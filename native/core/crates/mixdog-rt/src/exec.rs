@@ -453,6 +453,6 @@ impl std::error::Error for BootError {}
 /// together with the handle for diagnostics.
 pub fn boot(config: RtConfig) -> Result<(Arc<Executors>, LaneTokens), BootError> {
     let executors = Arc::new(Executors::start(config).map_err(BootError::Start)?);
-    let tokens = crate::install(executors.clone()).map_err(BootError::AlreadyInstalled)?;
+    let tokens = crate::install_backend(executors.clone()).map_err(BootError::AlreadyInstalled)?;
     Ok((executors, tokens))
 }

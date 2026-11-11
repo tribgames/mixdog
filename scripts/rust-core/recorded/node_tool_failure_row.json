@@ -1,0 +1,18 @@
+{
+  "ts": 1794272715597,
+  "session_id": "SESSION",
+  "iteration": 1,
+  "tool_name": "read",
+  "tool_kind": "builtin",
+  "result_kind": "error",
+  "category": "runtime/failure",
+  "agent": null,
+  "model": "smoke",
+  "cwd": "CWD",
+  "tool_ms": 0,
+  "tool_args": null,
+  "error_first_line": "Error: read requires \"path\" (or alias file_path).",
+  "error_preview": "Error: read requires \"path\" (or alias file_path).",
+  "result_bytes_est": 49,
+  "result_lines_est": 1
+}
