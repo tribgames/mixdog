@@ -56,12 +56,23 @@
     {
       "case": "the quiet state is frozen for a silence and escalates only at the watchdog warn point",
       "observed": {
+        "quietInput": {
+          "progressAt": 1000,
+          "stage": "tool_running",
+          "tool": "shell",
+          "now": 181000
+        },
         "quiet": {
           "since": 1000,
           "wait": "tool",
           "tool": "shell"
         },
         "warnMs": 300000,
+        "partsAt": {
+          "early": 181000,
+          "late": 301000,
+          "nullParts": 1000
+        },
         "early": {
           "quietMs": 180000,
           "minutes": 3,
@@ -78,6 +89,13 @@
           "escalated": true
         },
         "nullParts": null,
+        "noWarnInput": {
+          "quiet": {
+            "since": 1000,
+            "wait": "provider"
+          },
+          "now": 126000
+        },
         "noWarn": {
           "quietMs": 125000,
           "minutes": 2,
@@ -91,6 +109,25 @@
     {
       "case": "a sent request waiting for its headers is the model-thinking stage until transport arrives",
       "observed": {
+        "thinkingInput": {
+          "quiet": {
+            "since": 1,
+            "wait": "thinking"
+          },
+          "now": 125001
+        },
+        "sentRow": {
+          "sessionId": "run",
+          "agent": "worker",
+          "status": "running"
+        },
+        "sentEntry": {
+          "stage": "requesting",
+          "requestSentAt": 100,
+          "lastTransportAt": 0,
+          "controller": {},
+          "lastProgressAt": 90
+        },
         "modelThinkingStage": "model_thinking",
         "stages": [
           {

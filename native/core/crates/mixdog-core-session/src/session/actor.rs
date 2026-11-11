@@ -2031,7 +2031,7 @@ impl SessionActor {
         }
         let t = &self.id;
         match section {
-            Section::Runtime(_) | Section::ProgressHint(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
+            Section::Runtime(_) | Section::ProgressHint(_) | Section::SpinnerQuiet(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
             Section::Route(_) => note("thread/route/updated", t, self.acked.route()),
             Section::Context(_) => note("thread/context/updated", t, self.acked.context()),
             Section::Todo(v) => note("thread/todo/updated", t, v),
