@@ -5,11 +5,28 @@ import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-c
 
 const section = (name, value, revision) => ({ section: name, key: null, revision, value });
 
+/** `capabilities.remote` as the core offers it (remote_flags.rs `remote_capabilities`): a flag is on when every call it opens names a
+ *  method and nothing else waits; `nativePush` also needs native platforms, which this relay offers none of. */
+function remoteCapabilities(repo) {
+  const { flags } = JSON.parse(readFileSync(new URL('native/core/crates/mixdog-app-protocol/src/remote_flags.json', repo), 'utf8'));
+  return Object.fromEntries(
+    Object.entries(flags).map(([name, flag]) => {
+      const on = !flag.unserved && Object.values(flag.calls).every((call) => call.method) && name !== 'nativePush';
+      return [name, flag.version === undefined ? on : on ? flag.version : 0];
+    })
+  );
+}
+
 export async function adapterWorld() {
   const repo = new URL('../../../../', import.meta.url);
   const options = JSON.parse(readFileSync(new URL('packages/protocol-client/conformance/options.json', repo), 'utf8'));
   const version = JSON.parse(readFileSync(new URL('apps/desktop/package.json', repo), 'utf8')).version;
-  const base = protocolDialect({ ...options.initializeResult, serverVersion: version });
+  const { initializeResult } = options;
+  const base = protocolDialect({
+    ...initializeResult,
+    serverVersion: version,
+    capabilities: { ...initializeResult.capabilities, remote: remoteCapabilities(repo) },
+  });
   const frames = [];
   let leg = null;
   const dialect = {

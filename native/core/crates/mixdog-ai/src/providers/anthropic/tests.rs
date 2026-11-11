@@ -873,6 +873,8 @@ fn recorded_upstream_errors_classify_to_the_recorded_status() {
     assert_eq!(err.kind, ErrorKind::InvalidRequest);
     assert_eq!(err.status, Some(400));
     assert_eq!(err.code.as_deref(), Some("invalid_request_error"));
+    let node: serde_json::Value = serde_json::from_str(&read_text(&api("error-400", "result.json"))).expect("result");
+    assert_eq!(err.message, node["error"]["message"].as_str().expect("message"), "the SDK's message");
     assert_eq!(err.delivery, DeliveryState::Accepted);
     for (scenario, status, kind) in [("error-400", 400, ErrorKind::InvalidRequest), ("error-401", 401, ErrorKind::Auth)] {
         let record = messages_post(&oauth_exchange(scenario));
