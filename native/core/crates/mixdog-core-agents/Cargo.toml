@@ -40,7 +40,6 @@ futures = { workspace = true, features = ["alloc", "async-await"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-mixdog-agent = { workspace = true }
 mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
