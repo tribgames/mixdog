@@ -108,6 +108,18 @@ pub trait ProviderBuilder: Send + Sync {
     async fn oauth_credential_state(&self, name: &str) -> Result<CredentialState, String> {
         Ok(if self.oauth_credentials_usable(name).await? { CredentialState::Present } else { CredentialState::Absent })
     }
+
+    /// Until when an OAuth provider's present credential stays a sign-in (epoch ms), when that moment is finite and
+    /// ahead (`observeOAuthCredentialExpiry`): the loaded config's `enabled` turns then with no file changing.
+    async fn oauth_credential_expiry(&self, _name: &str) -> Option<f64> {
+        None
+    }
+
+    /// The files the OAuth probes read (`[providerAccountsPath(), ...oauthCredentialFiles()]`): a change of any is a
+    /// change of the loaded config.
+    fn credential_inputs(&self) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
 }
 
 struct Entry {

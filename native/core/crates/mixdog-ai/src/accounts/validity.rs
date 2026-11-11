@@ -140,21 +140,27 @@ fn devin_until(doc: &Map<String, Value>) -> f64 {
     if expires_at > 0.0 { expires_at } else { f64::INFINITY }
 }
 
-/// Whether `doc`, the document of `provider`'s credential file, is a sign-in at `now_ms`.
-pub fn credential_valid(provider: &str, doc: &Map<String, Value>, now_ms: f64) -> bool {
+/// Until when `doc`, the document of `provider`'s credential file, is a sign-in (epoch ms): infinity for one that
+/// does not expire, 0 for one that never is.
+pub fn credential_until(provider: &str, doc: &Map<String, Value>) -> f64 {
     let both = |a: &str, b: &str| truthy(doc.get(a)) && truthy(doc.get(b));
-    let until = match provider {
+    let always = |signed_in: bool| if signed_in { f64::INFINITY } else { 0.0 };
+    match provider {
         "anthropic-oauth" => anthropic_until(doc),
         "openai-oauth" => signed_in_until(doc),
         "cursor-oauth" => cursor_until(doc),
         "devin-oauth" => devin_until(doc),
-        "grok-oauth" => return both("access_token", "refresh_token"),
-        "mimo-oauth" => return truthy(doc.get("apiKey")),
-        "command-code-oauth" => return non_blank(doc.get("apiKey")),
-        "muse-code-oauth" => return non_blank(doc.get("accessToken")) && non_blank(doc.get("apiKey")),
-        "opencode-go-oauth" => return non_blank(doc.get("access_token")) && non_blank(doc.get("refresh_token")),
-        "antigravity-oauth" => return both("access_token", "refresh_token") && truthy(doc.get("project_id")),
-        _ => return false,
-    };
-    until > now_ms
+        "grok-oauth" => always(both("access_token", "refresh_token")),
+        "mimo-oauth" => always(truthy(doc.get("apiKey"))),
+        "command-code-oauth" => always(non_blank(doc.get("apiKey"))),
+        "muse-code-oauth" => always(non_blank(doc.get("accessToken")) && non_blank(doc.get("apiKey"))),
+        "opencode-go-oauth" => always(non_blank(doc.get("access_token")) && non_blank(doc.get("refresh_token"))),
+        "antigravity-oauth" => always(both("access_token", "refresh_token") && truthy(doc.get("project_id"))),
+        _ => 0.0,
+    }
+}
+
+/// Whether `doc`, the document of `provider`'s credential file, is a sign-in at `now_ms`.
+pub fn credential_valid(provider: &str, doc: &Map<String, Value>, now_ms: f64) -> bool {
+    credential_until(provider, doc) > now_ms
 }

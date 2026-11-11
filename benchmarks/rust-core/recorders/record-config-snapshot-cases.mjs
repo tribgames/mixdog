@@ -12,6 +12,7 @@
 //
 // Writes native/core/fixtures/config-snapshot-cases/{golden.json,MANIFEST.json}.
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
+import fsp from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -202,6 +203,47 @@ await record('an OAuth credential file caught mid-write is probed again when the
   observe();
 });
 
+await record('a warm snapshot read does no synchronous file system work', async () => {
+  useDataDir();
+  writeAgent({ heartbeat: true });
+  writeCredential(SIGNED_IN);
+  snapshot = () => cfg.getConfigSnapshot();
+  observe();
+  observe();
+});
+
+await record('this process’s OAuth token save and forget are visible to the very next read', async () => {
+  const { saveTokens, forgetOpenAIOAuthCredentials } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs');
+  useDataDir({ silent: true });
+  writeAgent({ heartbeat: false });
+  snapshot = () => cfg.getConfigSnapshot();
+  observe();
+  await step('saveTokens', { tokens: SIGNED_IN }, () => saveTokens(SIGNED_IN));
+  observe();
+  await step('forgetTokens', {}, () => forgetOpenAIOAuthCredentials());
+  observe();
+});
+
+await record('a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can', async () => {
+  useDataDir({ silent: true });
+  writeCredential(SIGNED_IN);
+  snapshot = createConfigSnapshot(cfg.loadConfig);
+  observe();
+  // The test's denied stat of the credential file (fs.promises.stat throws EACCES for it), while it is removed.
+  const stat = fsp.stat;
+  const denied = mock.method(fsp, 'stat', async (path, ...rest) => {
+    if (String(path).endsWith('openai-oauth.json')) throw Object.assign(new Error('EACCES: permission denied, stat'), { code: 'EACCES' });
+    return stat(path, ...rest);
+  });
+  step('removeCredential', {}, () => rmSync(credentials()));
+  await until(() => read().providers['openai-oauth'].enabled === false);
+  observe();
+  denied.mock.restore();
+  writeCredential(SIGNED_IN);
+  await until(() => read().providers['openai-oauth'].enabled === true);
+  observe();
+});
+
 // The fake clock cases: Date and setTimeout are mocked from NOW, as the test's `mock.timers`.
 mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW });
 const tick = (ms) => step('tick', { ms }, () => mock.timers.tick(ms));
@@ -251,38 +293,23 @@ for (const { steps: recorded } of cases) {
   for (const entry of recorded) if (entry.op === 'observe') entry.stored = plain(cfg.createConfigPatch(base, entry.loaded));
 }
 
+// Each named part is something no client, user or file can observe; what they can observe of the same case is replayed.
 const excluded = {
-  'a warm snapshot read does no synchronous file system work':
-    "Node's cache internals: the snapshot's object identity and its spied synchronous fs calls; the core reads the in-memory document and probes per call, with no snapshot object",
+  'a warm snapshot read does no synchronous file system work: the spied fs calls, the object identity and freezing':
+    'not observable: a warm read hands back the cached frozen object with no I/O (src/runtime/agent/orchestrator/config-snapshot.mjs:173-177); ' +
+    'a reader gets the same config either way, and that config is the replayed part',
   'a secret change moves the config inputs, so the next read rebuilds':
-    "Node's cache internals: the config input epoch and the rebuilt snapshot's identity; the core has no snapshot to rebuild",
-  'a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can':
-    "Node's cache internals behind a mocked fs.promises.stat: the stat stamp the snapshot keys its rebuild on; the core keeps no stamp, every read probes the file",
+    'not observable: the test changes no secret value (config-snapshot.test.mjs:178-189 calls invalidateSecretCache on an unset key) and asserts ' +
+    "only the input epoch moving and the snapshot's object identity changing (`assert.notEqual(full(), before)`), which no reader can see; " +
+    'the rebuilt config equals the one before',
+  'a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the logged EACCES':
+    "the failed stat is Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80, logged by watched-file-cache.mjs); the core " +
+    'keeps no stamp and never stats the file, so it has no stat failure to log; the config after the removal and after the rewrite is replayed',
   'another process’s write landing while a build runs is still observed':
-    "Node's cache internals behind an injected loader: the epoch recorded after a build; the core has no build to race",
-  'this process’s OAuth token save and forget are visible to the very next read':
-    "the token save is the last step of an interactive OAuth login (saveTokens after the browser exchange); the core's save is inside its login flow, with no other entry, and the forget half is the forgetProviderAuth case",
+    'not reachable by a client: the write is placed between the probes and the epoch read of one build through an injected loader ' +
+    '(config-snapshot.mjs:144-165, the test wraps createConfigSnapshot\'s `load`); outside the module a write is only ever seen ' +
+    'by its watch event, which the credential-watch cases replay',
 };
-// Real differences (recorded, not replayed). The core's loaded config (`LoadedConfig`, the runtime's getConfig) is
-// rebuilt only on a `Config::changes` tick (a config write, an external edit of the config file, a stored secret);
-// Node's snapshot also follows the OAuth credential files and each token's expiry.
-const credentialWatch =
-  "difference: Node's next read has openai-oauth's enabled follow the credential file (true once written, false once removed); " +
-  "the core's loaded config is not rebuilt on a credential file change, so it keeps the previous enabled";
-const expiry =
-  "difference: Node's read has openai-oauth enabled:false from the token's expires_at on (an expiry timer); the core's loaded " +
-  'config is not rebuilt at an expiry, so it stays enabled:true';
-Object.assign(excluded, {
-  'this process’s own config write and logout are visible to the very next read':
-    "difference: after this process's forgetProviderAuth, Node's next read has openai-oauth enabled:false; in the core the logout's " +
-    'refresh reloads an unchanged config file, which ticks nothing, so the loaded config keeps enabled:true',
-  'another process’s OAuth login and logout reach the snapshot through the credential file watch': credentialWatch,
-  'a credential file whose directory does not exist yet is seen once another process creates both': credentialWatch,
-  'an OAuth credential file caught mid-write is probed again when the write completes': credentialWatch,
-  'an access token with no refresh token stops counting at its expiry, with no file changing': expiry,
-  'one timer at the exact expiry tells the epoch’s listeners, with no read': expiry,
-  'a last good config kept over a torn file never extends a credential past its expiry': expiry,
-});
 
 const finalDir = join(FIXTURES_ROOT, 'config-snapshot-cases');
 const stage = stageSet(finalDir);
