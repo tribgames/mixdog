@@ -17,6 +17,7 @@ mod hub;
 mod inbound;
 pub mod relay;
 mod socket;
+pub mod stream_mailbox;
 pub mod websocket;
 mod writer;
 
