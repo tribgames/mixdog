@@ -36,14 +36,15 @@ export function openSet(setName, recorderUrl, { clock = true } = {}) {
       cases.push({ case: name, ...extra, observed });
     },
     file(name, text) { files.set(name, text); },
-    async finish({ golden = {}, entry, replay, exclusions = {}, replaceInText = [], dataFiles = [] }) {
+    async finish({ golden = {}, entry, replay, exclusions = {}, replaceInText = [], replaceRegex = [], dataFiles = [] }) {
       const identity = exactProductIdentity(tree, COMMIT);
       writeJson(join(stage, 'golden.json'), { ...(clockHeld ? { clock: { dateNow: FIXED_NOW, note: 'Date.now was held at this value for the whole recording' } } : {}), ...golden, cases });
       for (const [name, text] of files) writeText(join(stage, name), text);
-      if (replaceInText.length) {
+      if (replaceInText.length || replaceRegex.length) {
         const path = join(stage, 'golden.json');
         let text = readFileSync(path, 'utf8');
         for (const [from, to] of replaceInText) text = text.replaceAll(from, to).replaceAll(from.replaceAll('\\', '\\\\'), to);
+        for (const [pattern, to] of replaceRegex) text = text.replace(pattern, to);
         writeFileSync(path, text);
       }
       writeSetManifest(stage, {
