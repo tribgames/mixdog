@@ -1409,6 +1409,26 @@ mod tests {
         more: Vec<Arc<dyn Tool>>,
         /// A key the settings reconcile adds to the header, and the headers the turns were assembled from.
         settle: Option<Arc<Settle>>,
+        /// The route's effort wiring a turn is assembled with (the effort replay).
+        effort: Option<Arc<EffortParts>>,
+    }
+
+    /// What the host's route wiring puts on a turn whose route takes effort updates (`assemble.rs`): the header's effort
+    /// on the requests, the projection inputs, the step's auto-effort anchor and its judge.
+    struct EffortParts {
+        effort: Option<String>,
+        route: mixdog_agent::effort::EffortRoute,
+        step_auto: Option<mixdog_agent::step_effort::StepAutoEffort>,
+        judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
+    }
+
+    /// The scripted provider as the effort-taking adapter (`attempt_with` is its `attempt`).
+    struct EffortScripted(Arc<dyn ProviderAdapter>);
+    #[async_trait]
+    impl mixdog_agent::effort::EffortAdapter for EffortScripted {
+        async fn attempt_with(&self, request: Arc<ModelRequest>, _: Option<mixdog_agent::effort::EffortProjection>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.0.attempt(request).await
+        }
     }
 
     struct Settle {
@@ -1442,6 +1462,12 @@ mod tests {
                 exclusive_with: Vec::new(),
             };
             let tokens = mixdog_rt::testing::tokens();
+            let mut config = RunConfig::new(input.thread.clone(), input.turn.clone(), "m");
+            if let Some(effort) = &self.effort {
+                config.options.effort = effort.effort.clone();
+                config.effort = Some(mixdog_agent::effort::EffortWiring { route: effort.route.clone(), adapter: Arc::new(EffortScripted(self.provider.clone())) });
+                config.step_auto_effort = effort.step_auto.clone();
+            }
             Ok(Assembled {
                 provider: self.provider.clone(),
                 tools: ToolSet::new(std::iter::once(Arc::new(Echo(spec)) as Arc<dyn Tool>).chain(self.more.iter().cloned()).collect()),
@@ -1461,7 +1487,7 @@ mod tests {
                 },
                 gate: Box::new(|_| Arc::new(AllowAll)),
                 worktree: self.workspace.to_string_lossy().into_owned(),
-                config: RunConfig::new(input.thread.clone(), input.turn.clone(), "m"),
+                config,
                 clock: Arc::new(Fixed),
                 decider: Arc::new(MockRetryDecider),
                 guards: Arc::new(NoGuards),
@@ -1475,13 +1501,98 @@ mod tests {
                 rows: Arc::default(),
                 tail: None,
                 side: None,
-                step_judge: None,
+                step_judge: self.effort.as_ref().and_then(|e| e.judge.clone()),
                 artifacts: None,
                 images: None,
                 failures: None,
                 blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })
+        }
+    }
+
+    /// The judge model's answer as the turn-effort recording scripted it (`judgeTurn` answering `JUDGE.step`).
+    struct RecordedProbs(Vec<f64>);
+    #[async_trait]
+    impl mixdog_services::effort_judge::judge::StepProbs for RecordedProbs {
+        async fn probs(&self, _: mixdog_agent::step_effort::StepInput) -> Result<Vec<f64>, mixdog_services::effort_judge::error::JudgeError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// `fixtures/turn-effort/*.json` (`record-turn-effort.mjs`, client mode): Node's TUI session store over its real
+    /// session runtime ran a turn (a tool call, then a reply) on an Anthropic route with effort fixed (`high`), none, and
+    /// Auto at `medium` with the step judged after the tool call; each `turnEffort` its route state published
+    /// (`local-session-runtime.mjs` `publishChanged`) was recorded in order. The same turn here: the session actor starts
+    /// it, the factory builds the run with the route's effort wiring and the judge over the recorded judge answers, and
+    /// every `thread/route/updated` frame the actor sent the thread's feed is read in order, whole sequence; each
+    /// request's effort is the recorded one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_actor_publishes_the_turn_effort_sequence_node_published() {
+        use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot};
+        for name in ["fixed", "none", "auto-step"] {
+            let recorded: Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/turn-effort/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+            let effort = recorded["route"]["effort"].as_str().map(str::to_owned);
+            let model = recorded["route"]["model"].as_str().unwrap().to_owned();
+            let prompt = recorded["prompt"].as_str().unwrap().to_owned();
+            let route = EffortRoute {
+                provider: "anthropic".into(),
+                model: model.clone(),
+                mode: Some(EffortMode::Anthropic),
+                allowed: ["low", "medium", "high"].map(String::from).to_vec(),
+                seed: effort.clone().map(|e| EffortSnapshot { provider: "anthropic".into(), model: model.clone(), mode: EffortMode::Anthropic, initial_effort: e.clone(), effort: e }),
+                wire: Arc::new(|e| Some(e.to_owned())),
+            };
+            let probs = |kind: &str| recorded["judge"][kind].as_array().unwrap().iter().map(|p| p.as_f64().unwrap()).collect::<Vec<f64>>();
+            let (step_auto, judge) = if recorded["autoEffort"] == "on" {
+                let options = mixdog_ai::effort::effort_options_for("anthropic", &json!({ "id": model, "reasoningLevels": ["low", "medium", "high"], "customReasoning": true }), None);
+                let base = mixdog_services::effort_judge::ladder::resolve_auto_effort(effort.as_deref().unwrap(), &options, &probs("turn")).expect("the route's effort is on its ladder").effort.to_owned();
+                let ladder = Arc::new(mixdog_services::effort_judge::AutoLadder { base: base.clone(), options });
+                let judge: Arc<dyn mixdog_agent::step_effort::StepEffortJudge> = Arc::new(mixdog_services::effort_judge::EffortJudge::over(Arc::new(RecordedProbs(probs("step"))), ladder));
+                (Some(mixdog_agent::step_effort::StepAutoEffort { request: prompt.clone(), base }), Some(judge))
+            } else {
+                (None, None)
+            };
+            let provider = Arc::new(Scripted {
+                id: ProviderId::from("anthropic"),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(VecDeque::from([
+                    vec![
+                        StreamEvent::TextDelta("reading".into()),
+                        StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "path": "a.txt" }), native_type: None }),
+                        StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                    ],
+                    vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                ])),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            });
+            let workspace = tempfile::tempdir().unwrap();
+            let rig = Rig::new();
+            let mut deps = rig.deps_parts(rig.store.clone());
+            let parts = Parts {
+                provider: provider.clone(),
+                workspace: workspace.path().to_path_buf(),
+                more: Vec::new(),
+                settle: None,
+                effort: Some(Arc::new(EffortParts { effort: effort.clone(), route, step_auto, judge })),
+            };
+            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+            let directory = SessionDirectory::new(Arc::new(deps));
+            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+            let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+            let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+            let handle = directory.handle(&id).expect("loaded");
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": prompt } }), "op-1")).await.expect("turn/start");
+            let frames = |method: &str| -> Vec<Value> { rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect() };
+            eventually_on_awaiting(|| format!("{name}: the turn's end"), &[handle.stepped()], || (!frames("turn/completed").is_empty()).then_some(())).await;
+            let published: Vec<Value> = frames("thread/route/updated").into_iter().map(|p| p["value"]["turnEffort"].clone()).collect();
+            assert_eq!(Value::Array(published), recorded["client"]["published"], "{name}: what the client saw, in order");
+            let sent: Vec<Value> = lock(&provider.requests).iter().map(|r| json!(r.options.effort)).collect();
+            let node: Vec<Value> = recorded["sends"].as_array().unwrap().iter().map(|s| s["requestEffort"].clone()).collect();
+            assert_eq!(sent, node, "{name}: each request's effort");
         }
     }
 
@@ -1517,7 +1628,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1597,7 +1708,7 @@ mod tests {
         let files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(TranscriptNow), rig.sensitive.clone());
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.transcripts = Some(files.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let project = workspace.path().to_string_lossy().into_owned();
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": project }), "op-start")).await.expect("thread/start");
@@ -1654,7 +1765,7 @@ mod tests {
         let files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(TranscriptNow), rig.sensitive.clone());
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.transcripts = Some(files.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let project = workspace.path().to_string_lossy().into_owned();
         let params = json!({ "opId": "op-start", "kind": "task", "projectPath": project, "session": { "toolProfile": "headless", "approvalMode": "implicit", "memory": false } });
@@ -1696,7 +1807,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1755,7 +1866,7 @@ mod tests {
         let rig = Rig::new();
         let settle = Arc::new(Settle { add: ("featureDeniedTools", json!(["web_search"])), seen: Mutex::default() });
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()) })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()), effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1789,7 +1900,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1861,7 +1972,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1997,7 +2108,7 @@ mod tests {
             rig.quota.subscribe(move |_| woke.notify_one())
         };
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2091,7 +2202,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2175,7 +2286,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), sinks, Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(searcher)], settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), sinks, Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(searcher)], settle: None, effort: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -2228,7 +2339,7 @@ mod tests {
             let workspace = tempfile::tempdir().unwrap();
             let rig = Rig::new();
             let mut deps = rig.deps_parts(rig.store.clone());
-            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
             let directory = SessionDirectory::new(Arc::new(deps));
             let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
             let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
