@@ -113,29 +113,32 @@ pub struct Flush {
     bound: Arc<std::sync::OnceLock<Bound>>,
 }
 
-/// The deadline of a flush's bound: a second after it was fixed. Under `test-support` it counts on the test's
-/// controlled clock ([`seam::CLOCK`]) instead of the wall clock, except in this crate's own unit tests, which run the
-/// production mechanism on tokio's (pausable) time.
-struct Bound(
-    #[cfg(not(all(feature = "test-support", not(test))))] tokio::time::Instant,
-    #[cfg(all(feature = "test-support", not(test)))] u64,
-);
+/// The deadline of a flush's bound: a second after it was fixed. Once a test took the seams ([`seam::take_control`])
+/// it counts on the test's controlled clock ([`seam::CLOCK`]) instead; this crate's own unit tests never take them and
+/// run the production mechanism on tokio's (pausable) time.
+enum Bound {
+    At(tokio::time::Instant),
+    #[cfg(feature = "test-support")]
+    Seam(u64),
+}
 
 impl Bound {
     const MS: u64 = 1000;
 
     fn from_now() -> Self {
-        #[cfg(not(all(feature = "test-support", not(test))))]
-        return Self(tokio::time::Instant::now() + Duration::from_millis(Self::MS));
-        #[cfg(all(feature = "test-support", not(test)))]
-        return Self(seam::CLOCK.now() + Self::MS);
+        #[cfg(feature = "test-support")]
+        if seam::controlled() {
+            return Self::Seam(seam::CLOCK.now() + Self::MS);
+        }
+        Self::At(tokio::time::Instant::now() + Duration::from_millis(Self::MS))
     }
 
     async fn passed(&self) {
-        #[cfg(not(all(feature = "test-support", not(test))))]
-        mixdog_rt::time::sleep_until(self.0).await;
-        #[cfg(all(feature = "test-support", not(test)))]
-        seam::CLOCK.reached(self.0).await;
+        match self {
+            Self::At(at) => mixdog_rt::time::sleep_until(*at).await,
+            #[cfg(feature = "test-support")]
+            Self::Seam(at) => seam::CLOCK.reached(*at).await,
+        }
     }
 }
 
@@ -203,8 +206,9 @@ impl Callback {
     }
 }
 
-/// Test seams (feature `test-support`): every wait that Node bounds by a timer is driven by the test instead, and the
-/// listener's lifecycle is recorded as the events Node's recorder observed.
+/// Test seams (feature `test-support`): once a test calls [`seam::take_control`], every wait that Node bounds by a
+/// timer is driven by the test instead, and the listener's lifecycle is recorded as the events Node's recorder
+/// observed. Until then (always, in a daemon built with the feature) the timers are the production ones.
 #[cfg(feature = "test-support")]
 pub mod seam {
     use std::sync::Mutex;
@@ -214,6 +218,19 @@ pub mod seam {
     use std::sync::atomic::Ordering;
 
     use tokio::sync::Notify;
+
+    static CONTROLLED: AtomicBool = AtomicBool::new(false);
+
+    /// From now on, in this process, the flush bound runs on [`CLOCK`], the login deadline on [`DEADLINE`] (or
+    /// `LOGIN_DEADLINE_MS`), and the listener's lifecycle is recorded in [`EVENTS`].
+    pub fn take_control() {
+        CONTROLLED.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether a test took the seams ([`take_control`]).
+    pub fn controlled() -> bool {
+        CONTROLLED.load(Ordering::SeqCst)
+    }
 
     /// A counter a test fires and waiters wait to pass: a stand-in for a timer the test controls.
     pub struct Tick {
@@ -308,7 +325,9 @@ pub mod seam {
 
 fn event(_name: &'static str) {
     #[cfg(feature = "test-support")]
-    seam::event(_name);
+    if seam::controlled() {
+        seam::event(_name);
+    }
 }
 
 /// Test seam: how long the next held page waits before it is written, so a request can land in the

@@ -145,6 +145,15 @@ impl std::error::Error for AlreadyInstalled {}
 /// Installs the executors and mints the process's lane and thread tokens. The composition
 /// root calls this once at boot and hands each token only to the modules that own that lane.
 pub fn install(backend: Arc<dyn Backend>) -> Result<LaneTokens, AlreadyInstalled> {
+    let tokens = install_backend(backend)?;
+    // The product's backend comes from `exec::boot`; a backend installed here is a test's.
+    #[cfg(feature = "test-support")]
+    ticker::TEST_BACKEND.store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(tokens)
+}
+
+/// [`install`] without marking the backend as a test's: `exec::boot`'s executors.
+pub(crate) fn install_backend(backend: Arc<dyn Backend>) -> Result<LaneTokens, AlreadyInstalled> {
     BACKEND.set(backend).map_err(|_| AlreadyInstalled)?;
     Ok(LaneTokens::mint())
 }
