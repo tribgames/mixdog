@@ -31,6 +31,12 @@ pub(crate) struct BetaFeatures {
     pub mid_conversation_effort: bool,
 }
 
+/// A custom endpoint's set (`requestBetasFor` with `base: ''`): only the names its own request body needs.
+pub(crate) fn custom_beta_header(features: BetaFeatures) -> String {
+    let all = beta_header(Flavor::ApiKey, features);
+    all.split(',').filter(|name| *name != INTERLEAVED_THINKING).collect::<Vec<_>>().join(",")
+}
+
 /// Comma-joined, in the order the features are appended; each name once.
 pub(crate) fn beta_header(flavor: Flavor, features: BetaFeatures) -> String {
     let mut names: Vec<&str> = match flavor {

@@ -1,0 +1,108 @@
+{
+  "id": "opencode-go-chat",
+  "provider": "opencode-go-oauth",
+  "config": {
+    "enabled": true,
+    "preconnect": false
+  },
+  "listing": [
+    {
+      "method": "GET",
+      "origin": "https://opencode.ai",
+      "path": "/console/api/v2/config",
+      "headers": {
+        "host": "opencode.ai",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "mixdog",
+        "authorization": "Bearer go-access",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate"
+      },
+      "body": "",
+      "answer": {
+        "status": 200,
+        "body": "{\"providers\":{\"opencode-go\":{\"settings\":{\"baseURL\":\"https://opencode.ai/inference/go/openai/v1\"},\"models\":{\"glm-5\":{\"name\":\"glm-5\",\"limit\":{\"context\":128000,\"output\":8192}}}}}}"
+      }
+    }
+  ],
+  "sends": [
+    {
+      "model": "glm-5",
+      "tools": [],
+      "history": [],
+      "sessionId": "sess-go",
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://opencode.ai",
+          "path": "/inference/go/openai/v1/chat/completions",
+          "headers": {
+            "host": "opencode.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer go-access",
+            "user-agent": "mixdog",
+            "content-type": "application/json",
+            "x-opencode-session": "sess-go",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "191"
+          },
+          "body": "{\"model\":\"glm-5\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    }
+  ]
+}

@@ -59,6 +59,8 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     // Not credentials: a path, a mode, an identifier, a version, a tuning knob.
     ("mixdog-ai/src/registry/builder.rs", "GOOGLE_APPLICATION_CREDENTIALS", "the path of the login file; reading the file is counted (read_credential_text)"),
     ("mixdog-ai/src/registry/builder.rs", "MIXDOG_OAI_TRANSPORT", "a transport mode"),
+    ("mixdog-ai/src/registry/builder.rs", "MIXDOG_XAI_API_MODE", "xAI's API mode (Responses or Chat)"),
+    ("mixdog-ai/src/registry/builder.rs", "MIXDOG_XAI_RESPONSES", "xAI's API mode under its earlier name"),
     ("mixdog-ai/src/registry/builder.rs", "let var = |name: &str| self.env.env.var(name)", "gcloud directory variables (CLOUDSDK_CONFIG, APPDATA): paths"),
     ("mixdog-ai/src/registry/builder.rs", "CLOUDSDK_ACTIVE_CONFIG_NAME", "the name of a gcloud configuration"),
     ("mixdog-ai/src/registry/builder.rs", "let get = |name: &str| env.var(name)", "the Vertex project and location variables: identifiers"),
