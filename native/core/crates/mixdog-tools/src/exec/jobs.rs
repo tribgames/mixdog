@@ -1217,8 +1217,10 @@ impl ExecRuntime {
         let stderr_log = self.config.spill_dir.join(format!("{task_id}.stderr.log"));
         // A log that cannot be created is simply not offered to the model.
         spill::create_logs(self.config.lanes.maintenance, cancel, &stdout_log, &stderr_log).await;
-        // The expired logs of earlier runs go once per runtime, when its first job writes logs, beside the command and
-        // never on its path (`sweepExpiredShellOutput`, started unawaited); shutdown waits for it.
+        // The expired logs of ended jobs go once per runtime, started right after the first job's logs and their
+        // ownership record are created (Node starts it as the first command spills), beside the command and never on
+        // its path (`sweepExpiredShellOutput`, started unawaited); shutdown waits for it. It cannot take a log being
+        // created: every job writes its record, as running, before its logs.
         if !self.swept.swap(true, std::sync::atomic::Ordering::AcqRel) {
             let (lane, dir) = (self.config.lanes.maintenance, self.config.spill_dir.clone());
             let sweep = mixdog_rt::spawn("shell-log-sweep", TaskClass::Work, async move {
@@ -1463,6 +1465,8 @@ async fn collect(
             }
         }
     }
+    // Nothing writes the logs after this: their ownership record lets a sweep take them once they have aged.
+    spill::mark_finished(lanes.maintenance, &cancel, &job.stdout_log).await;
     let now = runtime.now_ms();
     let detached = {
         let mut state = job.state();

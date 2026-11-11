@@ -319,24 +319,35 @@ async fn echo_matches_the_golden_fixture() {
     assert_eq!(text, golden["text"].as_str().unwrap());
 }
 
-/// The first job of a runtime removes the job logs older than a week (`sweepExpiredShellOutput`), beside
-/// the command and never on its path: the command completes while the sweep is held. Nothing in the
-/// directory that is not a job log is touched, and later jobs sweep nothing.
+/// The first job of a runtime removes the logs of ended jobs older than a week (`sweepExpiredShellOutput`), beside
+/// the command and never on its path: the command completes while the sweep is held. Only logs whose ownership
+/// record shows their job ended are taken: a running job's week-silent logs (another process's) and a user's file named
+/// like a log stay. Later jobs sweep nothing, and a job's own record shows it ended once it has.
 #[tokio::test]
-async fn the_first_job_sweeps_the_logs_older_than_a_week_once_beside_the_command() {
+async fn the_first_job_sweeps_the_ended_jobs_logs_older_than_a_week_once_beside_the_command() {
     let rig = rig();
     let logs = rig.dir.path().join("l");
     std::fs::create_dir_all(&logs).unwrap();
     let day = std::time::Duration::from_secs(24 * 60 * 60);
     let now = std::time::SystemTime::now();
-    let aged = |name: &str, age: std::time::Duration| {
+    let aged_with = |name: &str, body: &str, age: std::time::Duration| {
         let path = logs.join(name);
-        std::fs::File::create(&path).unwrap().set_modified(now - age).unwrap();
+        std::fs::write(&path, body).unwrap();
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
         path
     };
-    let expired = aged("task-old.stdout.log", day * 8);
-    let expired_err = aged("task-old.stderr.log", day * 8);
-    let kept = aged("task-recent.stdout.log", day * 6);
+    let aged = |name: &str, age| aged_with(name, "", age);
+    let job = |id: &str, state: &str, age| {
+        [
+            aged(&format!("{id}.stdout.log"), age),
+            aged(&format!("{id}.stderr.log"), age),
+            aged_with(&format!("{id}.owner.json"), &format!(r#"{{"pid":1,"state":"{state}"}}"#), age),
+        ]
+    };
+    let expired = job("task-old", "finished", day * 8);
+    let recent = job("task-recent", "finished", day * 6);
+    let live = job("task-live-elsewhere", "running", day * 8);
+    let users = aged("task-my-personal-notes.stdout.log", day * 8);
     let foreign = aged("notes.txt", day * 8);
     let gate = super::spill::sweep_gate::hold(&logs);
     let golden = fixture("shell", "shell-echo");
@@ -344,15 +355,30 @@ async fn the_first_job_sweeps_the_logs_older_than_a_week_once_beside_the_command
         .await
         .expect("the command completes while the log sweep is held")
         .unwrap();
-    assert!(expired.exists(), "the held sweep has removed nothing yet");
+    assert!(expired.iter().all(|p| p.exists()), "the held sweep has removed nothing yet");
     gate.notify_one();
     rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-    assert!(!expired.exists() && !expired_err.exists() && kept.exists(), "the week-old logs went, the newer one stayed");
-    assert!(foreign.exists(), "a file that is not a job log stays");
-    let later = aged("task-later.stdout.log", day * 8);
+    assert!(expired.iter().all(|p| !p.exists()), "the ended job's week-old logs and record went");
+    assert!(recent.iter().all(|p| p.exists()), "the newer ones stayed");
+    assert!(live.iter().all(|p| p.exists()), "a running job's silent logs stay");
+    assert!(users.exists() && foreign.exists(), "files with no ownership record stay");
+    let later = job("task-later", "finished", day * 8);
     rig.shell.call(&ctx(&rig, "c2"), golden["input"].clone()).await.unwrap();
     rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-    assert!(later.exists(), "the sweep runs once per runtime");
+    assert!(later.iter().all(|p| p.exists()), "the sweep runs once per runtime");
+}
+
+/// A job's logs are created after their ownership record, which shows the job running until it is marked ended.
+#[tokio::test]
+async fn a_jobs_log_record_shows_it_running_until_it_ends() {
+    let rig = rig();
+    let (out, err) = (rig.dir.path().join("task-r.stdout.log"), rig.dir.path().join("task-r.stderr.log"));
+    let (lane, cancel) = (rig.runtime.config.lanes.maintenance, CancellationToken::new());
+    super::spill::create_logs(lane, &cancel, &out, &err).await;
+    let record = || std::fs::read_to_string(rig.dir.path().join("task-r.owner.json")).unwrap();
+    assert!(out.exists() && err.exists() && record().contains(r#""state":"running""#), "{}", record());
+    super::spill::mark_finished(lane, &cancel, &out).await;
+    assert!(record().contains(r#""state":"finished""#), "{}", record());
 }
 
 /// A running job whose log another process's sweep removed keeps spilling: its next append recreates the log.
