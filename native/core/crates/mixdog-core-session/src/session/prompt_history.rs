@@ -88,14 +88,23 @@ pub struct AppendQueue {
     flushing: Vec<u64>,
 }
 
-/// [`mixdog_rt::WriteMarks`] of the prompt history.
+/// [`mixdog_rt::WriteMarks`] of the prompt history, shared with whoever reads them without the queue's owner.
 #[cfg(any(test, feature = "test-support"))]
-pub struct Marks(mixdog_rt::WriteMarks);
+pub struct Marks(std::sync::Arc<mixdog_rt::WriteMarks>);
 
 #[cfg(any(test, feature = "test-support"))]
 impl Default for Marks {
     fn default() -> Self {
-        Self(mixdog_rt::WriteMarks::new("the prompt history"))
+        Self(std::sync::Arc::new(mixdog_rt::WriteMarks::new("the prompt history")))
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl AppendQueue {
+    /// A queue numbering its appends on `marks`: the thread's [`super::control::ControlCell::prompt_marks`], which the
+    /// replay barrier reads as it arrives, without waiting for the actor.
+    pub fn numbered_on(marks: std::sync::Arc<mixdog_rt::WriteMarks>) -> Self {
+        Self { marks: Marks(marks), ..Self::default() }
     }
 }
 

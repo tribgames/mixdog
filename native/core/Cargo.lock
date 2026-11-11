@@ -3972,6 +3972,7 @@ dependencies = [
  "mixdog-exthost",
  "mixdog-fsio",
  "mixdog-js",
+ "mixdog-ledger",
  "mixdog-mcp",
  "mixdog-migrate",
  "mixdog-protocol",

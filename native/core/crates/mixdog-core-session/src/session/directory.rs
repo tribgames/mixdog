@@ -615,27 +615,41 @@ impl SessionDirectory {
     /// records accepted later neither hold nor hasten it, and a thread loaded later is not asked. A thread that unloads first
     /// counts once its close flushed ([`super::control::ControlCell::flushed`]). How many threads were asked, or which one ended
     /// with something unwritten, or whose record or prompt append from before the call failed.
+    ///
+    /// The loaded threads and each one's prompt appends pushed are taken by this call itself, before the returned future
+    /// first runs; the questions are sent on its first poll, so a caller polling it alongside other waits asks the threads as
+    /// it arrives.
     #[cfg(any(test, feature = "test-support"))]
-    pub async fn durability_settled(&self) -> Result<usize, String> {
-        let mut waits = Vec::new();
-        for handle in self.loaded_handles() {
-            let (tx, rx) = oneshot::channel();
-            let asked = handle.inbox.send(Inbox::Settled { tx }).await.is_ok();
-            waits.push((handle, asked.then_some(rx)));
-        }
-        let loaded = waits.len();
-        for (handle, rx) in waits {
-            let answered = match rx {
-                Some(rx) => rx.await.ok(),
-                None => None,
-            };
-            match answered {
-                Some(answer) => answer?,
-                None if handle.cell.flushed.load(std::sync::atomic::Ordering::SeqCst) => {}
-                None => return Err(format!("thread {} ended with records or prompt appends not yet written", handle.id.as_str())),
+    pub fn durability_settled(&self) -> impl std::future::Future<Output = Result<usize, String>> + Send + 'static {
+        let asked: Vec<(Arc<SessionHandle>, u64)> = self
+            .loaded_handles()
+            .into_iter()
+            .map(|handle| {
+                let prompts = handle.cell.prompt_marks.accepted();
+                (handle, prompts)
+            })
+            .collect();
+        async move {
+            let mut waits = Vec::new();
+            for (handle, prompts) in asked {
+                let (tx, rx) = oneshot::channel();
+                let asked = handle.inbox.send(Inbox::Settled { prompts, tx }).await.is_ok();
+                waits.push((handle, asked.then_some(rx)));
             }
+            let loaded = waits.len();
+            for (handle, rx) in waits {
+                let answered = match rx {
+                    Some(rx) => rx.await.ok(),
+                    None => None,
+                };
+                match answered {
+                    Some(answer) => answer?,
+                    None if handle.cell.flushed.load(std::sync::atomic::Ordering::SeqCst) => {}
+                    None => return Err(format!("thread {} ended with records or prompt appends not yet written", handle.id.as_str())),
+                }
+            }
+            Ok(loaded)
         }
-        Ok(loaded)
     }
 
     /// Whether a thread is being created now (`getSessionCreatePromise()`).
@@ -1319,6 +1333,8 @@ impl DirInner {
             busy: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
             #[cfg(any(test, feature = "test-support"))]
             flushed: Default::default(),
         });

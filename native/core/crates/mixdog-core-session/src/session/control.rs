@@ -238,6 +238,10 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
+    /// replay barrier takes their accepted count as it arrives.
+    #[cfg(any(test, feature = "test-support"))]
+    pub prompt_marks: Arc<mixdog_rt::WriteMarks>,
     /// Set as the actor stops on an unload once every record it accepted is committed and every prompt append written:
     /// the replay barrier counts a thread that ended so as settled.
     #[cfg(any(test, feature = "test-support"))]

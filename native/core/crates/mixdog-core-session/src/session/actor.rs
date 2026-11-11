@@ -258,9 +258,10 @@ pub(crate) enum Inbox {
     /// Replay-only ([`super::SessionDirectory::durability_settled`]): answered once every record accepted before it is
     /// committed (or failed) and every prompt-history append pushed before it is written; what is accepted after it
     /// neither holds nor hastens the answer. At once when nothing from before it is pending; an error naming the store when
-    /// one of them failed.
+    /// one of them failed. `prompts` is the appends' accepted count the caller took as it arrived
+    /// ([`super::control::ControlCell::prompt_marks`]).
     #[cfg(any(test, feature = "test-support"))]
-    Settled { tx: oneshot::Sender<Result<(), String>> },
+    Settled { prompts: u64, tx: oneshot::Sender<Result<(), String>> },
 }
 
 /// Where a test's injected unwind of the actor happens.
@@ -651,8 +652,8 @@ pub(crate) struct SessionActor {
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
-    /// [`Inbox::Settled`] callers, each with the positions taken when it arrived: the outbox's last accepted entry and the
-    /// prompt-history appends pushed ([`SessionActor::answer_settled`]).
+    /// [`Inbox::Settled`] callers, each with its positions: the outbox's last accepted entry, taken when the question is
+    /// handled, and the prompt-history appends pushed, taken by the caller as it arrived ([`SessionActor::answer_settled`]).
     #[cfg(any(test, feature = "test-support"))]
     settled: Vec<((u64, u64), oneshot::Sender<Result<(), String>>)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
@@ -915,6 +916,8 @@ impl SessionActor {
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
+        #[cfg(any(test, feature = "test-support"))]
+        let prompt_marks = cell.prompt_marks.clone();
         Self {
             goal_watch,
             surface,
@@ -969,6 +972,9 @@ impl SessionActor {
             settled: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_appends: prompt_history::AppendQueue::numbered_on(prompt_marks),
+            #[cfg(not(any(test, feature = "test-support")))]
             prompt_appends: Default::default(),
             delete_closed: None,
             delete_mark: None,
@@ -3967,7 +3973,7 @@ impl SessionActor {
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
             // The accept watermarks now; answered at the end of an iteration of the run loop once both are reached.
             #[cfg(any(test, feature = "test-support"))]
-            Inbox::Settled { tx } => self.settled.push(((self.outbox.last_accepted(), self.prompt_appends.marks().accepted()), tx)),
+            Inbox::Settled { prompts, tx } => self.settled.push(((self.outbox.last_accepted(), prompts), tx)),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {

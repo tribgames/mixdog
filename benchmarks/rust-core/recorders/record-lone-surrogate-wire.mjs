@@ -326,8 +326,10 @@ writeSetManifest(stage, {
     worldFiles: {
       skip: WORLD_FILES_SKIP,
       // Each entry's `path` is one file or folder exactly (a folder: everything in it); `atomicTemp` adds the temporary file of an
-      // atomic write of that file, `<path>.mixdog-tmp-<16 hex>` exactly, and nothing else.
-      skipForm: 'exact path (a folder: everything under it); atomicTemp: also <path>.mixdog-tmp-<16 lowercase hex>',
+      // atomic write of that file, `<path>.mixdog-tmp-<16 hex>` exactly; `lockStaging` adds a lock's staged record and reclaim
+      // guard, `<path>.reclaim` and `<path>[.reclaim].<pid>.<16 hex>.tmp` exactly; nothing else.
+      skipForm:
+        'exact path (a folder: everything under it); atomicTemp: also <path>.mixdog-tmp-<16 lowercase hex>; lockStaging: also <path>.reclaim and <path>[.reclaim].<pid>.<16 lowercase hex>.tmp',
       // Before each look at the files (before and after the call), after the call's answer: one step per store a call can write,
       // in this order, each answer required to be the expected one.
       barrier: {
