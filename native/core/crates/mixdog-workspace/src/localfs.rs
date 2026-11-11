@@ -857,31 +857,37 @@ fn walk_error(error: &ignore::Error, root: &Path) -> FsError {
     }
 }
 
-/// The search server's printer clip (`--max-columns=500 --max-columns-preview`, serve_search/matching.rs
-/// `scan_standard`): a line longer than this many bytes with its terminator is printed as its first this many grapheme
-/// clusters and [`LONG_LINE_MARK`].
+/// The search server's `max_columns` (serve_search/matching.rs:276-277, `.max_columns(500)` with
+/// `.max_columns_preview(true)`); [`match_text`] has the rule.
 const MAX_COLUMNS: usize = 500;
 
-/// grep-printer `write_exceeded_line`'s mark when no match is coloured.
+/// grep-printer 0.2.2 `write_exceeded_line`'s mark when no match is coloured (standard.rs:1373-1374).
 const LONG_LINE_MARK: &str = " [... omitted end of long line]";
 
-/// A match line as the search server prints it and splits its output (grep-printer, then `str::lines`), the matcher
-/// having run on the whole line: a line whose bytes with its `\n` are at most [`MAX_COLUMNS`] loses its terminator, `\n`
-/// or `\r\n`; a longer one is its first [`MAX_COLUMNS`] extended grapheme clusters, a `\r` before the `\n` among them
-/// (ripgrep's line ends at the `\n`; the mark that follows keeps the `\r` from `str::lines`), and [`LONG_LINE_MARK`]. A
-/// file's last line without a terminator is long past [`MAX_COLUMNS`] bytes. The preview is not cut short however many
-/// bytes its clusters take: the queue's memory is bounded by [`QUEUE_BYTES`] instead.
+/// A match line as the search server prints it and splits its output, the matcher having run on the whole line. The
+/// server's searcher ends a line at `\n` only (serve_search/matching.rs:34) and its no-colour standard printer
+/// (matching.rs:271-277) writes each line through grep-printer 0.2.2 `write_line` (standard.rs:1258-1282):
+/// - trigger (`exceeds_max_columns`, standard.rs:1600-1602): the line's byte length WITH its terminator (`\n`, or
+///   `\r\n` counted as two bytes; a file's last line without one counts its own bytes) is over [`MAX_COLUMNS`];
+/// - not over: the line is printed whole, then `output_lines` (matching.rs:180-186) decodes the output lossily and
+///   splits it with `str::lines`, which drops the `\n` or `\r\n`;
+/// - over (`write_exceeded_line` with preview, standard.rs:1361-1374): the end of the first [`MAX_COLUMNS`] grapheme
+///   clusters as bstr segments the raw bytes, the terminator among them (`\r\n` is one cluster, invalid UTF-8 a
+///   cluster per maximal invalid sequence, and bstr's segmentation has no Indic conjunct rule), then
+///   `write_colored_matches` trims a trailing `\n` only (standard.rs:1320), so a `\r` stays, and [`LONG_LINE_MARK`]
+///   follows; `output_lines` then decodes it lossily.
+///
+/// The preview is not cut short however many bytes its clusters take: the queue's memory is bounded by
+/// [`QUEUE_BYTES`] instead.
 fn match_text(bytes: &[u8]) -> String {
-    use unicode_segmentation::UnicodeSegmentation as _;
-    let terminated = bytes.ends_with(b"\n");
-    let line = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-    if line.len() + usize::from(terminated) <= MAX_COLUMNS {
-        let line = if terminated { line.strip_suffix(b"\r").unwrap_or(line) } else { line };
+    use bstr::ByteSlice as _;
+    if bytes.len() <= MAX_COLUMNS {
+        let line = bytes.strip_suffix(b"\n").map_or(bytes, |line| line.strip_suffix(b"\r").unwrap_or(line));
         return String::from_utf8_lossy(line).into_owned();
     }
-    let head = String::from_utf8_lossy(line);
-    let end = head.grapheme_indices(true).nth(MAX_COLUMNS).map_or(head.len(), |(at, _)| at);
-    let mut text = head[..end].to_owned();
+    let end = bytes.grapheme_indices().map(|(_, end, _)| end).take(MAX_COLUMNS).last().unwrap_or(0);
+    let preview = &bytes[..end];
+    let mut text = String::from_utf8_lossy(preview.strip_suffix(b"\n").unwrap_or(preview)).into_owned();
     text.push_str(LONG_LINE_MARK);
     text
 }

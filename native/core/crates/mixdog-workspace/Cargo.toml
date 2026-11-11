@@ -22,6 +22,7 @@ mixdog-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
+bstr = { workspace = true }
 bytes = { workspace = true }
 crossbeam-channel = { workspace = true }
 flate2 = { workspace = true }
@@ -36,7 +37,6 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
 tokio-util = { workspace = true }
-unicode-segmentation = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
