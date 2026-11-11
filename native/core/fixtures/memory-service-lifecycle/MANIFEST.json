@@ -1,0 +1,58 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-service-lifecycle.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the owners behind its callbacks (database initialize, loopback listener, port advert, background workers, storage shutdown): scripted endpoints that append to one ordered event log",
+    "runs": "createMemoryServiceLifecycle (memory-service-lifecycle.mjs): init, stop, getInitialized, isStopping, getInitPromise"
+  },
+  "exclusions": "test cases 57, 90, 121, 234 are covered by mem/tests/boot.rs; cases 73, 131, 142, 161, 178, 216 exercise the HTTP listener the core does not have (listed, not recorded)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7437,
+      "path": "golden.json",
+      "sha256": "c834ca44b1bb66467954b29ef26ca8f5e8a9984a13fb79547f73f977dc599c6f"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "error identity": "the test asserts error === the injected object; recorded as errorIsTheInjectedObject / aggregateHoldsTheInjectedErrorsInOrder booleans"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-service-lifecycle.mjs",
+  "recorderSha256": "5a44c263b339438ae52132679d4d9a56d0ecdc9d70274229b2dc5ce6532110ae",
+  "replay": "mixdog-services memory: mem/boot.rs start/stop (the opening, stop-with-cleanup-failures path): drives the same scripted owners and compares per step the result or error (message; AggregateError members in order), the ordered owner calls and the lifecycle state flags. A stop that fails still runs every cleanup in the stated order (withdraw, closeListener, stopBackgroundWork, shutdown); Rust has no listener/port owners, so a replay maps `close`/`advertise`/`withdraw` to its own seams or drops them by name",
+  "set": "memory-service-lifecycle",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 7437,
+  "uuidsNormalised": "none"
+}

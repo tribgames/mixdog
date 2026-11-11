@@ -1,0 +1,307 @@
+{
+  "domain": "memory-service-lifecycle",
+  "source": "src/runtime/memory/lib/memory-service-lifecycle.test.mjs",
+  "cases": [
+    {
+      "name": "initialization can restart after shutdown and after a failed acquisition (test line 185)",
+      "attempts": 3,
+      "firstErrorIsTheInjectedObject": true,
+      "steps": [
+        {
+          "label": "init (first attempt fails)",
+          "error": {
+            "name": "Error",
+            "message": "first attempt failed"
+          },
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "error",
+              {
+                "name": "Error",
+                "message": "first attempt failed"
+              }
+            ],
+            [
+              "advertise",
+              3350
+            ],
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        },
+        {
+          "label": "init again",
+          "result": {
+            "$undefined": true
+          },
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop",
+          "result": {
+            "$undefined": true
+          },
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        },
+        {
+          "label": "init after stop",
+          "result": {
+            "$undefined": true
+          },
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop",
+          "result": {
+            "$undefined": true
+          },
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "explicit shutdown reports cleanup failures and clears readiness (test line 203)",
+      "errorIsTheInjectedObject": true,
+      "steps": [
+        {
+          "label": "init",
+          "state": {
+            "initialized": true,
+            "stopping": false,
+            "hasInitPromise": true
+          },
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ]
+          ]
+        },
+        {
+          "label": "stop (shutdown throws)",
+          "error": {
+            "name": "Error",
+            "message": "database close failed"
+          },
+          "state": {
+            "initialized": false,
+            "stopping": false,
+            "hasInitPromise": false
+          },
+          "calls": [
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shutdown releases independent resources after withdraw fails (test loop)",
+      "failingStep": "withdraw",
+      "error": {
+        "name": "Error",
+        "message": "withdraw failed"
+      },
+      "errorIsTheInjectedObject": true,
+      "cleanupOrder": [
+        "withdraw",
+        "closeListener",
+        "stopBackgroundWork",
+        "shutdown"
+      ],
+      "state": {
+        "initialized": false,
+        "stopping": false,
+        "hasInitPromise": false
+      }
+    },
+    {
+      "name": "shutdown releases independent resources after closeListener fails (test loop)",
+      "failingStep": "closeListener",
+      "error": {
+        "name": "Error",
+        "message": "closeListener failed"
+      },
+      "errorIsTheInjectedObject": true,
+      "cleanupOrder": [
+        "withdraw",
+        "closeListener",
+        "stopBackgroundWork",
+        "shutdown"
+      ],
+      "state": {
+        "initialized": false,
+        "stopping": false,
+        "hasInitPromise": false
+      }
+    },
+    {
+      "name": "shutdown releases independent resources after stopBackgroundWork fails (test loop)",
+      "failingStep": "stopBackgroundWork",
+      "error": {
+        "name": "Error",
+        "message": "stopBackgroundWork failed"
+      },
+      "errorIsTheInjectedObject": true,
+      "cleanupOrder": [
+        "withdraw",
+        "closeListener",
+        "stopBackgroundWork",
+        "shutdown"
+      ],
+      "state": {
+        "initialized": false,
+        "stopping": false,
+        "hasInitPromise": false
+      }
+    },
+    {
+      "name": "shutdown releases independent resources after shutdown fails (test loop: the fourth step is a further shape)",
+      "failingStep": "shutdown",
+      "error": {
+        "name": "Error",
+        "message": "shutdown failed"
+      },
+      "errorIsTheInjectedObject": true,
+      "cleanupOrder": [
+        "withdraw",
+        "closeListener",
+        "stopBackgroundWork",
+        "shutdown"
+      ],
+      "state": {
+        "initialized": false,
+        "stopping": false,
+        "hasInitPromise": false
+      }
+    },
+    {
+      "name": "failed worker shutdown still drains active requests before storage closes (test line 282)",
+      "beforeDrainReleased": {
+        "stopSettled": false,
+        "storageClosed": false,
+        "events": [
+          "listener-closing",
+          "workers-stop-throws"
+        ]
+      },
+      "error": {
+        "name": "Error",
+        "message": "worker termination failed"
+      },
+      "errorIsTheInjectedObject": true,
+      "eventsAfter": [
+        "listener-closing",
+        "workers-stop-throws",
+        "storage-closed"
+      ],
+      "state": {
+        "initialized": false,
+        "stopping": false,
+        "hasInitPromise": false
+      }
+    },
+    {
+      "name": "multiple shutdown failures remain available after every cleanup is attempted (test line 310)",
+      "error": {
+        "name": "AggregateError",
+        "message": "memory service shutdown failed",
+        "errors": [
+          {
+            "name": "Error",
+            "message": "listener close failed"
+          },
+          {
+            "name": "Error",
+            "message": "database close failed"
+          }
+        ]
+      },
+      "aggregateHoldsTheInjectedErrorsInOrder": true,
+      "calls": [
+        "withdraw",
+        "close",
+        "stop-background",
+        "shutdown"
+      ],
+      "state": {
+        "initialized": false,
+        "stopping": false,
+        "hasInitPromise": false
+      }
+    }
+  ]
+}
