@@ -343,16 +343,11 @@ pub type CompactionHook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 /// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
 type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
 
-/// Waits for a gate's release on a lane job that runs inline on a runtime worker: on a multi-thread runtime the worker's
-/// queued tasks (the actor a test drives meanwhile) move to another thread while it waits, so the wait holds back only
-/// the gated job.
-fn wait_for_release(go: &std::sync::mpsc::Receiver<()>) {
-    let multi = tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
-    if multi {
-        tokio::task::block_in_place(|| drop(go.recv()));
-    } else {
-        drop(go.recv());
-    }
+/// Waits for the test to release `gate`, failing when it has not within ten seconds. The wait blocks the thread the
+/// gated lane job runs on (inline, the store's caller's: a runtime worker): a test that needs the session's actor to
+/// step while a batch is held uses [`MemStore::on_compaction`] instead, which holds nothing.
+fn wait_for_release(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+    go.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("{gate} was not released within 10s"));
 }
 
 struct MemLog {
@@ -374,7 +369,7 @@ impl SessionLog for MemLog {
         let gate = lock(&self.commit_gate).take();
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
-            wait_for_release(&go);
+            wait_for_release(&go, "the commit gate");
         }
         if self.fail_next.swap(false, Ordering::SeqCst) {
             return Err(BarrierError::Failed {
@@ -385,7 +380,11 @@ impl SessionLog for MemLog {
         let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
-            wait_for_release(&go);
+            wait_for_release(&go, "the header gate");
+        }
+        let hook = if sets_compaction { lock(&self.on_compaction).take() } else { None };
+        if let Some(hook) = hook {
+            hook();
         }
         let mut log = lock(&self.log);
         let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
@@ -585,7 +584,7 @@ impl ThreadStore for MemStore {
         let gate = lock(&self.create_gate).take();
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
-            wait_for_release(&go);
+            wait_for_release(&go, "the create gate");
         }
         let mut log = MemLog {
             log: self.log(id),
@@ -971,7 +970,7 @@ impl Feed for RecFeed {
         };
         if let Some((_, arrived, go)) = held {
             arrived.notify_one();
-            wait_for_release(&go);
+            wait_for_release(&go, "the publish gate");
         }
         if let Some(log) = lock(&self.timeline).clone() {
             let mut shown = lock(&self.shown);
