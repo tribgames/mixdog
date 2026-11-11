@@ -65,6 +65,7 @@ libc = { workspace = true }
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
