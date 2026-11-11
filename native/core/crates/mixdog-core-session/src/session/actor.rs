@@ -1495,14 +1495,18 @@ impl SessionActor {
                     }
                 }
             }
+            // A list computed off the actor can land after a mark that its rows predate: it takes the marks here.
             JobDone::PromptSession { session, publish } => {
+                let session = self.redacted_session_prompts(&session);
                 self.accept_view(Change::PromptSession { session, publish }, Vec::new())
             }
             JobDone::PromptPersisted(persisted) => {
+                let persisted = self.redacted_prompts(&persisted);
                 self.accept_view(Change::PromptPersisted(persisted), Vec::new())
             }
             JobDone::PromptFlushed { list, unwritten } => {
                 if let Some(list) = list {
+                    let list = self.redacted_prompts(&list);
                     self.accept_view(Change::PromptPersisted(list), Vec::new());
                 }
                 let next = self.prompt_appends.flushed(unwritten);
@@ -5449,12 +5453,21 @@ impl SessionActor {
 
     /// A mark: the cwd's persisted prompt history keeps the marked values as the marker, entries written before included.
     /// The lists the thread holds go the same way, so the history a client is sent after the mark carries the marker only.
+    /// A prompt list with this thread's marks applied.
+    fn redacted_prompts(&self, list: &[String]) -> Vec<String> {
+        list.iter().map(|text| self.deps.sensitive.redact_text(&self.id, text)).collect()
+    }
+
+    /// The session's prompt list (newest first) with the marks applied; oldest first into `recompute`, so two entries the
+    /// marker made equal keep the newer one.
+    fn redacted_session_prompts(&self, list: &[String]) -> Vec<String> {
+        prompt_history::recompute(&self.redacted_prompts(list).into_iter().rev().collect::<Vec<_>>())
+    }
+
     fn redact_prompts(&mut self) {
         let (prompts, cwd, marks, thread) = (self.deps.prompts.clone(), self.cwd(), self.deps.sensitive.clone(), self.id.clone());
-        let redact = |list: &[String]| -> Vec<String> { list.iter().map(|text| marks.redact_text(&thread, text)).collect() };
-        // Oldest first into `recompute`: two entries the marker made equal keep the newer one.
-        let session = prompt_history::recompute(&redact(&self.acked.prompt_session).into_iter().rev().collect::<Vec<_>>());
-        let persisted = redact(&self.acked.prompt_persisted);
+        let session = self.redacted_session_prompts(&self.acked.prompt_session);
+        let persisted = self.redacted_prompts(&self.acked.prompt_persisted);
         if session != self.acked.prompt_session {
             self.accept_view(Change::PromptSession { session, publish: true }, Vec::new());
         }
