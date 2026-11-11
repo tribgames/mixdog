@@ -105,11 +105,16 @@ const { projectStoredTranscript } = await imp(`${S}session/store-transcript-proj
 const sessionLogIo = (await imp(`${S}session/store/session-log-writer.mjs`))._sessionLogIoForTest();
 const { getSession } = await imp(`${S}session/manager/session-crud.mjs`);
 const { saveSession } = await imp(`${S}session/store.mjs`);
+const { settleRecorder } = await imp(`${S}session/store/session-writers.mjs`);
 const { createInheritance } = await imp('src/session-runtime/lifecycle/inheritance.mjs');
 const { pickDoneVerb } = await imp('src/tui/session/labels.mjs');
-// The turn's identity as the desktop's turn start stamps it (`beginTurn`, `tui/session/turn.mjs`): the done verb of the
-// session's `index`th turn, the turn's start and a fresh attempt id.
-const client = (index) => ({ transcriptMeta: { at: Date.now(), completionVerb: pickDoneVerb(index), attemptId: globalThis.crypto.randomUUID() } });
+const { createTranscriptRouteMetadata } = await imp('src/runtime/shared/transcript-metadata.mjs');
+// The turn's identity as the desktop's turn start stamps it (`beginTurn`, `tui/session/turn.mjs:127-135`): the turn's start
+// and the session's route (`createTranscriptRouteMetadata(session)`, as `applyTurnRouteMetadata` stamps it, turn.mjs:120; no
+// desktop runtime here, so no workflow agent), the done verb of the session's `index`th turn and a fresh attempt id.
+const client = (index, id) => ({
+  transcriptMeta: { ...createTranscriptRouteMetadata(getSession(id)), completionVerb: pickDoneVerb(index), attemptId: globalThis.crypto.randomUUID() },
+});
 
 const realWrite = sessionLogIo.writeSync;
 const FAULT = 'EIO: injected';
@@ -126,13 +131,21 @@ const idFile = join(workdir, 'session-id');
 
 // What a client reading the session sees (the desktop's and the phone's transcript read), what the durable record holds, and the
 // turn checkpoint left on disk.
+// The session's usage books as the durable record holds them (`applyUsageDelta`/`recordUsageMetrics`, session/usage-metrics):
+// what a turn's usage moves, and what a failed save must not lose or count twice.
+const USAGE_BOOKS = [
+  'totalInputTokens', 'totalOutputTokens', 'totalToolCalls', 'tokensCumulative', 'totalCachedReadTokens', 'totalCacheWriteTokens',
+  'totalUncachedInputTokens', 'usageReadout', 'lastInputTokens', 'lastOutputTokens', 'lastCachedReadTokens', 'lastCacheWriteTokens',
+  'lastUncachedInputTokens', 'lastContextTokens', 'usageMetricsTurnId', 'reasoningUsage', 'lastIterationIndex',
+];
+const headerOf = (record) => (record ? Object.fromEntries(USAGE_BOOKS.map((key) => [key, record[key] ?? null])) : null);
 async function observe(id) {
   const disk = readDurableSessionRecord(id);
   const view = await projectStoredTranscript(id, disk, { includeMessages: true, itemLimit: 100 });
   const checkpoint = readTurnCheckpoint(id);
   return {
     view: { messages: view.messages ?? null, items: view.items ?? null },
-    disk: { messages: readDurableSessionRecord(id)?.messages ?? null },
+    disk: { messages: readDurableSessionRecord(id)?.messages ?? null, usage: headerOf(readDurableSessionRecord(id)) },
     checkpoint: checkpoint ? { sealed: checkpoint.sealed === true, turnMessages: checkpoint.turnMessages.length } : null,
     stage: getSessionProgressSnapshot(id)?.stage ?? null,
   };
@@ -186,18 +199,18 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
       fault(true);
       return answer(opts, 'answer');
     };
-    const first = await askSession(id, 'first task', null, null, null, null, client(0));
+    const first = await askSession(id, 'first task', null, null, null, null, client(0, id));
     await settleTurnCheckpointWrites(id);
     step({ step: 'first turn answered, its save failed', result: first?.content ?? null, ...(await observe(id)) });
     onSend = async (_n, opts) => answer(opts, 'answer');
     // A refused turn closes no turn: the desktop's next one keeps its index.
-    const refused = await askSession(id, 'second task', null, null, null, null, client(1)).then(
+    const refused = await askSession(id, 'second task', null, null, null, null, client(1, id)).then(
       () => ({ refused: false }),
       (error) => ({ refused: true, code: error.code ?? null, name: error.name ?? null, message: error.message })
     );
     step({ step: 'second turn while the save still fails', ...refused, sends, ...(await observe(id)) });
     fault(false);
-    const second = await askSession(id, 'second task', null, null, null, null, client(1));
+    const second = await askSession(id, 'second task', null, null, null, null, client(1, id));
     await awaitPreviousTurnDurable(id);
     await settleTurnCheckpointWrites(id);
     step({ step: 'second turn after the disk recovered', result: second?.content ?? null, sends, ...(await observe(id)) });
@@ -221,17 +234,17 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
       }
       return answer(opts, 'answer');
     };
-    await askSession(id, 'first task', null, null, null, null, client(0));
+    await askSession(id, 'first task', null, null, null, null, client(0, id));
     await settleTurnCheckpointWrites(id);
     step({ step: 'first turn answered after two tool rounds, every save failed', sends, ...(await observe(id)) });
     onSend = async (_n, opts) => answer(opts, 'answer');
-    const refused = await askSession(id, 'second task', null, null, null, null, client(1)).then(
+    const refused = await askSession(id, 'second task', null, null, null, null, client(1, id)).then(
       () => ({ refused: false }),
       (error) => ({ refused: true, code: error.code ?? null, name: error.name ?? null, message: error.message })
     );
     step({ step: 'second turn while the save still fails', ...refused, sends, ...(await observe(id)) });
     fault(false);
-    await askSession(id, 'second task', null, null, null, null, client(1));
+    await askSession(id, 'second task', null, null, null, null, client(1, id));
     await awaitPreviousTurnDurable(id);
     await settleTurnCheckpointWrites(id);
     step({ step: 'second turn after the disk recovered', sends, ...(await observe(id)) });
@@ -244,7 +257,7 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
       fault(true);
       return answer(opts, 'answer');
     };
-    await askSession(id, 'first task', null, null, null, null, client(0));
+    await askSession(id, 'first task', null, null, null, null, client(0, id));
     await settleTurnCheckpointWrites(id);
     step({ step: 'first turn answered, its save failed', sends, ...(await observe(id)) });
     const fork = async (n) => {
@@ -274,6 +287,8 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
         (value) => value,
         (error) => ({ forked: false, code: error.code ?? null, message: error.message })
       );
+      // The heir's save is accepted by its recorder and lands later: read once what was accepted has landed or failed.
+      await settleRecorder(heirId);
       const live = heir ? await projectStoredTranscript(heirId, heir, { includeMessages: true, itemLimit: 100 }) : null;
       return {
         ...outcome,
@@ -293,13 +308,19 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
       fault(true);
       return answer(opts, 'answer');
     };
-    await askSession(id, 'do the task', null, null, null, null, client(0));
+    await askSession(id, 'do the task', null, null, null, null, client(0, id));
     await settleTurnCheckpointWrites(id);
     const live = await projectStoredTranscript(id, getSession(id), { includeMessages: true, itemLimit: 100 });
     step({ step: 'resumed while held', live: { items: live.items ?? null }, ...(await observe(id)) });
     await settleThenKill();
   }
-  if (caseName === 'crash-before-output') {
+  if (caseName === 'crash-before-write') {
+    // The turn's first write is its checkpoint journal's open: the process dies before it runs.
+    _setJournalOpGateForTest(async () => {
+      step({ step: 'killed', sends });
+      kill();
+    });
+  } else if (caseName === 'crash-before-output') {
     onSend = async () => settleThenKill();
   } else if (caseName === 'crash-mid-stream') {
     onSend = async (_n, opts) => {
@@ -367,7 +388,7 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
         callback(error);
       });
   } else throw new Error(`unknown case ${caseName}`);
-  await askSession(id, 'do the task', null, null, null, null, client(0));
+  await askSession(id, 'do the task', null, null, null, null, client(0, id));
   if (caseName === 'crash-sealed-unsaved') {
     await settleThenKill();
   }
