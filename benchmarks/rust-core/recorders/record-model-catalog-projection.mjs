@@ -73,7 +73,7 @@ await rec.run('litellm-keeps-every-field-a-lookup-reads', `${SRC}:137`, { source
   const row = projectLitellmCatalog(litellm)['anthropic/claude-opus-9-1'];
   return { row, present: Object.fromEntries(['deprecation_date', 'input_cost_per_pixel', 'supported_regions', 'supports_audio_input'].map((f) => [f, f in row])) };
 });
-await rec.run('tolerates-published-shapes', `${SRC}:176`, {}, () => ({
+await rec.run('tolerates-published-shapes', `${SRC}:178`, {}, () => ({
   modelsDevBroken: projectModelsDevCatalog({ broken: null }),
   modelsDevNoModels: projectModelsDevCatalog({ noModels: { name: 'x' } }),
   litellmBroken: projectLitellmCatalog({ broken: null }),

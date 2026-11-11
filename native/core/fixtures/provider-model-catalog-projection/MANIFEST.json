@@ -19,7 +19,7 @@
     {
       "bytes": 46597,
       "path": "cases.json",
-      "sha256": "6ad31a2d900587e05a6d2c6b3fe837999dc9a824567ff2b11941035185c7d61a"
+      "sha256": "4bb8a971eb2853e76b81e27e3cf0e1e597bcf669b371dfff4bb78d9330a32964"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-catalog-projection.mjs",
-  "recorderSha256": "3234d8772489ea39a2a4d3c21b6a7994388045d41c45bb7e4243951feacf42cf",
+  "recorderSha256": "abb74b49d6db67d116c6a339a4a835364ae020959df7d1d736a379d843bd3277",
   "replay": "Rust entry (pub, on o1): mixdog_ai::catalog::lookup project_litellm and project_models_dev (catalog/lookup/projection.rs:98, :158).",
   "set": "provider-model-catalog-projection",
   "totalBytes": 46597,
