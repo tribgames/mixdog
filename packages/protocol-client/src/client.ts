@@ -208,7 +208,11 @@ const classes = (): Record<RequestClass, number> => ({ C0: 0, C1: 0, C2: 0, C3: 
 const jsonKey = (id: RequestId): string => JSON.stringify(id);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const validFeed = (f: unknown): boolean =>
-  f === undefined || (isObject(f) && typeof f.id === 'string' && typeof f.epoch === 'string' && typeof f.seq === 'number');
+  f === undefined ||
+  (isObject(f) && typeof f.id === 'string' && typeof f.epoch === 'string' && typeof f.seq === 'number' &&
+    (f.from === undefined || (typeof f.from === 'number' && f.from <= f.seq)));
+/** The first position a frame stands for: a coalesced frame (`feed.from`, announced with `feedRanges`) covers `from..=seq`. */
+const firstOf = (f: FeedStamp): number => f.from ?? f.seq;
 const validErrorBody = (e: unknown): boolean => isObject(e) && typeof e.code === 'number' && typeof e.message === 'string';
 function drain<V>(m: Map<unknown, V>): V[] {
   const all = [...m.values()];
@@ -554,7 +558,7 @@ class Engine implements ProtocolClient<Json> {
     if (!tracked) return;
     const snapshot = n.method === WIRE.threadSnapshot || n.method === WIRE.appSnapshot;
     const cur = this.recv.get(f.id);
-    if (!snapshot && (!cur || cur.epoch !== f.epoch || f.seq !== cur.seq + 1)) {
+    if (!snapshot && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
       return this.violation(1002, `feed gap on ${f.id}`);
     }
     this.recv.set(f.id, { epoch: f.epoch, seq: f.seq });
@@ -566,7 +570,7 @@ class Engine implements ProtocolClient<Json> {
    * the feed must run on without a gap, as a thread feed does. */
   private onScoped(n: JsonRpcNotification, f: FeedStamp, gen: number): void {
     const cur = this.recv.get(f.id);
-    if (n.method !== 'feed/snapshot' && cur && (cur.epoch !== f.epoch || f.seq !== cur.seq + 1)) {
+    if (n.method !== 'feed/snapshot' && cur && (cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
       return this.violation(1002, `feed gap on ${f.id}`);
     }
     this.recv.set(f.id, { epoch: f.epoch, seq: f.seq });

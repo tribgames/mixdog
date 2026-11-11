@@ -12,6 +12,7 @@
 //! [`ConnectionHub`]; the reader and writer tasks are shared, so framing, bounds and close
 //! behaviour have one implementation.
 
+mod append_batch;
 mod connection;
 mod hub;
 mod inbound;

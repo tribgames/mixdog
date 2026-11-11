@@ -1058,7 +1058,12 @@ export type FeedSnapshotParams = { feedId: FeedId, state: JsonValue, };
 /**
  * Position of a notification in its feed (P §6.1, X1).
  */
-export type FeedStamp = { id: FeedId, epoch: FeedEpoch, seq: number, };
+export type FeedStamp = { id: FeedId, epoch: FeedEpoch, seq: number,
+/**
+ * A frame that stands for the run `from..=seq` (consecutive text appends of one item the writer coalesced). Only a connection
+ * that announced `feedRanges` at initialize gets one; resume positions stay single seqs.
+ */
+from?: number, };
 
 /**
  * Generic subscription to a scoped feed whose id the client already knows
@@ -1718,7 +1723,12 @@ approvalsInbox?: boolean, host?: HostCapabilities,
 /**
  * Executes `model/proxy/execute` with this machine's accounts (DS §12.4).
  */
-modelProxy?: boolean, };
+modelProxy?: boolean,
+/**
+ * Folds a feed frame that stands for a run of positions (`feed.from`): the writer may coalesce a thread's text appends for this
+ * connection (Node's phone mailbox, `remote-streaming-mailbox.ts`). A client without it gets every frame.
+ */
+feedRanges?: boolean, };
 
 export type InitializeParams = { clientInfo: ClientInfo, capabilities?: InitializeCapabilities, };
 

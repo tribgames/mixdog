@@ -504,3 +504,76 @@ async fn a_within_share_frame_is_never_lagged_while_another_frame_is_in_flight()
     assert_eq!(texts.iter().filter(|t| t.starts_with('b')).count(), 4);
     assert_eq!(sink.event_budget_free(), budget);
 }
+
+/// A thread feed's text append at `seq`, as the feed encodes it.
+fn append(seq: u64, text: &str) -> FeedFrame {
+    let frame = serde_json::json!({
+        "method": "item/agentMessage/delta",
+        "params": { "threadId": "t", "turnId": "u", "itemId": "answer", "delta": text },
+        "feed": { "id": "thread:t", "epoch": epoch(9), "seq": seq },
+    });
+    FeedFrame { seq, bytes: Bytes::from(frame.to_string()) }
+}
+
+fn parsed(text: &str) -> serde_json::Value {
+    serde_json::from_str(text).expect("a JSON frame")
+}
+
+/// Two clients on one stream: the one that announced `feedRanges` gets the first append at once and the window's appends as one
+/// frame standing for their positions (`feed.from`); the other gets every frame as before.
+#[tokio::test(start_paused = true)]
+async fn only_a_feed_ranges_client_gets_a_window_of_appends_as_one_ranged_frame() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let mut phone = connect(&hub, ConnectionOrigin::Loopback, true);
+    let mut older = connect(&hub, ConnectionOrigin::Loopback, true);
+    phone.connection.sink.coalesce_appends();
+    let feed = new_feed("thread:t", &limits);
+    let attached = subscribe_to(&feed, &phone, "p", Window::Fixed, None);
+    respond(&phone, attached, "resp");
+    let attached = subscribe_to(&feed, &older, "o", Window::Fixed, None);
+    respond(&older, attached, "resp");
+    assert_eq!(phone.take_text(2).await[0], "resp");
+    assert_eq!(older.take_text(2).await[0], "resp");
+
+    let texts = ["응", "답 ", "하", "나"];
+    for (at, text) in texts.iter().enumerate() {
+        feed.publish(&[append(at as u64 + 1, text)], view()).expect("contiguous frames");
+        settle().await;
+        tokio::time::advance(std::time::Duration::from_millis(4)).await;
+    }
+
+    let first = parsed(&phone.take_text(1).await[0]);
+    assert_eq!((first["feed"]["seq"].clone(), first["params"]["delta"].clone()), (serde_json::json!(1), serde_json::json!("응")), "the first append goes at once");
+    let window = parsed(&phone.take_text(1).await[0]);
+    assert_eq!(window["params"]["delta"], "답 하나", "the window's appends joined");
+    assert_eq!((window["feed"]["from"].clone(), window["feed"]["seq"].clone()), (serde_json::json!(2), serde_json::json!(4)));
+
+    let every: Vec<serde_json::Value> = older.take_text(4).await.iter().map(|text| parsed(text)).collect();
+    assert_eq!(every.iter().map(|frame| frame["feed"]["seq"].as_u64().unwrap()).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    assert!(every.iter().all(|frame| frame["feed"].get("from").is_none()), "a client without `feedRanges` never sees a range");
+}
+
+/// A client resuming from a position inside a range another client got coalesced is replayed every frame after it, and its own
+/// appends are coalesced from there.
+#[tokio::test(start_paused = true)]
+async fn a_resume_inside_a_coalesced_range_replays_from_the_next_position() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let feed = new_feed("thread:t", &limits);
+    feed.publish(&(1..=5).map(|seq| append(seq, &seq.to_string())).collect::<Vec<_>>(), view()).expect("contiguous frames");
+    let mut phone = connect(&hub, ConnectionOrigin::Loopback, true);
+    phone.connection.sink.coalesce_appends();
+    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 3 }, window: Window::LastItems(50) };
+    let attached = subscribe_to(&feed, &phone, "p", Window::LastItems(50), Some(resume));
+    assert_eq!(attached.decision.mode, AttachMode::Replay);
+    respond(&phone, attached, "resp");
+    assert_eq!(phone.take_text(1).await, ["resp"]);
+    let first = parsed(&phone.take_text(1).await[0]);
+    assert_eq!(first["feed"]["seq"], 4, "the replay starts right after the resumed position");
+    let next = parsed(&phone.take_text(1).await[0]);
+    assert_eq!((next["feed"]["seq"].clone(), next["params"]["delta"].clone()), (serde_json::json!(5), serde_json::json!("5")));
+    assert!(next["feed"].get("from").is_none(), "one held append leaves as it came");
+}

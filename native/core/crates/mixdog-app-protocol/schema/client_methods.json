@@ -5283,6 +5283,13 @@
             "null"
           ]
         },
+        "feedRanges": {
+          "description": "Folds a feed frame that stands for a run of positions (`feed.from`): the writer may coalesce a thread's text appends for this connection (Node's phone mailbox, `remote-streaming-mailbox.ts`). A client without it gets every frame.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "host": {
           "anyOf": [
             {

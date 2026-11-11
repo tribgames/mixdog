@@ -42,11 +42,18 @@ pub struct W3cTraceContext {
 /// Position of a notification in its feed (P §6.1, X1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct FeedStamp {
     pub id: FeedId,
     pub epoch: FeedEpoch,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub seq: u64,
+    /// A frame that stands for the run `from..=seq` (consecutive text appends of one item the writer coalesced). Only a connection
+    /// that announced `feedRanges` at initialize gets one; resume positions stay single seqs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub from: Option<u64>,
 }
 
 /// Any message that can be decoded off the wire or encoded onto it.

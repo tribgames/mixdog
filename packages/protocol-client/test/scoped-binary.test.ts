@@ -43,3 +43,34 @@ test('scoped-feed notifications arrive as ordered notification events; sendBinar
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
   assert.equal(conn.clientClose?.code, 1002);
 });
+
+test('a frame standing for a run of positions (feed.from) continues the feed; one that skips a position is a gap', async () => {
+  const net = new MockNetwork();
+  const connecting = connect({
+    target: { id: 'local' },
+    connector: net,
+    clientInfo: options.clientInfo,
+    capabilities: { ...options.capabilities, feedRanges: true },
+    clock: { sleep: () => Promise.resolve() },
+    random: () => 0,
+  });
+  const conn = await net.accept();
+  const init = JSON.parse(await conn.nextSent());
+  assert.equal(init.params.capabilities.feedRanges, true, 'the client announces that it folds ranged frames');
+  conn.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
+  await conn.nextSent();
+  const client = await connecting;
+  const events: ClientEvent[] = [];
+  client.on((e) => events.push(e));
+  const send = (seq: number, from?: number) =>
+    conn.serverSend({ method: 'fs/changed', params: { watchId: 'w', changedPaths: [String(seq)] }, feed: { id: 'fs:w', epoch: 'e', seq, ...(from === undefined ? {} : { from }) } });
+  send(0);
+  send(3, 1);
+  send(4);
+  for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
+  assert.equal(events.filter((e) => e.type === 'notification').length, 3);
+  assert.equal(conn.clientClose, undefined, 'a range that starts right after the last position is no gap');
+  send(7, 6);
+  for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
+  assert.equal(conn.clientClose?.code, 1002, 'a range that starts past the next position is a gap');
+});

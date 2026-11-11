@@ -21,6 +21,15 @@
         "epoch": {
           "type": "string"
         },
+        "from": {
+          "description": "A frame that stands for the run `from..=seq` (consecutive text appends of one item the writer coalesced). Only a connection that announced `feedRanges` at initialize gets one; resume positions stay single seqs.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },

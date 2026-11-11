@@ -70,6 +70,10 @@ pub struct InitializeCapabilities {
     /// Executes `model/proxy/execute` with this machine's accounts (DS §12.4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_proxy: Option<bool>,
+    /// Folds a feed frame that stands for a run of positions (`feed.from`): the writer may coalesce a thread's text appends for this
+    /// connection (Node's phone mailbox, `remote-streaming-mailbox.ts`). A client without it gets every frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_ranges: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

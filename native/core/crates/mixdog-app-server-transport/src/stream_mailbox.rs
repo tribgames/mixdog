@@ -177,6 +177,12 @@ fn tail_with_partial(state: &serde_json::Map<String, Value>) -> Option<Value> {
     row.or_else(|| tail.cloned().map(Value::Object))
 }
 
+/// The live answer's text as the phone paints it (`streamingTailWithPartial(update.snapshot).text`), if any.
+pub fn painted_text(update: &Value) -> Option<String> {
+    let state = record(update.get("snapshot"))?;
+    tail_with_partial(state)?.get("text").and_then(Value::as_str).map(str::to_owned)
+}
+
 /// `sameFields`: the same keys but `omitted`, each with an equal value.
 fn same_fields(before: &serde_json::Map<String, Value>, after: &serde_json::Map<String, Value>, omitted: &[&str]) -> bool {
     let kept = |map: &serde_json::Map<String, Value>| map.keys().filter(|key| !omitted.contains(&key.as_str())).count();

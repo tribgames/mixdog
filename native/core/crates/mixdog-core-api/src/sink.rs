@@ -67,6 +67,10 @@ pub trait ConnectionSink: Send + Sync {
     ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.open_lane(sub, recovery)
     }
+
+    /// The peer announced `feedRanges` at initialize: it folds a frame that stands for a run of feed positions (`feed.from`), so
+    /// the writer may coalesce a thread's consecutive text appends for it. A sink that does not coalesce ignores it.
+    fn coalesce_appends(&self) {}
 }
 
 /// One subscription's ordered lane inside a connection.
