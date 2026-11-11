@@ -94,6 +94,12 @@ const ENV = {
   MIXDOG_SKIP_USER_DATA_BACKUP: '1',
   MIXDOG_DISABLE_TOOL_PREWARM: '1',
 };
+// What the recording leaves out of what the process did, each with its reason (the replay compares everything else whole).
+const EXCLUSIONS = {
+  chunking: 'consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process',
+  stderr: 'stderr is kept to the exec\'s own `mixdog: ` lines: the other lines are the runtime\'s diagnostic log (Node\'s process warnings, `[tag] ...` lines of background work), whose place follows background timers',
+  others: 'the requests that are not the turn\'s (model listing, tool binary and update checks) are a sorted set, not compared: Node fetches its tool binaries there and the core does not need them, while it lists models.dev and the provider\'s cost report',
+};
 const FOLDERS = ['home/AppData/Roaming', 'home/AppData/Local', 'host-data', 'tmp', 'work'];
 
 /** The case's environment: `<sandbox>` replaced, `<host>` read from this process. */
@@ -143,6 +149,11 @@ function childrenOf(pid) {
   const listed = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid}" | ForEach-Object { "$($_.ProcessId) $($_.Name)" }`], { encoding: 'utf8', windowsHide: true, timeout: 60_000 });
   if (listed.status !== 0) throw new Error(`listing the children of ${pid} failed: ${listed.stderr}`);
   return listed.stdout.split(/\r?\n/).filter(Boolean).map((line) => ({ pid: Number(line.split(' ')[0]), name: line.slice(line.indexOf(' ') + 1) }));
+}
+
+/** `pid` and every process it started, ended (taskkill /T), within a bound. */
+function endTree(pid) {
+  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 60_000 });
 }
 
 /** CTRL_C_EVENT to the console of `pid` (its own hidden console), from a helper attached to it. */
@@ -213,7 +224,7 @@ async function runCase(tree, name) {
   // A killed run has no exit code of its own: `null`.
   const exited = new Promise((resolve) => child.on('close', (code) => resolve(spec.interrupt === 'kill' ? null : code)));
   let deadline;
-  const timedOut = new Promise((_, reject) => { deadline = setTimeout(() => { child.kill(); reject(new Error(`${name}: the run did not end in ${RUN_DEADLINE_MS} ms`)); }, RUN_DEADLINE_MS); });
+  const timedOut = new Promise((_, reject) => { deadline = setTimeout(() => { endTree(child.pid); reject(new Error(`${name}: the run did not end in ${RUN_DEADLINE_MS} ms`)); }, RUN_DEADLINE_MS); });
   let left = null;
   if (spec.interrupt) {
     await Promise.race([held, timedOut]);
@@ -226,7 +237,7 @@ async function runCase(tree, name) {
     const children = childrenOf(child.pid);
     const roots = readdirSync(join(sandbox, 'tmp')).filter((entry) => entry.startsWith('mixdog-headless-pristine-'));
     left = { roots: roots.length, children: children.map((c) => c.name).sort() };
-    for (const { pid } of children) spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+    for (const { pid } of children) spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 60_000 });
   }
   server.closeAllConnections();
   server.close();
@@ -250,7 +261,7 @@ async function main() {
   const finalDir = join(FIXTURES_ROOT, 'exec-cli');
   const stage = stageSet(finalDir);
   for (const name of Object.keys(CASES)) writeJson(join(stage, `${name}.json`), await runCase(tree, name));
-  writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url) } });
+  writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url), exclusions: EXCLUSIONS } });
   commitStage(stage, finalDir);
 }
 await main();

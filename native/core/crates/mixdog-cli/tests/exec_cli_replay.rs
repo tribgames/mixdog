@@ -35,6 +35,8 @@ use tokio::io::AsyncWriteExt;
 const CASES: [&str; 6] = ["text", "json", "provider-error", "failed-turn", "ctrl-c", "kill"];
 /// A run that has not ended in this long has hung.
 const RUN_DEADLINE: Duration = Duration::from_secs(180);
+/// The Ctrl+C helper attaches to a console and sends one event.
+const HELPER_DEADLINE: Duration = Duration::from_secs(60);
 /// The binary's console is its own and has no window.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// The helper's target, when this binary runs as the Ctrl+C helper.
@@ -84,8 +86,9 @@ fn normalize(text: &str, sandbox: &str) -> String {
     out
 }
 
-/// The recorder's `ordered`, over what the two pipes delivered in arrival order: consecutive chunks of one stream joined,
-/// stderr kept to the exec's own `mixdog: ` lines, then normalized.
+/// The recorder's `ordered`, over what the two pipes delivered in arrival order: consecutive chunks of one stream joined
+/// (the manifest's `exclusions.chunking`), stderr kept to the exec's own `mixdog: ` lines (`exclusions.stderr`), then
+/// normalized.
 fn ordered(chunks: &[(&'static str, Vec<u8>)], sandbox: &str) -> Value {
     let mut raw: Vec<(&str, String)> = Vec::new();
     for (stream, bytes) in chunks {
@@ -229,13 +232,34 @@ fn terminate(pid: u32) {
 
 /// Ctrl+C to the console of `pid`, from this binary re-run as the helper ([`ctrl_c_helper`]).
 fn ctrl_c(pid: u32) {
-    let sent = Command::new(std::env::current_exe().unwrap())
+    let mut helper = Command::new(std::env::current_exe().unwrap())
         .args(["ctrl_c_helper", "--exact", "--nocapture", "--test-threads=1"])
         .env(CTRL_C_TARGET, pid.to_string())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
+        .spawn()
         .unwrap();
-    assert!(sent.status.success(), "Ctrl+C to {pid} was not sent: {}", String::from_utf8_lossy(&sent.stdout));
+    let (helper_pid, mut said) = (helper.id(), helper.stdout.take().unwrap());
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut text = String::new();
+        said.read_to_string(&mut text).ok();
+        done.send((helper.wait().unwrap(), text)).ok();
+    });
+    let (status, text) = ended.recv_timeout(HELPER_DEADLINE).unwrap_or_else(|_| {
+        terminate(helper_pid);
+        panic!("the Ctrl+C helper for {pid} did not end in {HELPER_DEADLINE:?}")
+    });
+    assert!(status.success(), "Ctrl+C to {pid} was not sent: {text}");
+}
+
+/// Ends a run and what it started, before a failing wait panics: the binary and its live children.
+fn end_tree(pid: u32) {
+    for (child, _) in children_of(pid) {
+        terminate(child);
+    }
+    terminate(pid);
 }
 
 /// The helper: attached to the target's console, it sends CTRL_C_EVENT to every process on it, ignoring it itself. Run
@@ -319,7 +343,10 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
     let waiter = std::thread::spawn(move || exited.send(child.wait().unwrap()).ok());
     let interrupt = case["left"].is_object().then(|| if case["code"].is_null() { "kill" } else { "ctrl-c" });
     if let Some(interrupt) = interrupt {
-        runtime.block_on(async { tokio::time::timeout(RUN_DEADLINE, held.notified()).await }).unwrap_or_else(|_| panic!("{label}: the held request never came"));
+        runtime.block_on(async { tokio::time::timeout(RUN_DEADLINE, held.notified()).await }).unwrap_or_else(|_| {
+            end_tree(pid);
+            panic!("{label}: the held request never came in {RUN_DEADLINE:?}")
+        });
         if interrupt == "ctrl-c" {
             ctrl_c(pid);
         } else {
@@ -328,7 +355,7 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
         }
     }
     let status = exit.recv_timeout(RUN_DEADLINE).unwrap_or_else(|_| {
-        terminate(pid);
+        end_tree(pid);
         panic!("{label}: the run did not end in {RUN_DEADLINE:?}")
     });
     waiter.join().unwrap();
@@ -373,8 +400,8 @@ fn the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case() {
     for name in CASES {
         let case: Value = serde_json::from_str(fixture(name)).unwrap();
         let got = run_case(&exe, &runtime, &case);
-        // `others` (the background requests outside the turn) is recorded, not compared: Node's runtime fetches its tool
-        // binaries there and this core does not need them, while it lists models.dev and the provider's cost report.
+        // `others` (the background requests outside the turn) is the manifest's `exclusions.others`: Node's runtime fetches its
+        // tool binaries there and this core does not need them, while it lists models.dev and the provider's cost report.
         for field in ["code", "output", "requests", "files", "left"] {
             if got.get(field) != case.get(field) {
                 differences.push(format!(

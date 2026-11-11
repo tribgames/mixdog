@@ -1,6 +1,11 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-exec-cli.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
   "exact": true,
+  "exclusions": {
+    "chunking": "consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process",
+    "stderr": "stderr is kept to the exec's own `mixdog: ` lines: the other lines are the runtime's diagnostic log (Node's process warnings, `[tag] ...` lines of background work), whose place follows background timers",
+    "others": "the requests that are not the turn's (model listing, tool binary and update checks) are a sorted set, not compared: Node fetches its tool binaries there and the core does not need them, while it lists models.dev and the provider's cost report"
+  },
   "fileCount": 6,
   "files": [
     {
@@ -67,7 +72,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
-  "recorderSha256": "c52b427981757fe3aee45061f75ca383cd4040578bede7d386e5480beb3f0fd9",
+  "recorderSha256": "d977ffaac458b48d3dd2dfbf3db68ed7d7eaead286faae9eda53a40e72b1a748",
   "set": "exec-cli",
   "totalBytes": 193063
 }
