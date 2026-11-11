@@ -23,6 +23,10 @@ pub enum MemoryError {
     Json(#[from] serde_json::Error),
     #[error("cancelled")]
     Cancelled,
+    /// More than one step of a stop failed (Node's `AggregateError(failures, 'memory service shutdown failed')`,
+    /// `memory-service-lifecycle.mjs:96`): every failure, in the order the steps ran.
+    #[error("memory service shutdown failed")]
+    Shutdown(Vec<MemoryError>),
 }
 
 impl MemoryError {
