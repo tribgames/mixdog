@@ -185,8 +185,10 @@ pub struct CaseSet {
     exclusions: Arc<Vec<String>>,
     /// `clockStartMs` of the recording, where the recorder wrote one: its `T0`.
     pub clock_start_ms: Option<u64>,
-    /// The paths of each case's outcome a comparison covered; a case named [`CaseSet::not_replayed`] is covered whole.
+    /// The paths of each case's outcome a comparison covered.
     compared: Marks,
+    /// The cases named [`CaseSet::not_replayed`], each with its reason: recorded, not compared.
+    skipped: Mutex<Vec<(String, String)>>,
     /// Whether dropping the set checks that every case was compared (a replay's set), or not (the driver's own checks).
     checked: bool,
 }
@@ -335,17 +337,24 @@ impl CaseSet {
                 }
             })
             .collect();
-        Self { set: set.to_owned(), manifest, cases, exclusions, clock_start_ms, compared, checked }
+        Self { set: set.to_owned(), manifest, cases, exclusions, clock_start_ms, compared, checked, skipped: Mutex::default() }
     }
 
-    /// Names cases no replay of this branch compares, with the reason (another group's branch replays them); they count
-    /// as covered. Every id must be one of the set's. The set's one replay names them: a set is never split over
-    /// several tests of this branch, so its drop alone holds every one of its cases to a comparison.
+    /// Names cases no replay of this branch compares, with the reason (another group's branch replays them). They are
+    /// not covered: the set's drop keeps each with its reason apart from the compared sets ([`SKIPPED_SETS`]), prints
+    /// them, and registers a set holding any as not wholly compared. Every id must be one of the set's. The set's one
+    /// replay names them: a set is never split over several tests of this branch.
     pub fn not_replayed(&self, ids: &[&str], reason: &str) {
         assert!(!reason.trim().is_empty(), "{}: a reason for {ids:?}", self.set);
+        let mut skipped = self.skipped.lock().unwrap();
         for id in ids {
-            self.cases.iter().find(|c| c.id == *id).unwrap_or_else(|| panic!("{}: no case {id}", self.set)).mark("");
+            assert!(self.cases.iter().any(|c| c.id == *id), "{}: no case {id}", self.set);
+            skipped.push(((*id).to_owned(), reason.to_owned()));
         }
+    }
+
+    fn is_skipped(&self, id: &str) -> bool {
+        self.skipped.lock().unwrap().iter().any(|(skipped, _)| skipped == id)
     }
 
     /// Whether the manifest declares `name` (a recorded property) not compared: an exclusion line reading
@@ -457,7 +466,7 @@ impl CaseSet {
         let marks = self.compared.lock().unwrap();
         let mut untouched = Vec::new();
         let mut partial = Vec::new();
-        for case in &self.cases {
+        for case in self.cases.iter().filter(|case| !self.is_skipped(&case.id)) {
             let Some(marked) = marks.get(&case.id) else {
                 untouched.push(case.id.clone());
                 continue;
@@ -579,9 +588,14 @@ fn uncovered_paths(
 /// The sets whose replay compared every case, registered when the set was dropped (see [`Replay`]).
 static COMPARED_SETS: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
 
+/// The sets that ended with cases named [`CaseSet::not_replayed`]: per set, each skipped case and its reason. Such a set
+/// is never in [`COMPARED_SETS`].
+static SKIPPED_SETS: Mutex<std::collections::BTreeMap<String, Vec<(String, String)>>> = Mutex::new(std::collections::BTreeMap::new());
+
 /// A replay's set fails when it ends with a recorded case no comparison touched, or with a recorded property of a case's
-/// outcome no comparison covered, unless the case was named [`CaseSet::not_replayed`]; else its set is registered as
-/// compared.
+/// outcome no comparison covered, unless the case was named [`CaseSet::not_replayed`]; a set that skipped none is
+/// registered as compared, one that skipped some is registered apart with the skipped cases and their reasons, and
+/// they are printed.
 impl Drop for CaseSet {
     fn drop(&mut self) {
         if !self.checked || std::thread::panicking() {
@@ -590,7 +604,15 @@ impl Drop for CaseSet {
         let (untouched, partial) = self.uncovered();
         assert!(untouched.is_empty(), "{}: recorded cases no replay compared: {untouched:?}", self.set);
         assert!(partial.is_empty(), "{}: recorded properties no comparison covered: {partial:?}", self.set);
-        COMPARED_SETS.lock().unwrap().insert(self.set.clone());
+        let skipped = self.skipped.lock().unwrap().clone();
+        if skipped.is_empty() {
+            COMPARED_SETS.lock().unwrap().insert(self.set.clone());
+            return;
+        }
+        for (id, reason) in &skipped {
+            eprintln!("NOT REPLAYED {} {id}: {reason}", self.set);
+        }
+        SKIPPED_SETS.lock().unwrap().insert(self.set.clone(), skipped);
     }
 }
 
@@ -1941,6 +1963,7 @@ fn recorded_sets() -> Vec<String> {
 /// compared whole (its set registered by its drop) and that [`REPLAYED_ELSEWHERE`] does not name.
 fn uncompared(replays: &[&Replay], recorded: &[String]) -> Vec<String> {
     COMPARED_SETS.lock().unwrap().clear();
+    SKIPPED_SETS.lock().unwrap().clear();
     for replay in replays {
         mixdog_ai::reset_process_state();
         (replay.run)();
@@ -1949,16 +1972,54 @@ fn uncompared(replays: &[&Replay], recorded: &[String]) -> Vec<String> {
     recorded.iter().filter(|set| !REPLAYED_ELSEWHERE.contains(&set.as_str()) && !compared.contains(*set)).cloned().collect()
 }
 
+/// The tests that read or clear the two registries run one at a time.
+static REGISTRY_TESTS: Mutex<()> = Mutex::new(());
+
+/// Cases recorded but not replayed in the sets of the last [`uncompared`] run: (set, case, reason).
+fn skipped_cases() -> Vec<(String, String, String)> {
+    SKIPPED_SETS
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|(set, cases)| cases.iter().map(move |(id, reason)| (set.clone(), id.clone(), reason.clone())))
+        .collect()
+}
+
 /// Every recorded provider set has a replay here that loaded it and compared every case (registered at run time by the
 /// set's drop), or is named in [`REPLAYED_ELSEWHERE`]; a set replayed here is not named there.
 #[test]
 fn every_provider_set_has_a_comparing_replay() {
+    let _alone = REGISTRY_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let replays = registry();
     for replay in &replays {
         assert!(!REPLAYED_ELSEWHERE.contains(&replay.set), "{}: replayed here and named as another branch's", replay.set);
     }
     let missing = uncompared(&replays, &recorded_sets());
+    // A set with skipped cases is not among the compared ones: its cases and reasons are listed apart.
+    let skipped = skipped_cases();
+    for (set, id, reason) in &skipped {
+        eprintln!("recorded, not replayed: {set} {id}: {reason}");
+    }
+    let partial: std::collections::BTreeSet<String> = skipped.iter().map(|(set, ..)| set.clone()).collect();
+    let missing: Vec<String> = missing.into_iter().filter(|set| !partial.contains(set)).collect();
     assert!(missing.is_empty(), "recorded provider sets no replay compared: {missing:?}");
+}
+
+/// A case named not replayed stays visible: its set is not registered as compared, and its reason is kept.
+#[test]
+fn a_not_replayed_case_is_kept_apart_with_its_reason() {
+    let _alone = REGISTRY_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    COMPARED_SETS.lock().unwrap().clear();
+    SKIPPED_SETS.lock().unwrap().clear();
+    let set = two_property_set();
+    set.not_replayed(&["a"], "another branch replays it");
+    drop(set);
+    assert!(!COMPARED_SETS.lock().unwrap().contains("anthropic-replay-blocks"), "a set with a skipped case is not compared");
+    let kept = skipped_cases();
+    assert!(
+        kept.iter().any(|(set, id, reason)| set == "anthropic-replay-blocks" && id == "a" && reason == "another branch replays it"),
+        "{kept:?}"
+    );
 }
 
 /// A replay that names its set but never loads and compares it registers nothing: its set is reported.
