@@ -146,6 +146,10 @@ pub struct Real {
     pub event_pipeline: Arc<crate::event_pipeline::EventPipeline>,
     /// The session index the idle sweep lists (CatalogSweepRows) and the heartbeat's catalog reads.
     pub catalog_index: Arc<mixdog_store::sqlite::SqliteStore>,
+    /// `state/core.sqlite`, closed with the index by [`Real::close_data_files`].
+    pub core_state: mixdog_store::state::CoreState,
+    /// `MIXDOG_DAEMON_SKIP_MEMORY=1` (daemon.mjs `registerMemoryRuntimeLazy`): no memory runtime in this process, so nothing starts PostgreSQL.
+    pub skip_memory: bool,
     /// Mixy's heartbeat, built here; start_heartbeat puts it on its timers once startup has finished.
     pub heartbeat: Arc<mixdog_services::bots::beat::Heartbeat>,
     /// The running timers, set by start_heartbeat; the stop steps read it (Node's stopHeartbeat?.() is null-safe: a stop before the start stops nothing).
@@ -202,7 +206,18 @@ impl Real {
 impl Real {
     /// After ready: a data directory that already holds a PostgreSQL cluster starts it off the request path (Node's `startPostgresInBackground`).
     pub fn open_memory_in_background(&self) {
+        if self.skip_memory {
+            self.log.log("memory runtime skipped (MIXDOG_DAEMON_SKIP_MEMORY=1)");
+            return;
+        }
         self.memory.open_in_background();
+    }
+
+    /// Closes `state/core.sqlite` and `index/store.sqlite` after the stop steps, so a core composed on a folder the process
+    /// removes while it lives on (the exec's private root) leaves no file open in it. Blocks until both writers are done.
+    pub fn close_data_files(&self) {
+        self.catalog_index.close();
+        self.core_state.close();
     }
 
     /// Mixy's heartbeat on its timers (daemon.mjs:1212, `startMixyHeartbeat`: first check after `FIRST_TICK`, then every `TICK`). Idempotent: a second call starts nothing.
@@ -1541,7 +1556,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }
     });
     // The one session-search writer of the memory service: `SessionDeps.search` and the import sessions ingest through it.
-    let session_search = Arc::new(mixdog_core_session::session::SessionSearchTurns::new(memory.search()));
+    // Under `MIXDOG_DAEMON_SKIP_MEMORY=1` the process has no memory runtime, and its session-search copy would start one.
+    let skip_memory = (b.env)("MIXDOG_DAEMON_SKIP_MEMORY").as_deref() == Some("1");
+    let session_search = Arc::new(mixdog_core_session::session::SessionSearchTurns::new((!skip_memory).then(|| memory.search())));
     let pending = |directory: &Arc<mixdog_core_session::session::SessionDirectory>| pending_rows(directory, clock.clone());
     let _ = pending;
     // The thread store: `StoreThreads::over_data_dir` with the ONE `BlobStore` (its pins are in-memory) instead of a second one it would make itself:
@@ -2039,7 +2056,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     hop_codex_declared.clone(),
                 )),
                 search: session_search,
-                memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()))),
+                memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new((!skip_memory).then(|| memory_module.clone()))),
                 sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
@@ -3021,7 +3038,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, core_state: b.core_state.clone(), skip_memory, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

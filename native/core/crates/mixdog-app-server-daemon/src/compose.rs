@@ -410,6 +410,12 @@ impl ComposedCore {
         self.real.open_memory_in_background();
     }
 
+    /// After the stop: closes the core's SQLite files, for a process that removes the data directory and lives on (`mixdogd exec`).
+    /// The daemon never calls it; its process exit closes them.
+    pub fn close_data_files(&self) {
+        self.real.close_data_files();
+    }
+
     /// The memory database handle, for the readiness test that makes a first use.
     #[cfg(test)]
     pub fn memory_db(&self) -> Arc<mixdog_services::memory::pg::db::Db> {

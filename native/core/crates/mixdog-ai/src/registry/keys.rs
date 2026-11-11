@@ -76,6 +76,20 @@ pub fn process_key_var_os(name: &str) -> Option<std::ffi::OsString> {
     std::env::var_os(name)
 }
 
+/// The API keys bound in process for this run (provider -> key): a headless exec's selected provider, whose key Node's
+/// runtime config carries in memory and never names in the environment its tools see.
+static KEY_BINDINGS: std::sync::RwLock<Option<Arc<HashMap<String, String>>>> = std::sync::RwLock::new(None);
+
+/// Binds `next` as the process's in-memory API keys; returns the restore step.
+pub fn replace_provider_api_key_bindings(next: HashMap<String, String>) -> impl FnOnce() {
+    let previous = KEY_BINDINGS.write().unwrap_or_else(PoisonError::into_inner).replace(Arc::new(next));
+    move || *KEY_BINDINGS.write().unwrap_or_else(PoisonError::into_inner) = previous
+}
+
+fn bound_api_key(provider: &str) -> Option<String> {
+    KEY_BINDINGS.read().unwrap_or_else(PoisonError::into_inner).as_ref().and_then(|keys| keys.get(provider).cloned()).filter(|key| !key.is_empty())
+}
+
 /// The real process environment.
 pub struct ProcessEnv;
 
@@ -207,6 +221,9 @@ impl ApiKeyStore {
         let id = provider.trim();
         if id.is_empty() {
             return Ok(None);
+        }
+        if let Some(key) = bound_api_key(id) {
+            return Ok(Some(key));
         }
         if let Some(name) = self.environment_key_name(id) {
             return Ok(self.set_env(&name));

@@ -535,19 +535,12 @@ enum Command {
         ack: mpsc::Sender<Result<(), DbError>>,
     },
     /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
-    #[cfg(any(test, feature = "test-support"))]
     Close,
 }
 
 impl Command {
-    #[cfg(any(test, feature = "test-support"))]
     fn closes(&self) -> bool {
         matches!(self, Command::Close)
-    }
-
-    #[cfg(not(any(test, feature = "test-support")))]
-    fn closes(&self) -> bool {
-        false
     }
 }
 
@@ -913,7 +906,6 @@ impl Writer {
                         self.refold = true;
                         acks.push(ack);
                     }
-                    #[cfg(any(test, feature = "test-support"))]
                     Command::Close => unreachable!("the writer stops before it queues a close"),
                     Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } | Command::Reconcile { .. } => {
                         unreachable!("queued separately")
@@ -1350,7 +1342,6 @@ struct Shared {
     gate: gate::Gate,
     rows: RowSinkCell,
     /// The writer thread, joined by [`SqliteStore::close`].
-    #[cfg(any(test, feature = "test-support"))]
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
@@ -1487,15 +1478,12 @@ impl SqliteStore {
         let handle = thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
             .map_err(|e| DbError::Write(e.to_string()))?;
-        #[cfg(not(any(test, feature = "test-support")))]
-        drop(handle);
         let (gate, reconciler) = gate::Gate::new(ReadPool::new(path, read_lane), sender, !dirty.is_empty());
         let store = SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 gate,
                 rows,
-                #[cfg(any(test, feature = "test-support"))]
                 writer: Mutex::new(Some(handle)),
             }),
         };
@@ -1529,10 +1517,9 @@ impl SqliteStore {
         self.shared.gate.waiters()
     }
 
-    /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
-    /// its connection closes, and the read pool's idle connections close, so the database files can be removed while other
-    /// handles still exist. Returns once the writer thread has ended.
-    #[cfg(any(test, feature = "test-support"))]
+    /// The writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and its connection
+    /// closes, and the read pool's idle connections close, so the database files can be removed while other handles still exist
+    /// (a test's teardown; the exec's private root after its core stopped). Returns once the writer thread has ended.
     pub fn close(&self) {
         self.shared.gate.close(|| {
             let handle = self.shared.writer.lock().expect("writer handle").take();
@@ -2615,11 +2602,9 @@ pub(crate) struct ReadPool {
     path: PathBuf,
     lane: InteractiveIo,
     conns: Mutex<Vec<Connection>>,
-    /// Test support only: `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a
-    /// connection until that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in
-    /// flight and no read opens a connection after it returned. A release build has no close: its pool keeps its connections until
-    /// the last owner of the store drops it.
-    #[cfg(any(test, feature = "test-support"))]
+    /// `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a connection until
+    /// that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in flight and no read
+    /// opens a connection after it returned. A pool nobody closes keeps its connections until the last owner of the store drops it.
     closed: std::sync::RwLock<bool>,
 }
 
@@ -2629,14 +2614,12 @@ impl ReadPool {
             path: path.to_path_buf(),
             lane,
             conns: Mutex::new(Vec::new()),
-            #[cfg(any(test, feature = "test-support"))]
             closed: std::sync::RwLock::new(false),
         })
     }
 
-    /// Test support only (a test's data folder closes its databases before it is removed): waits for the reads in flight, closes
-    /// every pooled connection, and makes every later read fail as the stopped writer does.
-    #[cfg(any(test, feature = "test-support"))]
+    /// Waits for the reads in flight, closes every pooled connection, and makes every later read fail as the stopped writer
+    /// does (a test's data folder, and the exec's private root, are removed while the process lives on).
     pub(crate) fn close(&self) {
         let mut closed = self.closed.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *closed = true;
@@ -2644,9 +2627,7 @@ impl ReadPool {
     }
 
     pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
-        #[cfg(any(test, feature = "test-support"))]
         let closed = self.closed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-        #[cfg(any(test, feature = "test-support"))]
         if *closed {
             return Err(DbError::Stopped);
         }

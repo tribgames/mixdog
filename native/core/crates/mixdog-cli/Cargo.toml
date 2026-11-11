@@ -22,6 +22,11 @@ crash-gates = ["mixdog-app-server-daemon/crash-gates"]
 [dependencies]
 mixdog-app-server-daemon = { workspace = true }
 mixdog-app-server-client = { workspace = true }
+mixdog-app-server = { workspace = true }
+mixdog-ai = { workspace = true }
+mixdog-core = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-services = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-migrate = { workspace = true }
 mixdog-rt = { workspace = true }
@@ -40,6 +45,10 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+# The exec replay's stand-in provider (tests/exec_replay.rs): the request head and the gzip body the provider sends.
+flate2 = { workspace = true }
+httparse = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
