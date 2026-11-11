@@ -10,7 +10,7 @@
     {
       "bytes": 40778,
       "path": "golden.json",
-      "sha256": "7a442112f73e6818ed7e59ff0a85b2e66e04e8865a9eb2276e31d9ea49d69c0f"
+      "sha256": "1cdd17e25c7c32b3fbfe1470bbd5365731d69816ed85f833eb6849d2593b80a2"
     }
   ],
   "inputs": [
@@ -24,7 +24,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "bc25924a6685124b8c05b4c16b36b467930974bbe35da5defd889a6ce277c1c8"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
