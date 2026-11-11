@@ -214,6 +214,12 @@ pub(crate) enum ProducerMsg {
         request: DrainRequest,
         reply: oneshot::Sender<Vec<SteerInput>>,
     },
+    /// The skills the turn's own prompt loaded (`recordAppliedSkills`): stamped on its input row.
+    AppliedSkills {
+        turn: TurnId,
+        names: Vec<String>,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
     ProviderState {
         turn: TurnId,
         state: Option<ProviderState>,
@@ -596,6 +602,13 @@ impl RunPort {
         })
         .await?;
         rx.await.map_err(|_| RunError::Closed)?
+    }
+
+    /// `recordAppliedSkills` for the turn's input row: `meta.transcript.appliedSkills` set to `names` (an amend of
+    /// the row), called before the run commits any other row. Resolves once it is durable (or failed).
+    pub async fn applied_skills(&self, names: Vec<String>) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.call(ProducerMsg::AppliedSkills { turn: self.turn.clone(), names, ack }, rx).await?
     }
 
     /// Input dequeued for injection at this boundary (`createAskSteeringDrain`). First the

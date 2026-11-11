@@ -166,26 +166,27 @@ pub fn loaded_skill(summary: &str) -> bool {
 
 #[async_trait]
 impl SkillSelector for ExplicitSkillSelector {
-    async fn select(&self, content: &Content, transcript: &mut Vec<AgentMessage>) {
+    async fn select(&self, content: &Content, transcript: &mut Vec<AgentMessage>) -> Vec<String> {
+        let mut applied = Vec::new();
         // A session that cannot call Skill has nothing to select: preparing would only push a
         // refused-tool reminder into history on every matching turn.
         if self.gate.pre_dispatch_deny(&GateCall::new("Skill", json!({}))).is_some() {
-            return;
+            return applied;
         }
         let selection = selection_of(&self.selection.clone().map_or_else(|| prompt_of(content), Prompt::Text));
         if selection.is_empty() {
-            return;
+            return applied;
         }
         let available = match self.names.names(Path::new(self.env.cwd.as_path())).await {
             Ok(names) => names,
             Err(error) => {
                 tracing::warn!(%error, "explicit skill selection could not read the skill catalog");
-                return;
+                return applied;
             }
         };
         for (index, name) in selection.resolve(&available).into_iter().enumerate() {
             if self.cancel.is_cancelled() {
-                return;
+                return applied;
             }
             let id = format!("skill-selection-{index}");
             let outcome = self.skill_tool.call(&self.context(&id), json!({ "name": name })).await;
@@ -198,7 +199,11 @@ impl SkillSelector for ExplicitSkillSelector {
                 format!("<system-reminder>\nExplicit skill selection result:\n{summary}\n</system-reminder>"),
             ));
             transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));
+            if loaded_skill(&summary) {
+                applied.push(name);
+            }
         }
+        applied
     }
 }
 

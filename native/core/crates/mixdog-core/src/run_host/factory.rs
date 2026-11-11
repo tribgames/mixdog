@@ -1152,6 +1152,24 @@ async fn drive(
     config.first_request_after = Some(Ticket(0));
     let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) })));
     let skills = skills.map(|build| build(SkillContext { gate: gate.clone(), env: tool_env.clone(), cancel: cancel.clone() }));
+    // `prepareExplicitSkills` before the first request of a turn whose input is a prompt (no `promptSource`, not a
+    // retry): the loaded skills' rows follow the input row, which records their names (`recordAppliedSkills`).
+    let retry = submitted.options.as_ref().and_then(|options| options.retry_turn_id.as_deref()).is_some_and(|id| !id.is_empty());
+    if let Some(selector) = skills.as_ref().filter(|_| !injected && !retry)
+        && let Some(content) = messages.last().map(|input| input.message.content.clone())
+    {
+        let mut selected = Vec::new();
+        let applied = selector.select(&content, &mut selected).await;
+        if !applied.is_empty() && port.applied_skills(applied).await.is_err() {
+            return failed("the turn's applied skills could not be saved", Value::Null);
+        }
+        for message in selected {
+            if let Err(error) = sink.commit(&message).await {
+                return failed(error.to_string(), Value::Null);
+            }
+            messages.push(message);
+        }
+    }
     let guard_state = guards.clone();
     let env = RunEnv {
         clock,
@@ -2768,6 +2786,9 @@ mod tests {
     // An inline module's path is resolved from `src/run_host/factory/tests/`.
     #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
     mod tests_manifest;
+
+    #[path = "../explicit_skills_node_cases.rs"]
+    mod explicit_skills_node_cases;
 
     /// Node's `nextMainRequest` over the cases `snapshot_effects/record.mjs` recorded (no user conversation, a transcript,
     /// each again after a new ignored directory and after the skill catalog was invalidated): it is null without a user
