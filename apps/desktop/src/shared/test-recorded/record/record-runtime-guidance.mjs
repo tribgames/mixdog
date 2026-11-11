@@ -8,6 +8,7 @@ import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { recorderProvenance } from '../../../../../../benchmarks/rust-core/recorders/lib/provenance.mjs';
 import { NODE_COMMIT, NODE_TREE } from './node-source.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +37,7 @@ const notified = literal(
 const again = literal(taskTool, /`\\n\\n(Wait ceiling reached again \()\$\{hits\}( times\)[^`]+)`/);
 const notifiedHold = literal(promotion, /`(moved to background after) \$\{secs\}(s because a notification arrived[^`]+)`/);
 const recording = {
-  source: { commit: NODE_COMMIT, tree: NODE_TREE, modules: Object.values(FILES), command: 'node apps/desktop/src/shared/test-recorded/record/record-runtime-guidance.mjs' },
+  source: { commit: NODE_COMMIT, tree: NODE_TREE, modules: Object.values(FILES), command: 'node apps/desktop/src/shared/test-recorded/record/record-runtime-guidance.mjs', ...recorderProvenance(import.meta.url) },
   guidance: literal(promotion, /const BACKGROUND_GUIDANCE =\s*'([^']+)'/)[1],
   // The three promotion lines with their seconds filled in, as the producer writes them.
   promotedHold: literal(promotion, /`moved to background after the \$\{secs\}s hold`/) && 'moved to background after the 60s hold',
