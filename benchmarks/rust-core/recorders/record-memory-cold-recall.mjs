@@ -66,7 +66,8 @@ const memory = await importFrom(ctx.tree, 'src/runtime/memory/index.mjs');
 const pgAdapter = await importFrom(ctx.tree, 'src/runtime/memory/lib/pg/adapter.mjs');
 const { openDatabase } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory.mjs');
 await memory.init();
-const appended = await memory.appendEntry({ role: 'user', content: 'the kettle descaling schedule is every second sunday', sessionId: 'sess-cold' });
+// The seed's source reference is given: Node's default carries the recorder's process id, which differs per run.
+const appended = await memory.appendEntry({ role: 'user', content: 'the kettle descaling schedule is every second sunday', sessionId: 'sess-cold', sourceRef: 'manual:1748736000000-57380' });
 
 const step = async (label, args) => {
   const at = { posted: posted.length };
