@@ -368,7 +368,6 @@ await set.finish({
   replay: {
     entry: 'native/core/crates/mixdog-core/src/run_host/pool_list_replay.rs: each recorded store (the per-case files named in the case) is written as Node\'s data dir, migrated as the core does at its first start and opened through the real store; every listing is AgentPool::list over run_host/pool_inputs.rs RegistryPoolStore (what agent/pool/list answers with, composed as compose_flip.rs) and is compared whole',
     missingOnO1: ['the persisted header cache, the link list and the stat / read / fs-call counters: the format of Node\'s listing, no counterpart in the core'],
-    notReplayed: [{ cases: '0 (round 5), 5 (phases.changedWhileDown)', reason: 'the store holds an agent-workers.json row whose session record was deleted (churn-22; persist-08) and Node lists it with a null title and usage. The core keeps a worker row in its session\'s header and the migration drops a row no session owns (native/core/crates/mixdog-migrate/src/session/mod.rs:240), so the core lists none of them: a design decision for the Lead' }],
     normalised: { dataDir: 'temp, not in the recording' },
   },
   replaceInText: roots.map((r) => [r, '<data>']),
