@@ -658,6 +658,9 @@ pub(super) fn rendered_manifest(session: &Value) -> String {
 mod tests {
     use super::*;
 
+    #[path = "../../tool_surface_node_cases.rs"]
+    mod node_cases;
+
     struct Fixed;
     impl Clock for Fixed {
         fn now_ms(&self) -> i64 {
