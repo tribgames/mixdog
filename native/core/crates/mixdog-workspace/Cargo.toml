@@ -48,7 +48,7 @@ libc = { workspace = true }
 [dev-dependencies]
 mixdog-workspace = { path = ".", features = ["kill-points", "count-jobs", "replay-controls"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "io-util", "test-util"] }
