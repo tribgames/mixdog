@@ -89,19 +89,18 @@ export function nodeSide(recording) {
   const instant = instantOf(recording.manifest.epoch);
   const norm = normalizer({ instant, own: new Map([[recording.id, '<session>']]) });
   const history = recording.history.map((h, at) => (h.kind === 'reply' ? { at, kind: 'reply', input: h.input, value: norm(h.error !== undefined ? { error: h.error } : { reply: h.reply }) } : { at, kind: 'state', value: norm(h.snapshot) }));
-  return { history, inputs: recording.inputs };
+  // The thread list the phone heard (the host's catalog publications), each at its clock.
+  const roster = recording.roster.map((p) => ({ clock: p.clock, sessions: norm(p.sessions) }));
+  return { history, inputs: recording.inputs, roster };
 }
 
-/** The first difference between two normalized values: path, Node's, the core's. */
-export function firstDifference(node, core, path = '') {
-  if (JSON.stringify(node) === JSON.stringify(core)) return null;
+/** Every difference between two normalized values, at its deepest path: `{ path, node, core }` each. */
+export function allDifferences(node, core, path = '') {
+  if (JSON.stringify(node) === JSON.stringify(core)) return [];
   if (node && core && typeof node === 'object' && typeof core === 'object' && Array.isArray(node) === Array.isArray(core)) {
-    for (const key of new Set([...Object.keys(node), ...Object.keys(core)])) {
-      const found = firstDifference(node[key], core[key], `${path}.${key}`);
-      if (found) return found;
-    }
+    return [...new Set([...Object.keys(node), ...Object.keys(core)])].flatMap((key) => allDifferences(node[key], core[key], `${path}.${key}`));
   }
-  return { path: path || '.', node, core };
+  return [{ path: path || '.', node, core }];
 }
 
 /** Every top-level field in which two normalized states differ (for the report of a state the core never reached). */
@@ -109,42 +108,46 @@ export function differingFields(node, core) {
   return Object.keys({ ...node, ...core }).filter((k) => JSON.stringify(node?.[k]) !== JSON.stringify(core?.[k])).map((k) => ({ field: k, node: node?.[k], core: core?.[k] }));
 }
 
+/** How many entries of each kind `entries` holds: `{ state, reply }`. */
+const kinds = (entries) => ({ state: entries.filter((e) => e.kind === 'state').length, reply: entries.filter((e) => e.kind === 'reply').length });
+
 /**
- * Matches the core's log against Node's history: each Node state must be one of the core's states after the previous match, each Node
- * reply the core's next reply (no core reply skipped). Returns how far it matched (`matched` Node entries) and, when the core's log has
- * gone past a point it can no longer match, the failure.
+ * Lists every difference between Node's history and the core's log, so one differing field does not hide the next. Node's entries pair
+ * in order with the core's (a state with a state, a reply with a reply to the same input), the pairing that differs least in all (the
+ * count of differing leaves); the core's states between two pairs are left out, as an equal state between two of Node's always was.
+ * A Node entry the core has nothing for in its place (a state it never published, a reply that came before a state Node published
+ * first) is a difference of path `missing`. Each difference: `{ entry: Node's position, kind, input?, path, node, core }`.
  */
-export function matchHistory(node, core) {
-  let at = 0;
-  let matched = 0;
-  for (const want of node) {
-    if (want.kind === 'reply') {
-      // The core's next reply, with no reply skipped; states before it are between two of Node's (left out).
-      let next = at;
-      while (next < core.length && core[next].kind !== 'reply') next += 1;
-      // A Node state still owed before this reply was passed over by the core's reply: the reply came before it.
-      if (next >= core.length) return { matched, at };
-      const got = core[next];
-      if (got.input !== want.input || JSON.stringify(got.value) !== JSON.stringify(want.value)) {
-        return { matched, at, failure: { node: want, core: got, difference: got.input === want.input ? firstDifference(want.value, got.value) : { path: 'input', node: want.input, core: got.input } } };
-      }
-      at = next + 1;
-      matched += 1;
-      continue;
+export function alignHistory(node, core) {
+  const MISSING = 1_000_000;
+  const pairs = node.map((want) => core.map((got) => (got.kind !== want.kind || got.input !== want.input ? null : allDifferences(want.value, got.value))));
+  // cost[i][j]: the least cost of Node's first i entries against the core's first j.
+  const cost = Array.from({ length: node.length + 1 }, (_, i) => Array.from({ length: core.length + 1 }, (_, j) => (i === 0 ? 0 : j === 0 ? i * MISSING : Infinity)));
+  const step = Array.from({ length: node.length + 1 }, () => new Array(core.length + 1).fill(''));
+  for (let i = 1; i <= node.length; i += 1) {
+    for (let j = 1; j <= core.length; j += 1) {
+      const options = [['pair', pairs[i - 1][j - 1] ? cost[i - 1][j - 1] + pairs[i - 1][j - 1].length : Infinity], ['skip', cost[i][j - 1]], ['missing', cost[i - 1][j] + MISSING]];
+      const [move, value] = options.reduce((best, o) => (o[1] < best[1] ? o : best));
+      cost[i][j] = value;
+      step[i][j] = move;
     }
-    const key = JSON.stringify(want.value);
-    let next = at;
-    // A Node state may not be reached past one of the core's replies: Node published it before that reply.
-    while (next < core.length && core[next].kind !== 'reply' && JSON.stringify(core[next].value) !== key) next += 1;
-    if (next >= core.length) return { matched, at };
-    if (core[next].kind === 'reply') {
-      const last = core.slice(at, next).findLast((e) => e.kind === 'state') ?? core.slice(0, at).findLast((e) => e.kind === 'state');
-      return { matched, at, failure: { node: want, core: core[next], before: 'the core replied before publishing this state', fields: differingFields(want.value, last?.value) } };
-    }
-    at = next + 1;
-    matched += 1;
   }
-  return { matched, at, done: true };
+  const differences = [];
+  for (let i = node.length, j = core.length; i > 0; ) {
+    const want = node[i - 1];
+    const label = { entry: want.at, kind: want.kind, ...(want.input ? { input: want.input } : {}) };
+    const move = j === 0 ? 'missing' : step[i][j];
+    if (move === 'skip') j -= 1;
+    else if (move === 'missing') {
+      differences.unshift({ ...label, path: 'missing', node: want.value, core: null });
+      i -= 1;
+    } else {
+      differences.unshift(...pairs[i - 1][j - 1].map((d) => ({ ...label, ...d })));
+      i -= 1;
+      j -= 1;
+    }
+  }
+  return differences;
 }
 
 /** Runs one case against the core binary `bin`; returns `{ name, pass, failure?, core: log }`. */
@@ -163,7 +166,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   const compared = node.history
     .filter((h) => !(h.kind === 'reply' && h.input.startsWith('host.')))
     .filter((h) => !(h.kind === 'state' && h.at >= submitAt && h.at < submitReply.at))
-    .flatMap((h) => (h === submitReply ? [h, ...beforeReply.slice(-1)] : [h]));
+    .flatMap((h) => (h === submitReply ? [h, ...beforeReply.slice(-1).map((s) => ({ ...s, at: h.at }))] : [h]));
   const load = (file) => import(pathToFileURL(join(harness, 'lib', file)).href);
   const { daemonEnv, isolatedPaths } = await load('env.mjs');
   const { seedPgRuntime } = await load('stage.mjs');
@@ -178,6 +181,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   const { createProtocolRouter } = await import('./remote-shim-protocol.ts');
 
   const log = [];
+  const roster = [];
   let core;
   let clockServer;
   let clockSocket;
@@ -188,7 +192,8 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   let failure = null;
   let result = null;
   let hasSeeded = false;
-  let reached = { matched: 0, at: 0 };
+  // `matched`: how many of Node's entries the core has as many entries of each kind for.
+  const reached = { matched: 0 };
   // The case's deadline starts again once every side-by-side case has seeded its world: the seeding copies are synchronous and hold the
   // event loop for every case, whose timers would otherwise fire before their watch events are read.
   const message = () => {
@@ -299,10 +304,16 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       check();
       return deadline.race(done.promise, what);
     };
-    const advance = () => {
-      reached = matchHistory(compared, log);
-      if (reached.failure) throw Object.assign(new Error(`${name}: the core's history differs from Node's at Node's entry ${reached.matched}`), { comparison: reached.failure });
-      return reached;
+    // Ends the core's current window once it holds as many entries of each kind as Node's: pairs the two and lists their differences.
+    // The barrier before one of Node's inputs: the core has published as many entries of each kind as Node had before it (the core's
+    // states between two of Node's included). Which of them pair is alignHistory's, once the case is over.
+    const owe = async (owed, what) => {
+      const want = kinds(owed);
+      await until(() => {
+        const got = kinds(log);
+        return got.state >= want.state && got.reply >= want.reply;
+      }, what);
+      reached.matched = owed.length;
     };
     let lastKey = null;
     const connectPhone = async (title, viewing) => {
@@ -328,7 +339,8 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         }
         wake();
       });
-      const ctx = { phone: { start: async () => undefined }, sessionsCatalog: { publish: () => wake() } };
+      // What the submitting phone's thread list hears, each at the clock the core stood at.
+      const ctx = { phone: { start: async () => undefined }, sessionsCatalog: { publish: (rows) => { if (viewing) roster.push({ clock: clockAt, sessions: norm(rows) }); wake(); } } };
       const router = createProtocolRouter([adapter], { host: { ctx, client: () => client, declareLane() {} }, started: async () => undefined, synced: async () => undefined, probe() {}, silentSince: () => false });
       router.install();
       await deadline.race(client.subscribeApp(), `the app feed of ${title}`);
@@ -357,9 +369,8 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       throw new Error(`${name}: no phone call for Node's input ${label}`);
     };
     for (const input of node.inputs) {
-      // The barrier: every entry Node had published before this input is the core's.
-      const owed = compared.filter((h) => h.at < input.at).length;
-      await until(() => advance().matched >= owed, `the core to publish Node's ${owed} entries before ${input.input}`);
+      const owed = compared.filter((h) => h.at < input.at);
+      await owe(owed, `the core to publish as many entries as Node's ${owed.length} before ${input.input}`);
       // Node's clocks stood at `input.clock` for this input (its own moves, and the recorder's `afterInputMs` after each input): the
       // core's moves as far.
       if (input.clock > clockAt) await clock(`advance ${input.clock - clockAt}`);
@@ -395,16 +406,20 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       log.push({ kind: 'reply', input: input.input, value: norm(entry) });
       wake();
     }
-    await until(() => advance().done, `the core to publish Node's last entries`);
+    await owe(compared, `the core to publish as many entries as Node's ${compared.length}`);
     // The core's state behind one more round trip is still Node's last.
     await deadline.race(submitter.client.call('thread/read', { threadId, window: { lastItems: 1 } }), 'the round trip after the case');
     const lastNode = compared.findLast((h) => h.kind === 'state');
     const lastCore = log.findLast((e) => e.kind === 'state');
-    if (JSON.stringify(lastNode.value) !== JSON.stringify(lastCore.value)) throw Object.assign(new Error(`${name}: the core's state moved on after Node's last`), { comparison: { fields: differingFields(lastNode.value, lastCore.value) } });
-    return (result = { name, pass: true, entries: compared.length, coreStates: log.filter((e) => e.kind === 'state').length });
+    const after = allDifferences(lastNode.value, lastCore.value).map((d) => ({ entry: 'after the last input', kind: 'state', ...d }));
+    const heard = allDifferences(node.roster, roster).map((d) => ({ entry: 'roster', kind: 'roster', ...d }));
+    const differences = [...alignHistory(compared, log), ...after, ...heard];
+    const entries = compared.length;
+    const coreStates = log.filter((e) => e.kind === 'state').length;
+    return (result = differences.length ? { name, pass: false, error: `${differences.length} differences`, differences, matched: reached.matched, log, roster } : { name, pass: true, entries, coreStates });
   } catch (error) {
     failure = error;
-    return (result = { name, pass: false, error: String(error?.message ?? error).slice(0, 8000), comparison: error.comparison ?? null, matched: reached.matched, log });
+    return (result = { name, pass: false, error: String(error?.message ?? error).slice(0, 8000), comparison: error.comparison ?? null, differences: alignHistory(compared.slice(0, reached.matched), log), matched: reached.matched, log, roster });
   } finally {
     // A case that failed before seeding still lets the others past the barrier.
     if (!hasSeeded) void seeded();
@@ -451,6 +466,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const results = await Promise.all(names.map((name) => replayCase(name, { bin, harness, seeded })));
   const out = process.env.HISTORY_CORE_OUT;
   if (out) writeFileSync(out, `${JSON.stringify({ binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), builtFrom: built, results }, null, 1)}\n`);
-  for (const r of results) console.log(r.pass ? `ok ${r.name} (${r.entries} entries, ${r.coreStates} core states)` : `FAIL ${r.name} at Node's entry ${r.matched}: ${r.error}\n${JSON.stringify(r.comparison).slice(0, 4000)}`);
+  const brief = (v) => (JSON.stringify(v) ?? 'absent').slice(0, 300);
+  for (const r of results) {
+    console.log(r.pass ? `ok ${r.name} (${r.entries} entries, ${r.coreStates} core states)` : `FAIL ${r.name} at Node's entry ${r.matched}: ${r.error}${r.comparison ? `\n${JSON.stringify(r.comparison).slice(0, 4000)}` : ''}`);
+    for (const d of r.differences ?? []) console.log(`  ${d.entry} ${d.kind}${d.input ? ` ${d.input}` : ''} ${d.path}: node ${brief(d.node)} | core ${brief(d.core)}`);
+  }
   process.exit(results.every((r) => r.pass) ? 0 : 1);
 }
