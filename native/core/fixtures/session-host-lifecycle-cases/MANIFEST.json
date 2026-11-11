@@ -17,7 +17,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -76,7 +76,7 @@
       "archiving a session archives its sub-agent sessions; restoring it brings back the ones it took": "mixdog-core-session thread_settings_tests (thread/archive, thread/unarchive, thread/delete; archive stamps read from the stored headers)",
       "archiving or restoring a session hands its tree's ids to the worktree cleanup, and a failure there never fails the archive": "mixdog-core-session thread_settings_tests (thread/archive -> ThreadSettingsParts::worktrees, the ArchivedWorktrees hand-off)",
       "sub-agent retention archives exactly its tree's members through the real host, no cascade past them": "mixdog-core-session thread_settings_tests (sub_agent_retention::sweep over DirectoryRetention with the host's ArchiveStamps, then thread/unarchive and thread/archive)",
-      "a read lands in the session\u2019s own numbering: a surface counting in a retired one cannot read past it": "mixdog-core-session thread_settings_tests (thread/readState/update, then the catalog row's summary)",
+      "a read lands in the session’s own numbering: a surface counting in a retired one cannot read past it": "mixdog-core-session thread_settings_tests (thread/readState/update, then the catalog row's summary)",
       "failed metadata flushing cannot prevent host attachment cleanup": "apps/desktop/src/main/session-host-lifecycle-replay.test.mjs (K1's desktop service still holds the per-session metadata in <userData>/desktop-session-metadata.json: desktop-service.ts SessionHost.create -> session-host.ts DesktopSessionMetadata; the dispose with that path a directory, compared whole)"
     },
     "excludedCases": [],
