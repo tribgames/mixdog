@@ -558,7 +558,7 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/session-activity/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
 
     fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
         let lanes = mixdog_rt::testing::tokens();
@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn every_recorded_collection_equals_node() {
-        let golden: Value = serde_json::from_str::<Value>(GOLDEN).unwrap()["handoff"]["collect"].clone();
+        let golden: Value = serde_json::from_str::<Value>(&GOLDEN).unwrap()["handoff"]["collect"].clone();
         let (_dir, tmp) = tree(&golden);
         let data = PathBuf::from(&tmp).join("data-dir");
         let scopes = sensitive_scopes(&[PathBuf::from(&tmp).join("home"), data.clone(), data.clone()]);

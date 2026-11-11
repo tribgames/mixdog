@@ -19,7 +19,7 @@ use super::codex_image::{CodexAuth, CodexSession, chatgpt_limit_reset_at, genera
 use super::download::AdapterError;
 use super::image_api::ImageReference;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-codex-image-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-codex-image-twin.json");
 
 struct Script {
     queue: Mutex<VecDeque<Value>>,
@@ -118,7 +118,7 @@ impl CodexSession for Session {
 
 #[tokio::test]
 async fn the_codex_image_adapter_answers_as_nodes_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let cancel = CancellationToken::new();
     for case in golden["scenarios"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
@@ -141,7 +141,7 @@ async fn the_codex_image_adapter_answers_as_nodes_does() {
 
 #[test]
 fn the_reset_time_is_read_from_the_usage_summary_as_nodes_reads_it() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["fromUsage"].as_array().unwrap() {
         let limit_id = mixdog_js::value_to_string(&case["limitId"]);
         assert_eq!(limit_reset_from_usage(&case["payload"], &limit_id), case["resetAt"].as_i64(), "{} {}", case["payload"], limit_id);
@@ -150,7 +150,7 @@ fn the_reset_time_is_read_from_the_usage_summary_as_nodes_reads_it() {
 
 #[tokio::test]
 async fn the_reset_time_lookup_asks_as_nodes_asks() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let cancel = CancellationToken::new();
     for case in golden["lookups"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();

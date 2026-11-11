@@ -68,7 +68,7 @@ fn run(base: &str, fn_name: &str, a: &Value) -> Result<Value, String> {
 
 #[test]
 fn the_pure_server_helpers_answer_what_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../golden/mcpinput.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/mcpinput.json")).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let base = scratch.path().to_string_lossy().into_owned();
     let mut failures = Vec::new();

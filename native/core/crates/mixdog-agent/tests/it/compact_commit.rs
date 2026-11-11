@@ -76,7 +76,7 @@ fn text(value: &Value) -> Option<String> {
 
 #[test]
 fn the_config_keys_are_nodes() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-commit/golden.json")).expect("golden json");
     let keys: Vec<&str> = golden["configKeys"].as_array().expect("configKeys").iter().map(|k| k.as_str().unwrap()).collect();
     assert_eq!(keys, mixdog_agent::compact::pressure::COMPACTION_CONFIG_KEYS);
 }
@@ -94,7 +94,7 @@ fn the_retired_compaction_keys_are_dropped() {
 
 #[test]
 fn the_commit_equals_nodes() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-commit/golden.json")).expect("golden json");
     let now = golden["now"].as_f64().expect("now");
     let owner = replay_owner();
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };

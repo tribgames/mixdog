@@ -351,7 +351,7 @@ mod tests {
     }
 
     fn phone_files_refusal() -> (CoreError, Value) {
-        let golden: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/mobile/fixtures/phone-files/golden.json"))).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
         let frame = golden["scenarios"]["relay"]["steps"]
             .as_array()
             .unwrap()

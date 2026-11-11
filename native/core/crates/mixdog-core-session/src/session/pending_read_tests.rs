@@ -29,7 +29,7 @@ use crate::eventually_on;
 use super::tests::start_thread;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/pending-queue/golden.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/pending-queue/golden.json")).unwrap()
 }
 
 static OPS: AtomicUsize = AtomicUsize::new(0);
