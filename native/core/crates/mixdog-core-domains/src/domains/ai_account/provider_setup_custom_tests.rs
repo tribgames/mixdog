@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::custom_admin::{CustomFacts, custom_provider_rows};
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/provider-setup-custom/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/provider-setup-custom/golden.json");
 
 /// The facts the recorder read from Node's own modules for one scenario.
 struct Recorded<'a>(&'a Value);
@@ -37,7 +37,7 @@ impl CustomFacts for Recorded<'_> {
 
 #[test]
 fn the_rows_equal_nodes_for_every_scenario_with_and_without_secret_checks() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let scenarios = golden["scenarios"].as_array().unwrap();
     assert!(scenarios.len() >= 20);
     let mut shown = 0;

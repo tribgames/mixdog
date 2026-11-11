@@ -14,7 +14,7 @@ use mixdog_protocol::ProviderId;
 use crate::run_host::hop_host::*;
 use crate::run_host::route_fallback::{RouteDecision, RouteHop};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/hop-host/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/hop-host/golden.json");
 
 struct NoCodec;
 impl WireCodec for NoCodec {
@@ -233,7 +233,7 @@ fn write() -> HopWrite {
 /// leaves `wireRoute` null), so they are not replayed.
 #[tokio::test]
 async fn the_wire_pin_is_the_one_node_makes() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let mut replayed = 0;
     for case in golden["pins"].as_array().unwrap() {
         let session = &case["session"];
@@ -404,7 +404,7 @@ impl HopSession for Replay {
 /// text.
 #[tokio::test]
 async fn the_whole_hop_makes_the_calls_and_ends_as_node_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["advances"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let script = &case["script"];

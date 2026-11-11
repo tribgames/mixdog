@@ -20,7 +20,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-admin-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-admin-twin.json")).unwrap()
 }
 
 fn obj(v: &Value) -> Obj {

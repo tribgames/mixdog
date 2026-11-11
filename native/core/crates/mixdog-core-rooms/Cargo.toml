@@ -31,6 +31,7 @@ mixdog-core-base = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }

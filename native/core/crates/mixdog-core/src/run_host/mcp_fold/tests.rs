@@ -26,7 +26,7 @@ impl SurfaceHost for Host {
 /// (`fixtures/mcp-fold`, the `unit` cases): each call's result and the whole session after it.
 #[test]
 fn the_mcp_fold_follows_node() {
-    let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/mcp-fold/golden.json")).expect("fixture");
+    let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/mcp-fold/golden.json")).expect("fixture");
     let surface = ToolSurface { host: &Host, clock: &Fixed };
     let mut calls = 0;
     for case in golden["cases"].as_array().expect("cases").iter().filter(|case| case["suite"] == "unit") {

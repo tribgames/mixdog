@@ -57,7 +57,7 @@ fn write(path: &Path, text: &str) {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_catalog_and_the_adoption_edits_match_node_in_every_recorded_case() {
     let tokens = mixdog_rt::testing::tokens();
-    let golden: Value = serde_json::from_str(include_str!("../golden/catalog.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/catalog.json")).unwrap();
     let cases = golden["cases"].as_array().unwrap();
     assert!(cases.len() >= 20);
     let base = tempfile::tempdir().unwrap();

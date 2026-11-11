@@ -54,11 +54,7 @@ fn header(value: Value) -> Header {
     value.as_object().unwrap().clone()
 }
 
-// Read at run time: an `include_str!` put the 0.8 MB recording into every test build of the crate.
-#[allow(clippy::disallowed_methods)] // test fixture loading
-static COMPACT_TWIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/settings/run-compact-twin.json")).unwrap()
-});
+const COMPACT_TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/desktop/settings/run-compact-twin.json");
 /// Entries per test: each recorded entry builds its own config, agent store and directory, so the replay is split into chunks nextest runs in parallel.
 const COMPACT_CHUNK: usize = 30;
 
@@ -174,7 +170,7 @@ async fn an_installed_session_follows_the_empty_compaction_section_of_a_config_w
 /// the recorded `install` cases (`fixtures/agent/compact/record_usage.mjs`, Node's `usesInjectedConfig` gate).
 #[tokio::test]
 async fn an_installed_session_follows_the_saved_compaction_unless_the_config_is_injected() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/compact/golden/usage.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/usage.json")).unwrap();
     let mut seen = 0;
     for case in golden["cases"].as_array().unwrap().iter().filter(|case| case["op"] == "install") {
         let stored = json!({ "agent": { "compaction": case["args"]["config"]["compaction"].clone() } });

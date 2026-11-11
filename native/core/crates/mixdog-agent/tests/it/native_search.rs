@@ -7,7 +7,7 @@ use serde_json::Value;
 
 #[test]
 fn the_payload_a_result_carries_is_what_node_parses() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/native-tool-search/golden.json")).expect("fixture");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/native-tool-search/golden.json")).expect("fixture");
     let cases = golden["parse"].as_array().expect("parse cases");
     assert_eq!(cases.len(), 17);
     for case in cases {

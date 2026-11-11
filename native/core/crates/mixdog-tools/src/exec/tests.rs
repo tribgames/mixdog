@@ -1520,7 +1520,7 @@ async fn a_kill_that_cannot_be_sent_holds_the_row_and_a_later_kill_clears_it() {
 async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
     use std::sync::atomic::Ordering::SeqCst;
     let golden: JsonValue =
-        serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap();
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap();
     let names = |value: &JsonValue| -> std::collections::BTreeSet<String> {
         value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
     };

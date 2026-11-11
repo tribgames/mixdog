@@ -1276,7 +1276,7 @@ mod arguments_tests {
     /// decoder's parser (serde) and V8 disagree about which of the two it is.
     #[test]
     fn the_real_parse_path_answers_the_recorded_corpus_as_v8_does() {
-        let errors: Vec<(String, Option<String>)> = serde_json::from_str::<Vec<Value>>(include_str!("../../../../mixdog-js/testdata/json_error.json"))
+        let errors: Vec<(String, Option<String>)> = serde_json::from_str::<Vec<Value>>(mixdog_testkit::fixture!("../mixdog-js/testdata/json_error.json"))
             .unwrap()
             .into_iter()
             .skip(1)

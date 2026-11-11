@@ -8,7 +8,7 @@ use super::room_usage_limit;
 
 #[test]
 fn answers_what_the_node_function_answered_for_each_recorded_case() {
-    let golden: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-turn/golden.json"))).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/room-turn/golden.json")).unwrap();
     let mut failures = Vec::new();
     for case in golden["usage"].as_array().unwrap() {
         let got = room_usage_limit(&case["done"], &case["route"]).map_or(Value::Null, |usage| {

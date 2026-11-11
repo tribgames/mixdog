@@ -29,7 +29,7 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/muse-code-usage/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/muse-code-usage/golden.json");
 
 struct Body(Option<Bytes>);
 
@@ -65,7 +65,7 @@ impl HttpSend for Net {
 
 #[tokio::test]
 async fn the_key_read_is_nodes_get_usage_snapshot() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let start = golden["now"].as_u64().unwrap();
     let flows = golden["flows"].as_array().unwrap();
     assert!(flows.len() >= 48);
