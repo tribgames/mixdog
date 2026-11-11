@@ -66,7 +66,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-plumbing.mjs",
-  "recorderSha256": "edae4cc225e31bdf8dba16df061ad0086ded4364e0b4efdc9f85e77491361ada",
+  "recorderSha256": "bf6890dabeb635d74c55bc1126676c7719f5bdb86d2d39274f23252c361befe5",
   "set": "phone-plumbing",
   "steps": 21,
   "totalBytes": 11090
