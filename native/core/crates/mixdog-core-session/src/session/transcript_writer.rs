@@ -691,6 +691,22 @@ mod tests {
         assert_eq!(texts(&r.path), ["the code is [redacted]", "typed [redacted]"]);
     }
 
+    /// A value marked while an append is queued or running (the patched Node's "marked while an append is in flight" test): the
+    /// append's line is redacted, the line after the mark is written redacted, and none is lost.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_value_marked_while_an_append_is_in_flight_is_redacted_in_that_line_and_none_is_lost() {
+        let r = rig();
+        let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+        turn.user(&json!("first line"));
+        turn.user(&json!(format!("the pin is 4711 {}", "x".repeat(40_000))));
+        mark(&r.sensitive, "4711");
+        turn.user(&json!("and again 4711"));
+        turn.flushed().await;
+        let lines = texts(&r.path);
+        assert_eq!(lines.iter().map(|text| text.chars().take(20).collect::<String>()).collect::<Vec<_>>(), ["first line", "the pin is [redacted", "and again [redacted]"]);
+        assert!(lines.iter().all(|text| !text.contains("4711")));
+    }
+
     /// A value marked two turns after the one that wrote it: every earlier line of every turn is
     /// rewritten in place, the rest as they were.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

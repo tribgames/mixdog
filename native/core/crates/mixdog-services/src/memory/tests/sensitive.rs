@@ -80,6 +80,40 @@ fn a_marked_value_in_an_attached_files_name_and_path_is_stored_redacted() {
     }]));
 }
 
+/// The patched Node's `transcript-writer-sensitive.test.mjs` ("a value split across three streamed deltas"): the same deltas,
+/// each settled text and the whole text as that test asserts them (it runs in Node on the tree the recordings come from).
+#[test]
+fn a_value_split_across_three_streamed_deltas_is_held_back_until_whole() {
+    let store = SensitiveStore::default();
+    assert!(store.remember("sess_sensitive_deltas", &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } } })]));
+    let mut text = String::new();
+    let settled: Vec<String> = ["say hu", "nte", "r2 ok"]
+        .iter()
+        .map(|delta| {
+            text.push_str(delta);
+            store.redact_settled_text("sess_sensitive_deltas", &text)
+        })
+        .collect();
+    assert_eq!(settled, ["say ", "say ", "say [redacted] ok"]);
+    assert_eq!(store.redact_text("sess_sensitive_deltas", &text), "say [redacted] ok");
+}
+
+/// The same Node test file ("a value in a file path is redacted as spelled"): either separator, and 1.4.5's exact substring
+/// rule, so a value in another case is not the value.
+#[test]
+fn a_value_in_a_file_path_is_redacted_as_spelled() {
+    let session = "sess_sensitive_paths";
+    let store = SensitiveStore::default();
+    assert!(store.remember(session, &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } } })]));
+    let stored = |path: &str| {
+        let note = json!({ "role": "user", "content": [{ "type": "text", "text": "x", "attachmentReference": { "kind": "files", "files": [{ "attachmentRef": "a".repeat(64), "name": "n", "path": path }] } }] });
+        store.redact_messages(session, &[note])[0]["content"][0]["attachmentReference"]["files"][0]["path"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(stored("C:\\attachments\\ab\\hunter2-notes.pdf"), "C:\\attachments\\ab\\[redacted]-notes.pdf");
+    assert_eq!(stored("C:/attachments/ab/hunter2-notes.pdf"), "C:/attachments/ab/[redacted]-notes.pdf");
+    assert_eq!(stored("C:\\attachments\\ab\\HUNTER2-notes.pdf"), "C:\\attachments\\ab\\HUNTER2-notes.pdf");
+}
+
 /// `fixtures/sensitive-feed` (`record-sensitive-feed.mjs`): a marked value in a tool call's arguments, a tool result, an
 /// attachment's name and a compaction summary. The messages as stored (and handed to the close and search ingests),
 /// what the close ingest feeds memory, and the session search rows, each whole as Node's.
