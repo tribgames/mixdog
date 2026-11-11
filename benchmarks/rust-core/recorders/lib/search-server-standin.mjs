@@ -10,11 +10,17 @@
 //   { afterFiles: N }  the deadline passes once the first N files that have lines (in the server's path order) were
 //                      scanned: their lines, cut at the window's collection stop (offset + limit + 1), `complete: false,
 //                      partial: true, timeout: true`.
-//   { silent: true }   the server never answers a search and ignores `{cancel}`: Node's own deadline timer decides.
+//   { silent: true }   the server never answers a search (a find's fuzzy one included) and ignores `{cancel}`: Node's
+//                      own deadline timer decides.
 //   { saturated: true } every search finds the server's queue full and is answered as serve_search/server.rs:370-383
 //                      answers it (`error: "native search queue saturated"`, `saturated: true`, and the scheduler's
 //                      telemetry, taken from the real server's answer to the same request); it is reported as
 //                      `saturated`, not compared: the real server's queue cannot be filled on cue.
+//   { observe: true }  the real server answers everything; each search request is reported as it is passed on
+//                      (`request`), and each of the real server's answers as it passes back (`answer`, with
+//                      `saturated` when it is the full queue's refusal), in the order they pass.
+// The script a stand-in starts with is STANDIN_SCRIPT (JSON), else none: a server the client starts in place of an ended
+// one takes its first requests under it, before the recorder could reach it over the control pipe.
 // Every request it answers itself is also sent to the real server as it is, and the real server's answer is reported
 // beside the stand-in's answer to the same request under a deadline that never passes (`compare`, without the fields
 // that time the two runs: `queueMs`, `handlerMs`, `scheduler`, and the request `id`), for the recorder to require
@@ -30,7 +36,10 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
   const real = spawn(process.env.STANDIN_REAL_BIN, [cwd, '--serve-search'], { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
   const control = connect(process.env.STANDIN_PIPE);
   const report = (event) => control.write(`${JSON.stringify(event)}\n`);
-  let script = {};
+  let script = process.env.STANDIN_SCRIPT ? JSON.parse(process.env.STANDIN_SCRIPT) : {};
+  const isSearch = (message) => Array.isArray(message.args) || typeof message.fuzzy === 'string';
+  // A search request's patterns (`-e <pattern>`), so the recorder can tell the requests of its calls apart.
+  const patternsOf = (message) => (Array.isArray(message.args) ? message.args.filter((_, i) => message.args[i - 1] === '-e') : [message.fuzzy]);
   createInterface({ input: control }).on('line', (line) => {
     script = JSON.parse(line);
     report({ event: 'script', script });
@@ -67,6 +76,9 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
     const id = Number(message?.id);
     const mine = message?.event ? undefined : held.get(id >= REAL_ID ? id - REAL_ID : id);
     if (!mine) {
+      if (script.observe && message?.id !== undefined && !message.event && !message.ready) {
+        report({ event: 'answer', id: message.id, saturated: message.saturated === true });
+      }
       process.stdout.write(`${line}\n`);
       return;
     }
@@ -78,10 +90,11 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
     const message = JSON.parse(line);
     // No deadline set: the real server answers.
     if (script.afterFiles === undefined && !script.silent && !script.saturated) {
+      if (script.observe && isSearch(message)) report({ event: 'request', id: message.id, patterns: patternsOf(message) });
       real.stdin.write(`${line}\n`);
       return;
     }
-    if (script.saturated && (Array.isArray(message.args) || typeof message.fuzzy === 'string')) {
+    if (script.saturated && isSearch(message)) {
       report({ event: 'saturated', id: message.id });
       held.set(Number(message.id), { request: message, script });
       real.stdin.write(`${JSON.stringify({ ...message, id: REAL_ID + Number(message.id) })}\n`);
@@ -92,11 +105,16 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
       if (!script.silent) real.stdin.write(`${line}\n`);
       return;
     }
+    // A find's fuzzy request at a server that never answers is held too (it has no window to compare).
+    if (script.silent && typeof message.fuzzy === 'string') {
+      report({ event: 'request', id: message.id, patterns: patternsOf(message) });
+      return;
+    }
     if (!Array.isArray(message.args)) {
       real.stdin.write(`${line}\n`);
       return;
     }
-    report({ event: 'request', id: message.id, offset: message.offset, limit: message.limit });
+    report({ event: 'request', id: message.id, offset: message.offset, limit: message.limit, patterns: patternsOf(message) });
     // The whole answer, which the deadline then cuts, and the real server's answer to the request as it is.
     held.set(Number(message.id), { request: message, script });
     real.stdin.write(`${JSON.stringify({ ...message, offset: 0, limit: 0 })}\n`);

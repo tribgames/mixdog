@@ -174,6 +174,15 @@ pub enum FsErrorKind {
     /// The only item of a `walk` or `search_text` stream refused because as many searches already wait as Node's search
     /// server queues for its [`SearchClass`] ("native search queue saturated", serve_search/server.rs:370-383).
     Saturated,
+    /// The only item of a `walk` or `search_text` stream refused because the volume it would read on holds as many reads
+    /// that ignored their cancel as the service keeps: Node's answer to a request whose server its client ended for a
+    /// search that did not stop within `grace_ms` of its cancel (NATIVE_SEARCH_CANCEL_STALLED,
+    /// native-search-client.mjs:501-520). `search` is Node's name for that search's request (`requestKind`: `content`,
+    /// `file inventory`, `fuzzy`).
+    CancelStalled {
+        search: String,
+        grace_ms: u64,
+    },
 }
 
 /// The step of an atomic write that failed (Node's `atomicWrite` names it in its error text).

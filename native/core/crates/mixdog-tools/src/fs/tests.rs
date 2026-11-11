@@ -347,6 +347,16 @@ async fn replay_fs_search(scenario: &str) {
     if fixture["drainAfterWarmup"] == true {
         graph_cache.flush().unwrap();
     }
+    // A burst against the search queue, replayed its own way.
+    if fixture.get("burst").is_some() {
+        #[cfg(windows)]
+        replay_burst(&fixture, &ws, &ctx, &**tool_of("grep"), args_of).await;
+        return;
+    }
+    // Searches past their deadline whose reads ignore their cancel (`stalled.timeouts`, the scenario's first calls): each
+    // is held in its read (`Script::Stuck`) and its hard timer passes as Node's did; the call's close gives it up once
+    // the grace has passed, and it stays given up, its volume's, until the replay's end.
+    let stuck = fixture["stalled"]["timeouts"].as_array().map_or(0, Vec::len);
     let mut failures = Vec::new();
     for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
         use mixdog_workspace::localfs::deadline_script::Script;
@@ -359,10 +369,20 @@ async fn replay_fs_search(scenario: &str) {
             None if server["saturated"] == true => Some(Script::QueueFull),
             None => None,
         });
+        let script = if index < stuck { Some(Script::Stuck) } else { script };
         mixdog_workspace::localfs::deadline_script::set(&ws, script);
-        advanced.store(matches!(script, Some(Script::Silent)), std::sync::atomic::Ordering::SeqCst);
+        advanced.store(matches!(script, Some(Script::Silent | Script::Stuck)), std::sync::atomic::Ordering::SeqCst);
         let what = || format!("{scenario} #{index} {tool} {}", call["input"]);
-        let (is_error, text) = recorded_form(within(what, tool_of(tool).call(&ctx, args_of(&call["input"]))).await);
+        let outcome = within(what, tool_of(tool).call(&ctx, args_of(&call["input"]))).await;
+        // What the tool returned besides its text (`returned`: Node's returned the text alone).
+        let text_alone = match &outcome {
+            Ok(out) => out.parts.len() == 1 && matches!(out.parts[0], ToolPart::Text(_)),
+            Err(_) => true,
+        };
+        if call.get("returned").is_some_and(|r| r == "string") && !text_alone {
+            failures.push(format!("#{index} {tool}: Node's tool returned its text alone, the core's more"));
+        }
+        let (is_error, text) = recorded_form(outcome);
         mixdog_workspace::localfs::deadline_script::set(&ws, None);
         // The hard timer passes only for the silent call itself, not for a call made beside it.
         advanced.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -395,6 +415,92 @@ async fn replay_fs_search(scenario: &str) {
                 failures.push(format!("#{index} beside {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", beside["input"]));
             }
         }
+    }
+    // The held reads end.
+    mixdog_workspace::localfs::deadline_script::unstick(&ws);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// `search-queue-burst` (`recordBurst`), replayed whole. Each held call is made once the one before holds: its folder's
+/// file is under a batch oplock, as the recorder's lib/oplock-holder.ps1 held it, and the search's open of it broke the
+/// oplock and waits. Then each burst call is made once its search was made (queued, or refused). Then the first hold is
+/// released and every queued call's answer awaited, then each other hold released and its answer awaited. Compared:
+/// every call's answer, and the order the searches answered in (the scheduler's, [`probe::answer_order`]) with the
+/// order Node's server answered in.
+#[cfg(windows)]
+async fn replay_burst(fixture: &JsonValue, ws: &Path, ctx: &ToolContext, grep: &dyn Tool, args_of: impl Fn(&JsonValue) -> JsonValue) {
+    use futures::StreamExt as _;
+    use mixdog_workspace::localfs::deadline_script::OplockHold;
+    use mixdog_workspace::localfs::probe;
+    let holds = fixture["burst"]["holds"].as_u64().unwrap() as usize;
+    let calls = fixture["calls"].as_array().unwrap();
+    let mut oplocks: Vec<Option<OplockHold>> =
+        (1..=holds).map(|n| Some(OplockHold::new(&ws.join(format!("h{n}")).join("f.ts")).unwrap())).collect();
+    let mut numbers = std::collections::HashMap::new();
+    let mut outcomes: Vec<Option<(bool, String)>> = vec![None; calls.len()];
+    let mut pending = futures::stream::FuturesUnordered::new();
+    for (index, call) in calls.iter().enumerate() {
+        let number = probe::streams_made();
+        numbers.insert(number, index);
+        let args = args_of(&call["input"]);
+        pending.push(async move { (index, recorded_form(grep.call(ctx, args).await)) });
+        let (pending, outcomes) = (&mut pending, &mut outcomes);
+        within(|| format!("search-queue-burst #{index}'s search made"), async move {
+            loop {
+                let made = probe::made().notified();
+                let mut made = std::pin::pin!(made);
+                made.as_mut().enable();
+                if probe::streams_made() > number {
+                    return;
+                }
+                tokio::select! {
+                    () = made => {}
+                    Some((done, outcome)) = pending.next() => outcomes[done] = Some(outcome),
+                }
+            }
+        })
+        .await;
+        if let Some(Some(hold)) = oplocks.get(index) {
+            let broken = tokio::task::block_in_place(|| hold.wait_broken(std::time::Duration::from_secs(60)));
+            assert!(broken, "search-queue-burst hold #{index}'s open within 60 s");
+        }
+    }
+    oplocks[0] = None;
+    within(|| "search-queue-burst: every queued call's answer once the first hold is released".to_owned(), async {
+        while outcomes.iter().enumerate().any(|(i, answer)| answer.is_none() && !(1..holds).contains(&i)) {
+            let (index, outcome) = pending.next().await.expect("a call still pending");
+            outcomes[index] = Some(outcome);
+        }
+    })
+    .await;
+    for hold in 1..holds {
+        oplocks[hold] = None;
+        within(|| format!("search-queue-burst: hold #{hold}'s answer"), async {
+            while outcomes[hold].is_none() {
+                let (index, outcome) = pending.next().await.expect("a call still pending");
+                outcomes[index] = Some(outcome);
+            }
+        })
+        .await;
+    }
+    let raw = ws.to_string_lossy().into_owned();
+    let fwd = raw.replace('\\', "/");
+    let mut failures = Vec::new();
+    for (index, call) in calls.iter().enumerate() {
+        let (is_error, text) = outcomes[index].clone().unwrap();
+        let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+        let (want, want_error) = (call["text"].as_str().unwrap(), call["isError"] == true);
+        if text != want || is_error != want_error {
+            failures.push(format!("#{index} grep {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
+        }
+    }
+    // Each call made one search.
+    assert_eq!(probe::streams_made(), numbers.len() as u64 + numbers.keys().min().unwrap(), "one search per call");
+    let order: Vec<usize> = probe::answer_order().iter().filter_map(|n| numbers.get(n).copied()).collect();
+    let want: Vec<usize> = fixture["answerOrder"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as usize).collect();
+    if order != want {
+        let at = order.iter().zip(&want).position(|(a, b)| a != b).unwrap_or(order.len().min(want.len()));
+        failures.push(format!("answer order differs at {at}: want {:?}, got {:?}", &want[at..(at + 12).min(want.len())], &order[at..(at + 12).min(order.len())]));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -634,6 +740,23 @@ async fn grep_answers_a_line_past_the_search_heap_as_node_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn searches_refused_by_a_full_queue_answer_as_node_does() {
     replay_fs_search("search-saturated").await;
+}
+
+/// A search on a volume where 8 reads ignored their cancel and were given up is answered at once with the answer Node
+/// gives a call whose server was ended for a cancel that did not take (NATIVE_SEARCH_CANCEL_STALLED): grep's failure, a
+/// grep over two paths' sections, glob's group failure, find's failure, each the tool's text alone. The 8 are greps past
+/// their deadline, answered as Node answers them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_search_on_a_volume_of_given_up_reads_answers_as_node_does() {
+    replay_fs_search_in_env("fs::tests::a_search_on_a_volume_of_given_up_reads_answers_as_node_does", "search-cancel-stalled").await;
+}
+
+/// Node's real search queue filled by a burst (9 searches held, then 2,060 greps): the same calls are queued or refused
+/// as saturated here, and once the holds are released the searches answer in the order Node's server answered them.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_burst_past_the_search_queue_is_refused_and_answered_in_nodes_order() {
+    replay_fs_search_in_env("fs::tests::a_burst_past_the_search_queue_is_refused_and_answered_in_nodes_order", "search-queue-burst").await;
 }
 
 /// A grep over far more matches than its window: the scan produces exactly the anchor stream's bound (`limit: 10`:
