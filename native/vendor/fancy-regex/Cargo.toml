@@ -1,7 +1,6 @@
 # fancy-regex 0.19.2 as published on crates.io (its normalized manifest, without the examples, tests, benches and
-# dev-dependencies, whose files are not copied), with one addition: `src/interrupt.rs`, a check a caller may set on
-# its thread that the matcher reads every `interrupt::INTERVAL` backtracking steps (mixdog: an MCP output schema's
-# `pattern` runs under a bound of 10^10 steps and must end when its call is cancelled). native/core patches
+# dev-dependencies, whose files are not copied), modified so a match can be stopped (see MIXDOG.md: an MCP output
+# schema's `pattern` runs under a bound of 10^10 steps and must end when its call is cancelled). native/core patches
 # crates.io's fancy-regex with this copy.
 
 [package]
@@ -39,6 +38,8 @@ default = [
     "variable-lookbehinds",
 ]
 leftmost_longest = []
+# mixdog: the steps at which matches read their stop (`interrupt::probe`), for tests.
+probe = []
 perf = ["regex-automata/perf"]
 perf-dfa-full = ["regex-automata/dfa-build"]
 std = [

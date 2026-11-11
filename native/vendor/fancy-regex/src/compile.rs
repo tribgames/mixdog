@@ -23,7 +23,6 @@
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
-#[cfg(feature = "variable-lookbehinds")]
 use alloc::sync::Arc;
 #[cfg(feature = "variable-lookbehinds")]
 use alloc::vec;
@@ -44,7 +43,9 @@ use crate::seek::build_seek_pattern;
 use crate::to_hir::{expr_to_hir, HirCtx};
 #[cfg(feature = "variable-lookbehinds")]
 use crate::vm::{CachePoolFn, ReverseBackwardsDelegate};
-use crate::vm::{CaptureGroupRange, CaseiLiteral, CharClassMatcher, Delegate, Insn, Prog, Seek};
+use crate::vm::{
+    CaptureGroupRange, CaseiLiteral, CharClassMatcher, Delegate, Insn, Prog, Seek, Stepped,
+};
 use crate::LookAround::*;
 use crate::{
     Absent, BacktrackingControlVerb, BytesMode, CompileError, Error, Expr, LookAround, Result,
@@ -954,6 +955,7 @@ impl<'a> Compiler<'a> {
         } else {
             let compiled = compile_inner(pattern, &self.options, DelegateUsage::anchored(false))?;
             self.b.add(Insn::Delegate(Delegate {
+                stepped: Stepped::new(stepped_dfa(pattern, None, &self.options)),
                 inner: compiled,
                 pattern: pattern.to_string(),
                 capture_groups: None,
@@ -1319,6 +1321,44 @@ pub fn compile(info: &Info<'_>, options: CompileOptions) -> Result<Prog> {
     Ok(c.b.build(bytes_mode, seek_pattern, info.max_size))
 }
 
+/// The lazy DFA the VM steps through a delegated search itself (mixdog, [`crate::interrupt`]): the pattern (or its
+/// `Hir`) under the syntax its meta engine has, leftmost-first as that engine is, and never giving up on its cache.
+/// `None` where regex-automata cannot build one (the meta engine then searches whole, as before).
+pub(crate) fn stepped_dfa(
+    pattern: &str,
+    hir: Option<&Hir>,
+    options: &CompileOptions,
+) -> Option<Arc<regex_automata::hybrid::dfa::DFA>> {
+    use regex_automata::hybrid::dfa;
+    use regex_automata::nfa::thompson;
+    use regex_automata::util::syntax::Config as SyntaxConfig;
+    let utf8 = matches!(options.bytes_mode, BytesMode::Unicode);
+    let mut nfa_config = thompson::Config::new()
+        .utf8(utf8)
+        .which_captures(WhichCaptures::None);
+    if let Some(limit) = options.delegate_size_limit {
+        nfa_config = nfa_config.nfa_size_limit(Some(limit));
+    }
+    let mut compiler = thompson::Compiler::new();
+    compiler.configure(nfa_config);
+    let nfa = match hir {
+        Some(hir) => compiler.build_from_hir(hir),
+        None => compiler
+            .syntax(SyntaxConfig::new().utf8(utf8).unicode(options.unicode))
+            .build(pattern),
+    }
+    .ok()?;
+    let dfa = dfa::DFA::builder()
+        .configure(
+            dfa::Config::new()
+                .unicode_word_boundary(true)
+                .minimum_cache_clear_count(None),
+        )
+        .build_from_nfa(nfa)
+        .ok()?;
+    Some(Arc::new(dfa))
+}
+
 struct DelegateBuilder {
     re: String,
     min_size: usize,
@@ -1436,11 +1476,12 @@ impl DelegateBuilder {
         // engine. Outer group numbering may differ between the two sites; that
         // lives in `capture_groups` below, not in the engine.
         let memo_key = (self.re.clone(), capture_groups.is_some());
+        let hir = self.hirs.take().map(Hir::concat);
         let compiled = match memo.get(&memo_key) {
             Some(engine) => engine.clone(),
             None => {
-                let engine = match self.hirs.take() {
-                    Some(hirs) => compile_inner_from_hir(&Hir::concat(hirs), options, usage)?,
+                let engine = match &hir {
+                    Some(hir) => compile_inner_from_hir(hir, options, usage)?,
                     None => compile_inner(&self.re, options, usage)?,
                 };
                 memo.insert(memo_key, engine.clone());
@@ -1449,6 +1490,7 @@ impl DelegateBuilder {
         };
 
         Ok(Delegate {
+            stepped: Stepped::new(stepped_dfa(&self.re, hir.as_ref(), options)),
             inner: compiled,
             pattern: self.re.clone(),
             capture_groups,

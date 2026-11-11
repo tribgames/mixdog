@@ -598,22 +598,36 @@ impl McpServer {
     }
 
     /// `callTool`'s check of `result` against `tool`'s output schema, as a cpu-bulk lane job: a pattern may backtrack for
-    /// long, and the matcher ends when the call is cancelled or the server closes.
+    /// long, and its match ends at its next read of the stop once the call is cancelled or the server closes.
     async fn checked(&self, ready: &Ready, tool: &str, result: Value, cancel: &CancellationToken) -> Result<Value, CallError> {
         if !ready.outputs.checks(tool) {
             return Ok(result);
         }
         let outputs = Arc::clone(&ready.outputs);
-        let (tool, stops) = (tool.to_owned(), [cancel.clone(), self.shutdown.clone()]);
-        let job = self
-            .io
-            .cpu
-            .submit(cancel, move |_lane| {
-                let checked = outputs.check(&tool, &result, &stops);
-                (checked, result)
-            })
-            .map_err(|full| CallError::Overloaded(full.to_string()))?;
-        match job.await {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let job = {
+            let (tool, stop) = (tool.to_owned(), Arc::clone(&stop));
+            self.io
+                .cpu
+                .submit(cancel, move |_lane| {
+                    let checked = outputs.check(&tool, &result, &stop);
+                    (checked, result)
+                })
+                .map_err(|full| CallError::Overloaded(full.to_string()))?
+        };
+        tokio::pin!(job);
+        let settled = tokio::select! {
+            settled = &mut job => settled,
+            () = cancel.cancelled() => {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                job.await
+            }
+            () = self.shutdown.cancelled() => {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                job.await
+            }
+        };
+        match settled {
             Ok((checked, result)) => checked.map(|()| result).map_err(CallError::from),
             // Dropped before it ran: its call was cancelled, or the lane can take no job.
             Err(dropped) if !cancel.is_cancelled() && !self.shutdown.is_cancelled() => Err(CallError::Overloaded(dropped.to_string())),
