@@ -23,6 +23,7 @@ mod provider_case;
 mod provider_cases;
 mod replay_anthropic;
 mod replay_anthropic_api_key_fetch;
+mod replay_anthropic_server_fallback;
 mod replay_anthropic_replay_blocks;
 mod replay_anthropic_stream;
 mod replay_compat_stream_lifecycle;
