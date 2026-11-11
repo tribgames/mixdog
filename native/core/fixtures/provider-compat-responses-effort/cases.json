@@ -1,0 +1,2178 @@
+{
+  "set": "provider-compat-responses-effort",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "mode-resolution-by-model-and-options",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:75",
+      "input": {},
+      "result": {
+        "responses": [
+          [
+            "gpt-6-sol",
+            "responses"
+          ],
+          [
+            "gpt-6.1-sol",
+            "responses"
+          ],
+          [
+            "openai/gpt-6.1-sol",
+            "responses"
+          ],
+          [
+            "vendor/openai/gpt-7",
+            "responses"
+          ],
+          [
+            "OpenAI/GPT-6.2-luna",
+            "responses"
+          ],
+          [
+            "openai/gpt-5.6-sol",
+            null
+          ],
+          [
+            "gpt-5.5",
+            null
+          ],
+          [
+            "openai/o4-mini",
+            null
+          ],
+          [
+            "gpt-6-sol/other",
+            null
+          ]
+        ],
+        "chat": null,
+        "noConfig": null,
+        "builtinGateway": null,
+        "options": [
+          [
+            {
+              "modelParameters": {
+                "mode": "pro"
+              }
+            },
+            null
+          ],
+          [
+            {
+              "multiAgent": true
+            },
+            null
+          ],
+          [
+            {
+              "thinkingBudgetTokens": 1024
+            },
+            null
+          ],
+          [
+            {
+              "effortConfigurationEnabled": false
+            },
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "turn-preparation-mode",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:95",
+      "input": {},
+      "result": {
+        "gpt6Responses": "responses",
+        "gpt6Chat": "custom",
+        "gpt5": "custom",
+        "noLevels": null
+      }
+    },
+    {
+      "id": "pins-top-level-effort-keeps-prefix-and-cache-key:gpt-6-sol",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:108",
+      "input": {
+        "model": "gpt-6-sol",
+        "efforts": [
+          "low",
+          "high",
+          "medium",
+          "medium",
+          "low"
+        ]
+      },
+      "result": {
+        "turns": [
+          {
+            "effort": "low",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "gpt-6-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "low"
+            },
+            "request": {
+              "body": {
+                "model": "gpt-6-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "high",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "gpt-6-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "high"
+            },
+            "request": {
+              "body": {
+                "model": "gpt-6-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "medium",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "gpt-6-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "medium"
+            },
+            "request": {
+              "body": {
+                "model": "gpt-6-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at high"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "medium"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "medium",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "gpt-6-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "medium"
+            },
+            "request": {
+              "body": {
+                "model": "gpt-6-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at high"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "medium"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "low",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "gpt-6-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "low"
+            },
+            "request": {
+              "body": {
+                "model": "gpt-6-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at high"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "medium"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "low"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "pins-top-level-effort-keeps-prefix-and-cache-key:openai/gpt-6.1-sol",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:108",
+      "input": {
+        "model": "openai/gpt-6.1-sol",
+        "efforts": [
+          "low",
+          "high",
+          "medium",
+          "medium",
+          "low"
+        ]
+      },
+      "result": {
+        "turns": [
+          {
+            "effort": "low",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "openai/gpt-6-1-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "low"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "high",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "openai/gpt-6-1-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "high"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "medium",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "openai/gpt-6-1-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "medium"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at high"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "medium"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "medium",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "openai/gpt-6-1-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "medium"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at high"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "medium"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          },
+          {
+            "effort": "low",
+            "effortConfiguration": {
+              "version": 1,
+              "provider": "custom-g",
+              "model": "openai/gpt-6-1-sol",
+              "mode": "responses",
+              "initialEffort": "low",
+              "effort": "low"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "system",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Stable."
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at low"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "H"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at high"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at high"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "medium"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Answer at medium"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "configuration_update",
+                    "reasoning": {
+                      "effort": "low"
+                    }
+                  },
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "Question at low"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                },
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "session-id": "sess-1",
+                "x-client-request-id": "sess-1"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "none-level-sent-as-update",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:140",
+      "input": {
+        "levels": [
+          "none",
+          "low",
+          "high"
+        ]
+      },
+      "result": {
+        "effortConfiguration": {
+          "version": 1,
+          "provider": "custom-g",
+          "model": "openai/gpt-6-1-sol",
+          "mode": "responses",
+          "initialEffort": "low",
+          "effort": "none"
+        },
+        "step": {
+          "version": 1,
+          "provider": "custom-g",
+          "model": "openai/gpt-6-1-sol",
+          "mode": "responses",
+          "initialEffort": "low",
+          "effort": "none"
+        },
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "Answer at low"
+                    }
+                  ]
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "none"
+                  }
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at none"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "step-effort-after-whole-tool-batch",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:158",
+      "input": {},
+      "result": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "Stable."
+          },
+          {
+            "role": "user",
+            "content": "Question at low",
+            "meta": {
+              "effortConfiguration": {
+                "version": 1,
+                "provider": "custom-g",
+                "model": "openai/gpt-6-1-sol",
+                "mode": "responses",
+                "initialEffort": "low",
+                "effort": "low"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "t",
+                "arguments": {}
+              },
+              {
+                "id": "c2",
+                "name": "t",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "c1",
+            "content": "one"
+          },
+          {
+            "role": "tool",
+            "toolCallId": "c2",
+            "content": "two",
+            "meta": {
+              "effortConfiguration": {
+                "version": 1,
+                "provider": "custom-g",
+                "model": "openai/gpt-6-1-sol",
+                "mode": "responses",
+                "initialEffort": "low",
+                "effort": "high"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          },
+          {
+            "role": "user",
+            "content": "Question at high",
+            "meta": {
+              "effortConfiguration": {
+                "version": 1,
+                "provider": "custom-g",
+                "model": "openai/gpt-6-1-sol",
+                "mode": "responses",
+                "initialEffort": "low",
+                "effort": "high"
+              }
+            }
+          }
+        ],
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "c1",
+                  "name": "t",
+                  "arguments": "{}"
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "c2",
+                  "name": "t",
+                  "arguments": "{}"
+                },
+                {
+                  "type": "function_call_output",
+                  "call_id": "c1",
+                  "output": "one"
+                },
+                {
+                  "type": "function_call_output",
+                  "call_id": "c2",
+                  "output": "two"
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "c1",
+                  "name": "t",
+                  "arguments": "{}"
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "c2",
+                  "name": "t",
+                  "arguments": "{}"
+                },
+                {
+                  "type": "function_call_output",
+                  "call_id": "c1",
+                  "output": "one"
+                },
+                {
+                  "type": "function_call_output",
+                  "call_id": "c2",
+                  "output": "two"
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "done"
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "rejecting-model-replayed-once-with-per-request-effort",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:197",
+      "input": {
+        "model": "openai/gpt-6.2-reject",
+        "rejectOnRequest": 2
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "openai/gpt-6.2-reject",
+          "stopReason": null,
+          "providerReplay": {
+            "version": 1,
+            "provider": "compat-responses:custom-g",
+            "items": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "providerState": {
+            "compatResponses": {
+              "previousResponseId": null,
+              "responseId": "resp-3",
+              "store": false,
+              "owner": "compat-responses:custom-g",
+              "encryptedReasoningItems": [],
+              "encryptedReasoningHistory": [],
+              "seenMessageCount": 4,
+              "model": "openai/gpt-6.2-reject",
+              "updatedAt": 1794225600000
+            }
+          }
+        },
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.2-reject",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.2-reject",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "a"
+                    }
+                  ]
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.2-reject",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "a"
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "H"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          }
+        ],
+        "modeAfter": null,
+        "nextMode": "custom",
+        "other": {
+          "error": {
+            "name": "Error",
+            "message": "400 bad tool schema",
+            "status": 400
+          }
+        },
+        "otherRequests": 1
+      }
+    },
+    {
+      "id": "custom-session-identity-key-headers-hook",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:232",
+      "input": {},
+      "result": {
+        "sends": [
+          {
+            "label": "no session",
+            "opts": {
+              "effort": "low"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "low"
+                }
+              },
+              "headers": null
+            }
+          },
+          {
+            "label": "promptCacheKey",
+            "opts": {
+              "effort": "high",
+              "promptCacheKey": "pk"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "H"
+                },
+                "prompt_cache_key": "pk"
+              },
+              "headers": {
+                "session-id": "pk",
+                "x-client-request-id": "pk"
+              }
+            }
+          },
+          {
+            "label": "providerCacheKey",
+            "opts": {
+              "effort": "high",
+              "providerCacheKey": "pk"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "H"
+                },
+                "prompt_cache_key": "pk"
+              },
+              "headers": {
+                "session-id": "pk",
+                "x-client-request-id": "pk"
+              }
+            }
+          },
+          {
+            "label": "session.promptCacheKey",
+            "opts": {
+              "effort": "high",
+              "session": {
+                "promptCacheKey": "pk"
+              }
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "H"
+                },
+                "prompt_cache_key": "pk"
+              },
+              "headers": {
+                "session-id": "pk",
+                "x-client-request-id": "pk"
+              }
+            }
+          },
+          {
+            "label": "sessionId",
+            "opts": {
+              "effort": "high",
+              "sessionId": "pk"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "H"
+                },
+                "prompt_cache_key": "pk"
+              },
+              "headers": {
+                "session-id": "pk",
+                "x-client-request-id": "pk"
+              }
+            }
+          },
+          {
+            "label": "session wins, shared scope",
+            "opts": {
+              "sessionId": "sess-1",
+              "promptCacheKey": "mixdog-custom-g",
+              "providerCacheKey": "mixdog-custom-g",
+              "promptCacheScope": "shared"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "prompt_cache_key": "mixdog-custom-g"
+              },
+              "headers": {
+                "session-id": "mixdog-custom-g",
+                "x-client-request-id": "mixdog-custom-g"
+              }
+            }
+          },
+          {
+            "label": "long session id",
+            "opts": {
+              "sessionId": "<100 x \"x\">"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "prompt_cache_key": "pc_09ecb6ebc8bcefc733f6f2ec44f791ab"
+              },
+              "headers": {
+                "session-id": "pc_09ecb6ebc8bcefc733f6f2ec44f791ab",
+                "x-client-request-id": "pc_09ecb6ebc8bcefc733f6f2ec44f791ab"
+              }
+            }
+          },
+          {
+            "label": "long session id medium",
+            "opts": {
+              "sessionId": "<100 x \"x\">",
+              "effort": "medium"
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "reasoning": {
+                  "effort": "medium"
+                },
+                "prompt_cache_key": "pc_09ecb6ebc8bcefc733f6f2ec44f791ab"
+              },
+              "headers": {
+                "session-id": "pc_09ecb6ebc8bcefc733f6f2ec44f791ab",
+                "x-client-request-id": "pc_09ecb6ebc8bcefc733f6f2ec44f791ab"
+              }
+            }
+          },
+          {
+            "label": "caller session-id header",
+            "opts": {
+              "sessionId": "sess-1",
+              "promptCacheKey": "mixdog-custom-g",
+              "providerCacheKey": "mixdog-custom-g",
+              "requestHeaders": {
+                "session-id": "caller"
+              }
+            },
+            "request": {
+              "body": {
+                "model": "openai/gpt-6.1-sol",
+                "input": [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "hi"
+                      }
+                    ]
+                  }
+                ],
+                "store": false,
+                "include": [
+                  "reasoning.encrypted_content"
+                ],
+                "stream": true,
+                "prompt_cache_key": "sess-1"
+              },
+              "headers": {
+                "x-client-request-id": "sess-1",
+                "session-id": "caller"
+              }
+            }
+          }
+        ],
+        "gateway": {
+          "body": {
+            "model": "openai/gpt-6.1-sol",
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "hi"
+                  }
+                ]
+              }
+            ],
+            "store": false,
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "stream": true,
+            "prompt_cache_key": "sess-1"
+          },
+          "headers": null
+        },
+        "hooked": {
+          "body": {
+            "model": "openai/gpt-6.1-sol",
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "hi"
+                  }
+                ]
+              }
+            ],
+            "store": false,
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "stream": true,
+            "prompt_cache_key": "hook"
+          },
+          "headers": {
+            "session-id": "sess-1",
+            "x-client-request-id": "sess-1"
+          }
+        }
+      }
+    },
+    {
+      "id": "pre-gpt6-and-builtin-gateways-keep-per-request-shape",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs:268",
+      "input": {},
+      "result": {
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-5.6-sol",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          },
+          {
+            "body": {
+              "model": "openai/gpt-5.6-sol",
+              "input": [
+                {
+                  "role": "system",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Stable."
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "a"
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Question at high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "H"
+              },
+              "prompt_cache_key": "sess-1"
+            },
+            "headers": {
+              "session-id": "sess-1",
+              "x-client-request-id": "sess-1"
+            }
+          }
+        ],
+        "gateway": {
+          "body": {
+            "model": "gpt-6.1-sol",
+            "input": [
+              {
+                "role": "system",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Stable."
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Question at low"
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "a"
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Question at high"
+                  }
+                ]
+              }
+            ],
+            "store": false,
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "stream": true
+          },
+          "headers": null
+        }
+      }
+    }
+  ]
+}
