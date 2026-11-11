@@ -124,17 +124,24 @@ async fn a_sender_routing_and_leaving_between_two_reads_is_never_seen_as_neither
     runner.holds.store(1, Ordering::SeqCst);
     let calls = scheduler(&runner);
     std::mem::forget(calls.intake("room01"));
+    // The observer says when it is about to read the intakes: any read it made before that is behind it, so the route below
+    // always comes after it, and an observation that reads the exchanges first is bound to see none.
+    let deadline = std::time::Duration::from_secs(60);
+    let (about, about_to_read) = std::sync::mpsc::channel::<()>();
+    assert!(calls.before_intakes.set(Arc::new(move || about.send(()).expect("the test waits for the observer"))).is_ok());
     let gate = calls.intakes.lock().unwrap();
-    let observer = {
+    let (seen, observed) = std::sync::mpsc::channel::<bool>();
+    {
         let calls = calls.clone();
-        std::thread::spawn(move || calls.quiet("room01"))
-    };
+        drop(std::thread::spawn(move || seen.send(calls.quiet("room01")).expect("the test waits for the observation")));
+    }
+    about_to_read.recv_timeout(deadline).expect("the observer reached the intakes within the deadline");
     calls.route("room01", Request { to: vec!["lead".into()], only: true, calls: Vec::new(), ..Request::default() });
     let mut gate = gate;
     gate.remove("room01");
     drop(gate);
-    assert!(!observer.join().unwrap(), "the exchange runs");
-    runner.entered.notified().await;
+    assert!(!observed.recv_timeout(deadline).expect("the observation ended within the deadline"), "the exchange runs");
+    tokio::time::timeout(deadline, runner.entered.notified()).await.expect("the exchange began within the deadline");
     assert!(calls.is_running("room01"));
     runner.release.notify_one();
     tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled once the exchange ended");
