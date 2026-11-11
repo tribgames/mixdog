@@ -175,12 +175,16 @@ impl Credentials {
         }
     }
 
-    /// Whether this status is one a credential refresh can fix. A 403 on the
-    /// subscription wire gets one refresh too: the grant may have been revoked.
-    fn refreshable(&self, status: Option<u16>) -> bool {
+    /// Whether this refusal is one a credential refresh can fix. On the subscription wire, every 401 and only
+    /// Anthropic's exact revoked-token 403 (`isRefreshableAuthRejection`, initial-status.mjs:20): any other 403 is a
+    /// terminal policy refusal.
+    fn refreshable(&self, status: Option<u16>, body: &[u8]) -> bool {
         match self {
             Self::ApiKey(_) => status == Some(401),
-            Self::OAuth(_) => matches!(status, Some(401 | 403)),
+            Self::OAuth(_) => {
+                status == Some(401)
+                    || (status == Some(403) && String::from_utf8_lossy(body).contains("OAuth token has been revoked"))
+            }
         }
     }
 }
@@ -444,11 +448,11 @@ impl AnthropicAdapter {
     }
 
     /// A refused warm's error, worded as `anthropicQuotaError` words it for both routes.
-    async fn warm_failure(&self, response: HttpResponse) -> ProviderError {
+    async fn warm_failure(&self, response: HttpResponse, secret: &Secret) -> ProviderError {
         match response.read_all().await {
             Ok(rejected) => {
                 let mut error = self.codec.classify(&rejected);
-                error.message = super::errors::quota_error_text(&rejected);
+                error.message = super::errors::quota_error_text(&rejected, &[&secret.0]);
                 error
             }
             Err(err) => err,
@@ -522,7 +526,7 @@ impl CacheWarmSend for AnthropicAdapter {
         let post: Post<'_> = Box::new(move || {
             Box::pin(async move {
                 let response = self.http.send(self.request_with(&wire, &secret), MODEL_STREAM).await?;
-                if response.is_success() { Ok(response) } else { Err(self.warm_failure(response).await) }
+                if response.is_success() { Ok(response) } else { Err(self.warm_failure(response, &secret).await) }
             })
         });
         send_cache_warm(ctx, cancel, post, on_usage).await
@@ -632,8 +636,11 @@ impl ProviderAdapter for AnthropicAdapter {
                     continue 'plan;
                 }
                 let mut err = self.codec.classify(&rejected);
-                if !refreshed && self.credentials.refreshable(err.status) {
+                if !refreshed && self.credentials.refreshable(err.status, &rejected.body) {
                     refreshed = true;
+                    if self.codec.flavor() == Flavor::OAuth {
+                        mixdog_rt::node_stderr!("[anthropic-oauth] {} — forcing refresh and retrying once", rejected.status.unwrap_or(0));
+                    }
                     if let Some(next) = self.credentials.after_rejection(&secret).await? {
                         secret = next;
                         continue;
@@ -657,7 +664,7 @@ impl ProviderAdapter for AnthropicAdapter {
                 if self.codec.flavor() == Flavor::OAuth && rejected.status == Some(429) {
                     // `anthropicQuotaError(status, headers, scrubTokens(text))` (initial-status.mjs:90): the quota wording
                     // over the scrubbed body, never the body's own message.
-                    err.message = super::errors::quota_error_text(&rejected);
+                    err.message = super::errors::quota_error_text(&rejected, &[&secret.0]);
                 } else if self.codec.flavor() == Flavor::OAuth {
                     // `judgeInitialStatus` (initial-status.mjs:101) words a transient status alone; any other refusal
                     // is worded and logged by `_handleHttpError` (anthropic-oauth.mjs:862, :949).
@@ -666,7 +673,7 @@ impl ProviderAdapter for AnthropicAdapter {
                         err.message = format!("Anthropic OAuth API {status}");
                     } else {
                         // `scrubTokens(text).slice(0, 200)`: a credential the server echoed is redacted before it is logged or returned.
-                        let shown = crate::oauth::scrub::scrubbed_prefix(&refusal, &[], 200);
+                        let shown = crate::oauth::scrub::scrubbed_prefix(&refusal, &[&secret.0], 200);
                         mixdog_rt::node_stderr!("[anthropic-oauth] API error {status}: {shown}");
                         err.message = format!("Anthropic OAuth API {status}: {shown}");
                     }
