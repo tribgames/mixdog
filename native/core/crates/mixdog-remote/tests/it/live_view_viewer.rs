@@ -29,7 +29,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
 
-const VIEWER: &str = include_str!("../../../../fixtures/live-view/viewer.json");
+const VIEWER: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view/viewer.json");
 
 #[derive(Default)]
 struct Script {
@@ -261,7 +261,7 @@ fn run_scenario(scenario: &Value) {
 
 #[test]
 fn the_viewer_behaves_as_nodes_did_in_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(VIEWER).unwrap();
+    let recorded: Value = serde_json::from_str(&VIEWER).unwrap();
     let scenarios = recorded["scenarios"].as_array().unwrap();
     assert_eq!(scenarios.len(), 35);
     for scenario in scenarios {

@@ -13,7 +13,7 @@ use serde_json::Value;
 use serde_json::json;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../golden/permissions.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("tests/golden/permissions.json")).unwrap()
 }
 
 fn strings(value: &Value) -> Vec<String> {

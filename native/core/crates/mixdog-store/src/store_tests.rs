@@ -1060,7 +1060,7 @@ fn differing_fields(key: &str, want: &serde_json::Value, got: &serde_json::Value
 
 /// Every corpus session written through the log writer (live) and projected again by
 /// `project_index` (reprojection) has the row Node's `_sessionSummary` builds.
-const SUMMARIES: &str = include_str!("../../../fixtures/migration/session-summary/summaries.json");
+const SUMMARIES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/migration/session-summary/summaries.json");
 /// Corpus sessions per test: each is written through its own log writer and projected again.
 const SESSION_CHUNK: usize = 4;
 
@@ -1084,14 +1084,14 @@ mixdog_rt::replay_chunks!(CATALOG_TESTS, #[tokio::test(flavor = "multi_thread", 
 
 #[test]
 fn every_corpus_session_has_its_catalog_test() {
-    let fixture: serde_json::Value = serde_json::from_str(SUMMARIES).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
     let entries = fixture["sessions"].as_array().unwrap();
     assert!(entries.len() > 50);
     mixdog_rt::testing::assert_chunks_registered(CATALOG_TESTS, entries.len(), SESSION_CHUNK);
 }
 
 async fn catalog_rows_chunk(chunk: usize) {
-    let fixture: serde_json::Value = serde_json::from_str(SUMMARIES).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(&SUMMARIES).unwrap();
     let root = corpus_root();
     assert!(root.join("v145").is_dir(), "the migration corpus is missing at {}; set MIXDOG_MIGRATION_CORPUS", root.display());
     let mut bad = Vec::new();

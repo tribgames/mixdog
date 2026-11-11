@@ -5,7 +5,7 @@ use serde_json::Value;
 use super::js_sort_by;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../fixtures/ai-admin/js-array-sort-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/js-array-sort-twin.json")).unwrap()
 }
 
 type Compare = Box<dyn Fn(&i64, &i64) -> f64>;

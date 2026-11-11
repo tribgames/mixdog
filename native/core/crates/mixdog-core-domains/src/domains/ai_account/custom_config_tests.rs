@@ -7,7 +7,7 @@ use super::custom_config::normalize;
 
 #[test]
 fn every_input_normalizes_as_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/custom-config/golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/custom-config/golden.json")).unwrap();
     let cases = golden.as_array().unwrap();
     assert!(cases.len() > 100);
     for case in cases {

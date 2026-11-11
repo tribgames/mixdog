@@ -175,7 +175,7 @@ fn states(opened: &[Open]) -> Value {
 /// scripted worlds of request / claim / isActive / complete / abort / wait / dispose.
 #[tokio::test(start_paused = true)]
 async fn the_requests_answer_what_the_recorded_node_broker_answered() {
-    let twin: Value = serde_json::from_str(include_str!("../../../../../fixtures/desktop/settings/setup-requests-twin.json")).unwrap();
+    let twin: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop/settings/setup-requests-twin.json")).unwrap();
     let mut steps = 0;
     for (w, world) in twin["worlds"].as_array().unwrap().iter().enumerate() {
         let surface = Arc::new(Scripted { attach: Mutex::new(true), seen: Mutex::default() });

@@ -401,7 +401,7 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../fixtures/daemon-log/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/daemon-log/golden.json");
 
     fn tokens() -> mixdog_rt::LaneTokens {
         mixdog_rt::testing::tokens()
@@ -488,7 +488,7 @@ mod tests {
     /// same lines reach stderr.
     #[tokio::test]
     async fn every_node_scenario_writes_the_same_file() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let limits = &golden["limits"];
         assert_eq!(limits["maxBytes"], LOG_MAX_BYTES);
         assert_eq!(limits["keepBytes"], LOG_KEEP_BYTES);

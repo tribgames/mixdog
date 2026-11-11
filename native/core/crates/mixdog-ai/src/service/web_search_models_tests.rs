@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::*;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/web-search-models/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/web-search-models/golden.json");
 
 #[derive(Default)]
 struct Log {
@@ -222,7 +222,7 @@ fn world_of(scenario: &Value) -> World {
 
 #[tokio::test]
 async fn the_web_search_list_is_nodes_collect() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let scenarios = golden["scenarios"].as_array().unwrap();
     assert!(scenarios.len() >= 40);
     for scenario in scenarios {
@@ -271,7 +271,7 @@ async fn the_web_search_list_is_nodes_collect() {
 
 #[test]
 fn the_newest_quick_rows_are_nodes() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["quick"].as_array().unwrap() {
         let models = case["models"].as_object();
         assert_eq!(Value::Array(quick_web_search_models(models)), case["rows"], "{}", case["name"]);
@@ -283,7 +283,7 @@ fn the_newest_quick_rows_are_nodes() {
 /// is swallowed (`scanProvider`'s `catch { return [] }`).
 #[tokio::test]
 async fn a_readiness_failure_rejects_a_fresh_load() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let fresh = golden["scenarios"]
         .as_array()
         .unwrap()
