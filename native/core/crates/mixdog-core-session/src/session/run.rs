@@ -92,6 +92,7 @@ pub(crate) async fn read_context(
     };
     let mut read = None;
     loop {
+        store.unheld().await;
         let (store_io, thread) = (store.clone(), thread.clone());
         let page = lanes
             .io
