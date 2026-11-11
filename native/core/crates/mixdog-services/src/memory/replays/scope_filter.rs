@@ -1,10 +1,12 @@
 //! memory-scope-filter: `project_scope_predicate` and `append_project_scope` (memory/recall/filters.rs), the
-//! project-scope clause every recall browse, session and core-row query appends.
+//! project-scope clause every recall browse, session and core-row query appends. A non-string scope is compared at the
+//! wire (`resolve_query_project_scope` of the request, recall/plan.rs).
 
 use mixdog_testkit::Exact;
 
 use super::{assert_case_count, case, golden, int, object, opt_str, same, string};
 use crate::memory::recall::filters::{append_project_scope, project_scope_predicate};
+use crate::memory::recall::plan::{SearchArgs, resolve_query_project_scope};
 use crate::memory::recall::row::P;
 
 const SET: &str = "memory-scope-filter";
@@ -29,6 +31,19 @@ fn clause(clause: String, params: &[P]) -> Exact {
     object(vec![("clause", string(clause)), ("params", Exact::Array(params.iter().map(param).collect()))])
 }
 
+/// A non-string scope at the wire: the recall request's `projectScope` read by `resolve_query_project_scope` (no cwd
+/// resolved), then its clause at the probe's offset; compared with the recorded `wire` whole.
+fn at_wire(what: &str, scope: &Exact, next: usize, recorded: &Exact) {
+    let args = SearchArgs::new(serde_json::json!({ "projectScope": scope.to_plain().expect("a plain scope") }));
+    let resolved = resolve_query_project_scope(&args, None);
+    let (text, params) = project_scope_predicate(Some(&resolved), next, "project_id");
+    let Exact::Object(mut fields) = clause(text, &params) else { unreachable!("an object") };
+    fields.insert(0, ("resolved".to_owned(), string(resolved)));
+    let wire = recorded.get("wire");
+    let recorded = object(vec![("resolved", wire.get("resolved").clone()), ("clause", wire.get("result").get("clause").clone()), ("params", wire.get("result").get("params").clone())]);
+    same(&format!("{what} at the wire"), &recorded, &Exact::Object(fields));
+}
+
 #[test]
 fn the_recording_has_three_cases() {
     assert_case_count(&golden(SET), 3);
@@ -39,13 +54,11 @@ fn project_scope_predicate_keeps_common_all_slug_sql_shapes_and_param_offsets() 
     let name = "projectScopePredicate keeps common/all/slug SQL shapes and param offsets";
     let golden = golden(SET);
     let case = case(&golden, 0, name);
-    let mut js_only = Vec::new();
     for (i, probe) in case.get("probes").as_array().iter().enumerate() {
         let input = probe.get("input");
-        // A number scope is a JS typing shape: no recall request carries one to this clause (recall/plan.rs:95
-        // takes a string projectScope only); it is reported, not replayed.
+        // A number scope keeps its type only on the wire: compared there.
         let Ok(scope) = opt_str(input.get("scope")) else {
-            js_only.push(i);
+            at_wire(&format!("{name}: probe {i}"), input.get("scope"), input.get("next").as_f64() as usize, probe);
             continue;
         };
         let column = match input.get("options") {
@@ -56,7 +69,16 @@ fn project_scope_predicate_keeps_common_all_slug_sql_shapes_and_param_offsets() 
         let (text, params) = project_scope_predicate(scope, next, column);
         same(&format!("{name}: probe {i}"), probe.get("result"), &clause(text, &params));
     }
-    assert_eq!(js_only, [8], "probes with a non-string scope");
+}
+
+#[test]
+fn project_scope_predicate_binds_truthy_numeric_object_scopes_at_the_wire() {
+    let name = "projectScopePredicate binds truthy numeric/object scopes without coercion (JS typing artefact)";
+    let golden = golden(SET);
+    let case = case(&golden, 2, name);
+    for probe in case.get("probes").as_array() {
+        at_wire(&format!("{name}: {}", probe.get("label").as_str()), probe.get("scope"), probe.get("next").as_f64() as usize, probe);
+    }
 }
 
 #[test]
