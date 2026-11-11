@@ -211,6 +211,7 @@ fn world_with(scenario: &Value, chunking: Chunking, accounting: Option<super::ac
         home_dir: dir.path().to_path_buf(),
         io,
         gated_off: Arc::new(|_| false),
+        local: None,
     });
     let registry = ProviderRegistry::new(Arc::new(builder));
     let registry = match accounting {

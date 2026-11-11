@@ -192,6 +192,7 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
         home_dir: dir.path().to_path_buf(),
         io: io(),
         gated_off: Arc::new(|_| false),
+        local: None,
     }));
     let log = Arc::new(Mutex::new(Vec::new()));
     let seams = CustomSeams {

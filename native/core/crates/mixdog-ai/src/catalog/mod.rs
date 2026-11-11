@@ -30,6 +30,7 @@ pub use listing::ListingLookup;
 pub use listing::enrich_listed;
 pub use listing::keep_native;
 pub use listing::restate_row;
+pub use lookup::ANTIGRAVITY_FALLBACK;
 pub use lookup::seed_display_name;
 pub use lookup::seed_roster;
 pub use modelsdev::ModelsDev;

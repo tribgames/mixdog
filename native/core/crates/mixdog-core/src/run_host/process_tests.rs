@@ -117,6 +117,28 @@ impl LocalModels for Local {
     fn media(&self, _: &Value) -> Arc<dyn MediaText> {
         Arc::new(NoMedia)
     }
+    fn runtime(&self) -> Arc<dyn mixdog_ai::providers::local::LocalRuntime> {
+        Arc::new(NoRuntime)
+    }
+}
+
+/// A managed runtime with nothing installed that starts no server: these worlds only register `mixdog-local`.
+struct NoRuntime;
+
+#[async_trait::async_trait]
+impl mixdog_ai::providers::local::listing::InstalledModels for NoRuntime {
+    async fn installed(&self) -> Result<Vec<Value>, mixdog_core_api::domain::provider::ProviderError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait::async_trait]
+impl mixdog_ai::providers::local::LocalRuntime for NoRuntime {
+    async fn ensure_server(&self, _: &str) -> Result<mixdog_ai::providers::local::Endpoint, mixdog_core_api::domain::provider::ProviderError> {
+        let mut error = mixdog_core_api::domain::provider::ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+        error.message = "[local-provider] runtime is not installed".into();
+        Err(error)
+    }
 }
 
 pub(crate) struct World {

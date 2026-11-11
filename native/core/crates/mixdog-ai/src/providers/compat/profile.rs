@@ -9,6 +9,7 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 
 use super::models::{ModelTable, SeedModel};
 use super::retry;
+use crate::providers::first_byte::{FirstBytePolicy, PROVIDER_MAX_BEFORE_WARN_MS};
 
 /// The wire a model is served on (PW §5.7 `WIRES`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -269,6 +270,9 @@ pub struct ChatDialect {
     pub status_in_message: bool,
     /// The text of a 401 that needs a new sign-in.
     pub reauth: ReauthText,
+    /// The profile's own first-byte window (`chatProfile.firstByteTimeoutMs` and the profile's `firstByteRetries`): a
+    /// provider that sets one states a first-response budget over its retry ladder; `None` keeps the watchdog's default.
+    pub first_byte: Option<FirstBytePolicy>,
 }
 
 /// How a provider words a rejected login-issued key.
@@ -305,6 +309,7 @@ impl ChatDialect {
         friendly_codes: &[],
         status_in_message: true,
         reauth: ReauthText::Plain,
+        first_byte: None,
     };
 }
 
@@ -589,6 +594,9 @@ impl CompatProfile {
                     ("421", "Request blocked by content moderation"),
                     ("441", "Request blocked by risk control"),
                 ],
+                // `MIMO_FIRST_BYTE_TIMEOUT_MS = min(300 s, PROVIDER_MAX_BEFORE_WARN_MS)`, one first-byte retry
+                // (`COMPAT_RETRY_PROFILES['mimo-oauth'].firstByteRetries`).
+                first_byte: Some(FirstBytePolicy { timeout_ms: PROVIDER_MAX_BEFORE_WARN_MS, max_ms: PROVIDER_MAX_BEFORE_WARN_MS, retries: Some(1) }),
                 ..ChatDialect::PLAIN
             },
             credential: CredentialKind::StaticKey {
