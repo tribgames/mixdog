@@ -57,7 +57,10 @@ await rec.run('xai-responses-fingerprint-payload', `${SRC}:66`, { sessionId: 'se
     provider.tokens = { access_token: 'tok-fixture', refresh_token: 'refresh-fixture', expires_at: Date.parse('2030-01-01T00:00:00Z'), user_id: 'user-fixture' };
     const sent = await clock.followRetries(provider.send([{ role: 'user', content: 'hi' }], 'grok-4.6', [], { sessionId: 'session-a', providerState: { xaiResponses: { store: false, seenMessageCount: 6 } } }).then((result) => ({ result }), (error) => ({ error })));
     const rows = () => (existsSync(tracePath) ? readFileSync(tracePath, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
-    await clock.advance(0, { until: () => rows().some((row) => row.kind === 'cache_context'), what: 'the cache_context trace row written' });
+    // The local trace is spooled and written by the product's flush timer (virtual clock): once the timer is armed by the append, the clock moves to it and the row reaches the file.
+    const flushTimer = () => clock.pendingFrom(/_appendLocalTrace/)[0];
+    await clock.advance(0, { until: () => flushTimer() !== undefined, what: 'the trace flush timer armed' });
+    await clock.advance(flushTimer().due - (Date.now() - rec.T0), { until: () => rows().some((row) => row.kind === 'cache_context'), what: 'the cache_context trace row written' });
     return { sent, trace: rows() };
   } finally {
     for (const [k, v] of saved) (v === undefined ? delete process.env[k] : (process.env[k] = v));
