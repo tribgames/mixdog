@@ -1,0 +1,1049 @@
+{
+  "domain": "session-message-sanitize",
+  "recorder": "benchmarks/rust-core/recorders/record-session-message-sanitize.mjs",
+  "testFile": "src/runtime/agent/orchestrator/session/manager/message-sanitize.test.mjs",
+  "cases": [
+    {
+      "name": "snapshot-keeps-notifications-following-work-and-images-without-aliasing",
+      "testLine": 32,
+      "input": {
+        "notificationInput": {
+          "jobId": "task_history",
+          "status": "completed",
+          "exitCode": 0,
+          "summary": "The background check passed."
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification",
+              "execution": {
+                "id": "task_history",
+                "surface": "shell",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed."
+          },
+          {
+            "role": "assistant",
+            "content": "The result is ready."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "data": "image-bytes",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "snapshot": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification",
+              "execution": {
+                "id": "task_history",
+                "surface": "shell",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed."
+          },
+          {
+            "role": "assistant",
+            "content": "The result is ready."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "data": "image-bytes",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "Next response."
+          }
+        ],
+        "sameArray": false,
+        "sameElements": true,
+        "sourceLengthAfterPush": 6
+      }
+    },
+    {
+      "name": "restored-and-legacy-notification-text-stays-in-history",
+      "testLine": 50,
+      "input": {
+        "shellInput": {
+          "jobId": "task_history",
+          "status": "completed",
+          "exitCode": 0,
+          "summary": "The background check passed."
+        },
+        "agentInput": {
+          "id": "agent_history",
+          "tag": "worker",
+          "status": "failed",
+          "error": "Check failed."
+        }
+      },
+      "result": [
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>"
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>"
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "<task-notification>\n<task-id>agent_history</task-id>\n<tag>worker</tag>\n<status>failed</status>\n<summary>Agent \"worker\" failed</summary>\n<error>Check failed.</error>\n</task-notification>"
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "<task-notification>\n<task-id>agent_history</task-id>\n<tag>worker</tag>\n<status>failed</status>\n<summary>Agent \"worker\" failed</summary>\n<error>Check failed.</error>\n</task-notification>"
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task-notification>\n<task-id>agent_history</task-id>\n<tag>worker</tag>\n<status>failed</status>\n<summary>Agent \"worker\" failed</summary>\n<error>Check failed.</error>\n</task-notification>"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<task-notification>\n<task-id>agent_history</task-id>\n<tag>worker</tag>\n<status>failed</status>\n<summary>Agent \"worker\" failed</summary>\n<error>Check failed.</error>\n</task-notification>"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "[task_id: legacy_shell]\n[status: completed]\n[exit: 0]\n\nThe check passed."
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "[task_id: legacy_shell]\n[status: completed]\n[exit: 0]\n\nThe check passed."
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "[task_id: legacy_shell]\n[status: completed]\n[exit: 0]\n\nThe check passed."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "[task_id: legacy_shell]\n[status: completed]\n[exit: 0]\n\nThe check passed."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "background task\ntask_id: legacy_task\nstatus: completed\n\nThe check passed."
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "background task\ntask_id: legacy_task\nstatus: completed\n\nThe check passed."
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "background task\ntask_id: legacy_task\nstatus: completed\n\nThe check passed."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "background task\ntask_id: legacy_task\nstatus: completed\n\nThe check passed."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "Async shell task legacy_shell (completed) finished.\n\nResult:\n> [task_id: legacy_shell]\n> [status: completed]"
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": "Async shell task legacy_shell (completed) finished.\n\nResult:\n> [task_id: legacy_shell]\n> [status: completed]"
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Async shell task legacy_shell (completed) finished.\n\nResult:\n> [task_id: legacy_shell]\n> [status: completed]"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ],
+          "snapshot": [
+            {
+              "role": "user",
+              "content": "Check the background result."
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Async shell task legacy_shell (completed) finished.\n\nResult:\n> [task_id: legacy_shell]\n> [status: completed]"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "Inspecting the result.",
+              "toolCalls": [
+                {
+                  "id": "read_result",
+                  "name": "read",
+                  "args": {
+                    "file_path": "result.txt"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "toolCallId": "read_result",
+              "content": "The check passed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "drained-notification-retains-the-provider-prefix-across-a-turn-boundary",
+      "testLine": 66,
+      "input": {
+        "prompt": "Check the background result.",
+        "drained": [
+          {
+            "mode": "task-notification",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>"
+          }
+        ],
+        "toolWork": [
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed."
+          }
+        ]
+      },
+      "result": {
+        "drained": true,
+        "skillPromptCalls": 0,
+        "afterDrain": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification",
+              "transcript": {
+                "messageId": "msg_<id>"
+              }
+            }
+          }
+        ],
+        "sentHistory": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification",
+              "transcript": {
+                "messageId": "msg_<id>"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed."
+          }
+        ],
+        "guardFirst": {
+          "messageHashes": [
+            "9c2c40e57f9f1e86ce298583f8837a7b569b64bde4be079bcbcf22e491705d2b",
+            "dc333a5deea23bb1bc5cb33a1d17c2f680c41dfd9b438cbdf0803319443cd1b9",
+            "0d1712984bc93519c3c640f5f75110da4228bdf6290a5130a77bb3dfcf226848",
+            "4babf07ed9de528588d82d54f81365782a66d11df25dba2a0fc9ee8777f364c2"
+          ],
+          "requestPrefixHash": "cb052d02e8ac312c606778fb8dd9ce63c706177940731bd13cd6dffca9a46557",
+          "provider": "",
+          "model": "",
+          "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "nextRequest": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification",
+              "transcript": {
+                "messageId": "msg_<id>"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed."
+          },
+          {
+            "role": "assistant",
+            "content": "The check passed."
+          },
+          {
+            "role": "user",
+            "content": "Continue."
+          }
+        ],
+        "prefixEqualsSentHistory": true,
+        "retained": {
+          "ok": {
+            "messageHashes": [
+              "9c2c40e57f9f1e86ce298583f8837a7b569b64bde4be079bcbcf22e491705d2b",
+              "dc333a5deea23bb1bc5cb33a1d17c2f680c41dfd9b438cbdf0803319443cd1b9",
+              "0d1712984bc93519c3c640f5f75110da4228bdf6290a5130a77bb3dfcf226848",
+              "4babf07ed9de528588d82d54f81365782a66d11df25dba2a0fc9ee8777f364c2",
+              "0545b80911898f63d202615c8a257c7e00a42597ed26431e7eb11038505d41f2",
+              "9db7369110cf0dfc8ebe12d9ab7e40d07e1c7dbb12a37ca23183c142e126b26c"
+            ],
+            "requestPrefixHash": "cb052d02e8ac312c606778fb8dd9ce63c706177940731bd13cd6dffca9a46557",
+            "provider": "",
+            "model": "",
+            "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          }
+        },
+        "shrunkRequest": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification",
+              "transcript": {
+                "messageId": "msg_<id>"
+              }
+            }
+          },
+          {
+            "role": "user",
+            "content": "Continue."
+          }
+        ],
+        "shrunk": {
+          "error": {
+            "name": "ProviderPrefixMutationError",
+            "code": "PROVIDER_PREFIX_MUTATION",
+            "message": "provider message history shrank outside compaction"
+          }
+        }
+      }
+    },
+    {
+      "name": "interrupted-turn-retains-notifications-and-completed-tool-work",
+      "testLine": 96,
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification"
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed."
+          }
+        ],
+        "currentUserContent": "Check the background result.",
+        "snapshot": {
+          "responseStarted": true
+        },
+        "abortReason": "process-crash"
+      },
+      "result": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification"
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed.",
+            "meta": {
+              "sentRequestTail": true
+            }
+          },
+          {
+            "role": "user",
+            "content": "[Request interrupted by process restart]"
+          }
+        ],
+        "responsePreserved": true,
+        "userTurnPreserved": true
+      }
+    }
+  ]
+}
