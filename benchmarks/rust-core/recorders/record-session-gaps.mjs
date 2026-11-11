@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 import { exact, exactArgs } from './lib/exact.mjs';
 
@@ -17,7 +17,9 @@ const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const args = parseArgs();
 const tree = resolveTree(args);
 const only = args.get('only');
-const identity = exactProductIdentity(tree, NODE_COMMIT);
+// The tree is the commit, or with `--patch` the commit with node-fix-manual-compaction-ends-with-session.patch applied
+// (the cases of a manual compaction ended by a close are recorded from the patched tree).
+const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
 const load = (path) => import(pathToFileURL(join(tree, path)).href);
 // Node's runtime writes under its data directory: a fresh one, removed when the recording ends.
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-session-gaps-'));
@@ -98,6 +100,12 @@ const imageCases = [
     script: [{ error: { status: 400, message: 'Invalid request: the field temperature is out of range.' } }],
   },
   {
+    // The stream gave 23 characters of text and three tool calls before the error: the outcome counts them.
+    name: 'error-after-partial-output',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'look' }, image('a2'.repeat(32))] }],
+    script: [{ error: { status: 400, message: 'Invalid request: the field temperature is out of range.' }, partial: { text: 'Let me check that file.', calls: 3 } }],
+  },
+  {
     // The image rides a tool result of the latest turn.
     name: 'image-in-tool-result',
     messages: [
@@ -118,7 +126,12 @@ async function imageStrip() {
       sends.push(exact(rows(sent)));
       const step = script[sends.length - 1];
       if (!step) throw new Error(`script exhausted at send ${sends.length}`);
-      if (step.error) throw Object.assign(new Error(step.error.message), { httpStatus: step.error.status, ...(step.error.code ? { code: step.error.code } : {}) });
+      // `partial`: the stream gave the text and the tool calls before it failed, as a provider's stream tracker reports them
+      // on the error (`partialContent`, `partialToolCalls`, `toolCallsDispatched`: providers/lib/stream-outcome.mjs).
+      const partial = step.partial
+        ? { partialContent: step.partial.text, partialToolCalls: Array.from({ length: step.partial.calls }, (_, i) => ({ id: `call_${i + 1}`, name: 'read' })), toolCallsDispatched: step.partial.calls, liveTextEmitted: true }
+        : {};
+      if (step.error) throw Object.assign(new Error(step.error.message), { httpStatus: step.error.status, ...(step.error.code ? { code: step.error.code } : {}), ...partial });
       return { content: step.reply, toolCalls: [], stopReason: 'end_turn' };
     },
   });
@@ -198,6 +211,7 @@ const attachmentCases = [
 async function attachmentPreflight() {
   const store = await load('src/runtime/attachments/store.mjs');
   const { agentLoop } = await load('src/runtime/agent/orchestrator/session/agent-loop.mjs');
+  const { buildRequestBody } = await load('src/runtime/agent/orchestrator/providers/openai-responses-payload.mjs');
   const blobs = {};
   const intake = async (items, nativePdf) => {
     const prompt = items.map((item) => {
@@ -245,7 +259,11 @@ async function attachmentPreflight() {
       const provider = {
         name: session.provider,
         async send(messages, _model, _tools, opts) {
-          sends.push({ messages: structuredClone(messages), providerState: structuredClone(opts?.providerState) });
+          // `wire`: the request body Node's Responses provider builds from exactly these messages and continuation, as the
+          // public OpenAI route sends it (`promptCacheProvider: 'openai'`); the text-only route's chat body needs the
+          // extension host's PDF text and is not recorded (manifest).
+          const wire = c.nativePdf ? buildRequestBody(messages, _model, [], { promptCacheProvider: 'openai', providerState: opts?.providerState }) : undefined;
+          sends.push({ messages: structuredClone(messages), providerState: structuredClone(opts?.providerState), wire });
           return { content: 'ok', toolCalls: [], stopReason: 'end_turn', providerState: reply };
         },
       };
@@ -266,11 +284,14 @@ async function attachmentPreflight() {
 const PASTED = Array.from({ length: 900 }, (_, i) => `pasted line ${i} ${'é'.repeat(i % 7)} 🙂`).join('\n');
 // The failure cases run over the stored paste: the summary provider throws, answers an empty summary, or the session's
 // abort signal is already aborted (a parent-linked agent session whose parent was cancelled). A manual compaction reads
-// its signal through `getSessionAbortSignal` (session-crud.mjs:399): an idle session has a controller only once
-// `linkParentSignalToSession` made one (runtime-liveness.mjs:603), and `isSessionCompactionBlocked` refuses a session
-// whose controller is not aborted ("compact skipped: turn in progress"), so an aborted parent link is the one way a
-// manual compaction carries a signal at all, and Node's `closeSession` cannot stop one in flight.
-const pastedCases = ['stored', 'gone', 'held-open', 'provider-error', 'empty-summary', 'cancelled'];
+// its signal through the session's controller (`beginManualCompaction`, runtime-liveness.mjs, from
+// node-fix-manual-compaction-ends-with-session.patch: 1.4.5 gave an idle session's compaction no signal at all, so a
+// close could not stop one in flight). `closed`, `deleted` and `shutdown` end a compaction whose summary send is in
+// flight: `closeSession`, the session delete's close (`desktop-session-delete`, session-switch/session-delete.mjs) and the
+// runtime's close (`quiesce('cli-exit')`'s `abortActiveTurns`, reaching the compaction the session ops registered). The
+// summary send honours its signal, as a real provider's does.
+const pastedCases = ['stored', 'gone', 'held-open', 'provider-error', 'empty-summary', 'cancelled', 'closed', 'deleted', 'shutdown'];
+const endedInFlight = ['closed', 'deleted', 'shutdown'];
 
 async function compactionPastedText() {
   const store = await load('src/runtime/attachments/store.mjs');
@@ -280,6 +301,12 @@ async function compactionPastedText() {
   const { saveSessionAsync } = await load('src/runtime/agent/orchestrator/session/store.mjs');
   const { _withRegisteredProviderForTestAsync } = await load('src/runtime/agent/orchestrator/providers/registry.mjs');
   const { linkParentSignalToSession } = await load('src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs');
+  const { closeSession } = await load('src/runtime/agent/orchestrator/session/manager/session-close.mjs');
+  const { deleteSession } = await load('src/runtime/agent/orchestrator/session/store/session-delete.mjs');
+  const { SessionClosedError } = await load('src/runtime/agent/orchestrator/session/manager/session-errors.mjs');
+  const { createSessionOps } = await load('src/session-runtime/turn/session-ops.mjs');
+  const { activeTurnControls } = await load('src/session-runtime/boot/config.mjs');
+  const mgr = await load('src/runtime/agent/orchestrator/session/manager.mjs');
   const { createHash } = await import('node:crypto');
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const { dirname } = await import('node:path');
@@ -315,11 +342,19 @@ async function compactionPastedText() {
     ];
     const live = { id: `gaps-pasted-${name}`, provider: 'openai', model: 'gpt-x', contextWindow: 8000, rawContextWindow: 8000, effectiveContextWindowPercent: 100, tools: [], messages, compaction: { auto: true } };
     const sends = [];
+    let sendStarted;
+    const started = new Promise((resolve) => (sendStarted = resolve));
     const provider = {
       name: 'openai',
       send: async (...sendArgs) => {
         // Every argument as sent (the options carry the abort signal: recorded as its state).
         sends.push(exactArgs(sendArgs, { classes: { AbortSignal: (s) => ({ aborted: s.aborted }) } }));
+        sendStarted();
+        // A summary send in flight when its session closes: it ends with the signal's reason, as a real provider's does.
+        if (endedInFlight.includes(name)) {
+          const { signal } = sendArgs[3];
+          return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        }
         // A real provider rejects a send whose signal is aborted with the signal's reason.
         if (sendArgs[3]?.signal?.aborted) throw sendArgs[3].signal.reason;
         // A request error no provider retries (Node's real providers retry inside `send`; this one answers once).
@@ -336,8 +371,34 @@ async function compactionPastedText() {
       linkParentSignalToSession(live.id, parent.signal);
     }
     let result;
+    let deleted;
+    // The compaction as the client reaches it, and for `shutdown` through the session ops that register it with the runtime.
+    const rt = { activeTurnAbortControllers: new Set(), closeRequested: false, session: live };
+    const controls = activeTurnControls(rt);
+    const ops = createSessionOps({
+      getSession: () => live,
+      setSession: () => {},
+      getActiveTurnCount: () => 0,
+      mgr,
+      invalidateContextStatusCache: () => {},
+      registerActiveTurnController: controls.registerActiveTurnController,
+    });
+    const ended = {
+      closed: () => closeSession(live.id, 'cli-agent-close'),
+      deleted: async () => {
+        await closeSession(live.id, 'desktop-session-delete', { tombstone: true });
+        deleted = await deleteSession(live.id);
+      },
+      shutdown: async () => controls.abortActiveTurns(new SessionClosedError(live.id, 'runtime close (reason=cli-exit)', 'cli-exit')),
+    }[name];
     try {
-      result = { value: exact(await _withRegisteredProviderForTestAsync('openai', provider, () => compactSessionMessages(live.id))) };
+      result = { value: exact(await _withRegisteredProviderForTestAsync('openai', provider, async () => {
+        if (!ended) return compactSessionMessages(live.id);
+        const compacting = name === 'shutdown' ? ops.compact() : compactSessionMessages(live.id);
+        await started;
+        await ended();
+        return compacting;
+      })) };
     } catch (error) {
       result = { error: exact(error) };
     } finally {
@@ -346,7 +407,7 @@ async function compactionPastedText() {
         await new Promise((resolve) => holder.once('exit', resolve));
       }
     }
-    cases.push(scrubData({ name, blob: name === 'gone' ? null : bytes.toString('base64'), part: exact(part), messages: exact(messages), sends, result }));
+    cases.push(scrubData({ name, blob: name === 'gone' ? null : bytes.toString('base64'), part: exact(part), messages: exact(messages), sends, result, ...(deleted === undefined ? {} : { deleted }) }));
   }
   return { cases };
 }
@@ -375,7 +436,10 @@ writeSetManifest(outDir, {
     scenarios: Object.keys(scenarios),
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
-      'attachment-preflight: Node\'s file part carries its measured facts (sizeBytes, pageCount, textPages, textChars) on the message object it hands the provider (media-normalization.mjs pdfDescriptor prices from them); the core\'s request part has no such fields and prices from the same facts on the part\'s stored row, so the replay compares Node\'s sent file part without them and the facts, whole, with the core\'s stored row for the same part',
+      'attachment-preflight: each send records the Responses request body Node builds from the messages it hands the provider (`wire`: openai-responses-payload.mjs buildRequestBody, public OpenAI route); the replay compares the core\'s body for the same request whole (the core\'s openai body builder). Named absence: Node reads a stored PDF\'s bytes as it builds the body (readAttachmentBase64) and sends an input_file; the core\'s builder lowers a stored file reference to the text "[attachment: <ref>]" (mixdog-ai providers/openai/input.rs) and no stage of the provider path reads the blob first, so the replay resolves the references with the model proxy\'s inlining (mixdog-ai service/model_proxy_inline.rs inline_attachments) before building. The recorded `messages` (which carry the file parts\' measured facts) are not compared for these cases: the body is what is sent',
+      'attachment-preflight, text-only-scan: the route reads a PDF as text through the extension host\'s extraction, so no `wire` is recorded for it (a chat body); the replay compares the core\'s request messages for it, with Node\'s file part without the measured facts (sizeBytes, pageCount, textPages, textChars), which the core prices from the part\'s stored row, and those facts compared whole with that row',
+      'compaction-pasted-text: the whole set is recorded from the tree with benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch applied (Node 1.4.5 gave a manual compaction no signal of its own, so closing the session or the runtime could not stop one in flight and its result came back after the close; the patch registers the compaction with the session\'s controller and with the runtime\'s active turns). The patch changes only that path: the cases that run no close record the same results, and their summary send now carries the signal (recorded as its state, { aborted: false }); closed, deleted and shutdown exist only because of it',
+      'image-strip, error-after-partial-output: the error carries what the provider\'s stream tracker put on it (partialContent, partialToolCalls, toolCallsDispatched, liveTextEmitted) and the stamps stampStreamOutcome adds; the replay builds each from the text and completed calls the core\'s stream delivered before it failed',
       'legacy-json-keys: the document is recorded as 1.4.5 read it (a lone surrogate kept: exact\'s utf16 tag; two-distinct-lone-surrogates holds two such keys); the migration replay compares it with each lone surrogate read as U+FFFD and the keys that are equal after that as one (the last value at the first\'s place), because the core\'s store holds UTF-8 text and no UTF-8 text holds a lone surrogate (mixdog-migrate json::replace_lone_surrogates, long_session_log.rs)',
       'attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>',
       'compaction-pasted-text: the replay compares a thrown failure by name and message only; its errno fields (code, errno, syscall, path) are recorded but not compared, because the core\'s attachment reader carries the read\'s text and no errno (ReadError::Other, run_host/media.rs resolve_ref)',

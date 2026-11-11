@@ -92,6 +92,16 @@ enum Attempt {
     Reject(ProviderError),
 }
 
+impl Attempt {
+    /// This attempt when its stream ends in a failure; an attempt that completes is no part of an error's exposure.
+    fn failing(&self) -> &[Step] {
+        match self {
+            Attempt::Stream(steps) if steps.iter().any(|s| matches!(s, Step::Fail(_))) => steps,
+            _ => &[],
+        }
+    }
+}
+
 struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>);
 
 #[async_trait]
@@ -2361,24 +2371,27 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
     // the stream's `Exposure` (its three facts), the transport fault that ended it and the fact that an error is no
     // terminal event, put through Node's own derivations (`_signalsOf`, `deriveStreamOutcome`: `continuation`,
     // `visibleOutput`, `observedOutput`, `sideEffectDispatched`, `replayUnsafe`, `replaySafe`, `successEligible`).
-    // The core keeps no counts, no provider name and no transport label on an error: a count is 1 for a fact that
-    // holds, `provider` is null and `transport` is 'unknown' as for an error that carries neither.
+    // The core keeps no provider name and no transport label on an error: `provider` is null and `transport` is
+    // 'unknown' as for an error that carries neither. The counts are what the core's stream delivered before it failed
+    // (`seen`: the characters of its text deltas as JS counts them, and the tool calls it completed), a call counting
+    // as dispatched when the error's exposure says one was.
+    let seen: std::cell::RefCell<(String, u64)> = std::cell::RefCell::new((String::new(), 0));
     let stream_outcome = |e: &ProviderError| {
         let truncated = e.transport == Some(TransportFault::TruncatedStream);
         let stalled = matches!(e.transport, Some(TransportFault::KeepaliveExpired { .. }));
         let (text, dispatched, pending) = (e.exposure.text_emitted, e.exposure.tool_dispatched, e.exposure.tool_input_cut);
         let (reasoning, ambiguous, aborted, terminal) = (false, false, false, false);
-        let count = |fact: bool| u64::from(fact);
-        let started = text || dispatched;
+        let (chars, calls) = (seen.borrow().0.encode_utf16().count() as u64, seen.borrow().1);
+        let started = text || dispatched || chars > 0 || calls > 0;
         let continuation = !terminal && (truncated || stalled || started);
         let visible = text || reasoning;
-        let observed = visible || count(text) > 0 || count(dispatched) > 0;
+        let observed = visible || chars > 0 || calls > 0 || dispatched;
         let unsafe_replay = visible || dispatched || ambiguous;
         json!({
             "version": 1, "provider": null, "transport": "unknown",
             "terminalObserved": terminal, "continuation": continuation, "declaredContinuation": false,
-            "textEmitted": text, "textObservedChars": count(text), "reasoningEmitted": reasoning,
-            "toolCallsStarted": dispatched, "toolCallsComplete": count(dispatched), "toolCallsDispatched": count(dispatched),
+            "textEmitted": text, "textObservedChars": chars, "reasoningEmitted": reasoning,
+            "toolCallsStarted": dispatched || calls > 0, "toolCallsComplete": calls, "toolCallsDispatched": if dispatched { calls } else { 0 },
             "dispatchAmbiguous": ambiguous, "pendingToolInput": pending, "userAbort": aborted,
             "stallObserved": stalled, "truncatedStream": truncated,
             "visibleOutput": visible, "observedOutput": observed, "sideEffectDispatched": dispatched,
@@ -2392,7 +2405,26 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
             if let Some(code) = &e.code {
                 props["code"] = json!(code);
             }
-            props["streamOutcome"] = stream_outcome(e);
+            let outcome = stream_outcome(e);
+            // What the provider's stream tracker put on the error (`partialContent`, `partialToolCalls`,
+            // `toolCallsDispatched`: the stream's text and completed calls) and what `stampStreamOutcome` then marks on it.
+            let (partial, calls) = seen.borrow().clone();
+            if !partial.is_empty() {
+                props["partialContent"] = json!(partial);
+            }
+            if calls > 0 {
+                props["partialToolCalls"] = (1..=calls).map(|i| json!({ "id": format!("call_{i}"), "name": "read" })).collect();
+                props["toolCallsDispatched"] = outcome["toolCallsDispatched"].clone();
+            }
+            let marks = [("textEmitted", &["liveTextEmitted", "emittedText"][..]), ("toolCallsStarted", &["partialToolCall"]), ("sideEffectDispatched", &["emittedToolCall", "toolCallEmitted"]), ("replayUnsafe", &["unsafeToRetry"])];
+            for (fact, keys) in marks {
+                if outcome[fact] == json!(true) {
+                    for key in keys {
+                        props[*key] = json!(true);
+                    }
+                }
+            }
+            props["streamOutcome"] = outcome;
             json!({ "name": "Error", "message": e.message, "props": props })
         }
         other => panic!("{other:?}"),
@@ -2410,18 +2442,42 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
             error.status = e.get("status").and_then(JsonValue::as_u64).map(|s| s as u16);
             error.code = e.get("code").and_then(JsonValue::as_str).map(str::to_owned);
             error.message = e["message"].as_str().expect("message").into();
-            Attempt::Reject(error)
+            match step.get("partial") {
+                // The stream gives its text and completes its calls, then fails.
+                Some(partial) => {
+                    let mut steps = vec![text(partial["text"].as_str().expect("text"))];
+                    steps.extend((1..=partial["calls"].as_u64().expect("calls")).map(|i| call(&format!("call_{i}"), "read", json!({}))));
+                    // The stream's exposure: what it had shown and handed over when it failed.
+                    error.exposure.text_emitted = true;
+                    error.exposure.tool_dispatched = true;
+                    steps.push(Step::Fail(error));
+                    Attempt::Stream(steps)
+                }
+                None => Attempt::Reject(error),
+            }
         }
         (_, JsonValue::String(reply)) => turn(vec![text(reply), done(StopReason::EndTurn)]),
         other => panic!("step {other:?}"),
     };
     let cases = recorded["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 6);
+    assert_eq!(cases.len(), 7);
     for case in cases {
         let name = case["name"].as_str().expect("name");
         let messages: Vec<AgentMessage> = case["messages"].as_array().expect("messages").iter().map(message_of).collect();
         let first = &case["first"];
-        let h = Harness::new(case["script"].as_array().expect("script").iter().map(attempt_of).collect());
+        let attempts: Vec<Attempt> = case["script"].as_array().expect("script").iter().map(attempt_of).collect();
+        // What the stream gives the core before it fails: its text and its completed calls.
+        *seen.borrow_mut() = attempts.iter().fold((String::new(), 0), |(mut t, mut n), a| {
+            for step in a.failing() {
+                match step {
+                    Step::Event(StreamEvent::TextDelta(d)) => t.push_str(d),
+                    Step::Event(StreamEvent::ToolCallDone(_)) => n += 1,
+                    _ => {}
+                }
+            }
+            (t, n)
+        });
+        let h = Harness::new(attempts);
         let (result, error, mut transcript) = match h.run(config(), vec![], messages).run().await {
             Ok(output) => (Some(output.response.content), JsonValue::Null, output.transcript),
             Err(failure) => (None, error_row(&failure.error), failure.transcript),

@@ -786,6 +786,21 @@ pub(crate) mod tests {
                 blobs: Arc::new(NoBlobs),
             };
             let compactor = compactors.compactor(&thread(), &header(provider), &[], input).await.expect("a compactor");
+            let native = case["nativePdf"] == true;
+            let reader = mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments { store: blobs.clone(), interactive: tokens.interactive_io };
+            struct Ctx;
+            impl mixdog_ai::providers::openai::config::WireContext for Ctx {
+                fn request_id(&self) -> String {
+                    "0".repeat(32)
+                }
+                fn now_unix_ms(&self) -> u64 {
+                    0
+                }
+                fn turn_state(&self, _: &str, _: &str) -> Option<String> {
+                    None
+                }
+            }
+            let wire_config = mixdog_ai::providers::openai::config::OpenAiConfig::api_key(false, Arc::new(mixdog_ai::providers::openai::config::NoFacts), Arc::new(Ctx));
             let data = serde_json::to_string(&dir.path().to_string_lossy()).unwrap();
             let shown = |messages: &[AgentMessage]| -> Value {
                 let rows = serde_json::to_string(&messages.iter().map(row_of).collect::<Vec<_>>()).unwrap();
@@ -873,17 +888,49 @@ pub(crate) mod tests {
                     .await
                     .unwrap_or_else(|f| panic!("{name} turn {n}: {:?}", f.error));
                 let requests = provider.requests.lock().unwrap().clone();
-                let sends: Vec<Value> = requests
-                    .iter()
-                    .map(|r| {
-                        let mut send = json!({ "messages": sent_rows(&r.messages) });
-                        if let Some(state) = &r.options.provider_state {
-                            send["providerState"] = state.to_json();
-                        }
-                        send
-                    })
-                    .collect();
-                assert_eq!(Value::Array(sends), without_facts(&turn["sends"], &shown(&output.transcript)), "{name} turn {n}: what the provider was sent");
+                let mut sends: Vec<Value> = Vec::new();
+                for r in &requests {
+                    let mut send = json!({});
+                    if native {
+                        // The request body the Responses route sends for this request (`wire`: Node's `buildRequestBody`),
+                        // from the real body builder. Node's provider reads a stored PDF's bytes as it builds the body
+                        // (`readAttachmentBase64`, media-normalization.mjs); the core's builder lowers a stored file
+                        // reference to the text `[attachment: <ref>]` (providers/openai/input.rs), and no stage of the
+                        // provider path reads the blob first: that is a named absence (manifest). The reference is
+                        // resolved here with the model proxy's own inlining, the one reader of stored files for a wire.
+                        let mut sent = (**r).clone();
+                        mixdog_ai::service::model_proxy_inline::inline_attachments(&mut sent.messages, &reader, mixdog_ai::service::model_proxy_inline::MODEL_PROXY_INLINE_MAX_BYTES).await.expect("the stored files read");
+                        let body = serde_json::to_string(&Value::Object(mixdog_ai::providers::openai::body::build(&wire_config, &sent).map)).unwrap();
+                        send["wire"] = serde_json::from_str(&body.replace(&data[1..data.len() - 1], "<data>")).unwrap();
+                    } else {
+                        send["messages"] = sent_rows(&r.messages);
+                    }
+                    if let Some(state) = &r.options.provider_state {
+                        send["providerState"] = state.to_json();
+                    }
+                    sends.push(send);
+                }
+                let expected = if native {
+                    Value::Array(turn["sends"].as_array().unwrap().iter().map(|s| {
+                        let mut s = s.clone();
+                        s.as_object_mut().unwrap().remove("messages");
+                        s
+                    }).collect())
+                } else {
+                    without_facts(&turn["sends"], &shown(&output.transcript))
+                };
+                fn first_difference(a: &Value, b: &Value, at: String) -> Option<String> {
+                    match (a, b) {
+                        (Value::Object(x), Value::Object(y)) => x.keys().chain(y.keys()).find_map(|k| match (x.get(k), y.get(k)) {
+                            (Some(p), Some(q)) => first_difference(p, q, format!("{at}/{k}")),
+                            (p, q) => Some(format!("{at}/{k}: core {p:?} node {q:?}")),
+                        }),
+                        (Value::Array(x), Value::Array(y)) if x.len() == y.len() => x.iter().zip(y).enumerate().find_map(|(i, (p, q))| first_difference(p, q, format!("{at}/{i}"))),
+                        _ => (a != b).then(|| format!("{at}: core {a} node {b}")),
+                    }
+                }
+                let sends = Value::Array(sends);
+                assert!(sends == expected, "{name} turn {n}: what the provider was sent: first difference {:?}", first_difference(&sends, &expected, String::new()));
                 assert_eq!(output.provider_state.as_ref().map(ProviderState::to_json), turn.get("providerState").cloned(), "{name} turn {n}: the continuation");
                 // Neither loop appends its final reply (the ask wrapper does); the recording's next turn adds it.
                 transcript = output.transcript;

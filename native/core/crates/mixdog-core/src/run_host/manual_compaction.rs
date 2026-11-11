@@ -259,7 +259,14 @@ impl HostManualCompaction {
     /// `recordFailedCompaction` and the save after it: the thread keeps its conversation; its
     /// `compaction` record says what happened.
     async fn record_failure(&self, thread: &ThreadId, snapshot: &ContextSnapshot, messages: &[AgentMessage], plan: &CompactionPlan, usage: Option<&Value>, error: &str, fresh_error: Option<&str>) -> Result<Value, CoreError> {
-        let header = self.parts.threads.header(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+        // A session that closed, was deleted or shut down under the compaction (its abort is why this records a failure) is gone
+        // from the directory: Node holds the session it loaded, its save is dropped by the close's generation, and the result
+        // is returned all the same. So the pass's own snapshot of the header stands in, and nothing is stored.
+        let header = match self.parts.threads.header(thread).await {
+            Ok(header) => header,
+            Err(_) if self.session_ended(thread) => snapshot.header.clone(),
+            Err(e) => return Err(failed(DOMAIN, format!("{e:?}"))),
+        };
         let now = self.now();
         let mut working = header.clone();
         if let Some(usage) = usage {
@@ -271,8 +278,17 @@ impl HostManualCompaction {
         working.insert("compaction".into(), Value::Object(outcome.compaction));
         working.insert("updatedAt".into(), number(now));
         let change = header_change(&header, &working);
-        self.parts.threads.patch_header(thread, change.set, change.unset).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+        match self.parts.threads.patch_header(thread, change.set, change.unset).await {
+            Ok(()) => {}
+            Err(_) if self.session_ended(thread) => {}
+            Err(e) => return Err(failed(DOMAIN, format!("{e:?}"))),
+        }
         Ok(outcome.result)
+    }
+
+    /// The thread was closed, deleted or shut down (it is no longer loaded, or is closed): the directory refuses it work.
+    fn session_ended(&self, thread: &ThreadId) -> bool {
+        !self.parts.directory.directory().is_some_and(|directory| directory.is_open(thread))
     }
 }
 

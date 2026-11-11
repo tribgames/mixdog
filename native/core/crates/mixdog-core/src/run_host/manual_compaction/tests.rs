@@ -258,6 +258,20 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         sent: Mutex<Vec<Arc<ModelRequest>>>,
         /// The error each attempt fails with, when the case's provider throws.
         fail: Option<ProviderError>,
+        /// A summary send that stays in flight until its request is dropped (a session closing under it): told once it is sent.
+        in_flight: Option<Arc<tokio::sync::Notify>>,
+    }
+    /// A response that never produces an event.
+    struct Pending;
+    #[async_trait]
+    impl ModelStream for Pending {
+        async fn next(&mut self) -> Option<Result<mixdog_core_api::domain::provider::StreamEvent, ProviderError>> {
+            std::future::pending().await
+        }
+        fn delivery(&self) -> mixdog_core_api::domain::provider::DeliveryState {
+            mixdog_core_api::domain::provider::DeliveryState::Accepted
+        }
+        fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
     }
     #[async_trait]
     impl ProviderAdapter for Recording {
@@ -275,6 +289,10 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         }
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
             self.sent.lock().unwrap().push(request.clone());
+            if let Some(sent) = &self.in_flight {
+                sent.notify_one();
+                return Ok(Box::new(Pending));
+            }
             if let Some(error) = &self.fail {
                 return Err(error.clone());
             }
@@ -445,7 +463,9 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             error.message = "openai: 400 invalid request".to_owned();
             error
         });
-        let provider = Arc::new(Recording { inner: MockProvider::new(script), sent: Mutex::new(Vec::new()), fail });
+        const ENDED_IN_FLIGHT: [&str; 3] = ["closed", "deleted", "shutdown"];
+        let sent_in_flight = ENDED_IN_FLIGHT.contains(&name).then(|| Arc::new(tokio::sync::Notify::new()));
+        let provider = Arc::new(Recording { inner: MockProvider::new(script), sent: Mutex::new(Vec::new()), fail, in_flight: sent_in_flight.clone() });
         let registry = Arc::new(ProviderRegistry::new(Arc::new(Builds(provider.clone()))));
         let saved = json!({ "providers": { "openai": { "enabled": true } } }).as_object().cloned().unwrap();
         let mut services = services_over(dir.path(), json!({}), Arc::default(), WarmLedger::new(), Arc::new(SideQuestionStore::new()), registry.clone(), saved.clone()).await;
@@ -518,6 +538,47 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             let cancel = Cancel::new();
             cancel.abort("parent turn cancelled");
             manual.compact(&thread, "manual", false, &cancel).await.map(|value| Reply::Value(value.unwrap_or(Value::Null)))
+        } else if let Some(sent_in_flight) = sent_in_flight {
+            // The session ends while the summary send is in flight: through the product's own close, delete and shutdown. Node's
+            // recording closed the same session (`closeSession`, the delete's `desktop-session-delete` close and the runtime's
+            // `cli-exit`); the client's answer is what the compaction recorded.
+            struct NoShells;
+            impl mixdog_core_session::session::shell_jobs::OwnedShells for NoShells {
+                fn cancel_owned(&self, _: &ThreadId) {}
+            }
+            let delete = CoreRequest {
+                method: Method("thread/delete"),
+                params: json!({ "threadId": thread.as_str(), "opId": "op-delete" }),
+                op: Some(OpId::from("op-delete")),
+                ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
+            };
+            let ending = async {
+                sent_in_flight.notified().await;
+                match name {
+                    "closed" => {
+                        let close = mixdog_core_session::session::close::SessionClose::new(directory.clone(), registry.clone(), Arc::new(NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)));
+                        assert!(close.close(thread.as_str(), "cli-agent-close").await, "the close landed");
+                        None
+                    }
+                    "deleted" => {
+                        // The catalog lists the session (`isAvailableSession`), as Node's does the one it saved.
+                        rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+                        Some(handle.request(delete).await)
+                    }
+                    _ => {
+                        directory.shutdown().await;
+                        None
+                    }
+                }
+            };
+            let (outcome, deleted) = tokio::time::timeout(std::time::Duration::from_secs(60), async { tokio::join!(handle.request(request), ending) })
+                .await
+                .unwrap_or_else(|_| panic!("{name}: the compaction did not end within 60 s of its session ending"));
+            if name == "deleted" {
+                let Ok(Reply::Value(answer)) = deleted.expect("the delete was asked") else { panic!("{name}: the delete answers a value") };
+                assert_eq!(answer, case["deleted"], "{name}: the delete's answer");
+            }
+            outcome
         } else {
             handle.request(request).await
         };
@@ -551,7 +612,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         assert_eq!(answered, node, "{name}: the outcome differs");
         compared += 1;
     }
-    assert_eq!(compared, 6);
+    assert_eq!(compared, 9);
 }
 
 /// The configuration seams over an empty saved configuration and environment (the recorder ran with neither).
