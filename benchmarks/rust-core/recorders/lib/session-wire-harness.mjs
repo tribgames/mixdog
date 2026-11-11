@@ -27,11 +27,22 @@ export const FIXED_PID = 4242;
 export const FIXED_PPID = 4241;
 export const FIXED_CWD = 'C:\\recorded\\cwd';
 
+// Every global the harness patches, and where product code branches on it (found by grepping src/ of the base commit).
+export const DETERMINISM_BRANCHES = [
+  'GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone',
+  'BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent\'s pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)',
+  'BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production',
+  'BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store\'s own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed',
+  'BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)',
+  'BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step',
+];
+
 export const DETERMINISM = [
-  'crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256',
   'crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)',
-  `Date.now() is ${FIXED_NOW} and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0)`,
+  'crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256',
+  `Date.now() is ${FIXED_NOW} and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step`,
   `process.pid is ${FIXED_PID} (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is ${FIXED_PPID}; the recorded cwd is the constant ${JSON.stringify(FIXED_CWD)}`,
+  ...DETERMINISM_BRANCHES,
 ];
 
 export function installDeterminism() {
@@ -78,7 +89,7 @@ export class Signal {
 // order sent with their case, body decoded from Content-Length or chunked framing; an event-stream body as its frames in
 // arrival order) and logged in request order. The bytes the client and the server exchange are untouched.
 class HttpParser {
-  constructor(kind, onHead) { this.kind = kind; this.onHead = onHead; this.buf = Buffer.alloc(0); this.state = 'head'; this.message = null; }
+  constructor(kind, onHead) { this.kind = kind; this.onHead = onHead; this.buf = Buffer.alloc(0); this.state = 'head'; this.message = null; this.decoder = null; }
   feed(chunk) { this.buf = Buffer.concat([this.buf, chunk]); this.run(); }
   finish() { if (this.message && this.state === 'body-close') this.endBody(); }
   run() {
@@ -93,6 +104,8 @@ class HttpParser {
         const message = { startLine, headers, body: '' };
         if ((get('content-type') ?? '').includes('text/event-stream')) { message.frames = []; delete message.body; message.sse = ''; }
         this.message = message;
+        // One decoder per message: a character split across TCP fragments or chunks is decoded once, whole.
+        this.decoder = new TextDecoder('utf-8');
         this.onHead(message);
         if (get('transfer-encoding')?.toLowerCase() === 'chunked') this.state = 'chunk-size';
         else if (get('content-length') !== undefined) { this.remaining = Number(get('content-length')); this.state = this.remaining ? 'body-length' : 'done'; }
@@ -135,7 +148,7 @@ class HttpParser {
     }
   }
   addBody(bytes) {
-    const text = bytes.toString('utf8');
+    const text = this.decoder.decode(bytes, { stream: true });
     if (this.message.frames) {
       this.message.sse += text;
       for (let at = this.message.sse.indexOf('\n\n'); at >= 0; at = this.message.sse.indexOf('\n\n')) {
@@ -144,10 +157,46 @@ class HttpParser {
       }
     } else this.message.body += text;
   }
-  endBody() { this.state = 'head'; this.message = null; }
+  endBody() {
+    const rest = this.decoder.decode();
+    if (rest) { if (this.message.frames) this.message.sse += rest; else this.message.body += rest; }
+    this.state = 'head';
+    this.message = null;
+  }
+}
+
+/** The harness's own check: multi-byte text forced across fragment boundaries must come out whole, as a Content-Length body, a chunked body and event-stream frames. */
+export function selfCheck() {
+  const text = '€uro 한글 𝄞';
+  const bytes = Buffer.from(text);
+  const split = (buffer, ...cuts) => { const parts = []; let at = 0; for (const cut of [...cuts, buffer.length]) { parts.push(buffer.subarray(at, cut)); at = cut; } return parts; };
+  const run = (head, bodyBytes, cuts) => {
+    const out = [];
+    const parser = new HttpParser('response', (message) => out.push(message));
+    for (const part of split(Buffer.concat([Buffer.from(head), bodyBytes]), ...cuts)) parser.feed(part);
+    return out[0];
+  };
+  // cuts inside the 3-byte €, the 3-byte Hangul and the 4-byte 𝄞
+  const cuts = [bytes.length - 2, 2, 8, bytes.indexOf(0xf0) + 2].sort((a, b) => a - b);
+  const lengthHead = `HTTP/1.1 200 OK\r\nContent-Length: ${bytes.length}\r\n\r\n`;
+  const headLen = Buffer.byteLength(lengthHead);
+  const a = run(lengthHead, bytes, cuts.map((cut) => headLen + cut));
+  if (a.body !== text) throw new Error(`wire tap self-check: Content-Length body corrupted: ${JSON.stringify(a.body)}`);
+  const sse = Buffer.from(`data: ${text}\n\n`);
+  const sseHead = 'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n';
+  const framed = Buffer.concat([Buffer.from(sseHead), Buffer.from(`${sse.length.toString(16)}\r\n`), sse, Buffer.from('\r\n0\r\n\r\n')]);
+  const base = Buffer.byteLength(sseHead) + 3 + 6;
+  const b = run('', framed, [base + 1, base + 3, base + 7]);
+  if (b.frames[0] !== `data: ${text}`) throw new Error(`wire tap self-check: event-stream frame corrupted: ${JSON.stringify(b.frames[0])}`);
+  const chunkedHead = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n';
+  const chunked = Buffer.concat([Buffer.from(chunkedHead), Buffer.from(`${bytes.length.toString(16)}\r\n`), bytes, Buffer.from('\r\n0\r\n\r\n')]);
+  const start = Buffer.byteLength(chunkedHead) + 3;
+  const d = run('', chunked, [start + 1, start + 2, start + 6]);
+  if (d.body !== text) throw new Error(`wire tap self-check: chunked body corrupted: ${JSON.stringify(d.body)}`);
 }
 
 export async function startWireTap(targetPort) {
+  selfCheck();
   const exchanges = [];
   const connections = [];
   const sockets = new Set();
