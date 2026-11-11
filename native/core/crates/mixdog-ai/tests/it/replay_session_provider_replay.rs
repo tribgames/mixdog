@@ -10,6 +10,8 @@ use crate::provider_case::within;
 
 const SET: &str = "session-provider-replay";
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: SET, run: the_anthropic_client_headers_arrive_in_the_sdk_spelling }];
+
 /// The Anthropic client's own headers keep the spelling `@anthropic-ai/sdk` gives them (`Accept`, `User-Agent`,
 /// `X-Stainless-*`): the recorded Messages request's codec headers and body, written by the production gateway
 /// transport (`GatewayHttp::through_sdk(Sdk::Anthropic)`) over the production link, arrive as Node's did.

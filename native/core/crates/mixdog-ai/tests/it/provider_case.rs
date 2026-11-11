@@ -7,9 +7,16 @@
 //! - [`CaseSet::load`]`(set)` reads `cases.json` and `MANIFEST.json` at run time (decoded with `mixdog_testkit::exact`);
 //!   [`CaseSet::case`]`(id)` gives a [`Case`]: `input`, `outcome` (result or error), `calls` (`$shared` arguments
 //!   resolved), `requests` (each as it arrived, with its scripted `reply`), `clock` (the recorded advances). A recorded
-//!   property the driver does not read fails the load. Reading a case's outcome ([`Case::outcome`] / [`Case::result`])
-//!   consumes it; dropping the set fails the test when a case was neither consumed nor named [`CaseSet::not_replayed`]
-//!   (or [`CaseSet::only`]) with the reason.
+//!   property the driver does not read fails the load.
+//! - [`Case::recorded`]: the outcome (Node's result, or the error it threw) as a [`Recorded`] value. Reading it marks
+//!   nothing; only a comparing call does ([`Recorded::assert_eq`], [`Recorded::assert_as`], [`Recorded::checked`]): the
+//!   replay hands in the core's actual, the driver compares it with the recorded value at that path whole and marks the
+//!   path. Dropping the set fails the test, naming them, when a case has a recorded property no comparison covered (a
+//!   path is covered by a comparison of it or of what holds it, or by a manifest exclusion), unless the case was named
+//!   [`CaseSet::not_replayed`] (or [`CaseSet::only`]) with the reason.
+//! - [`Replay`]: every replay module lists its test functions in its `REPLAYS`; a set whose replay compared every case is
+//!   registered at run time when the set is dropped, and `every_provider_set_has_a_comparing_replay` runs the listed
+//!   entries and fails naming each recorded set no entry compared.
 //! - [`CaseSet::excludes`]`(name)` / [`CaseSet::compared`]: the one way a replay leaves a recorded property out: a
 //!   manifest exclusion line ``` `name` is not compared: <reason> ```.
 //! - [`RecorderDraws`]: the recording process's random bytes, uuids and `Math.random`, computed as the recorders draw them,
@@ -123,23 +130,29 @@ pub struct Case {
     pub clock: Vec<ClockStep>,
     /// The set's running clock when the case began: where the set's previous recorded step ended (0 for none).
     pub clock_origin_ms: u64,
-    /// The ids of the set's cases whose outcome a replay read (shared with the set, see [`CaseSet`]'s drop).
-    consumed: Arc<Mutex<std::collections::BTreeSet<String>>>,
+    /// The paths of each case's outcome a comparison covered (shared with the set, see [`CaseSet`]'s drop).
+    compared: Marks,
 }
 
+/// Per case id, the outcome paths a comparing call marked (`""`: the whole outcome).
+type Marks = Arc<Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>>;
+
 impl Case {
-    /// What Node's call returned or threw; reading it is what consumes the case.
-    pub fn outcome(&self) -> &Outcome {
-        self.consumed.lock().unwrap().insert(self.id.clone());
-        &self.outcome
+    /// What Node's call returned (or the error it threw), as a recorded value to compare: reading it marks nothing.
+    pub fn recorded(&self) -> Recorded<'_> {
+        let value = match &self.outcome {
+            Outcome::Result(value) | Outcome::Error(value) => value,
+        };
+        Recorded { case: self, path: String::new(), value }
     }
 
-    /// The recorded result; panics naming the case when it threw.
-    pub fn result(&self) -> &Exact {
-        match self.outcome() {
-            Outcome::Result(value) => value,
-            Outcome::Error(error) => panic!("{}: recorded an error, not a result: {error:?}", self.id),
-        }
+    /// Whether Node's call threw.
+    pub fn threw(&self) -> bool {
+        matches!(self.outcome, Outcome::Error(_))
+    }
+
+    fn mark(&self, path: &str) {
+        self.compared.lock().unwrap().entry(self.id.clone()).or_default().insert(path.to_owned());
     }
 
     /// The arguments of the `n`-th call to `entry` (an entry name ends with it, e.g. `AnthropicProvider#send`).
@@ -162,9 +175,9 @@ pub struct CaseSet {
     exclusions: Vec<String>,
     /// `clockStartMs` of the recording, where the recorder wrote one: its `T0`.
     pub clock_start_ms: Option<u64>,
-    /// The cases whose outcome was read, and those named [`CaseSet::not_replayed`] with the reason.
-    consumed: Arc<Mutex<std::collections::BTreeSet<String>>>,
-    /// Whether dropping the set checks that every case was consumed (a replay's set), or not (the driver's own checks).
+    /// The paths of each case's outcome a comparison covered; a case named [`CaseSet::not_replayed`] is covered whole.
+    compared: Marks,
+    /// Whether dropping the set checks that every case was compared (a replay's set), or not (the driver's own checks).
     checked: bool,
 }
 
@@ -175,7 +188,14 @@ const STEP_KEYS: [&str; 4] = ["advanceMs", "fromMs", "toMs", "fired"];
 const FIRED_KEYS: [&str; 1] = ["dueMs"];
 const CALL_KEYS: [&str; 2] = ["entry", "args"];
 /// What [`Endpoint::serve`] answers with; a reply key outside them fails the serve.
-const REPLY_KEYS: [&str; 7] = ["status", "contentType", "headers", "body", "chunks", "hold", "destroy"];
+const REPLY_KEYS: [&str; 9] = ["status", "contentType", "headers", "body", "chunks", "hold", "destroy", "later", "reset"];
+/// The keys of a `later` chunk: written on the held response once the recorded step `afterStep` was taken.
+const LATER_KEYS: [&str; 2] = ["afterStep", "chunk"];
+
+/// The connection faults of `record-gemini-send-retry.mjs`: a closed loopback port (`CLOSED_PORT`) and a loopback listener
+/// that resets the connection on the client's TLS hello (`TLS_PORT`).
+pub const CLOSED_PORT: u16 = 47652;
+pub const TLS_PORT: u16 = 47651;
 
 #[track_caller]
 fn known_keys(what: &str, value: &Exact, known: &[&str]) {
@@ -228,7 +248,7 @@ impl CaseSet {
             assert_eq!(start, T0_MS, "{set}: clockStartMs is the recorders' T0");
         }
         let shared = recording.try_get("shared").map(|s| s.as_array().to_vec()).unwrap_or_default();
-        let consumed = Arc::new(Mutex::new(std::collections::BTreeSet::new()));
+        let compared: Marks = Arc::default();
         let mut running_ms = 0;
         let cases = recording
             .get("cases")
@@ -295,7 +315,7 @@ impl CaseSet {
                     requests: case.try_get("requests").map(|r| r.as_array().to_vec()).unwrap_or_default(),
                     clock,
                     clock_origin_ms,
-                    consumed: consumed.clone(),
+                    compared: compared.clone(),
                     id,
                 }
             })
@@ -304,17 +324,15 @@ impl CaseSet {
             Some(Exact::Array(items)) => items.iter().map(|e| e.as_str().to_owned()).collect(),
             _ => Vec::new(),
         };
-        Self { set: set.to_owned(), manifest, cases, exclusions, clock_start_ms, consumed, checked }
+        Self { set: set.to_owned(), manifest, cases, exclusions, clock_start_ms, compared, checked }
     }
 
     /// Names cases this replay does not replay, with the reason (another branch's work, a test of their own); they count as
-    /// consumed. Every id must be one of the set's.
+    /// covered. Every id must be one of the set's.
     pub fn not_replayed(&self, ids: &[&str], reason: &str) {
         assert!(!reason.trim().is_empty(), "{}: a reason for {ids:?}", self.set);
-        let mut consumed = self.consumed.lock().unwrap();
         for id in ids {
-            assert!(self.cases.iter().any(|c| c.id == *id), "{}: no case {id}", self.set);
-            consumed.insert((*id).to_owned());
+            self.cases.iter().find(|c| c.id == *id).unwrap_or_else(|| panic!("{}: no case {id}", self.set)).mark("");
         }
     }
 
@@ -436,17 +454,160 @@ impl CaseSet {
     }
 }
 
-/// A replay's set fails when it ends with a recorded case whose outcome nothing read and nothing named
-/// ([`CaseSet::not_replayed`]): no case of a recording goes unreplayed unnoticed.
+impl CaseSet {
+    /// The recorded cases no comparison touched, and per other case the recorded properties of its outcome no comparison
+    /// covered (by its path or a path holding it) and no manifest exclusion declares.
+    fn uncovered(&self) -> (Vec<String>, Vec<(String, Vec<String>)>) {
+        let marks = self.compared.lock().unwrap();
+        let mut untouched = Vec::new();
+        let mut partial = Vec::new();
+        for case in &self.cases {
+            let Some(marked) = marks.get(&case.id) else {
+                untouched.push(case.id.clone());
+                continue;
+            };
+            let mut missing = Vec::new();
+            uncovered_paths(case.recorded().value, "", "", marked, &|generic| self.excludes(generic), &mut missing);
+            if !missing.is_empty() {
+                partial.push((case.id.clone(), missing));
+            }
+        }
+        (untouched, partial)
+    }
+}
+
+/// Whether `mark` is `path` or a path inside it (`""` holds every path).
+fn within_path(mark: &str, path: &str) -> bool {
+    path.is_empty() || mark == path || mark.strip_prefix(path).is_some_and(|rest| rest.starts_with('.') || rest.starts_with('['))
+}
+
+/// The paths under `value` (at `path`; `generic` the same path with `[]` for every array index, as a manifest exclusion
+/// names it) that no mark covers.
+fn uncovered_paths(
+    value: &Exact,
+    path: &str,
+    generic: &str,
+    marks: &std::collections::BTreeSet<String>,
+    excludes: &dyn Fn(&str) -> bool,
+    out: &mut Vec<String>,
+) {
+    if marks.contains(path) || (!path.is_empty() && excludes(generic)) {
+        return;
+    }
+    let child = |key: &str| if path.is_empty() { key.to_owned() } else { format!("{path}.{key}") };
+    let child_generic = |key: &str| if generic.is_empty() { key.to_owned() } else { format!("{generic}.{key}") };
+    match value {
+        Exact::Object(entries) if !entries.is_empty() => {
+            for (key, inner) in entries {
+                uncovered_paths(inner, &child(key), &child_generic(key), marks, excludes, out);
+            }
+        }
+        Exact::Array(items) if !items.is_empty() && marks.iter().any(|m| within_path(m, path)) => {
+            for (i, inner) in items.iter().enumerate() {
+                uncovered_paths(inner, &format!("{path}[{i}]"), &format!("{generic}[]"), marks, excludes, out);
+            }
+        }
+        _ => out.push(if path.is_empty() { "(the outcome)".to_owned() } else { path.to_owned() }),
+    }
+}
+
+/// The sets whose replay compared every case, registered when the set was dropped (see [`Replay`]).
+static COMPARED_SETS: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+
+/// A replay's set fails when it ends with a recorded case no comparison touched, or with a recorded property of a case's
+/// outcome no comparison covered, unless the case was named [`CaseSet::not_replayed`]; else its set is registered as
+/// compared.
 impl Drop for CaseSet {
     fn drop(&mut self) {
         if !self.checked || std::thread::panicking() {
             return;
         }
-        let consumed = self.consumed.lock().unwrap();
-        let unread: Vec<&str> = self.cases.iter().map(|c| c.id.as_str()).filter(|id| !consumed.contains(*id)).collect();
-        assert!(unread.is_empty(), "{}: recorded cases no replay consumed: {unread:?}", self.set);
+        let (untouched, partial) = self.uncovered();
+        assert!(untouched.is_empty(), "{}: recorded cases no replay compared: {untouched:?}", self.set);
+        assert!(partial.is_empty(), "{}: recorded properties no comparison covered: {partial:?}", self.set);
+        COMPARED_SETS.lock().unwrap().insert(self.set.clone());
     }
+}
+
+/// A recorded value of a case's outcome at its path (`""` the whole outcome, `key.inner`, `list[2]`). Reading it marks
+/// nothing; each comparing call compares the core's actual with it whole and marks its path covered.
+#[derive(Clone)]
+pub struct Recorded<'c> {
+    case: &'c Case,
+    path: String,
+    value: &'c Exact,
+}
+
+impl<'c> Recorded<'c> {
+    /// The recorded value itself, to drive the replay or choose a comparison: marks nothing.
+    pub fn raw(&self) -> &'c Exact {
+        self.value
+    }
+
+    /// The path of this value in the outcome.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn at(&self, key: &str, value: &'c Exact) -> Self {
+        let path = if self.path.is_empty() { key.to_owned() } else { format!("{}.{key}", self.path) };
+        Self { case: self.case, path, value }
+    }
+
+    /// The member `key` of a recorded object; panics naming the path when absent.
+    pub fn get(&self, key: &str) -> Self {
+        self.try_get(key).unwrap_or_else(|| panic!("{}: no recorded {key:?} at {:?}", self.case.id, self.path))
+    }
+
+    pub fn try_get(&self, key: &str) -> Option<Self> {
+        self.value.try_get(key).map(|value| self.at(key, value))
+    }
+
+    /// The members of a recorded object, in recorded order.
+    pub fn entries(&self) -> Vec<(&'c str, Self)> {
+        self.value.entries().iter().map(|(key, value)| (key.as_str(), self.at(key, value))).collect()
+    }
+
+    /// The items of a recorded array, in order.
+    pub fn items(&self) -> Vec<Self> {
+        self.value
+            .as_array()
+            .iter()
+            .enumerate()
+            .map(|(i, value)| Self { case: self.case, path: format!("{}[{i}]", self.path), value })
+            .collect()
+    }
+
+    /// `got` equals the recorded value whole; marks the path.
+    #[track_caller]
+    pub fn assert_eq(&self, what: &str, got: &Exact) {
+        assert_exact(what, self.value, got);
+        self.case.mark(&self.path);
+    }
+
+    /// `got` equals `view` of the recorded value whole (the replay's declared view: the manifest's exclusions, one
+    /// representation for both sides); marks the path.
+    #[track_caller]
+    pub fn assert_as(&self, what: &str, view: impl FnOnce(&Exact) -> Exact, got: &Exact) {
+        assert_exact(what, &view(self.value), got);
+        self.case.mark(&self.path);
+    }
+
+    /// A field-by-field comparison of the recorded value with the core's (through `ERROR_FIELDS` / `RESULT_FIELDS`, where
+    /// the core holds it in another shape): `compare` asserts every field of it; its path is marked once it returned.
+    #[track_caller]
+    pub fn checked<T>(&self, compare: impl FnOnce(&'c Exact) -> T) -> T {
+        let out = compare(self.value);
+        self.case.mark(&self.path);
+        out
+    }
+}
+
+/// One replay entry of a module's `REPLAYS`: the set it replays and its test function (a `#[tokio::test]` builds its own
+/// runtime).
+pub struct Replay {
+    pub set: &'static str,
+    pub run: fn(),
 }
 
 /// A request under the declared gzip rule: a `Content-Encoding: gzip` body as its 10-byte gzip header and inflated
@@ -679,6 +840,8 @@ struct State {
     steps: Vec<ClockStep>,
     /// What the product did with each response body the link returned, by response.
     bodies: Vec<Body>,
+    /// The sends through the link that failed (a connection fault among them).
+    failed: usize,
 }
 
 /// What the product did with one response body: reads begun, whether a read returned its end (or fault), whether it
@@ -692,6 +855,8 @@ pub struct Body {
 
 struct Inner {
     state: Mutex<State>,
+    /// The origin the link sends to instead of the endpoint (a connection fault of the case).
+    fault_origin: Arc<Mutex<Option<String>>>,
     /// Bumped on every event of the endpoint (an arrival, a trace entry, a close), waking [`Endpoint::until`].
     events: watch::Sender<u64>,
 }
@@ -789,7 +954,7 @@ impl Endpoint {
         let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::UTC);
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind the loopback endpoint");
         let addr = listener.local_addr().expect("its address");
-        let inner = Arc::new(Inner { state: Mutex::new(State::default()), events: watch::channel(0).0 });
+        let inner = Arc::new(Inner { state: Mutex::new(State::default()), fault_origin: Arc::default(), events: watch::channel(0).0 });
         let served = inner.clone();
         tokio::spawn(async move {
             while let Ok((socket, _)) = listener.accept().await {
@@ -852,7 +1017,40 @@ impl Endpoint {
             }
             tapped.bump();
         });
-        Redirected { inner, addr: self.addr, tap, returned: Arc::default() }
+        let failing = self.inner.clone();
+        let failed = Arc::new(move || {
+            failing.state.lock().unwrap().failed += 1;
+            failing.bump();
+        });
+        Redirected { inner, addr: self.addr, tap, returned: Arc::default(), fault_origin: self.inner.fault_origin.clone(), failed }
+    }
+
+    /// Every later send of the link fails as the case's recorded connection fault did (`input.fault` of
+    /// `record-gemini-send-retry.mjs`): `refused` - a closed loopback port; `tls` - a loopback listener that resets the
+    /// connection on the client's TLS hello. The sends that failed so far: [`Endpoint::failed`].
+    pub async fn connect_fault(&self, fault: &str) {
+        let origin = match fault {
+            "refused" => format!("http://127.0.0.1:{CLOSED_PORT}"),
+            "tls" => {
+                let listener = TcpListener::bind(("127.0.0.1", TLS_PORT)).await.expect("bind the TLS fault listener");
+                tokio::spawn(async move {
+                    while let Ok((mut socket, _)) = listener.accept().await {
+                        let mut hello = [0u8; 1];
+                        if matches!(socket.read(&mut hello).await, Ok(n) if n > 0) {
+                            socket2::SockRef::from(&socket).set_linger(Some(Duration::ZERO)).expect("a reset on close");
+                        }
+                    }
+                });
+                format!("https://127.0.0.1:{TLS_PORT}")
+            }
+            other => panic!("a connection fault of the recorder: {other}"),
+        };
+        *self.inner.fault_origin.lock().unwrap() = Some(origin);
+    }
+
+    /// The sends through the link that failed so far.
+    pub fn failed(&self) -> usize {
+        self.inner.state.lock().unwrap().failed
     }
 
     /// What the product did with the k-th response body its link returned (none yet: the default).
@@ -922,6 +1120,7 @@ impl Endpoint {
         let to = self.now_ms();
         // Which timers fired is not observable on tokio's clock: the replay's step names none (see `assert_clock`).
         self.inner.state.lock().unwrap().steps.push(ClockStep { advance_ms: step.advance_ms, from_ms: from, to_ms: to, fired: Vec::new() });
+        self.inner.bump();
     }
 
     /// The steps the replay took equal the case's recorded steps, whole and in order: each one's length, start and end on
@@ -1211,21 +1410,64 @@ async fn answer(inner: &Inner, socket: &mut TcpStream, index: usize, reply: &Exa
     head.push_str("\r\n");
     let chunks = chunks.unwrap_or_else(|| if bodiless || body.is_empty() { Vec::new() } else { vec![body] });
     let hold = reply.try_get("hold").is_some_and(|h| h == &Exact::Bool(true));
+    let reset = reply.try_get("reset").is_some_and(|r| r == &Exact::Bool(true));
+    let later: Vec<(usize, Vec<u8>)> = reply.try_get("later").map_or_else(Vec::new, |later| {
+        later
+            .as_array()
+            .iter()
+            .map(|entry| {
+                known_keys("a later chunk", entry, &LATER_KEYS);
+                (entry.get("afterStep").as_f64() as usize, bytes_of(entry.get("chunk")))
+            })
+            .collect()
+    });
     if socket.write_all(head.as_bytes()).await.is_err() {
         return false;
     }
-    for chunk in chunks {
-        let framed = if chunked {
+    let frame = |chunk: Vec<u8>| {
+        if chunked {
             let mut framed = format!("{:x}\r\n", chunk.len()).into_bytes();
             framed.extend_from_slice(&chunk);
             framed.extend_from_slice(b"\r\n");
             framed
         } else {
             chunk
-        };
-        if socket.write_all(&framed).await.is_err() || socket.flush().await.is_err() {
+        }
+    };
+    for chunk in chunks {
+        if socket.write_all(&frame(chunk)).await.is_err() || socket.flush().await.is_err() {
             return false;
         }
+    }
+    let mut events = inner.events.subscribe();
+    for (after, chunk) in later {
+        // Written on the held response once the recorded step `after` was taken, as the recorder wrote it.
+        while inner.state.lock().unwrap().steps.len() <= after {
+            if events.changed().await.is_err() {
+                return false;
+            }
+        }
+        if socket.write_all(&frame(chunk)).await.is_err() || socket.flush().await.is_err() {
+            return false;
+        }
+    }
+    if reset {
+        // The recorder reset the connection once the product decoded the chunks: here once the product's read is pending
+        // past them (the second read of this response's body; the k-th arrival's body is the k-th the link returned).
+        while inner.state.lock().unwrap().bodies.get(index).map_or(0, |b| b.reads) < 2 {
+            if events.changed().await.is_err() {
+                return false;
+            }
+        }
+        socket2::SockRef::from(&*socket).set_linger(Some(Duration::ZERO)).expect("a reset on close");
+        // Node's endpoint saw the held response's connection close, as on a client's close.
+        let mut state = inner.state.lock().unwrap();
+        if let Exact::Object(entries) = &mut state.arrivals[index] {
+            entries.push(("clientClosedConnection".into(), Exact::Bool(true)));
+        }
+        drop(state);
+        inner.bump();
+        return false;
     }
     if hold {
         // Held open until the client closes the connection; that close is part of the record.
@@ -1439,7 +1681,7 @@ async fn the_endpoint_follows_a_recorded_ws_trace_against_the_core_dialer() {
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
     let set = CaseSet::read("openai-ws-handshake");
     let case = set.case("non-json-body-keeps-status-and-headers");
-    let events = case.result().get("events").as_array().to_vec();
+    let events = case.recorded().raw().get("events").as_array().to_vec();
     let upgrade = events.iter().find(|e| e.get("event").as_str() == "upgrade-request").expect("an upgrade");
     let caller: Vec<(String, String)> = upgrade
         .get("headers")
@@ -1520,9 +1762,7 @@ fn every_recorded_error_field_is_in_the_table() {
         let loaded = CaseSet::read(set);
         for case in &loaded.cases {
             let mut found = Vec::new();
-            match case.outcome() {
-                Outcome::Result(value) | Outcome::Error(value) => fields(value, &mut found),
-            }
+            fields(case.recorded().raw(), &mut found);
             missing.extend(found.into_iter().filter(|f| !ERROR_FIELDS.iter().any(|(name, _, _)| name == f)).map(|f| format!("{set} {}: {f}", case.id)));
         }
     }
@@ -1569,47 +1809,104 @@ const REPLAYED_ELSEWHERE: &[&str] = &[
     "openrouter", "ready", "refusal", "setup", "setup-custom", "setup-warmup", "status", "tool-cut", "wire", "xai-grok",
 ];
 
-/// Every provider set has a replay in a module of this test crate (`CaseSet::load` of the set, or its `SET` constant,
-/// in a file `main.rs` declares), or is named in [`REPLAYED_ELSEWHERE`]: a recording no test opens fails here, as an
-/// unconsumed case of an opened set fails its drop.
-#[test]
-fn every_provider_set_is_opened_by_a_replay() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/it");
-    let main = mixdog_testkit::read_string(dir.join("main.rs"));
-    let modules: Vec<String> = main
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("mod ").and_then(|m| m.strip_suffix(';')).map(str::to_owned))
-        .collect();
-    let opener = regex::Regex::new(r#"(?:CaseSet::load\(|const SET: &str = )"([a-z0-9-]+)""#).unwrap();
-    let mut opened = std::collections::BTreeSet::new();
-    for module in &modules {
-        let path = dir.join(format!("{module}.rs"));
-        if mixdog_testkit::exists(&path) {
-            for found in opener.captures_iter(&mixdog_testkit::read_string(&path)) {
-                opened.insert(found[1].to_owned());
-            }
-        }
-    }
-    let mut unopened = Vec::new();
-    for name in mixdog_testkit::entry_names(fixtures()) {
-        let name = name.to_string_lossy().into_owned();
-        let Some(set) = name.strip_prefix("provider-") else { continue };
-        if !mixdog_testkit::exists(fixtures().join(&name).join("cases.json")) {
-            continue;
-        }
-        let elsewhere = REPLAYED_ELSEWHERE.contains(&set);
-        assert!(!(elsewhere && opened.contains(set)), "{set}: replayed here and named as another branch's");
-        if !elsewhere && !opened.contains(set) {
-            unopened.push(set.to_owned());
-        }
-    }
-    assert!(unopened.is_empty(), "provider sets no replay module opens: {unopened:?}");
+/// Every module's replay entries ([`Replay`]), in one list.
+fn registry() -> Vec<&'static Replay> {
+    let lists: [&'static [Replay]; 16] = [
+        crate::replay_anthropic_api_key_fetch::REPLAYS,
+        crate::replay_anthropic_replay_blocks::REPLAYS,
+        crate::replay_anthropic_server_fallback::REPLAYS,
+        crate::replay_anthropic_stream::REPLAYS,
+        crate::replay_anthropic_thinking_contract::REPLAYS,
+        crate::replay_antigravity_request::REPLAYS,
+        crate::replay_compat_stream_lifecycle::REPLAYS,
+        crate::replay_gemini_error_contract::REPLAYS,
+        crate::replay_gemini_history_signatures::REPLAYS,
+        crate::replay_gemini_send_retry::REPLAYS,
+        crate::replay_gemini_stream::REPLAYS,
+        crate::replay_leak_guards::REPLAYS,
+        crate::replay_openai_ws_delta::REPLAYS,
+        crate::replay_openai_ws_handshake::REPLAYS,
+        crate::replay_session_provider_replay::REPLAYS,
+        crate::replay_transport_policy::REPLAYS,
+    ];
+    lists.iter().flat_map(|list| list.iter()).collect()
 }
 
-/// A recorded property the driver does not read fails the load (here a case key no recorder writes), and a set whose
-/// case no replay consumed fails when it is dropped.
+/// The recorded provider sets (`native/core/fixtures/provider-<set>/cases.json`).
+fn recorded_sets() -> Vec<String> {
+    mixdog_testkit::entry_names(fixtures())
+        .into_iter()
+        .filter_map(|name| name.to_string_lossy().strip_prefix("provider-").map(str::to_owned))
+        .filter(|set| mixdog_testkit::exists(fixtures().join(format!("provider-{set}")).join("cases.json")))
+        .collect()
+}
+
+/// Runs every entry of `replays` (each on its own fresh process state) and returns the recorded sets no entry loaded and
+/// compared whole (its set registered by its drop) and that [`REPLAYED_ELSEWHERE`] does not name.
+fn uncompared(replays: &[&Replay], recorded: &[String]) -> Vec<String> {
+    COMPARED_SETS.lock().unwrap().clear();
+    for replay in replays {
+        mixdog_ai::reset_process_state();
+        (replay.run)();
+    }
+    let compared = COMPARED_SETS.lock().unwrap().clone();
+    recorded.iter().filter(|set| !REPLAYED_ELSEWHERE.contains(&set.as_str()) && !compared.contains(*set)).cloned().collect()
+}
+
+/// Every recorded provider set has a replay here that loaded it and compared every case (registered at run time by the
+/// set's drop), or is named in [`REPLAYED_ELSEWHERE`]; a set replayed here is not named there.
 #[test]
-fn an_unread_recorded_property_or_case_fails_the_replay() {
+fn every_provider_set_has_a_comparing_replay() {
+    let replays = registry();
+    for replay in &replays {
+        assert!(!REPLAYED_ELSEWHERE.contains(&replay.set), "{}: replayed here and named as another branch's", replay.set);
+    }
+    let missing = uncompared(&replays, &recorded_sets());
+    assert!(missing.is_empty(), "recorded provider sets no replay compared: {missing:?}");
+}
+
+/// A replay that names its set but never loads and compares it registers nothing: its set is reported.
+#[test]
+fn a_set_named_but_never_compared_does_not_count() {
+    const UNLOADED: Replay = Replay {
+        set: "anthropic-replay-blocks",
+        run: || {
+            const SET: &str = "anthropic-replay-blocks";
+            assert!(!SET.is_empty());
+        },
+    };
+    assert_eq!(uncompared(&[&UNLOADED], &["anthropic-replay-blocks".to_owned()]), ["anthropic-replay-blocks"]);
+}
+
+/// The synthetic set of the driver's own checks: the real manifest of `anthropic-replay-blocks` and one case whose result
+/// is `{x, y}`.
+fn two_property_set() -> CaseSet {
+    let manifest = Exact::load(fixtures().join("provider-anthropic-replay-blocks").join("MANIFEST.json"));
+    let recording = Exact::Object(vec![
+        ("set".into(), Exact::String("provider-anthropic-replay-blocks".into())),
+        ("nodeCommit".into(), manifest.get("product").get("commit").clone()),
+        (
+            "cases".into(),
+            Exact::Array(vec![Exact::Object(vec![
+                ("id".into(), Exact::String("a".into())),
+                ("source".into(), Exact::String("synthetic".into())),
+                ("input".into(), Exact::Object(Vec::new())),
+                ("result".into(), Exact::Object(vec![("x".into(), Exact::Number(1.0)), ("y".into(), Exact::Number(2.0))])),
+            ])]),
+        ),
+    ]);
+    CaseSet::from_recording("anthropic-replay-blocks", manifest, recording, true)
+}
+
+fn panic_text(panic: Box<dyn std::any::Any + Send>) -> String {
+    panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned())).unwrap_or_default()
+}
+
+/// A recorded property the driver does not read fails the load (here a case key no recorder writes); a replay that only
+/// reads the outcomes fails at the set's drop; one that compares a subset fails naming the property it left; one that
+/// compares the whole outcome passes.
+#[test]
+fn only_a_comparison_consumes_a_recorded_case() {
     let manifest = Exact::load(fixtures().join("provider-anthropic-replay-blocks").join("MANIFEST.json"));
     let recording = Exact::load(fixtures().join("provider-anthropic-replay-blocks").join("cases.json"));
     let with_case_key = |key: &str| {
@@ -1621,16 +1918,31 @@ fn an_unread_recorded_property_or_case_fails_the_replay() {
         Exact::Object(top)
     };
     let unread = std::panic::catch_unwind(|| CaseSet::from_recording("anthropic-replay-blocks", manifest.clone(), with_case_key("warnings"), false))
-        .err()
-        .and_then(|p| p.downcast_ref::<String>().cloned())
-        .expect("the load fails");
+        .map(|_| ())
+        .map_err(panic_text)
+        .expect_err("the load fails");
     assert!(unread.contains("recorded properties the driver does not read: [\"warnings\"]"), "{unread}");
-    let unconsumed = std::panic::catch_unwind(|| {
-        let set = CaseSet::from_recording("anthropic-replay-blocks", manifest.clone(), recording.clone(), true);
-        set.cases[0].result();
+
+    let read_only = std::panic::catch_unwind(|| {
+        let set = two_property_set();
+        for case in &set.cases {
+            assert_eq!(case.recorded().raw().entries().len(), 2);
+            let _ = case.recorded().get("x").raw();
+        }
     })
-    .err()
-    .and_then(|p| p.downcast_ref::<String>().cloned())
-    .expect("the drop fails");
-    assert!(unconsumed.contains("recorded cases no replay consumed"), "{unconsumed}");
+    .map_err(panic_text)
+    .expect_err("a replay that only reads fails");
+    assert!(read_only.contains("recorded cases no replay compared: [\"a\"]"), "{read_only}");
+
+    let subset = std::panic::catch_unwind(|| {
+        let set = two_property_set();
+        set.cases[0].recorded().get("x").assert_eq("x", &Exact::Number(1.0));
+    })
+    .map_err(panic_text)
+    .expect_err("a replay that compares a subset fails");
+    assert!(subset.contains("recorded properties no comparison covered: [(\"a\", [\"y\"])]"), "{subset}");
+
+    let set = two_property_set();
+    set.cases[0].recorded().get("x").assert_eq("x", &Exact::Number(1.0));
+    set.cases[0].recorded().get("y").assert_eq("y", &Exact::Number(2.0));
 }

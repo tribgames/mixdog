@@ -25,7 +25,6 @@ use serde_json::json;
 
 use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
-use crate::provider_case::assert_exact;
 use crate::provider_case::plain;
 use crate::provider_cases;
 use crate::replay_world;
@@ -168,12 +167,14 @@ fn rebuild(case: &Case, out: &[(Exact, Option<Exact>)]) -> Exact {
     }
 }
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "gemini-history-signatures", run: every_case_lowers_as_nodes }];
+
 #[test]
 fn every_case_lowers_as_nodes() {
     let set = CaseSet::load("gemini-history-signatures");
     assert_eq!(set.cases.len(), 5, "the recorded cases");
     for case in &set.cases {
         let out: Vec<(Exact, Option<Exact>)> = case.calls.iter().map(answer).collect();
-        assert_exact(&format!("provider-gemini-history-signatures {}: result", case.id), case.result(), &rebuild(case, &out));
+        case.recorded().assert_eq(&format!("provider-gemini-history-signatures {}: result", case.id), &rebuild(case, &out));
     }
 }

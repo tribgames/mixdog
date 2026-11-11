@@ -197,6 +197,8 @@ fn stream_progress_visible_ttft(case: &Case) -> Exact {
     object(vec![("visible", Exact::Object(named)), ("undefinedKind", shown(&visible[5])), ("gemini", Exact::Array(gemini))])
 }
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "transport-policy", run: every_pure_case_replays_as_node_recorded_it }];
+
 #[test]
 fn every_pure_case_replays_as_node_recorded_it() {
     let replays: [(&str, fn(&Case) -> Exact); 11] = [

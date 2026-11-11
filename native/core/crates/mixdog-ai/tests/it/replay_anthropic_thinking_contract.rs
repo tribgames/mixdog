@@ -32,7 +32,6 @@ use serde_json::json;
 
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
-use crate::provider_case::assert_exact;
 use crate::provider_cases::plain;
 
 /// The recorder's scrubbed environment: no variable is set.
@@ -43,6 +42,8 @@ impl Environment for NoVars {
         None
     }
 }
+
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "anthropic-thinking-contract", run: every_case_answers_as_nodes }];
 
 #[tokio::test(start_paused = true)]
 async fn every_case_answers_as_nodes() {
@@ -57,7 +58,7 @@ async fn every_case_answers_as_nodes() {
     let codec = AnthropicCodec::new(Flavor::OAuth, AnthropicConfig::new(CatalogCaps::new(catalog, &NoVars).lookup()));
     for case in &set.cases {
         let id = case.id.as_str();
-        let result = case.result();
+        let recorded = case.recorded();
         let entry = |n: usize| case.calls[n].entry.rsplit('.').next().expect("an entry").to_owned();
         if id.starts_with("adaptive-only-rejects-manual-budget:") {
             assert_eq!(case.calls.len(), 1, "{id}");
@@ -87,16 +88,9 @@ async fn every_case_answers_as_nodes() {
                     Exact::Error { name: "TypeError".into(), message: refused.message.clone(), code: None, cause: None, props: Vec::new() }
                 }
             };
-            for (key, recorded) in result.entries() {
-                match key.as_str() {
-                    "threw" => {
-                        let _ = error_field("message");
-                        assert_exact(&format!("{id}: threw"), recorded, &outcome);
-                    }
-                    "bodyAfter" => assert!(set.excludes("bodyAfter"), "{id}: bodyAfter is compared or declared"),
-                    other => panic!("{id}: a recorded property this replay does not read: {other}"),
-                }
-            }
+            // `bodyAfter` is declared not compared by the manifest; any other recorded property fails the set's drop.
+            let _ = error_field("message");
+            recorded.get("threw").assert_eq(&format!("{id}: threw"), &outcome);
         } else {
             let entries: Vec<String> = (0..case.calls.len()).map(entry).collect();
             assert_eq!(entries, ["setModelEffortCapabilities", "_buildRequestBodyForCacheSmoke"], "{id}");
@@ -121,10 +115,7 @@ async fn every_case_answers_as_nodes() {
             };
             let wire = codec.encode(&request).unwrap_or_else(|e| panic!("{id}: {}", e.message));
             let body: Value = serde_json::from_slice(&wire.body).expect("a JSON body");
-            for (key, recorded) in result.entries() {
-                assert_eq!(key, "body", "{id}: a recorded property this replay does not read: {key}");
-                assert_exact(&format!("{id}: the request body"), recorded, &Exact::plain(&body));
-            }
+            recorded.get("body").assert_eq(&format!("{id}: the request body"), &Exact::plain(&body));
         }
     }
 }

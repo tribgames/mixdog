@@ -3,6 +3,7 @@
 // is recorded; the first-chunk window runs the product timer on the virtual clock (the 25 ms step is an input and the clock trace is recorded). The input of every case is the scripted Response itself (status, headers, body bytes as delivered). The recorded `response`,
 // `error` (code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, ...) and callbacks are what a Rust decoder must equal.
 //   node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <exact export of b6f10295a>
+import net from 'node:net';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
@@ -105,4 +106,31 @@ await rec.run('idle-window-after-a-payload-names-phase', 'src/runtime/agent/orch
   await clock.advance(300000, { what: 'idle window (300000 ms)' });
   return { ...(await pending), ...seen };
 });
+// What re-arms the idle window (gemini-stream.mjs:586-591): a read that decoded a payload, never bytes that decode none. One payload, then
+// the endpoint holds the response open; after a first recorded step the endpoint writes a second chunk on the held response (`later`): a
+// payload re-arms the window (it fires a full window after that payload), a keep-alive comment line does not (it fires a full window after
+// the first). Each later chunk is written once the step before it was taken and the product has consumed it before the next step.
+const serverSocket = (record) => process._getActiveHandles().find((h) => h instanceof net.Socket && h.remotePort === record.connectionPort && h._httpMessage);
+const writeLater = (record, chunk) => new Promise((resolve, reject) => serverSocket(record)._httpMessage.write(chunk, (error) => (error ? reject(error) : resolve())));
+for (const [id, second, rest, decoded] of [
+  ['idle-window-rearmed-by-each-payload', frames([cand([{ text: 'two' }])]), 300000, 2],
+  ['idle-window-not-rearmed-by-a-keepalive', ': keepalive\n\n', 100000, 1],
+]) {
+  const served = { status: 200, contentType: 'text/event-stream', chunks: [frames([cand([{ text: 'one' }])])], hold: true, later: [{ afterStep: 0, chunk: second }] };
+  await rec.run(id, 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs:591', { served, options: { label: 'fixture' } }, async ({ net, clock }) => {
+    net.reply = () => served;
+    const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const seen = { progress: [], text: [] };
+    const pending = consumeGeminiRestStreamResponse(response, { label: 'fixture', onStreamDelta: (kind) => seen.progress.push(kind), onTextDelta: (delta) => seen.text.push(delta) }).then((value) => ({ response: value }), (error) => ({ error }));
+    await clock.until(() => seen.progress.length === 1, 'the first payload decoded and the idle window re-armed');
+    await clock.advance(200000, { what: 'part of the idle window (200000 ms)' });
+    await writeLater(net.records[0], second);
+    // The product reads the written chunk: a payload is observed decoded; bytes that decode none are not observable, so two turns of the
+    // event loop let the client take them up.
+    if (decoded === 2) await clock.until(() => seen.progress.length === 2, 'the second payload decoded');
+    else for (let i = 0; i < 2; i++) await new Promise((resolve) => setImmediate(resolve));
+    await clock.advance(rest, { what: `the rest of the idle window (${rest} ms)` });
+    return { ...(await pending), ...seen };
+  });
+}
 await rec.finish();

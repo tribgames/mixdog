@@ -455,6 +455,8 @@ fn compare_error(what: &str, recorded: &Exact, built: &Built) {
     }
 }
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "gemini-error-contract", run: every_case_answers_as_nodes }];
+
 #[test]
 fn every_case_answers_as_nodes() {
     let set = CaseSet::load("gemini-error-contract");
@@ -462,9 +464,9 @@ fn every_case_answers_as_nodes() {
     for case in &set.cases {
         let answers = answer(case);
         let mut walk = Walk { case: &case.id, now: now(), answers, error_at: 0 };
-        let actual = walk.node("", case.result());
+        let actual = walk.node("", case.recorded().raw());
         assert!(walk.answers.contracts.is_empty() && walk.answers.errors.is_empty(), "{}: every call answered", case.id);
         assert!(walk.answers.kinds.is_empty() && walk.answers.capacity.is_empty() && walk.answers.policy.is_empty(), "{}", case.id);
-        assert_exact(&format!("provider-gemini-error-contract {}: result", case.id), &errors_compared(case.result()), &actual);
+        case.recorded().assert_as(&format!("provider-gemini-error-contract {}: result", case.id), errors_compared, &actual);
     }
 }

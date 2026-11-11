@@ -11,6 +11,8 @@ use crate::provider_case::within;
 use crate::replay_anthropic;
 use crate::replay_world;
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "anthropic-stream", run: every_case_replays_as_nodes }];
+
 /// Every case whole: the request as it arrives at the socket (the Anthropic SDK's headers in its order and letter
 /// case, undici's own, the body bytes), and the send's result and callbacks as Node's.
 #[tokio::test(start_paused = true)]
@@ -35,7 +37,7 @@ async fn every_case_replays_as_nodes() {
         let (outcome, events) = within(&format!("{}: the send", case.id), replay_world::send_with(adapter.as_ref(), request, &cancel, Default::default())).await;
         assert_eq!(outcome.expect("the scripted stream completes"), 1, "{}: one attempt", case.id);
         set.assert_requests(case, &endpoint.arrivals(), None);
-        replay_anthropic::assert_send(&set, &case.id, case.result(), &replay_anthropic::send(&events.events, args[1].as_str()));
+        replay_anthropic::assert_send(&set, &case.id, &case.recorded(), &replay_anthropic::send(&events.events, args[1].as_str()));
     }
 }
 
