@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 27973,
+      "bytes": 40193,
       "path": "golden.json",
-      "sha256": "eeea1f3e4ad40f31819a4a1c731d716d7652d859b5c7ec3fc5343e7751ccb7a6"
+      "sha256": "1a7cacb5c9646698b3a21663e9f2abc92f4f2fae3d37b1b4f19bef32ac82a2ad"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -50,10 +54,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-hybrid-sql-exact.mjs",
-  "recorderSha256": "a57feac06c806e795759b3ece960ab0ab48729bc82e253cc9bda14b11740393a",
-  "replay": "mixdog-services memory: mem/recall/hybrid.rs exact_cte (lower + strpos) over a PG with the same `entries` rows inserted in order; compares per query the exact terms, and the set of ids whose exact_rank is not null (sorted). The sql text is Node's: a Rust replay compares ids and exact terms, not SQL text. Needs MIXDOG_PG_RUNTIME",
+  "recorderSha256": "54f97512f2bbefef5e92fa29cb565d806a776a5b764f167c4f09a86d10e3e302",
+  "replay": "the public call is the `memory/recall` request (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240 -> search_relevant_hybrid, recall/hybrid.rs:743), whose exact leg is built at recall/hybrid.rs:228 (exact_cte, private: not called directly). A replay inserts the same `entries` rows in order into a PG (needs MIXDOG_PG_RUNTIME), sends a recall with each recorded query text and compares the returned rows (the recorded `returned` rows carry the exact_rank column: compare the rows whose exact_rank is non-null, with their id and exact_rank, and the exact terms). ORDER: the last SELECT of Node's statement has no ORDER BY (finalStatementHasOrderBy false), so the recorded order is this cluster's plan order; the tie rule for a replay is: compare as sets keyed by id, and compare exact_rank values (which come from the ORDER BY inside the exact leg: rarity desc, hits desc, MAX(ts) desc). The sql text is Node's and is not compared",
   "set": "memory-hybrid-sql-exact",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 27973,
-  "uuidsNormalised": "none"
+  "totalBytes": 40193,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

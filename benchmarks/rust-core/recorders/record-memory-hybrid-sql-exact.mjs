@@ -3,11 +3,11 @@
 // `openDatabase` (memory.mjs: the bundled PostgreSQL cluster in a private PGDATA, never the user's memory service), the
 // real `recallPlan`, `buildHybridQuery` and `buildExactTerms`: the rows the test inserts (mixed Korean/product casing,
 // a non-ASCII case pair, NULL columns, `%` `_` `\`), then for every query the exact terms, the hybrid SQL text and
-// params Node builds, and the ids whose `exact_rank` is not null, sorted. The recorder stops the cluster and removes the
+// params Node builds, and the rows the query returned, whole and in the returned order. The recorder stops the cluster and removes the
 // private directory on every path (the cluster's processes are the supervisor's: stopPgForShutdown).
 //
 //   node benchmarks/rust-core/recorders/record-memory-hybrid-sql-exact.mjs --tree <dir>   (set MIXDOG_BENCH_TMP for the private root)
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { begin, finish, importFrom, exact, within } from './lib/mc-record.mjs';
@@ -44,7 +44,9 @@ try {
     const exactTerms = buildExactTerms(query);
     const { sql, params } = buildHybridQuery(recallPlan(query));
     const { rows: out } = await db.query(sql, params);
-    queries.push({ query, literal, exactTermsIncludeLiteral: exactTerms.includes(literal), exactTerms: exact(exactTerms), sql, params: exact(params), exactIds: out.filter((row) => row.exact_rank != null).map((row) => Number(row.id)).sort((a, b) => a - b), allReturnedIds: out.map((row) => Number(row.id)).sort((a, b) => a - b) });
+    // The rows as the database returned them, whole and in the returned order. The statement's last SELECT has no ORDER BY (the
+    // ORDER BYs it has are inside its legs): the order below is this cluster's physical/plan order, a tie rule a replay must not rely on.
+    queries.push({ query, literal, exactTerms: exact(exactTerms), sql, params: exact(params), finalStatementHasOrderBy: /FROM combined c[\s\S]*ORDER BY/.test(sql), returned: exact(out) });
   };
   const koContent = await insert('ko content', '어제 CLAUDE코드 설정을 바꿨다');
   const koElement = await insert('ko element', '무관한 본문', 'Claude코드 정리');
@@ -72,8 +74,13 @@ try {
   void [koContent, koElement, koSummary, koOther];
   await closeDatabase(directory);
 } finally {
-  await stopPgForShutdown();
-  rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  // Cleanup runs on every path, including a failed stop: stop with a deadline, then remove once (no retry loop); a leftover fails the
+  // recording and names the path.
+  const problems = [];
+  try { await within('stopping the private PostgreSQL cluster', stopPgForShutdown(), 120_000); } catch (error) { problems.push(`stop failed: ${error?.message ?? error}`); }
+  try { rmSync(directory, { recursive: true, force: true }); } catch (error) { problems.push(`remove failed: ${error?.message ?? error}`); }
+  if (existsSync(directory)) problems.push('the directory still exists');
+  if (problems.length) throw new Error(`private cluster left behind at ${directory}: ${problems.join('; ')}`);
 }
 
 finish(ctx, {
@@ -88,7 +95,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'openDatabase/closeDatabase (memory.mjs) on a private bundled PostgreSQL cluster, stopPgForShutdown (pg/supervisor.mjs), recallPlan (recall-hybrid/plan.mjs), buildHybridQuery (recall-hybrid/hybrid-sql.mjs), buildExactTerms (recall-scoring.mjs)', notRun: 'embeddings: no vectors are inserted, so only the lexical/exact legs return rows (the dense leg has no candidates)' },
-    replay: 'mixdog-services memory: mem/recall/hybrid.rs exact_cte (lower + strpos) over a PG with the same `entries` rows inserted in order; compares per query the exact terms, and the set of ids whose exact_rank is not null (sorted). The sql text is Node\'s: a Rust replay compares ids and exact terms, not SQL text. Needs MIXDOG_PG_RUNTIME',
+    replay: 'the public call is the `memory/recall` request (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240 -> search_relevant_hybrid, recall/hybrid.rs:743), whose exact leg is built at recall/hybrid.rs:228 (exact_cte, private: not called directly). A replay inserts the same `entries` rows in order into a PG (needs MIXDOG_PG_RUNTIME), sends a recall with each recorded query text and compares the returned rows (the recorded `returned` rows carry the exact_rank column: compare the rows whose exact_rank is non-null, with their id and exact_rank, and the exact terms). ORDER: the last SELECT of Node\'s statement has no ORDER BY (finalStatementHasOrderBy false), so the recorded order is this cluster\'s plan order; the tie rule for a replay is: compare as sets keyed by id, and compare exact_rank values (which come from the ORDER BY inside the exact leg: rarity desc, hits desc, MAX(ts) desc). The sql text is Node\'s and is not compared',
     exclusions: 'none',
     normalised: { 'private directory': 'temp, not recorded', 'ids': 'serial ids 1..N from a fresh cluster, in insertion order' },
   },
