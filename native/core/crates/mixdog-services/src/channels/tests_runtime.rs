@@ -678,13 +678,18 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
 }
 
 /// `fixtures/session-transport-state-lanes` case 327 with Node's fix (`node-fix-remote-state-null-session.patch`): a
-/// manual ON of the bridge for `session_remote`, then its OFF, publish the pinned session and then none. What a client
-/// reads of each publication is `enabled` and `sessionId` (`applyRemoteSessionState`, desktop
-/// `session-host-publication.ts:290`; the core's `hostState.remoteSession` from the binding observer,
-/// `compose_flip.rs` `observe_binding`). Node's second state is the client registration adding its cwd, which the core
-/// has no counterpart of (no channel transport client registers): it changes neither field.
+/// manual ON of the bridge for `session_remote`, then its OFF, publish the pinned session and then none. Each publication is
+/// compared whole as a client receives it: the core publishes `hostState.remoteSession` through the observer the
+/// composition wires (`compose_flip.rs`: `observe_binding` -> `publish_remote_session`), once when observed and at each
+/// binding change. Node's frames are `{enabled, sessionId, cwd, daemonPid, updatedAt}`; the value a client applies of one is
+/// `applyRemoteSessionState` (`apps/desktop/src/main/session-host-publication.ts:290`: the id of an enabled state, else
+/// none), so each Node frame gives `{"sessionId": that}`. Node's second frame is the client registration adding its cwd
+/// (`POST /client/register`), which the core has no counterpart of (no channel transport client registers), as the manifest
+/// declares; every other frame is compared in order.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_bridge_binding_publishes_the_pinned_session_as_node_does() {
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_core_api::state::SectionChange;
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-transport-state-lanes/recording.json");
     let recording: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let case = recording["cases"]
@@ -696,19 +701,28 @@ async fn the_bridge_binding_publishes_the_pinned_session_as_node_does() {
     let e = env().await;
     let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
-    let published = Arc::new(Mutex::new(Vec::<Value>::new()));
-    let sink = published.clone();
-    calls.observe_binding(Arc::new(move |enabled, session| sink.lock().unwrap().push(json!({ "enabled": enabled, "sessionId": session }))));
+    let publisher = Arc::new(MockStatePublisher::default());
+    let sink = publisher.clone();
+    calls.observe_binding(Arc::new(move |enabled, session| mixdog_core_domains::domains::host::publish_remote_session(sink.as_ref(), enabled, session)));
     let svc = ChannelService::new(e.admin.clone(), calls);
+    let published = || -> Vec<Value> {
+        publisher
+            .published()
+            .into_iter()
+            .map(|(section, key, change)| {
+                let SectionChange::Set(bytes) = change else { panic!("remoteSession is set whole") };
+                json!({ "section": serde_json::to_value(section).unwrap(), "key": key, "value": serde_json::from_slice::<Value>(&bytes).unwrap() })
+            })
+            .collect()
+    };
+    let applied = |state: &Value| -> Value {
+        let id = state["sessionId"].as_str().unwrap_or_default();
+        let valid = state["enabled"] == true && !id.is_empty() && id.len() <= 256 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+        json!({ "section": "hostState", "key": "remoteSession", "value": { "sessionId": if valid { json!(id) } else { Value::Null } } })
+    };
+    let registration_frame = 1;
     let node = |states: &Value| -> Vec<Value> {
-        let mut seen: Vec<Value> = Vec::new();
-        for state in states.as_array().unwrap() {
-            let shown = json!({ "enabled": state["enabled"], "sessionId": state["sessionId"] });
-            if seen.last() != Some(&shown) {
-                seen.push(shown);
-            }
-        }
-        seen
+        states.as_array().unwrap().iter().enumerate().filter(|(n, _)| *n != registration_frame).map(|(_, state)| applied(state)).collect()
     };
     let steps = case["result"]["steps"].as_array().unwrap();
     assert_eq!(steps[0]["call"], "POST /client/register");
@@ -716,9 +730,14 @@ async fn the_bridge_binding_publishes_the_pinned_session_as_node_does() {
         assert_eq!(step["call"]["name"], ACTIVATE_TOOL);
         let reply = svc.call(request("channel/call", json!({ "name": ACTIVATE_TOOL, "args": step["call"]["args"] }), Some(&format!("op-{n}")))).await.unwrap();
         let Reply::Value(reply) = reply else { panic!("not a value") };
-        assert_ne!(reply["isError"], true, "step {n}: {reply}");
-        assert_eq!(*published.lock().unwrap(), node(&step["statesSoFar"]), "step {n}: the published binding");
+        // The recorder stubs Node's `handleCall` (`{ ok: true }`, record-session-transport-state-lanes.mjs:210); the answer
+        // Node's channel worker gives is its dispatch's (`channels/lib/tool-dispatch.mjs:58`).
+        let active = step["call"]["args"]["active"] == true;
+        assert_eq!(step["response"]["ok"]["result"], json!({ "ok": true }), "step {n}: the recorder's stub");
+        assert_eq!(reply, json!({ "content": [{ "type": "text", "text": format!("channel bridge {}", if active { "activated" } else { "deactivated" }) }] }), "step {n}: the answer");
+        assert_eq!(published(), node(&step["statesSoFar"]), "step {n}: every publication so far");
     }
+    assert_eq!(published(), node(&case["result"]["states"]), "all of Node's frames");
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 

@@ -65,6 +65,8 @@ libc = { workspace = true }
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+# The channel bridge's publication is replayed through the host domain's publisher the composition wires.
+mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
