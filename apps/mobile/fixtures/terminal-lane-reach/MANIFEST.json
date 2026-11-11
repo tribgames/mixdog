@@ -31,7 +31,7 @@
       "sha256": "c8b2b4a8194e7f4da68200cb1cff6a9d0d64306305788e1ce3219980b5486112"
     }
   ],
-  "leftProcesses": "0 process(es) of the recording were still running when it ended and were ended with its job (ConPTY hosts outlive node-pty's kill).",
+  "leftProcesses": "0 process(es) of the recording were still running when it ended; any are ended with its job.",
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -51,7 +51,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs",
-  "recorderSha256": "b86ade73173f487e97276feaa85163ba77db8a3482791787308cd48460c42b52",
+  "recorderSha256": "07d5af622496e10f77d235649cb2c8642a2d3cf5b0bae555228d83efe166fc48",
   "set": "terminal-lane-reach",
   "totalBytes": 1860
 }
