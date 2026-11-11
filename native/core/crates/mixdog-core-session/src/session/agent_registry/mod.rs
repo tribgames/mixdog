@@ -1261,41 +1261,54 @@ pub struct KeptRows {
     state: mixdog_store::state::CoreState,
     /// The kept sessions as last loaded, with this process's keeps.
     ids: Mutex<HashSet<String>>,
-    /// The kept maps, read from the table once and kept current by every [`Self::put`]: a listing reads memory.
-    rows: tokio::sync::Mutex<Option<Vec<(String, Row)>>>,
+    /// The kept maps, read from the table once and kept current by every [`Self::put`]: a listing reads memory. The lock
+    /// is held for memory alone, never across the table's read or write: the puts come one at a time (`StoreWorkers`'
+    /// one writer task), so memory follows the table in the table's order.
+    rows: Mutex<Option<Vec<(String, Row)>>>,
 }
 
 const KEPT_PREFIX: &str = "agent-kept-worker:";
 
 impl KeptRows {
     pub fn new(state: mixdog_store::state::CoreState) -> Self {
-        Self { state, ids: Mutex::default(), rows: tokio::sync::Mutex::new(None) }
+        Self { state, ids: Mutex::default(), rows: Mutex::new(None) }
     }
 
     fn ids(&self) -> MutexGuard<'_, HashSet<String>> {
         self.ids.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The kept maps in memory, read from the table the first time.
-    async fn loaded(&self) -> Result<tokio::sync::MutexGuard<'_, Option<Vec<(String, Row)>>>, String> {
-        let mut rows = self.rows.lock().await;
+    fn rows(&self) -> MutexGuard<'_, Option<Vec<(String, Row)>>> {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Reads the table into memory the first time. A read that finds memory filled meanwhile leaves it as it is: from then
+    /// on only a put changes it, and a put fills memory before it writes, so a table read from before that write is never
+    /// what memory ends with.
+    async fn loaded(&self) -> Result<(), String> {
+        let filled = self.rows().is_some();
+        if filled {
+            return Ok(());
+        }
+        let stored = self.state.meta_prefix(KEPT_PREFIX).await.map_err(|e| format!("kept worker rows: {e}"))?;
+        let mut out = Vec::new();
+        for (key, text) in stored {
+            let session = key.trim_start_matches(KEPT_PREFIX).to_owned();
+            let map: Row = serde_json::from_str(&text).map_err(|e| format!("kept worker row {session}: {e}"))?;
+            out.push((session, map));
+        }
+        let mut rows = self.rows();
         if rows.is_none() {
-            let stored = self.state.meta_prefix(KEPT_PREFIX).await.map_err(|e| format!("kept worker rows: {e}"))?;
-            let mut out = Vec::new();
-            for (key, text) in stored {
-                let session = key.trim_start_matches(KEPT_PREFIX).to_owned();
-                let map: Row = serde_json::from_str(&text).map_err(|e| format!("kept worker row {session}: {e}"))?;
-                out.push((session, map));
-            }
             self.ids().extend(out.iter().map(|(session, _)| session.clone()));
             *rows = Some(out);
         }
-        Ok(rows)
+        Ok(())
     }
 
     /// Every kept map, by session.
     pub async fn load(&self) -> Result<Vec<(String, Row)>, String> {
-        Ok(self.loaded().await?.clone().unwrap_or_default())
+        self.loaded().await?;
+        Ok(self.rows().clone().unwrap_or_default())
     }
 
     pub fn holds(&self, session: &str) -> bool {
@@ -1306,7 +1319,7 @@ impl KeptRows {
     /// changes only once the write is committed, so a failed write leaves every later listing as the table is. (Node's index
     /// queue keeps a failed write queued and retries it, `index-write-queue.mjs:231-245`; `StoreWorkers`' writer does the same.)
     pub async fn put(&self, session: &str, worker: Option<Row>) -> Result<(), String> {
-        let mut rows = self.loaded().await?;
+        self.loaded().await?;
         let key = format!("{KEPT_PREFIX}{session}");
         let written = match &worker {
             Some(map) => {
@@ -1316,6 +1329,7 @@ impl KeptRows {
             None => self.state.write(move |tx| tx.delete_meta(&key).map(drop)).await,
         };
         written.map_err(|e| format!("kept worker row {session}: {e}"))?;
+        let mut rows = self.rows();
         let kept = rows.get_or_insert_with(Vec::new);
         kept.retain(|(id, _)| id != session);
         match worker {
@@ -1371,7 +1385,7 @@ impl StoreWorkers {
                 } else {
                     tokio::select! {
                         op = rx.recv() => op,
-                        () = tokio::time::sleep(KEPT_RETRY_AFTER) => {
+                        () = mixdog_rt::time::sleep(KEPT_RETRY_AFTER) => {
                             retry_owed(&keeper, &mut owed).await;
                             continue;
                         }
