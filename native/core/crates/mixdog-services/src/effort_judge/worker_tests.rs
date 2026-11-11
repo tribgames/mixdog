@@ -4,8 +4,10 @@
 
 use std::future::Future;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::task::Poll;
+use std::thread::ThreadId;
 use std::time::Duration;
 
 use mixdog_agent::step_effort::{StepEffortJudge, StepInput, StepResult};
@@ -13,10 +15,10 @@ use mixdog_rt::{CancellationToken, CpuBulk, InLane, LaneToken};
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::input::TurnInput;
-use crate::effort_judge::judge::{Resident, Script};
+use crate::effort_judge::judge::{JudgeOptions, Resident, Script};
 use crate::effort_judge::ladder::{AutoLadder, StepLadder};
 use crate::effort_judge::model::{ModelConfig, OrtRuntime};
-use crate::effort_judge::worker::{Alarm, STUCK};
+use crate::effort_judge::worker::{Alarm, STUCK, Stopper, THREADS};
 use crate::effort_judge::{EffortJudge, EffortJudgeModel, JudgeLanes, JudgeTiming, TurnVerdict};
 use crate::tool_state::StateTick;
 
@@ -49,6 +51,9 @@ impl Resident for Fixed {
     }
     fn turn_probs(&self, _: &TurnInput) -> Result<Vec<f64>, JudgeError> {
         Ok(PROBS.to_vec())
+    }
+    fn stopper(&self) -> Stopper {
+        Arc::new(|| ())
     }
 }
 
@@ -109,6 +114,9 @@ impl Resident for Held {
     }
     fn turn_probs(&self, _: &TurnInput) -> Result<Vec<f64>, JudgeError> {
         Err(JudgeError::Run("only steps are judged here".into()))
+    }
+    fn stopper(&self) -> Stopper {
+        Arc::new(|| ())
     }
 }
 
@@ -194,19 +202,31 @@ impl Clock {
     }
 }
 
-/// A model the test holds: a judgment whose request starts with "hold" waits for the next release
-/// (in the order they started), "boom" panics. Each says on which thread it starts and is dropped.
+/// What ends a held run: the model's stopper, as ONNX Runtime's terminate flag ends a running one.
+#[derive(Default)]
+struct Stop {
+    stopped: Mutex<bool>,
+    wake: std::sync::Condvar,
+}
+
+/// A model the test holds: a judgment whose request starts with "hold" runs until the model is
+/// stopped and then fails as a terminated run does; "boom" panics. Each says on which thread it
+/// starts and is dropped.
 struct Gated {
-    started: tokio::sync::mpsc::UnboundedSender<(String, std::thread::ThreadId)>,
-    release: Arc<Mutex<mpsc::Receiver<()>>>,
-    dropped_on: Arc<Mutex<Vec<std::thread::ThreadId>>>,
+    started: tokio::sync::mpsc::UnboundedSender<(String, ThreadId)>,
+    stop: Arc<Stop>,
+    dropped_on: Arc<Mutex<Vec<ThreadId>>>,
 }
 
 impl Gated {
     fn judge(&self, request: &str) -> Result<Vec<f64>, JudgeError> {
         let _ = self.started.send((request.to_owned(), std::thread::current().id()));
         if request.starts_with("hold") {
-            self.release.lock().unwrap().recv().expect("the test releases each held judgment");
+            let mut stopped = self.stop.stopped.lock().unwrap();
+            while !*stopped {
+                stopped = self.stop.wake.wait(stopped).unwrap();
+            }
+            return Err(JudgeError::Run("Exiting due to terminate flag being set to true.".into()));
         }
         assert_ne!(request, "boom", "a judgment that panics");
         Ok(PROBS.to_vec())
@@ -220,6 +240,13 @@ impl Resident for Gated {
     fn turn_probs(&self, input: &TurnInput) -> Result<Vec<f64>, JudgeError> {
         self.judge(&input.request)
     }
+    fn stopper(&self) -> Stopper {
+        let stop = self.stop.clone();
+        Arc::new(move || {
+            *stop.stopped.lock().unwrap() = true;
+            stop.wake.notify_all();
+        })
+    }
 }
 
 impl Drop for Gated {
@@ -228,72 +255,104 @@ impl Drop for Gated {
     }
 }
 
-type Threads = (Option<u64>, bool, Option<u64>);
+/// How the rig's model loads behave.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Loads {
+    Free,
+    /// The first load panics.
+    PanicFirst,
+    /// Each load waits for [`Rig::finish_load`], which no stopper ends: a runtime cannot stop a load.
+    Held,
+}
+
+/// (thread taking jobs, threads let go that have not ended).
+type Threads = (Option<u64>, usize);
 
 struct Rig {
     judge: Arc<EffortJudgeModel>,
     clock: Arc<Clock>,
-    started: tokio::sync::mpsc::UnboundedReceiver<(String, std::thread::ThreadId)>,
+    started: tokio::sync::mpsc::UnboundedReceiver<(String, ThreadId)>,
     /// Every judgment started, in order.
     log: Vec<String>,
-    release: mpsc::Sender<()>,
-    loads: Arc<std::sync::atomic::AtomicUsize>,
-    dropped_on: Arc<Mutex<Vec<std::thread::ThreadId>>>,
+    load_started: tokio::sync::mpsc::UnboundedReceiver<ThreadId>,
+    finish: mpsc::Sender<Result<(), String>>,
+    loads: Arc<AtomicUsize>,
+    dropped_on: Arc<Mutex<Vec<ThreadId>>>,
     changes: tokio::sync::watch::Receiver<u64>,
 }
 
-/// A judge on the test's clock whose loads make a fresh [`Gated`] model; with `panicking_load`, the
-/// first load panics.
-fn rig(config: ModelConfig, panicking_load: bool) -> Rig {
+/// A judge with Node's waits, every one on the test's clock, whose loads make a fresh [`Gated`] model.
+fn rig(config: ModelConfig, mode: Loads) -> Rig {
     let (started_tx, started) = tokio::sync::mpsc::unbounded_channel();
-    let (release, release_rx) = mpsc::channel();
-    let release_rx = Arc::new(Mutex::new(release_rx));
-    let loads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (load_started_tx, load_started) = tokio::sync::mpsc::unbounded_channel();
+    let (finish, finish_rx) = mpsc::channel::<Result<(), String>>();
+    let finish_rx = Mutex::new(finish_rx);
+    let loads = Arc::new(AtomicUsize::new(0));
     let dropped_on = Arc::new(Mutex::new(Vec::new()));
     let (counted, dropped) = (loads.clone(), dropped_on.clone());
     let script: Script = Arc::new(move || {
-        let n = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        assert!(!(panicking_load && n == 1), "load boom");
-        Ok(Arc::new(Gated { started: started_tx.clone(), release: release_rx.clone(), dropped_on: dropped.clone() }) as Arc<dyn Resident>)
+        let n = counted.fetch_add(1, Ordering::SeqCst) + 1;
+        let _ = load_started_tx.send(std::thread::current().id());
+        assert!(!(mode == Loads::PanicFirst && n == 1), "load boom");
+        if mode == Loads::Held {
+            finish_rx.lock().unwrap().recv().expect("the test finishes each held load").map_err(JudgeError::Load)?;
+        }
+        Ok(Arc::new(Gated { started: started_tx.clone(), stop: Arc::default(), dropped_on: dropped.clone() }) as Arc<dyn Resident>)
     });
     let clock = Arc::new(Clock::default());
     let tick = StateTick::default();
     let changes = tick.subscribe();
-    let judge = EffortJudgeModel::scripted_on(config, JudgeLanes::of(&mixdog_rt::testing::tokens()), script, clock.clone(), tick);
-    Rig { judge, clock, started, log: Vec::new(), release, loads, dropped_on, changes }
+    let options = JudgeOptions { tick, ..JudgeOptions::default() };
+    let judge = EffortJudgeModel::scripted_on(config, JudgeLanes::of(&mixdog_rt::testing::tokens()), script, clock.clone(), options);
+    Rig { judge, clock, started, log: Vec::new(), load_started, finish, loads, dropped_on, changes }
 }
 
 impl Rig {
-    /// The next judgment to start: its request and its thread.
-    async fn next_start(&mut self) -> std::thread::ThreadId {
+    /// The next judgment to start: its thread.
+    async fn next_start(&mut self) -> ThreadId {
         let (request, thread) = tokio::time::timeout(HANG, self.started.recv()).await.expect("a judgment starts").expect("the model lives");
         self.log.push(request);
         thread
+    }
+
+    /// The next load to start: its thread.
+    async fn next_load(&mut self) -> ThreadId {
+        tokio::time::timeout(HANG, self.load_started.recv()).await.expect("a load starts").expect("the script lives")
+    }
+
+    /// Ends the oldest held load (or the next one) with `outcome`.
+    fn finish_load(&self, outcome: Result<(), &str>) {
+        self.finish.send(outcome.map_err(str::to_owned)).unwrap();
     }
 
     fn threads(&self) -> Threads {
         self.judge.worker().threads()
     }
 
-    /// Waits, on the judge's state changes, until its threads are `want`.
-    async fn threads_become(&mut self, want: Threads) {
+    /// Waits, on the judge's state changes, until `done` holds.
+    async fn until(&mut self, what: &str, done: impl Fn(&EffortJudgeModel) -> bool) {
         let wait = async {
             loop {
                 self.changes.borrow_and_update();
-                if self.judge.worker().threads() == want {
+                if done(&self.judge) {
                     return;
                 }
                 self.changes.changed().await.expect("the judge lives");
             }
         };
-        tokio::time::timeout(HANG, wait).await.unwrap_or_else(|_| panic!("the judge's threads become {want:?}"));
+        tokio::time::timeout(HANG, wait).await.unwrap_or_else(|_| panic!("waiting for {what}"));
+    }
+
+    /// Waits until the judge's threads are `want`.
+    async fn threads_become(&mut self, want: Threads) {
+        self.until(&format!("threads {want:?}"), |judge| judge.worker().threads() == want).await;
     }
 
     fn loads(&self) -> usize {
-        self.loads.load(std::sync::atomic::Ordering::SeqCst)
+        self.loads.load(Ordering::SeqCst)
     }
 
-    fn dropped_on(&self) -> Vec<std::thread::ThreadId> {
+    fn dropped_on(&self) -> Vec<ThreadId> {
         self.dropped_on.lock().unwrap().clone()
     }
 }
@@ -307,91 +366,170 @@ const PATIENT: JudgeTiming = JudgeTiming { warm: HANG, queue: HANG, cold: HANG, 
 
 const EXITED: &str = "effort judge exited";
 
-/// Node's stuck worker (`judge-client.mjs:181`): a judgment unanswered for `STUCK_MS` gives its thread
-/// up; the next judgment runs on a new thread with a freshly loaded model, and the lost thread drops
-/// its own model when it returns. Meanwhile the queue is bounded: a job whose caller left is dropped
-/// unrun, and one past the bound is answered at once. A second thread that stalls while one is lost
-/// is not replaced: every judgment answers at once until one of them returns.
+const MS: Duration = Duration::from_millis(1);
+
+/// Node ends a worker whose judgment has not answered for `STUCK_MS` (`judge-client.mjs:182`) and
+/// the next turn starts a fresh one. Here the runtime's stop ends the stuck run, its thread drops its
+/// model on itself and ends, and the next judgment loads a fresh model on a new thread: ten stalls in
+/// a row, each recovered, and the eleventh judgment answers with one thread left.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_stuck_judgment_gives_its_thread_up_at_nodes_watchdog_and_a_fresh_model_takes_over() {
+async fn ten_stuck_judgments_are_each_stopped_at_nodes_watchdog_and_a_fresh_model_answers_the_next() {
     let dir = installed();
     let config = config(dir.path());
     if !config.runtime_supported() {
         return;
     }
-    let mut rig = rig(config, false);
+    let mut rig = rig(config, Loads::Free);
     let judge = rig.judge.clone();
+    for n in 1..=10u64 {
+        let held = tokio::spawn({
+            let judge = judge.clone();
+            async move { judge.judge_turn(turn("hold"), PATIENT).await }
+        });
+        let thread = rig.next_start().await;
+        rig.clock.advance(STUCK - MS);
+        assert_eq!(rig.threads(), (Some(n), 0), "stall {n}: still running before Node's 10 s");
+        assert!(!held.is_finished());
+        rig.clock.advance(MS);
+        assert_eq!(rig.threads().0, None, "stall {n}: let go at 10 s");
+        assert_eq!(tokio::time::timeout(HANG, held).await.expect("the stuck turn answers").unwrap(), TurnVerdict::Skipped(EXITED.into()), "stall {n}");
+        rig.threads_become((None, 0)).await;
+        assert_eq!(rig.dropped_on().last(), Some(&thread), "stall {n}: the model is dropped on its own thread");
+    }
+    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
+    assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
+    assert_eq!((rig.loads(), rig.threads()), (11, (Some(11), 0)));
+}
 
-    // s1 holds thread 1; its step's run is cancelled while it runs.
-    let first = tokio::spawn({
-        let judge = judge.clone();
-        async move { judge.probs(step("hold s1")).await }
-    });
-    let one = rig.next_start().await;
-    first.abort();
-    assert!(first.await.unwrap_err().is_cancelled());
-    // s2 takes the one place behind it; its run is cancelled too, before s2 comes up.
-    let mut second = Box::pin(judge.probs(step("s2")));
-    assert!(poll_once(&mut second).is_none(), "s2 waits behind s1");
-    drop(second);
-    // The queue is full: answered at once, as Node answers a turn with no judgment.
-    let third = tokio::time::timeout(HANG, judge.probs(step("s3"))).await.expect("a full queue answers at once");
-    assert!(matches!(third, Err(JudgeError::Busy)), "{third:?}");
-    assert_eq!(
-        tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn"),
-        TurnVerdict::Skipped("busy".into())
-    );
+/// Every way a thread stops being the worker is counted until it ends, and at most [`THREADS`] are
+/// alive. A load cannot be stopped: fifty shutdowns during a load that never returns hold two
+/// threads, and every load past them answers at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn fifty_shutdowns_during_loads_that_never_return_hold_at_most_two_threads() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = rig(config, Loads::Held);
+    let judge = rig.judge.clone();
+    for cycle in 0..50 {
+        let verdict = tokio::spawn({
+            let judge = judge.clone();
+            async move { judge.judge_turn(turn("t"), PATIENT).await }
+        });
+        if cycle < THREADS {
+            rig.next_load().await;
+        }
+        tokio::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no load");
+        assert_eq!(tokio::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(), TurnVerdict::Skipped("warming".into()), "cycle {cycle}");
+        let (current, retiring) = rig.threads();
+        assert!(usize::from(current.is_some()) + retiring <= THREADS, "cycle {cycle}: {:?}", rig.threads());
+    }
+    assert_eq!((rig.loads(), rig.threads()), (THREADS, (None, THREADS)));
+    for _ in 0..THREADS {
+        rig.finish_load(Ok(()));
+    }
+    rig.threads_become((None, 0)).await;
+    assert_eq!(rig.dropped_on().len(), THREADS, "each late model is dropped on its own thread");
+    rig.finish_load(Ok(()));
+    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
+    assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
+    assert_eq!((rig.loads(), rig.threads()), (THREADS + 1, (Some(THREADS as u64 + 1), 0)));
+}
 
-    rig.clock.advance(STUCK - Duration::from_millis(1));
-    assert_eq!(rig.threads(), (Some(1), false, None), "not stuck before Node's 10 s");
-    assert!(judge.is_ready());
-    rig.clock.advance(Duration::from_millis(1));
-    assert_eq!(rig.threads(), (None, false, Some(1)), "given up at 10 s");
-    assert!(!judge.is_ready());
+/// A load still running when the judge shuts down stores nothing when it ends, success or failure,
+/// and shutdown answers without waiting for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_load_cut_short_by_shutdown_stores_nothing_and_holds_no_exit() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = rig(config, Loads::Held);
+    let judge = rig.judge.clone();
+    for outcome in [Err("late failure"), Ok(())] {
+        let verdict = tokio::spawn({
+            let judge = judge.clone();
+            async move { judge.judge_turn(turn("t"), PATIENT).await }
+        });
+        let loader = rig.next_load().await;
+        let before = judge.status();
+        tokio::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no load");
+        assert_eq!(tokio::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(), TurnVerdict::Skipped("warming".into()));
+        assert_eq!(rig.threads(), (None, 1), "the loading thread is counted, not waited for");
+        rig.finish_load(outcome);
+        rig.threads_become((None, 0)).await;
+        let after = judge.status();
+        assert!(!after.ready && after.last_error.is_empty() && before.last_error.is_empty(), "{outcome:?}: {}", after.last_error);
+        if outcome.is_ok() {
+            assert_eq!(rig.dropped_on(), [loader], "the late model is dropped on its own thread");
+        }
+    }
+    // Nothing was remembered: the next judgment loads without a load-error back-off.
+    rig.finish_load(Ok(()));
+    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
+    assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
+}
 
-    // A new thread with a freshly loaded model; the lost thread keeps its own.
-    let fourth = tokio::time::timeout(HANG, judge.probs(step("s4"))).await.expect("judged on a new thread");
-    assert_eq!(fourth.expect("judged"), PROBS);
-    let two = rig.next_start().await;
-    assert_ne!(two, one);
+/// Node's waits, each on the judge's clock (`judge-client.mjs` at `bb8c5e3b7`): a model still loading
+/// after `COLD_WAIT_MS` answers `warming`; an answer later than `WARM_TIMEOUT_MS` after sending
+/// answers `timeout` while its judgment keeps the queue; judgments queue behind it, turns and steps
+/// alike, and each answers `busy` after `QUEUE_WAIT_MS` unsent; `STUCK_MS` after sending, the
+/// worker is let go and the next judgment loads a fresh model.
+#[tokio::test(flavor = "multi_thread")]
+async fn nodes_waits_answer_warming_timeout_busy_and_end_the_worker_on_the_judges_clock() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = rig(config, Loads::Held);
+    let judge = rig.judge.clone();
+    let node = JudgeTiming::default();
+    assert_eq!((node.cold, node.queue, node.warm, STUCK), (3000 * MS, 1000 * MS, 500 * MS, 10_000 * MS));
+
+    let mut cold = Box::pin(judge.judge_turn(turn("t0"), node));
+    assert!(poll_once(&mut cold).is_none());
+    rig.next_load().await;
+    rig.clock.advance(node.cold - MS);
+    assert!(poll_once(&mut cold).is_none(), "loading, inside the cold wait");
+    rig.clock.advance(MS);
+    assert_eq!(poll_once(&mut cold), Some(TurnVerdict::Skipped("warming".into())));
+    rig.finish_load(Ok(()));
+    rig.until("the model is ready", EffortJudgeModel::is_ready).await;
+
+    let mut sent = Box::pin(judge.judge_turn(turn("hold t1"), node));
+    assert!(poll_once(&mut sent).is_none());
+    rig.next_start().await;
+    let mut queued_turn = Box::pin(judge.judge_turn(turn("t2"), node));
+    let mut queued_step = Box::pin(judge.probs(step("s3")));
+    assert!(poll_once(&mut queued_turn).is_none() && poll_once(&mut queued_step).is_none(), "both queue behind t1");
+    rig.clock.advance(node.warm - MS);
+    assert!(poll_once(&mut sent).is_none());
+    rig.clock.advance(MS);
+    assert_eq!(poll_once(&mut sent), Some(TurnVerdict::Skipped("timeout".into())));
+    rig.clock.advance(node.queue - node.warm - MS);
+    assert!(poll_once(&mut queued_turn).is_none() && poll_once(&mut queued_step).is_none(), "t1's judgment still holds the queue");
+    rig.clock.advance(MS);
+    assert_eq!(poll_once(&mut queued_turn), Some(TurnVerdict::Skipped("busy".into())));
+    assert!(matches!(poll_once(&mut queued_step), Some(Err(JudgeError::Busy))));
+
+    rig.clock.advance(STUCK - node.queue - MS);
+    assert_eq!(rig.threads(), (Some(1), 0), "the worker runs t1 until Node's 10 s");
+    rig.clock.advance(MS);
+    rig.threads_become((None, 0)).await;
+    rig.finish_load(Ok(()));
+    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t4"), node)).await.expect("a turn");
+    assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
+    rig.next_start().await;
     assert_eq!(rig.loads(), 2);
-    assert_eq!(rig.threads(), (Some(2), false, Some(1)));
-
-    // Thread 2 stalls while thread 1 is lost: not replaced; its waiter and every later judgment
-    // answer at once.
-    let fifth = tokio::spawn({
-        let judge = judge.clone();
-        async move { judge.probs(step("hold s5")).await }
-    });
-    assert_eq!(rig.next_start().await, two);
-    rig.clock.advance(STUCK);
-    assert_eq!(rig.threads(), (Some(2), true, Some(1)));
-    let fifth = tokio::time::timeout(HANG, fifth).await.expect("the stalled judgment answers at once").unwrap();
-    assert!(matches!(fifth, Err(JudgeError::Worker(_))), "{fifth:?}");
-    let sixth = tokio::time::timeout(HANG, judge.probs(step("s6"))).await.expect("no judgment, at once");
-    assert!(matches!(sixth, Err(JudgeError::Worker(_))), "{sixth:?}");
-    assert_eq!(tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn"), TurnVerdict::Skipped(EXITED.into()));
-    assert_eq!(rig.loads(), 2);
-
-    // Thread 1 returns: it skips s2, drops its model on itself and ends; the stalled thread 2 is the
-    // lost one now, and the next judgment starts thread 3.
-    rig.release.send(()).unwrap();
-    rig.threads_become((None, false, Some(2))).await;
-    assert_eq!(rig.dropped_on(), [one]);
-    let seventh = tokio::time::timeout(HANG, judge.probs(step("s7"))).await.expect("judged on thread 3");
-    assert_eq!(seventh.expect("judged"), PROBS);
-    let three = rig.next_start().await;
-    assert!(three != one && three != two);
-    assert_eq!(rig.loads(), 3);
-    rig.release.send(()).unwrap();
-    rig.threads_become((Some(3), false, None)).await;
-    assert_eq!(rig.dropped_on(), [one, two]);
-    assert_eq!(rig.log, ["hold s1", "s4", "hold s5", "s7"], "s2 was dropped unrun");
-    assert!(rig.started.try_recv().is_err());
+    assert_eq!(rig.log, ["hold t1", "t4"], "t2 and s3 were never sent");
 }
 
 /// A panic in a load is Node's `load-error` (remembered, answered at once); a panic in a judgment is
-/// Node's exited worker. Either way the thread is given up and the next load starts a new one.
+/// Node's exited worker. Either way the thread is let go and the next load starts a new one.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_panic_in_a_load_or_a_judgment_answers_at_once_and_a_new_thread_takes_over() {
     let dir = installed();
@@ -399,12 +537,12 @@ async fn a_panic_in_a_load_or_a_judgment_answers_at_once_and_a_new_thread_takes_
     if !config.runtime_supported() {
         return;
     }
-    let mut rig = rig(config, true);
+    let mut rig = rig(config, Loads::PanicFirst);
     let judge = rig.judge.clone();
 
     let loaded = tokio::time::timeout(HANG, judge.probs(step("s"))).await.expect("a panicking load answers at once");
     assert!(matches!(&loaded, Err(JudgeError::Load(message)) if message == "load boom"), "{loaded:?}");
-    assert_eq!(rig.threads(), (None, false, None));
+    rig.threads_become((None, 0)).await;
     assert_eq!(
         tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn"),
         TurnVerdict::Skipped("load-error: load boom".into())
@@ -414,25 +552,25 @@ async fn a_panic_in_a_load_or_a_judgment_answers_at_once_and_a_new_thread_takes_
     let judged = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), retry)).await.expect("a turn");
     assert!(matches!(&judged, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{judged:?}");
     let two = rig.next_start().await;
-    assert_eq!((rig.loads(), rig.threads()), (2, (Some(2), false, None)));
+    assert_eq!((rig.loads(), rig.threads()), (2, (Some(2), 0)));
 
     let boom = tokio::time::timeout(HANG, judge.probs(step("boom"))).await.expect("a panicking judgment answers at once");
     assert!(matches!(boom, Err(JudgeError::Worker(_))), "{boom:?}");
     assert_eq!(rig.next_start().await, two);
-    assert_eq!(rig.threads(), (None, false, None));
+    rig.threads_become((None, 0)).await;
     let after = tokio::time::timeout(HANG, judge.probs(step("s"))).await.expect("judged on a new thread");
     assert_eq!(after.expect("judged"), PROBS);
     let three = rig.next_start().await;
     assert_ne!(three, two);
-    assert_eq!((rig.loads(), rig.threads()), (3, (Some(3), false, None)));
+    assert_eq!((rig.loads(), rig.threads()), (3, (Some(3), 0)));
 
     assert_eq!(tokio::time::timeout(HANG, judge.judge_turn(turn("boom"), PATIENT)).await.expect("a turn"), TurnVerdict::Skipped(EXITED.into()));
-    assert_eq!(rig.threads(), (None, false, None));
+    rig.threads_become((None, 0)).await;
 }
 
 /// Node's `shutdownEffortJudge` terminates the worker: the running turn and the one queued behind it
-/// answer "effort judge exited". Here the call waits for no thread; the held thread drops its model
-/// on itself when its judgment returns, and the next turn loads a new one.
+/// answer "effort judge exited". Here the call waits for no thread: the running inference is stopped,
+/// the thread drops its model on itself and ends, and the next turn loads a new one.
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_answers_the_running_and_queued_turns_and_waits_for_no_thread() {
     let dir = installed();
@@ -440,7 +578,7 @@ async fn shutdown_answers_the_running_and_queued_turns_and_waits_for_no_thread()
     if !config.runtime_supported() {
         return;
     }
-    let mut rig = rig(config, false);
+    let mut rig = rig(config, Loads::Free);
     let judge = rig.judge.clone();
 
     let first = tokio::spawn({
@@ -455,10 +593,7 @@ async fn shutdown_answers_the_running_and_queued_turns_and_waits_for_no_thread()
     assert_eq!(tokio::time::timeout(HANG, first).await.expect("t1 answers at once").unwrap(), TurnVerdict::Skipped(EXITED.into()));
     assert_eq!(tokio::time::timeout(HANG, second).await.expect("t2 answers at once"), TurnVerdict::Skipped(EXITED.into()));
     assert!(!judge.is_ready());
-    assert!(rig.dropped_on().is_empty(), "the held thread keeps its model while its judgment runs");
-
-    rig.release.send(()).unwrap();
-    rig.threads_become((None, false, None)).await;
+    rig.threads_become((None, 0)).await;
     assert_eq!(rig.dropped_on(), [one]);
     let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t3"), PATIENT)).await.expect("a turn");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");

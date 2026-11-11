@@ -6,12 +6,12 @@
 //! the `install.json` stamp of a finished install.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use mixdog_agent::step_effort::StepInput;
 use mixdog_rt::{JudgeThread, LaneToken, ThreadToken};
 use ort::environment::ThreadManager;
-use ort::session::Session;
+use ort::session::{RunOptions, Session};
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 
@@ -111,6 +111,9 @@ pub async fn steps_in<L: LaneToken>(lane: L, dir: &Path) -> Result<bool, Install
 pub struct JudgeModel {
     tokenizer: BpeTokenizer,
     session: Mutex<Session>,
+    /// Every run of the session goes through these options, so [`Self::stopper`] can end the one
+    /// running (ONNX Runtime's terminate flag); the model is dropped after that.
+    stop: Arc<RunOptions>,
     temperature: f64,
     max_tokens: usize,
     steps: bool,
@@ -159,10 +162,12 @@ impl JudgeModel {
             builder.commit_from_file(config.dir.join("model.onnx"))
         })()
         .map_err(|e| JudgeError::Load(format!("onnxruntime session: {e}")))?;
+        let stop = RunOptions::new().map_err(|e| JudgeError::Load(format!("onnxruntime run options: {e}")))?;
         let settings = calibration(&config.dir);
         let model = Self {
             tokenizer,
             session: Mutex::new(session),
+            stop: Arc::new(stop),
             temperature: settings.temperature,
             max_tokens: settings.max_tokens,
             steps: settings.steps,
@@ -206,13 +211,22 @@ impl JudgeModel {
             ("attention_mask", tensor(vec![1; ids.len()])?.into_dyn()),
         ];
         let mut session = self.session.lock().map_err(|_| JudgeError::Run("session poisoned".into()))?;
-        let outputs = session.run(feeds).map_err(run_error)?;
+        let outputs = session.run_with_options(feeds, &*self.stop).map_err(run_error)?;
         let (_, logits) = outputs["logits"].try_extract_tensor::<f32>().map_err(run_error)?;
         let scaled: Vec<f64> = logits.iter().map(|value| f64::from(*value) / self.temperature).collect();
         let top = scaled.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let exp: Vec<f64> = scaled.iter().map(|value| (value - top).exp()).collect();
         let sum: f64 = exp.iter().sum();
         Ok(exp.into_iter().map(|value| value / sum).collect())
+    }
+
+    /// Ends the run in progress, from any thread: it returns an error at once (`RunOptions::terminate`);
+    /// every later run of this model fails too.
+    pub fn stopper(&self) -> Arc<dyn Fn() + Send + Sync> {
+        let stop = self.stop.clone();
+        Arc::new(move || {
+            let _ = stop.terminate();
+        })
     }
 
     /// Calibrated probabilities over the four levels for one step.
