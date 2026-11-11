@@ -1960,6 +1960,12 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
@@ -1970,12 +1976,6 @@
             "event": "clock-step",
             "advanceMs": 191,
             "nowMs": 191
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -2120,17 +2120,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "clock-step",
@@ -2280,6 +2280,12 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
@@ -2290,12 +2296,6 @@
             "event": "clock-step",
             "advanceMs": 738,
             "nowMs": 1368
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -2440,6 +2440,12 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
@@ -2450,12 +2456,6 @@
             "event": "clock-step",
             "advanceMs": 1722,
             "nowMs": 3090
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -2600,6 +2600,12 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
@@ -2610,12 +2616,6 @@
             "event": "clock-step",
             "advanceMs": 3364,
             "nowMs": 6454
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -3207,11 +3207,10 @@
       "result": {
         "error": {
           "$exact": "error",
-          "name": "Error",
-          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
+          "name": "RangeError",
+          "message": "Invalid WebSocket frame: invalid status code 1006",
+          "code": "WS_ERR_INVALID_CLOSE_CODE",
           "props": {
-            "wsCloseCode": 1006,
-            "wsCloseReason": "",
             "partialContent": "half",
             "partialToolCalls": {
               "$exact": "undefined"
@@ -3392,8 +3391,11 @@
             "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_open\",\"call_id\":\"c\",\"name\":\"n\"}}"
           },
           {
-            "event": "terminate",
-            "by": "server"
+            "event": "close-frame-sent",
+            "by": "server",
+            "code": 1006,
+            "reason": "gone",
+            "bytesHex": "880603ee676f6e65"
           },
           {
             "event": "progress",
@@ -3534,11 +3536,10 @@
       "result": {
         "error": {
           "$exact": "error",
-          "name": "Error",
-          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
+          "name": "RangeError",
+          "message": "Invalid WebSocket frame: invalid status code 1006",
+          "code": "WS_ERR_INVALID_CLOSE_CODE",
           "props": {
-            "wsCloseCode": 1006,
-            "wsCloseReason": "",
             "partialContent": "",
             "partialToolCalls": [
               {
@@ -3750,8 +3751,11 @@
             "text": "{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_open\",\"delta\":\"{\\\"pa\"}"
           },
           {
-            "event": "terminate",
-            "by": "server"
+            "event": "close-frame-sent",
+            "by": "server",
+            "code": 1006,
+            "reason": "gone",
+            "bytesHex": "880603ee676f6e65"
           },
           {
             "event": "progress",
@@ -4641,6 +4645,12 @@
             "nowMs": 66454
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_byte_timeout"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
@@ -4651,12 +4661,6 @@
             "event": "clock-step",
             "advanceMs": 195,
             "nowMs": 66649
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 4000,
-            "reason": "first_byte_timeout"
           },
           {
             "event": "dial",
@@ -4792,17 +4796,17 @@
             "nowMs": 126649
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_byte_timeout"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 4000,
-            "reason": "first_byte_timeout"
           },
           {
             "event": "clock-step",
@@ -4943,17 +4947,17 @@
             "nowMs": 187084
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_byte_timeout"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 4000,
-            "reason": "first_byte_timeout"
           },
           {
             "event": "clock-step",
@@ -5094,17 +5098,17 @@
             "nowMs": 247940
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_byte_timeout"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 4000,
-            "reason": "first_byte_timeout"
           },
           {
             "event": "clock-step",
@@ -5245,17 +5249,17 @@
             "nowMs": 309573
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_byte_timeout"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 4000,
-            "reason": "first_byte_timeout"
           },
           {
             "event": "clock-step",
@@ -5377,16 +5381,25 @@
             "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225912586}\",\"x-codex-ws-stream-request-start-ms\":\"1794225912586\"}}"
           },
           {
-            "event": "send-settled"
-          },
-          {
             "event": "clock-step",
             "advanceMs": 60000,
             "nowMs": 372586
           },
           {
+            "event": "send-settled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
             "event": "closed",
-            "serverInitiated": false,
+            "serverInitiated": true,
             "code": 4000,
             "reason": "first_byte_timeout"
           }
@@ -5831,16 +5844,25 @@
             "kind": "text"
           },
           {
-            "event": "send-settled"
-          },
-          {
             "event": "clock-step",
             "advanceMs": 300000,
             "nowMs": 672586
           },
           {
+            "event": "send-settled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
             "event": "closed",
-            "serverInitiated": false,
+            "serverInitiated": true,
             "code": 4000,
             "reason": "inter_chunk_timeout"
           }
@@ -6875,16 +6897,25 @@
             "data": "handled-10"
           },
           {
-            "event": "send-settled"
-          },
-          {
             "event": "clock-step",
             "advanceMs": 1,
             "nowMs": 1617586
           },
           {
+            "event": "send-settled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
             "event": "closed",
-            "serverInitiated": false,
+            "serverInitiated": true,
             "code": 4000,
             "reason": "first_output_timeout"
           }
@@ -7335,16 +7366,25 @@
             "data": "handled-5"
           },
           {
-            "event": "send-settled"
-          },
-          {
             "event": "clock-step",
             "advanceMs": 1,
             "nowMs": 1917586
           },
           {
+            "event": "send-settled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
             "event": "closed",
-            "serverInitiated": false,
+            "serverInitiated": true,
             "code": 4000,
             "reason": "semantic_idle_timeout"
           }
@@ -7841,6 +7881,12 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
@@ -7851,12 +7897,6 @@
             "event": "clock-step",
             "advanceMs": 199,
             "nowMs": 2317785
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "dial",
@@ -8062,16 +8102,25 @@
             "data": "handled-11"
           },
           {
-            "event": "send-settled"
-          },
-          {
             "event": "clock-step",
             "advanceMs": 1,
             "nowMs": 2502586
           },
           {
+            "event": "send-settled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
             "event": "closed",
-            "serverInitiated": false,
+            "serverInitiated": true,
             "code": 4000,
             "reason": "first_output_timeout"
           }
@@ -8551,16 +8600,25 @@
             "data": "handled-5"
           },
           {
-            "event": "send-settled"
-          },
-          {
             "event": "clock-step",
             "advanceMs": 1,
             "nowMs": 2812586
           },
           {
+            "event": "send-settled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
             "event": "closed",
-            "serverInitiated": false,
+            "serverInitiated": true,
             "code": 4000,
             "reason": "semantic_idle_timeout"
           }
