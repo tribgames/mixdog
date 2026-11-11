@@ -21,6 +21,7 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_session::session::agent_registry::{AgentRegistry, ReapWindow, StoreWorkers};
 use mixdog_core_session::session::testing::Rig;
+use mixdog_core_session::session::thread_list::{FENCE_BOUND, ListFence};
 use mixdog_core_session::session::thread_state::SessionThreads;
 use mixdog_core_session::session::{Clock, SessionDirectory, StoreThreads};
 use mixdog_migrate::durable;
@@ -165,6 +166,7 @@ impl PoolLive for Live {
 struct Daemon {
     pool: AgentPool,
     threads: Arc<dyn ThreadState>,
+    store: Arc<StoreThreads>,
     _rig: Rig,
 }
 
@@ -184,19 +186,22 @@ impl Daemon {
         let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
         let workers = Arc::new(StoreWorkers::new(index, threads.clone(), tokens.interactive_io));
-        workers.fence(store);
         let registry = Arc::new(AgentRegistry::new(workers, directory, Arc::new(NoReap), Arc::new(Held(now))));
         let pool = AgentPool::new(Arc::new(RegistryPoolStore::new(registry, threads.clone())), Arc::new(Live { now, running: running.clone() }));
-        Self { pool, threads, _rig: rig }
+        Self { pool, threads, store, _rig: rig }
     }
 
     async fn list(&self) -> Value {
         Value::Array(self.pool.list().await.expect("agent/pool/list"))
     }
 
-    /// `thread/header/patch` of one session.
+    /// `thread/header/patch` of one session, standing in for Node's rewrite of the store by another writer; the next
+    /// listing is made once the index has projected it (the store's own fence, bounded as the thread list bounds it).
     async fn patch(&self, session: &str, set: Value) {
         self.threads.patch_header(&ThreadId::from(session), set.as_object().cloned().unwrap(), Vec::new()).await.expect("thread/header/patch");
+        if let Some(projected) = ListFence::pending(&*self.store) {
+            tokio::time::timeout(FENCE_BOUND, projected).await.unwrap_or_else(|_| panic!("the index did not project the patch of {session} within {FENCE_BOUND:?}"));
+        }
     }
 
     async fn header(&self, session: &str) -> Map<String, Value> {

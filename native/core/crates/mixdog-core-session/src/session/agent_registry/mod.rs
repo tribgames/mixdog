@@ -1191,8 +1191,6 @@ pub struct StoreWorkers {
     io: InteractiveIo,
     /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
     signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
-    /// The index writes still queued behind the header writes already acknowledged (the thread list's display fence).
-    fence: std::sync::OnceLock<Arc<dyn super::thread_list::ListFence>>,
 }
 
 /// What the writer task is asked: one session's map, or to say when everything before it was applied.
@@ -1234,20 +1232,13 @@ impl StoreWorkers {
                 };
             }
         }));
-        Self { index, threads, writes, io, signals: std::sync::OnceLock::new(), fence: std::sync::OnceLock::new() }
+        Self { index, threads, writes, io, signals: std::sync::OnceLock::new() }
     }
 }
 
 #[async_trait]
 impl WorkerStore for StoreWorkers {
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
-        // A row read from the index is never older than a header write already acknowledged (`thread/list`'s fence and bound):
-        // Node's listing reads the index file as last written.
-        if let Some(wait) = self.fence.get().and_then(|fence| fence.pending())
-            && tokio::time::timeout(super::thread_list::FENCE_BOUND, wait).await.is_err()
-        {
-            tracing::warn!("agent rows: the index has not taken the writes acknowledged before this read within {:?}; answering what it holds", super::thread_list::FENCE_BOUND);
-        }
         let rows = self.index.worker_rows(None, WorkerScope::All).await.map_err(|e| format!("{e:?}"))?;
         Ok(rows.into_iter().map(|row| (row.session, row.worker)).collect())
     }
@@ -1288,11 +1279,6 @@ impl StoreWorkers {
         if self.writes.send(WriteOp::Barrier(done)).is_ok() {
             let _ = applied.await;
         }
-    }
-
-    /// Connects the fence of the index writes. Set once.
-    pub fn fence(&self, fence: Arc<dyn super::thread_list::ListFence>) {
-        let _ = self.fence.set(fence);
     }
 
     /// Binds the status signals; a second bind is refused.
