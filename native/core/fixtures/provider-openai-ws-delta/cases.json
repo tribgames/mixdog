@@ -869,78 +869,226 @@
       "id": "mismatch-diagnostics-reach-trace-rows",
       "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:262",
       "input": {
-        "env": "ws-delta"
+        "env": "ws-delta",
+        "sends": "two sendViaWebSocket calls per item type on one pool key, a real loopback WebSocket"
       },
       "result": {
         "sends": [
           {
             "type": "function_call",
-            "expectedDiagnostics": {
-              "response_output_mismatch_expected_type": "function_call",
-              "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-              "response_output_mismatch_expected_response_item_count": 1,
-              "response_output_mismatch_actual_type": "function_call",
-              "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-              "response_output_mismatch_actual_replayed_input_item_count": 1
-            },
-            "emittedRows": [
+            "events": [
               {
-                "sessionId": "mismatch-trace-function_call",
-                "iteration": 1,
-                "kind": "transport",
-                "provider": "xai",
-                "transport": "websocket",
-                "ws_mode": "full",
-                "ws_pre_response_created_timeout_ms": 60000,
-                "ws_inter_chunk_timeout_ms": 300000,
-                "ws_idle_ms": 3600000,
-                "iteration_delta_tokens": 72,
-                "reused_connection": false,
-                "requested_service_tier": null,
-                "response_service_tier": null,
-                "handshake_retries": 0,
-                "handshake_retry_classifiers": [],
-                "midstream_retries": 0,
-                "response_id": "resp_next",
-                "cache_key_hash": "75e5731ccf3f",
-                "request_has_previous_response_id": false,
-                "cached_tokens": 0,
-                "prompt_tokens": 0,
-                "input_tokens": 0,
-                "uncached_tokens": 0,
-                "cache_ratio": null,
-                "actual_cache_miss": false,
-                "actual_cache_miss_reason": null,
-                "previous_max_cached_tokens": 0,
-                "cache_drop_threshold_tokens": 0,
-                "frame_prefix_hash": "16ed2bb9953edce7",
-                "frame_prefix_head_hash": "837174bafd705896",
-                "frame_prefix_prev_match": null,
-                "ws_client_metadata": false,
-                "ws_client_metadata_key_count": 0,
-                "ws_client_metadata_hash": null,
-                "ws_client_metadata_has_turn_metadata": false,
-                "ws_client_metadata_has_thread_id": false,
-                "ws_client_metadata_has_turn_state": false,
-                "ws_entry_turn_state_available": false,
-                "ws_entry_turn_state_fp": null,
-                "chain_delta_reason": "response_output_mismatch:function_call",
-                "chain_stripped_response_items": 0,
-                "chain_skipped_response_items": 0,
-                "response_output_mismatch_expected_type": "function_call",
-                "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-                "response_output_mismatch_expected_response_item_count": 1,
-                "response_output_mismatch_actual_type": "function_call",
-                "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-                "response_output_mismatch_actual_replayed_input_item_count": 1,
-                "chain_response_items": 0,
-                "body_input_items": 2,
-                "frame_input_items": 2,
-                "frame_has_instructions": false,
-                "tool_call_count": 0,
-                "keep_socket": false,
-                "keep_response_chain": true,
-                "payload": {
+                "event": "send-start",
+                "phase": "learn",
+                "type": "function_call"
+              },
+              {
+                "event": "dial",
+                "host": "api.x.ai",
+                "port": 443,
+                "servername": "api.x.ai"
+              },
+              {
+                "event": "upgrade-request",
+                "method": "GET",
+                "target": "/v1/responses",
+                "httpVersion": "1.1",
+                "headers": [
+                  [
+                    "Authorization",
+                    "Bearer undefined"
+                  ],
+                  [
+                    "x-client-request-id",
+                    "2b94d07a22339d69c88f1e7d29672eb6"
+                  ],
+                  [
+                    "Sec-WebSocket-Version",
+                    "13"
+                  ],
+                  [
+                    "Sec-WebSocket-Key",
+                    "FVZKu/WbTdHtP9oPq0w0pQ=="
+                  ],
+                  [
+                    "Connection",
+                    "Upgrade"
+                  ],
+                  [
+                    "Upgrade",
+                    "websocket"
+                  ],
+                  [
+                    "Sec-WebSocket-Extensions",
+                    "permessage-deflate; client_max_window_bits"
+                  ],
+                  [
+                    "Host",
+                    "api.x.ai"
+                  ]
+                ]
+              },
+              {
+                "event": "upgrade-response",
+                "lines": [
+                  "HTTP/1.1 101 Switching Protocols",
+                  "Upgrade: websocket",
+                  "Connection: Upgrade",
+                  "Sec-WebSocket-Accept: 1Rk+ydpPRHaCez5ZlcKuGjxcU4k="
+                ]
+              },
+              {
+                "event": "open"
+              },
+              {
+                "event": "frame",
+                "dir": "client->server",
+                "text": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"prior\"}]}]}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_prev\",\"model\":\"gpt-5.5\"}}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_prev\",\"model\":\"gpt-5.5\",\"output\":[{\"type\":\"function_call\",\"call_id\":\"call_expected\",\"name\":\"tool\",\"arguments\":\"{\\\"api_key\\\":\\\"provider-function-secret\\\",\\\"nested\\\":{\\\"z\\\":2,\\\"a\\\":1}}\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+              },
+              {
+                "event": "trace-row",
+                "row": {
+                  "sessionId": "mismatch-trace-function_call",
+                  "iteration": 1,
+                  "kind": "transport",
+                  "provider": "xai",
+                  "transport": "websocket",
+                  "ws_mode": "full",
+                  "ws_pre_response_created_timeout_ms": 60000,
+                  "ws_inter_chunk_timeout_ms": 300000,
+                  "ws_idle_ms": 3600000,
+                  "iteration_delta_tokens": 34,
+                  "reused_connection": false,
+                  "requested_service_tier": null,
+                  "response_service_tier": null,
+                  "handshake_retries": 0,
+                  "handshake_retry_classifiers": [],
+                  "midstream_retries": 0,
+                  "response_id": "resp_prev",
+                  "cache_key_hash": "75e5731ccf3f",
+                  "request_has_previous_response_id": false,
+                  "cached_tokens": 0,
+                  "prompt_tokens": 1,
+                  "input_tokens": 1,
+                  "uncached_tokens": 1,
+                  "cache_ratio": 0,
+                  "actual_cache_miss": false,
+                  "actual_cache_miss_reason": null,
+                  "previous_max_cached_tokens": 0,
+                  "cache_drop_threshold_tokens": 0,
+                  "frame_prefix_hash": "16ed2bb9953edce7",
+                  "frame_prefix_head_hash": "cfd343b7fa1a3dc3",
+                  "frame_prefix_prev_match": null,
+                  "ws_client_metadata": false,
+                  "ws_client_metadata_key_count": 0,
+                  "ws_client_metadata_hash": null,
+                  "ws_client_metadata_has_turn_metadata": false,
+                  "ws_client_metadata_has_thread_id": false,
+                  "ws_client_metadata_has_turn_state": false,
+                  "ws_entry_turn_state_available": false,
+                  "ws_entry_turn_state_fp": null,
+                  "chain_delta_reason": "no_anchor",
+                  "chain_stripped_response_items": 0,
+                  "chain_skipped_response_items": 0,
+                  "chain_response_items": 1,
+                  "body_input_items": 1,
+                  "frame_input_items": 1,
+                  "frame_has_instructions": false,
+                  "tool_call_count": 1,
+                  "keep_socket": true,
+                  "keep_response_chain": true,
+                  "payload": {
+                    "provider": "xai",
+                    "transport": "websocket",
+                    "ws_mode": "full",
+                    "ws_pre_response_created_timeout_ms": 60000,
+                    "ws_inter_chunk_timeout_ms": 300000,
+                    "ws_idle_ms": 3600000,
+                    "iteration_delta_tokens": 34,
+                    "reused_connection": false,
+                    "requested_service_tier": null,
+                    "response_service_tier": null,
+                    "handshake_retries": 0,
+                    "handshake_retry_classifiers": [],
+                    "midstream_retries": 0,
+                    "response_id": "resp_prev",
+                    "cache_key_hash": "75e5731ccf3f",
+                    "request_has_previous_response_id": false,
+                    "cached_tokens": 0,
+                    "prompt_tokens": 1,
+                    "input_tokens": 1,
+                    "uncached_tokens": 1,
+                    "cache_ratio": 0,
+                    "actual_cache_miss": false,
+                    "actual_cache_miss_reason": null,
+                    "previous_max_cached_tokens": 0,
+                    "cache_drop_threshold_tokens": 0,
+                    "frame_prefix_hash": "16ed2bb9953edce7",
+                    "frame_prefix_head_hash": "cfd343b7fa1a3dc3",
+                    "frame_prefix_prev_match": null,
+                    "ws_client_metadata": false,
+                    "ws_client_metadata_key_count": 0,
+                    "ws_client_metadata_hash": null,
+                    "ws_client_metadata_has_turn_metadata": false,
+                    "ws_client_metadata_has_thread_id": false,
+                    "ws_client_metadata_has_turn_state": false,
+                    "ws_entry_turn_state_available": false,
+                    "ws_entry_turn_state_fp": null,
+                    "chain_delta_reason": "no_anchor",
+                    "chain_stripped_response_items": 0,
+                    "chain_skipped_response_items": 0,
+                    "chain_response_items": 1,
+                    "body_input_items": 1,
+                    "frame_input_items": 1,
+                    "frame_has_instructions": false,
+                    "tool_call_count": 1,
+                    "keep_socket": true,
+                    "keep_response_chain": true
+                  }
+                }
+              },
+              {
+                "event": "send-result",
+                "phase": "learn",
+                "content": "",
+                "responseId": null
+              },
+              {
+                "event": "send-start",
+                "phase": "replay-with-mismatch",
+                "type": "function_call"
+              },
+              {
+                "event": "frame",
+                "dir": "client->server",
+                "text": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"prior\"}]},{\"type\":\"function_call\",\"call_id\":\"call_actual\",\"name\":\"tool\",\"arguments\":\"{\\\"nested\\\":{\\\"a\\\":1,\\\"z\\\":2},\\\"api_key\\\":\\\"replayed-function-secret\\\"}\"}]}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_next\",\"model\":\"gpt-5.5\"}}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_next\",\"model\":\"gpt-5.5\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+              },
+              {
+                "event": "trace-row",
+                "row": {
+                  "sessionId": "mismatch-trace-function_call",
+                  "iteration": 1,
+                  "kind": "transport",
                   "provider": "xai",
                   "transport": "websocket",
                   "ws_mode": "full",
@@ -948,7 +1096,7 @@
                   "ws_inter_chunk_timeout_ms": 300000,
                   "ws_idle_ms": 3600000,
                   "iteration_delta_tokens": 72,
-                  "reused_connection": false,
+                  "reused_connection": true,
                   "requested_service_tier": null,
                   "response_service_tier": null,
                   "handshake_retries": 0,
@@ -958,17 +1106,17 @@
                   "cache_key_hash": "75e5731ccf3f",
                   "request_has_previous_response_id": false,
                   "cached_tokens": 0,
-                  "prompt_tokens": 0,
-                  "input_tokens": 0,
-                  "uncached_tokens": 0,
-                  "cache_ratio": null,
+                  "prompt_tokens": 1,
+                  "input_tokens": 1,
+                  "uncached_tokens": 1,
+                  "cache_ratio": 0,
                   "actual_cache_miss": false,
                   "actual_cache_miss_reason": null,
                   "previous_max_cached_tokens": 0,
                   "cache_drop_threshold_tokens": 0,
                   "frame_prefix_hash": "16ed2bb9953edce7",
                   "frame_prefix_head_hash": "837174bafd705896",
-                  "frame_prefix_prev_match": null,
+                  "frame_prefix_prev_match": true,
                   "ws_client_metadata": false,
                   "ws_client_metadata_key_count": 0,
                   "ws_client_metadata_hash": null,
@@ -991,125 +1139,331 @@
                   "frame_input_items": 2,
                   "frame_has_instructions": false,
                   "tool_call_count": 0,
-                  "keep_socket": false,
-                  "keep_response_chain": true
+                  "keep_socket": true,
+                  "keep_response_chain": true,
+                  "payload": {
+                    "provider": "xai",
+                    "transport": "websocket",
+                    "ws_mode": "full",
+                    "ws_pre_response_created_timeout_ms": 60000,
+                    "ws_inter_chunk_timeout_ms": 300000,
+                    "ws_idle_ms": 3600000,
+                    "iteration_delta_tokens": 72,
+                    "reused_connection": true,
+                    "requested_service_tier": null,
+                    "response_service_tier": null,
+                    "handshake_retries": 0,
+                    "handshake_retry_classifiers": [],
+                    "midstream_retries": 0,
+                    "response_id": "resp_next",
+                    "cache_key_hash": "75e5731ccf3f",
+                    "request_has_previous_response_id": false,
+                    "cached_tokens": 0,
+                    "prompt_tokens": 1,
+                    "input_tokens": 1,
+                    "uncached_tokens": 1,
+                    "cache_ratio": 0,
+                    "actual_cache_miss": false,
+                    "actual_cache_miss_reason": null,
+                    "previous_max_cached_tokens": 0,
+                    "cache_drop_threshold_tokens": 0,
+                    "frame_prefix_hash": "16ed2bb9953edce7",
+                    "frame_prefix_head_hash": "837174bafd705896",
+                    "frame_prefix_prev_match": true,
+                    "ws_client_metadata": false,
+                    "ws_client_metadata_key_count": 0,
+                    "ws_client_metadata_hash": null,
+                    "ws_client_metadata_has_turn_metadata": false,
+                    "ws_client_metadata_has_thread_id": false,
+                    "ws_client_metadata_has_turn_state": false,
+                    "ws_entry_turn_state_available": false,
+                    "ws_entry_turn_state_fp": null,
+                    "chain_delta_reason": "response_output_mismatch:function_call",
+                    "chain_stripped_response_items": 0,
+                    "chain_skipped_response_items": 0,
+                    "response_output_mismatch_expected_type": "function_call",
+                    "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+                    "response_output_mismatch_expected_response_item_count": 1,
+                    "response_output_mismatch_actual_type": "function_call",
+                    "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+                    "response_output_mismatch_actual_replayed_input_item_count": 1,
+                    "chain_response_items": 0,
+                    "body_input_items": 2,
+                    "frame_input_items": 2,
+                    "frame_has_instructions": false,
+                    "tool_call_count": 0,
+                    "keep_socket": true,
+                    "keep_response_chain": true
+                  }
                 }
               },
               {
-                "sessionId": "mismatch-trace-function_call",
-                "iteration": 1,
-                "kind": "cache_break",
-                "classification": "provider_transition",
-                "source": "openai_ws_delta",
-                "provider": "xai",
-                "model": "gpt-5.5",
-                "payload": {
-                  "provider": "xai",
-                  "model": "gpt-5.5",
-                  "transport": "websocket",
-                  "ws_mode": "full",
-                  "reason": "response_output_mismatch:function_call",
+                "event": "trace-row",
+                "row": {
+                  "sessionId": "mismatch-trace-function_call",
+                  "iteration": 1,
+                  "kind": "cache_break",
                   "classification": "provider_transition",
                   "source": "openai_ws_delta",
-                  "intentional_transition": null,
-                  "request_tool_choice": null,
-                  "cache_key_hash": "75e5731ccf3f",
-                  "cached_tokens": 0,
-                  "prompt_tokens": 0,
-                  "uncached_tokens": 0,
-                  "cache_ratio": null,
-                  "actual_cache_miss": false,
-                  "request_has_previous_response_id": false,
-                  "chain_stripped_response_items": 0,
-                  "chain_skipped_response_items": 0,
-                  "response_output_mismatch_expected_type": "function_call",
-                  "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-                  "response_output_mismatch_expected_response_item_count": 1,
-                  "response_output_mismatch_actual_type": "function_call",
-                  "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-                  "response_output_mismatch_actual_replayed_input_item_count": 1,
-                  "chain_response_items": 0,
-                  "body_input_items": 2,
-                  "frame_input_items": 2,
-                  "frame_has_instructions": false,
-                  "keep_response_chain": true,
-                  "tool_call_count": 0
+                  "provider": "xai",
+                  "model": "gpt-5.5",
+                  "payload": {
+                    "provider": "xai",
+                    "model": "gpt-5.5",
+                    "transport": "websocket",
+                    "ws_mode": "full",
+                    "reason": "response_output_mismatch:function_call",
+                    "classification": "provider_transition",
+                    "source": "openai_ws_delta",
+                    "intentional_transition": null,
+                    "request_tool_choice": null,
+                    "cache_key_hash": "75e5731ccf3f",
+                    "cached_tokens": 0,
+                    "prompt_tokens": 1,
+                    "uncached_tokens": 1,
+                    "cache_ratio": 0,
+                    "actual_cache_miss": false,
+                    "request_has_previous_response_id": false,
+                    "chain_stripped_response_items": 0,
+                    "chain_skipped_response_items": 0,
+                    "response_output_mismatch_expected_type": "function_call",
+                    "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+                    "response_output_mismatch_expected_response_item_count": 1,
+                    "response_output_mismatch_actual_type": "function_call",
+                    "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+                    "response_output_mismatch_actual_replayed_input_item_count": 1,
+                    "chain_response_items": 0,
+                    "body_input_items": 2,
+                    "frame_input_items": 2,
+                    "frame_has_instructions": false,
+                    "keep_response_chain": true,
+                    "tool_call_count": 0
+                  }
                 }
+              },
+              {
+                "event": "send-result",
+                "phase": "replay-with-mismatch",
+                "content": "",
+                "responseId": null
               }
-            ],
-            "emittedPayloadsEqualDiagnostics": [
-              true,
-              true
             ]
           },
           {
             "type": "custom_tool_call",
-            "expectedDiagnostics": {
-              "response_output_mismatch_expected_type": "custom_tool_call",
-              "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-              "response_output_mismatch_expected_response_item_count": 1,
-              "response_output_mismatch_actual_type": "custom_tool_call",
-              "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-              "response_output_mismatch_actual_replayed_input_item_count": 1
-            },
-            "emittedRows": [
+            "events": [
               {
-                "sessionId": "mismatch-trace-custom_tool_call",
-                "iteration": 1,
-                "kind": "transport",
-                "provider": "xai",
-                "transport": "websocket",
-                "ws_mode": "full",
-                "ws_pre_response_created_timeout_ms": 60000,
-                "ws_inter_chunk_timeout_ms": 300000,
-                "ws_idle_ms": 3600000,
-                "iteration_delta_tokens": 63,
-                "reused_connection": false,
-                "requested_service_tier": null,
-                "response_service_tier": null,
-                "handshake_retries": 0,
-                "handshake_retry_classifiers": [],
-                "midstream_retries": 0,
-                "response_id": "resp_next",
-                "cache_key_hash": "75e5731ccf3f",
-                "request_has_previous_response_id": false,
-                "cached_tokens": 0,
-                "prompt_tokens": 0,
-                "input_tokens": 0,
-                "uncached_tokens": 0,
-                "cache_ratio": null,
-                "actual_cache_miss": false,
-                "actual_cache_miss_reason": null,
-                "previous_max_cached_tokens": 0,
-                "cache_drop_threshold_tokens": 0,
-                "frame_prefix_hash": "16ed2bb9953edce7",
-                "frame_prefix_head_hash": "eb302e082e5f4a89",
-                "frame_prefix_prev_match": null,
-                "ws_client_metadata": false,
-                "ws_client_metadata_key_count": 0,
-                "ws_client_metadata_hash": null,
-                "ws_client_metadata_has_turn_metadata": false,
-                "ws_client_metadata_has_thread_id": false,
-                "ws_client_metadata_has_turn_state": false,
-                "ws_entry_turn_state_available": false,
-                "ws_entry_turn_state_fp": null,
-                "chain_delta_reason": "response_output_mismatch:custom_tool_call",
-                "chain_stripped_response_items": 0,
-                "chain_skipped_response_items": 0,
-                "response_output_mismatch_expected_type": "custom_tool_call",
-                "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-                "response_output_mismatch_expected_response_item_count": 1,
-                "response_output_mismatch_actual_type": "custom_tool_call",
-                "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-                "response_output_mismatch_actual_replayed_input_item_count": 1,
-                "chain_response_items": 0,
-                "body_input_items": 2,
-                "frame_input_items": 2,
-                "frame_has_instructions": false,
-                "tool_call_count": 0,
-                "keep_socket": false,
-                "keep_response_chain": true,
-                "payload": {
+                "event": "send-start",
+                "phase": "learn",
+                "type": "custom_tool_call"
+              },
+              {
+                "event": "dial",
+                "host": "api.x.ai",
+                "port": 443,
+                "servername": "api.x.ai"
+              },
+              {
+                "event": "upgrade-request",
+                "method": "GET",
+                "target": "/v1/responses",
+                "httpVersion": "1.1",
+                "headers": [
+                  [
+                    "Authorization",
+                    "Bearer undefined"
+                  ],
+                  [
+                    "x-client-request-id",
+                    "fa5cef1426129f0019f23db6aef1519f"
+                  ],
+                  [
+                    "Sec-WebSocket-Version",
+                    "13"
+                  ],
+                  [
+                    "Sec-WebSocket-Key",
+                    "uMuETdZEMkgf1A7+uSELvQ=="
+                  ],
+                  [
+                    "Connection",
+                    "Upgrade"
+                  ],
+                  [
+                    "Upgrade",
+                    "websocket"
+                  ],
+                  [
+                    "Sec-WebSocket-Extensions",
+                    "permessage-deflate; client_max_window_bits"
+                  ],
+                  [
+                    "Host",
+                    "api.x.ai"
+                  ]
+                ]
+              },
+              {
+                "event": "upgrade-response",
+                "lines": [
+                  "HTTP/1.1 101 Switching Protocols",
+                  "Upgrade: websocket",
+                  "Connection: Upgrade",
+                  "Sec-WebSocket-Accept: qDkNtL4ZhqCYaF1wtPWRsXVN7Gw="
+                ]
+              },
+              {
+                "event": "open"
+              },
+              {
+                "event": "frame",
+                "dir": "client->server",
+                "text": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"prior\"}]}]}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_prev\",\"model\":\"gpt-5.5\"}}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_prev\",\"model\":\"gpt-5.5\",\"output\":[{\"type\":\"custom_tool_call\",\"call_id\":\"custom_expected\",\"name\":\"apply_patch\",\"input\":\"provider-custom-input-secret\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+              },
+              {
+                "event": "trace-row",
+                "row": {
+                  "sessionId": "mismatch-trace-custom_tool_call",
+                  "iteration": 1,
+                  "kind": "transport",
+                  "provider": "xai",
+                  "transport": "websocket",
+                  "ws_mode": "full",
+                  "ws_pre_response_created_timeout_ms": 60000,
+                  "ws_inter_chunk_timeout_ms": 300000,
+                  "ws_idle_ms": 3600000,
+                  "iteration_delta_tokens": 34,
+                  "reused_connection": false,
+                  "requested_service_tier": null,
+                  "response_service_tier": null,
+                  "handshake_retries": 0,
+                  "handshake_retry_classifiers": [],
+                  "midstream_retries": 0,
+                  "response_id": "resp_prev",
+                  "cache_key_hash": "75e5731ccf3f",
+                  "request_has_previous_response_id": false,
+                  "cached_tokens": 0,
+                  "prompt_tokens": 1,
+                  "input_tokens": 1,
+                  "uncached_tokens": 1,
+                  "cache_ratio": 0,
+                  "actual_cache_miss": false,
+                  "actual_cache_miss_reason": null,
+                  "previous_max_cached_tokens": 0,
+                  "cache_drop_threshold_tokens": 0,
+                  "frame_prefix_hash": "16ed2bb9953edce7",
+                  "frame_prefix_head_hash": "cfd343b7fa1a3dc3",
+                  "frame_prefix_prev_match": null,
+                  "ws_client_metadata": false,
+                  "ws_client_metadata_key_count": 0,
+                  "ws_client_metadata_hash": null,
+                  "ws_client_metadata_has_turn_metadata": false,
+                  "ws_client_metadata_has_thread_id": false,
+                  "ws_client_metadata_has_turn_state": false,
+                  "ws_entry_turn_state_available": false,
+                  "ws_entry_turn_state_fp": null,
+                  "chain_delta_reason": "no_anchor",
+                  "chain_stripped_response_items": 0,
+                  "chain_skipped_response_items": 0,
+                  "chain_response_items": 1,
+                  "body_input_items": 1,
+                  "frame_input_items": 1,
+                  "frame_has_instructions": false,
+                  "tool_call_count": 1,
+                  "keep_socket": true,
+                  "keep_response_chain": true,
+                  "payload": {
+                    "provider": "xai",
+                    "transport": "websocket",
+                    "ws_mode": "full",
+                    "ws_pre_response_created_timeout_ms": 60000,
+                    "ws_inter_chunk_timeout_ms": 300000,
+                    "ws_idle_ms": 3600000,
+                    "iteration_delta_tokens": 34,
+                    "reused_connection": false,
+                    "requested_service_tier": null,
+                    "response_service_tier": null,
+                    "handshake_retries": 0,
+                    "handshake_retry_classifiers": [],
+                    "midstream_retries": 0,
+                    "response_id": "resp_prev",
+                    "cache_key_hash": "75e5731ccf3f",
+                    "request_has_previous_response_id": false,
+                    "cached_tokens": 0,
+                    "prompt_tokens": 1,
+                    "input_tokens": 1,
+                    "uncached_tokens": 1,
+                    "cache_ratio": 0,
+                    "actual_cache_miss": false,
+                    "actual_cache_miss_reason": null,
+                    "previous_max_cached_tokens": 0,
+                    "cache_drop_threshold_tokens": 0,
+                    "frame_prefix_hash": "16ed2bb9953edce7",
+                    "frame_prefix_head_hash": "cfd343b7fa1a3dc3",
+                    "frame_prefix_prev_match": null,
+                    "ws_client_metadata": false,
+                    "ws_client_metadata_key_count": 0,
+                    "ws_client_metadata_hash": null,
+                    "ws_client_metadata_has_turn_metadata": false,
+                    "ws_client_metadata_has_thread_id": false,
+                    "ws_client_metadata_has_turn_state": false,
+                    "ws_entry_turn_state_available": false,
+                    "ws_entry_turn_state_fp": null,
+                    "chain_delta_reason": "no_anchor",
+                    "chain_stripped_response_items": 0,
+                    "chain_skipped_response_items": 0,
+                    "chain_response_items": 1,
+                    "body_input_items": 1,
+                    "frame_input_items": 1,
+                    "frame_has_instructions": false,
+                    "tool_call_count": 1,
+                    "keep_socket": true,
+                    "keep_response_chain": true
+                  }
+                }
+              },
+              {
+                "event": "send-result",
+                "phase": "learn",
+                "content": "",
+                "responseId": null
+              },
+              {
+                "event": "send-start",
+                "phase": "replay-with-mismatch",
+                "type": "custom_tool_call"
+              },
+              {
+                "event": "frame",
+                "dir": "client->server",
+                "text": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"prior\"}]},{\"type\":\"custom_tool_call\",\"call_id\":\"custom_actual\",\"name\":\"apply_patch\",\"input\":\"replayed-custom-input-secret\"}]}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_next\",\"model\":\"gpt-5.5\"}}"
+              },
+              {
+                "event": "frame",
+                "dir": "server->client",
+                "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_next\",\"model\":\"gpt-5.5\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+              },
+              {
+                "event": "trace-row",
+                "row": {
+                  "sessionId": "mismatch-trace-custom_tool_call",
+                  "iteration": 1,
+                  "kind": "transport",
                   "provider": "xai",
                   "transport": "websocket",
                   "ws_mode": "full",
@@ -1117,7 +1471,7 @@
                   "ws_inter_chunk_timeout_ms": 300000,
                   "ws_idle_ms": 3600000,
                   "iteration_delta_tokens": 63,
-                  "reused_connection": false,
+                  "reused_connection": true,
                   "requested_service_tier": null,
                   "response_service_tier": null,
                   "handshake_retries": 0,
@@ -1127,17 +1481,17 @@
                   "cache_key_hash": "75e5731ccf3f",
                   "request_has_previous_response_id": false,
                   "cached_tokens": 0,
-                  "prompt_tokens": 0,
-                  "input_tokens": 0,
-                  "uncached_tokens": 0,
-                  "cache_ratio": null,
+                  "prompt_tokens": 1,
+                  "input_tokens": 1,
+                  "uncached_tokens": 1,
+                  "cache_ratio": 0,
                   "actual_cache_miss": false,
                   "actual_cache_miss_reason": null,
                   "previous_max_cached_tokens": 0,
                   "cache_drop_threshold_tokens": 0,
                   "frame_prefix_hash": "16ed2bb9953edce7",
                   "frame_prefix_head_hash": "eb302e082e5f4a89",
-                  "frame_prefix_prev_match": null,
+                  "frame_prefix_prev_match": true,
                   "ws_client_metadata": false,
                   "ws_client_metadata_key_count": 0,
                   "ws_client_metadata_hash": null,
@@ -1160,362 +1514,115 @@
                   "frame_input_items": 2,
                   "frame_has_instructions": false,
                   "tool_call_count": 0,
-                  "keep_socket": false,
-                  "keep_response_chain": true
+                  "keep_socket": true,
+                  "keep_response_chain": true,
+                  "payload": {
+                    "provider": "xai",
+                    "transport": "websocket",
+                    "ws_mode": "full",
+                    "ws_pre_response_created_timeout_ms": 60000,
+                    "ws_inter_chunk_timeout_ms": 300000,
+                    "ws_idle_ms": 3600000,
+                    "iteration_delta_tokens": 63,
+                    "reused_connection": true,
+                    "requested_service_tier": null,
+                    "response_service_tier": null,
+                    "handshake_retries": 0,
+                    "handshake_retry_classifiers": [],
+                    "midstream_retries": 0,
+                    "response_id": "resp_next",
+                    "cache_key_hash": "75e5731ccf3f",
+                    "request_has_previous_response_id": false,
+                    "cached_tokens": 0,
+                    "prompt_tokens": 1,
+                    "input_tokens": 1,
+                    "uncached_tokens": 1,
+                    "cache_ratio": 0,
+                    "actual_cache_miss": false,
+                    "actual_cache_miss_reason": null,
+                    "previous_max_cached_tokens": 0,
+                    "cache_drop_threshold_tokens": 0,
+                    "frame_prefix_hash": "16ed2bb9953edce7",
+                    "frame_prefix_head_hash": "eb302e082e5f4a89",
+                    "frame_prefix_prev_match": true,
+                    "ws_client_metadata": false,
+                    "ws_client_metadata_key_count": 0,
+                    "ws_client_metadata_hash": null,
+                    "ws_client_metadata_has_turn_metadata": false,
+                    "ws_client_metadata_has_thread_id": false,
+                    "ws_client_metadata_has_turn_state": false,
+                    "ws_entry_turn_state_available": false,
+                    "ws_entry_turn_state_fp": null,
+                    "chain_delta_reason": "response_output_mismatch:custom_tool_call",
+                    "chain_stripped_response_items": 0,
+                    "chain_skipped_response_items": 0,
+                    "response_output_mismatch_expected_type": "custom_tool_call",
+                    "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+                    "response_output_mismatch_expected_response_item_count": 1,
+                    "response_output_mismatch_actual_type": "custom_tool_call",
+                    "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+                    "response_output_mismatch_actual_replayed_input_item_count": 1,
+                    "chain_response_items": 0,
+                    "body_input_items": 2,
+                    "frame_input_items": 2,
+                    "frame_has_instructions": false,
+                    "tool_call_count": 0,
+                    "keep_socket": true,
+                    "keep_response_chain": true
+                  }
                 }
               },
               {
-                "sessionId": "mismatch-trace-custom_tool_call",
-                "iteration": 1,
-                "kind": "cache_break",
-                "classification": "provider_transition",
-                "source": "openai_ws_delta",
-                "provider": "xai",
-                "model": "gpt-5.5",
-                "payload": {
-                  "provider": "xai",
-                  "model": "gpt-5.5",
-                  "transport": "websocket",
-                  "ws_mode": "full",
-                  "reason": "response_output_mismatch:custom_tool_call",
+                "event": "trace-row",
+                "row": {
+                  "sessionId": "mismatch-trace-custom_tool_call",
+                  "iteration": 1,
+                  "kind": "cache_break",
                   "classification": "provider_transition",
                   "source": "openai_ws_delta",
-                  "intentional_transition": null,
-                  "request_tool_choice": null,
-                  "cache_key_hash": "75e5731ccf3f",
-                  "cached_tokens": 0,
-                  "prompt_tokens": 0,
-                  "uncached_tokens": 0,
-                  "cache_ratio": null,
-                  "actual_cache_miss": false,
-                  "request_has_previous_response_id": false,
-                  "chain_stripped_response_items": 0,
-                  "chain_skipped_response_items": 0,
-                  "response_output_mismatch_expected_type": "custom_tool_call",
-                  "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-                  "response_output_mismatch_expected_response_item_count": 1,
-                  "response_output_mismatch_actual_type": "custom_tool_call",
-                  "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-                  "response_output_mismatch_actual_replayed_input_item_count": 1,
-                  "chain_response_items": 0,
-                  "body_input_items": 2,
-                  "frame_input_items": 2,
-                  "frame_has_instructions": false,
-                  "keep_response_chain": true,
-                  "tool_call_count": 0
+                  "provider": "xai",
+                  "model": "gpt-5.5",
+                  "payload": {
+                    "provider": "xai",
+                    "model": "gpt-5.5",
+                    "transport": "websocket",
+                    "ws_mode": "full",
+                    "reason": "response_output_mismatch:custom_tool_call",
+                    "classification": "provider_transition",
+                    "source": "openai_ws_delta",
+                    "intentional_transition": null,
+                    "request_tool_choice": null,
+                    "cache_key_hash": "75e5731ccf3f",
+                    "cached_tokens": 0,
+                    "prompt_tokens": 1,
+                    "uncached_tokens": 1,
+                    "cache_ratio": 0,
+                    "actual_cache_miss": false,
+                    "request_has_previous_response_id": false,
+                    "chain_stripped_response_items": 0,
+                    "chain_skipped_response_items": 0,
+                    "response_output_mismatch_expected_type": "custom_tool_call",
+                    "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+                    "response_output_mismatch_expected_response_item_count": 1,
+                    "response_output_mismatch_actual_type": "custom_tool_call",
+                    "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+                    "response_output_mismatch_actual_replayed_input_item_count": 1,
+                    "chain_response_items": 0,
+                    "body_input_items": 2,
+                    "frame_input_items": 2,
+                    "frame_has_instructions": false,
+                    "keep_response_chain": true,
+                    "tool_call_count": 0
+                  }
                 }
+              },
+              {
+                "event": "send-result",
+                "phase": "replay-with-mismatch",
+                "content": "",
+                "responseId": null
               }
-            ],
-            "emittedPayloadsEqualDiagnostics": [
-              true,
-              true
             ]
-          }
-        ],
-        "rows": [
-          {
-            "sessionId": "mismatch-trace-function_call",
-            "iteration": 1,
-            "kind": "transport",
-            "provider": "xai",
-            "transport": "websocket",
-            "ws_mode": "full",
-            "ws_pre_response_created_timeout_ms": 60000,
-            "ws_inter_chunk_timeout_ms": 300000,
-            "ws_idle_ms": 3600000,
-            "iteration_delta_tokens": 72,
-            "reused_connection": false,
-            "requested_service_tier": null,
-            "response_service_tier": null,
-            "handshake_retries": 0,
-            "handshake_retry_classifiers": [],
-            "midstream_retries": 0,
-            "response_id": "resp_next",
-            "cache_key_hash": "75e5731ccf3f",
-            "request_has_previous_response_id": false,
-            "cached_tokens": 0,
-            "prompt_tokens": 0,
-            "input_tokens": 0,
-            "uncached_tokens": 0,
-            "cache_ratio": null,
-            "actual_cache_miss": false,
-            "actual_cache_miss_reason": null,
-            "previous_max_cached_tokens": 0,
-            "cache_drop_threshold_tokens": 0,
-            "frame_prefix_hash": "16ed2bb9953edce7",
-            "frame_prefix_head_hash": "837174bafd705896",
-            "frame_prefix_prev_match": null,
-            "ws_client_metadata": false,
-            "ws_client_metadata_key_count": 0,
-            "ws_client_metadata_hash": null,
-            "ws_client_metadata_has_turn_metadata": false,
-            "ws_client_metadata_has_thread_id": false,
-            "ws_client_metadata_has_turn_state": false,
-            "ws_entry_turn_state_available": false,
-            "ws_entry_turn_state_fp": null,
-            "chain_delta_reason": "response_output_mismatch:function_call",
-            "chain_stripped_response_items": 0,
-            "chain_skipped_response_items": 0,
-            "response_output_mismatch_expected_type": "function_call",
-            "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-            "response_output_mismatch_expected_response_item_count": 1,
-            "response_output_mismatch_actual_type": "function_call",
-            "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-            "response_output_mismatch_actual_replayed_input_item_count": 1,
-            "chain_response_items": 0,
-            "body_input_items": 2,
-            "frame_input_items": 2,
-            "frame_has_instructions": false,
-            "tool_call_count": 0,
-            "keep_socket": false,
-            "keep_response_chain": true,
-            "payload": {
-              "provider": "xai",
-              "transport": "websocket",
-              "ws_mode": "full",
-              "ws_pre_response_created_timeout_ms": 60000,
-              "ws_inter_chunk_timeout_ms": 300000,
-              "ws_idle_ms": 3600000,
-              "iteration_delta_tokens": 72,
-              "reused_connection": false,
-              "requested_service_tier": null,
-              "response_service_tier": null,
-              "handshake_retries": 0,
-              "handshake_retry_classifiers": [],
-              "midstream_retries": 0,
-              "response_id": "resp_next",
-              "cache_key_hash": "75e5731ccf3f",
-              "request_has_previous_response_id": false,
-              "cached_tokens": 0,
-              "prompt_tokens": 0,
-              "input_tokens": 0,
-              "uncached_tokens": 0,
-              "cache_ratio": null,
-              "actual_cache_miss": false,
-              "actual_cache_miss_reason": null,
-              "previous_max_cached_tokens": 0,
-              "cache_drop_threshold_tokens": 0,
-              "frame_prefix_hash": "16ed2bb9953edce7",
-              "frame_prefix_head_hash": "837174bafd705896",
-              "frame_prefix_prev_match": null,
-              "ws_client_metadata": false,
-              "ws_client_metadata_key_count": 0,
-              "ws_client_metadata_hash": null,
-              "ws_client_metadata_has_turn_metadata": false,
-              "ws_client_metadata_has_thread_id": false,
-              "ws_client_metadata_has_turn_state": false,
-              "ws_entry_turn_state_available": false,
-              "ws_entry_turn_state_fp": null,
-              "chain_delta_reason": "response_output_mismatch:function_call",
-              "chain_stripped_response_items": 0,
-              "chain_skipped_response_items": 0,
-              "response_output_mismatch_expected_type": "function_call",
-              "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-              "response_output_mismatch_expected_response_item_count": 1,
-              "response_output_mismatch_actual_type": "function_call",
-              "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-              "response_output_mismatch_actual_replayed_input_item_count": 1,
-              "chain_response_items": 0,
-              "body_input_items": 2,
-              "frame_input_items": 2,
-              "frame_has_instructions": false,
-              "tool_call_count": 0,
-              "keep_socket": false,
-              "keep_response_chain": true
-            }
-          },
-          {
-            "sessionId": "mismatch-trace-function_call",
-            "iteration": 1,
-            "kind": "cache_break",
-            "classification": "provider_transition",
-            "source": "openai_ws_delta",
-            "provider": "xai",
-            "model": "gpt-5.5",
-            "payload": {
-              "provider": "xai",
-              "model": "gpt-5.5",
-              "transport": "websocket",
-              "ws_mode": "full",
-              "reason": "response_output_mismatch:function_call",
-              "classification": "provider_transition",
-              "source": "openai_ws_delta",
-              "intentional_transition": null,
-              "request_tool_choice": null,
-              "cache_key_hash": "75e5731ccf3f",
-              "cached_tokens": 0,
-              "prompt_tokens": 0,
-              "uncached_tokens": 0,
-              "cache_ratio": null,
-              "actual_cache_miss": false,
-              "request_has_previous_response_id": false,
-              "chain_stripped_response_items": 0,
-              "chain_skipped_response_items": 0,
-              "response_output_mismatch_expected_type": "function_call",
-              "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-              "response_output_mismatch_expected_response_item_count": 1,
-              "response_output_mismatch_actual_type": "function_call",
-              "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-              "response_output_mismatch_actual_replayed_input_item_count": 1,
-              "chain_response_items": 0,
-              "body_input_items": 2,
-              "frame_input_items": 2,
-              "frame_has_instructions": false,
-              "keep_response_chain": true,
-              "tool_call_count": 0
-            }
-          },
-          {
-            "sessionId": "mismatch-trace-custom_tool_call",
-            "iteration": 1,
-            "kind": "transport",
-            "provider": "xai",
-            "transport": "websocket",
-            "ws_mode": "full",
-            "ws_pre_response_created_timeout_ms": 60000,
-            "ws_inter_chunk_timeout_ms": 300000,
-            "ws_idle_ms": 3600000,
-            "iteration_delta_tokens": 63,
-            "reused_connection": false,
-            "requested_service_tier": null,
-            "response_service_tier": null,
-            "handshake_retries": 0,
-            "handshake_retry_classifiers": [],
-            "midstream_retries": 0,
-            "response_id": "resp_next",
-            "cache_key_hash": "75e5731ccf3f",
-            "request_has_previous_response_id": false,
-            "cached_tokens": 0,
-            "prompt_tokens": 0,
-            "input_tokens": 0,
-            "uncached_tokens": 0,
-            "cache_ratio": null,
-            "actual_cache_miss": false,
-            "actual_cache_miss_reason": null,
-            "previous_max_cached_tokens": 0,
-            "cache_drop_threshold_tokens": 0,
-            "frame_prefix_hash": "16ed2bb9953edce7",
-            "frame_prefix_head_hash": "eb302e082e5f4a89",
-            "frame_prefix_prev_match": null,
-            "ws_client_metadata": false,
-            "ws_client_metadata_key_count": 0,
-            "ws_client_metadata_hash": null,
-            "ws_client_metadata_has_turn_metadata": false,
-            "ws_client_metadata_has_thread_id": false,
-            "ws_client_metadata_has_turn_state": false,
-            "ws_entry_turn_state_available": false,
-            "ws_entry_turn_state_fp": null,
-            "chain_delta_reason": "response_output_mismatch:custom_tool_call",
-            "chain_stripped_response_items": 0,
-            "chain_skipped_response_items": 0,
-            "response_output_mismatch_expected_type": "custom_tool_call",
-            "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-            "response_output_mismatch_expected_response_item_count": 1,
-            "response_output_mismatch_actual_type": "custom_tool_call",
-            "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-            "response_output_mismatch_actual_replayed_input_item_count": 1,
-            "chain_response_items": 0,
-            "body_input_items": 2,
-            "frame_input_items": 2,
-            "frame_has_instructions": false,
-            "tool_call_count": 0,
-            "keep_socket": false,
-            "keep_response_chain": true,
-            "payload": {
-              "provider": "xai",
-              "transport": "websocket",
-              "ws_mode": "full",
-              "ws_pre_response_created_timeout_ms": 60000,
-              "ws_inter_chunk_timeout_ms": 300000,
-              "ws_idle_ms": 3600000,
-              "iteration_delta_tokens": 63,
-              "reused_connection": false,
-              "requested_service_tier": null,
-              "response_service_tier": null,
-              "handshake_retries": 0,
-              "handshake_retry_classifiers": [],
-              "midstream_retries": 0,
-              "response_id": "resp_next",
-              "cache_key_hash": "75e5731ccf3f",
-              "request_has_previous_response_id": false,
-              "cached_tokens": 0,
-              "prompt_tokens": 0,
-              "input_tokens": 0,
-              "uncached_tokens": 0,
-              "cache_ratio": null,
-              "actual_cache_miss": false,
-              "actual_cache_miss_reason": null,
-              "previous_max_cached_tokens": 0,
-              "cache_drop_threshold_tokens": 0,
-              "frame_prefix_hash": "16ed2bb9953edce7",
-              "frame_prefix_head_hash": "eb302e082e5f4a89",
-              "frame_prefix_prev_match": null,
-              "ws_client_metadata": false,
-              "ws_client_metadata_key_count": 0,
-              "ws_client_metadata_hash": null,
-              "ws_client_metadata_has_turn_metadata": false,
-              "ws_client_metadata_has_thread_id": false,
-              "ws_client_metadata_has_turn_state": false,
-              "ws_entry_turn_state_available": false,
-              "ws_entry_turn_state_fp": null,
-              "chain_delta_reason": "response_output_mismatch:custom_tool_call",
-              "chain_stripped_response_items": 0,
-              "chain_skipped_response_items": 0,
-              "response_output_mismatch_expected_type": "custom_tool_call",
-              "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-              "response_output_mismatch_expected_response_item_count": 1,
-              "response_output_mismatch_actual_type": "custom_tool_call",
-              "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-              "response_output_mismatch_actual_replayed_input_item_count": 1,
-              "chain_response_items": 0,
-              "body_input_items": 2,
-              "frame_input_items": 2,
-              "frame_has_instructions": false,
-              "tool_call_count": 0,
-              "keep_socket": false,
-              "keep_response_chain": true
-            }
-          },
-          {
-            "sessionId": "mismatch-trace-custom_tool_call",
-            "iteration": 1,
-            "kind": "cache_break",
-            "classification": "provider_transition",
-            "source": "openai_ws_delta",
-            "provider": "xai",
-            "model": "gpt-5.5",
-            "payload": {
-              "provider": "xai",
-              "model": "gpt-5.5",
-              "transport": "websocket",
-              "ws_mode": "full",
-              "reason": "response_output_mismatch:custom_tool_call",
-              "classification": "provider_transition",
-              "source": "openai_ws_delta",
-              "intentional_transition": null,
-              "request_tool_choice": null,
-              "cache_key_hash": "75e5731ccf3f",
-              "cached_tokens": 0,
-              "prompt_tokens": 0,
-              "uncached_tokens": 0,
-              "cache_ratio": null,
-              "actual_cache_miss": false,
-              "request_has_previous_response_id": false,
-              "chain_stripped_response_items": 0,
-              "chain_skipped_response_items": 0,
-              "response_output_mismatch_expected_type": "custom_tool_call",
-              "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-              "response_output_mismatch_expected_response_item_count": 1,
-              "response_output_mismatch_actual_type": "custom_tool_call",
-              "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-              "response_output_mismatch_actual_replayed_input_item_count": 1,
-              "chain_response_items": 0,
-              "body_input_items": 2,
-              "frame_input_items": 2,
-              "frame_has_instructions": false,
-              "keep_response_chain": true,
-              "tool_call_count": 0
-            }
           }
         ],
         "secretsInTrace": [
@@ -1539,71 +1646,12 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._sansInput",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
           "args": [
             {
-              "model": "gpt-5.5",
-              "input": [
-                {
-                  "type": "message",
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "prior"
-                    }
-                  ]
-                },
-                {
-                  "type": "function_call",
-                  "call_id": "call_actual",
-                  "name": "tool",
-                  "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"replayed-function-secret\"}"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._stableStringify",
-          "args": [
-            {
-              "model": "gpt-5.5"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
-          "args": [
-            {
-              "entry": {
-                "socket": {
-                  "close": {
-                    "callback": "close"
-                  }
-                },
-                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
-                "lastResponseId": "resp_prev",
-                "lastRequestInput": [
-                  {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                      {
-                        "type": "input_text",
-                        "text": "prior"
-                      }
-                    ]
-                  }
-                ],
-                "lastResponseItems": [
-                  {
-                    "type": "function_call",
-                    "call_id": "call_expected",
-                    "name": "tool",
-                    "arguments": "{\"api_key\":\"provider-function-secret\",\"nested\":{\"z\":2,\"a\":1}}"
-                  }
-                ]
+              "auth": {
+                "type": "xai",
+                "access_token": "test-token"
               },
               "body": {
                 "model": "gpt-5.5",
@@ -1617,14 +1665,16 @@
                         "text": "prior"
                       }
                     ]
-                  },
-                  {
-                    "type": "function_call",
-                    "call_id": "call_actual",
-                    "name": "tool",
-                    "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"replayed-function-secret\"}"
                   }
                 ]
+              },
+              "poolKey": "mismatch-trace-function_call",
+              "cacheKey": "mismatch-trace-test",
+              "iteration": 1,
+              "useModel": "gpt-5.5",
+              "traceProvider": "xai",
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
               }
             }
           ]
@@ -1663,15 +1713,6 @@
               "iteration": 1,
               "useModel": "gpt-5.5",
               "traceProvider": "xai",
-              "_acquireWithRetryFn": {
-                "callback": "_acquireWithRetryFn"
-              },
-              "_sendFrameFn": {
-                "callback": "_sendFrameFn"
-              },
-              "_streamFn": {
-                "callback": "_streamFn"
-              },
               "_agentTraceFn": {
                 "callback": "_agentTraceFn"
               }
@@ -1679,71 +1720,12 @@
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._sansInput",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
           "args": [
             {
-              "model": "gpt-5.5",
-              "input": [
-                {
-                  "type": "message",
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "prior"
-                    }
-                  ]
-                },
-                {
-                  "type": "custom_tool_call",
-                  "call_id": "custom_actual",
-                  "name": "apply_patch",
-                  "input": "replayed-custom-input-secret"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._stableStringify",
-          "args": [
-            {
-              "model": "gpt-5.5"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
-          "args": [
-            {
-              "entry": {
-                "socket": {
-                  "close": {
-                    "callback": "close"
-                  }
-                },
-                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
-                "lastResponseId": "resp_prev",
-                "lastRequestInput": [
-                  {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                      {
-                        "type": "input_text",
-                        "text": "prior"
-                      }
-                    ]
-                  }
-                ],
-                "lastResponseItems": [
-                  {
-                    "type": "custom_tool_call",
-                    "call_id": "custom_expected",
-                    "name": "apply_patch",
-                    "input": "provider-custom-input-secret"
-                  }
-                ]
+              "auth": {
+                "type": "xai",
+                "access_token": "test-token"
               },
               "body": {
                 "model": "gpt-5.5",
@@ -1757,14 +1739,16 @@
                         "text": "prior"
                       }
                     ]
-                  },
-                  {
-                    "type": "custom_tool_call",
-                    "call_id": "custom_actual",
-                    "name": "apply_patch",
-                    "input": "replayed-custom-input-secret"
                   }
                 ]
+              },
+              "poolKey": "mismatch-trace-custom_tool_call",
+              "cacheKey": "mismatch-trace-test",
+              "iteration": 1,
+              "useModel": "gpt-5.5",
+              "traceProvider": "xai",
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
               }
             }
           ]
@@ -1803,15 +1787,6 @@
               "iteration": 1,
               "useModel": "gpt-5.5",
               "traceProvider": "xai",
-              "_acquireWithRetryFn": {
-                "callback": "_acquireWithRetryFn"
-              },
-              "_sendFrameFn": {
-                "callback": "_sendFrameFn"
-              },
-              "_streamFn": {
-                "callback": "_streamFn"
-              },
               "_agentTraceFn": {
                 "callback": "_agentTraceFn"
               }
