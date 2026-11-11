@@ -1,0 +1,57 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the Hugging Face Hub: globalThis.fetch is a scripted endpoint (status and body per URL), recorded with every request",
+    "runs": "ensureModelFile and ensureModelGraph (embedding-model-files.mjs) over a real temp cache directory, with the real atomic-file/file-has-data helpers"
+  },
+  "exclusions": "request init is recorded as passed (null: Node passes none, so no header is sent)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11083,
+      "path": "golden.json",
+      "sha256": "a3d9ea06dba9f18b6d17d8c558ea814ddec1706571157bcb1a69213f5bdeb5c1"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "partial file name": "process id in \"<file>.<pid>.part\" written as <pid> (no partial remains after a step)",
+    "temp cache dir": "paths are relative to the cache dir"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs",
+  "recorderSha256": "a1102e554e4e17cf0c6526da9aa690fb571ea94b30a97a5cab452711a20eb08e",
+  "replay": "mixdog-services memory: mem/embed/install.rs ensure_model_file / graph install (holds_data, usable, weights-before-graph order) with a scripted hub transport; compares the returned relative path or error text, the ordered requests (URL) and the cache files after each step (path, bytes)",
+  "set": "memory-embedding-model-files",
+  "totalBytes": 11083
+}
