@@ -68,7 +68,7 @@ mod worktree_snapshots;
 #[path = "worktree_setup.rs"]
 pub mod worktree_setup;
 #[path = "worktree_reroot.rs"]
-mod worktree_reroot;
+pub(crate) mod worktree_reroot;
 #[path = "worktree_setup_note.rs"]
 mod worktree_setup_note;
 #[path = "worktree_setup_run.rs"]
@@ -76,9 +76,6 @@ mod worktree_setup_run;
 #[cfg(test)]
 #[path = "worktree_setup_tests.rs"]
 mod worktree_setup_tests;
-#[cfg(test)]
-#[path = "worktree_host_tests.rs"]
-mod worktree_host_tests;
 #[path = "worktree_steps.rs"]
 mod worktree_steps;
 #[path = "worktree_project.rs"]

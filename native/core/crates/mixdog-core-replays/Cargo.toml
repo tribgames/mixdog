@@ -1,0 +1,68 @@
+[package]
+name = "mixdog-core-replays"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The replays of Node's recordings against mixdog-core, outside the library so an edit rebuilds one test target, not the library's unit-test binary."
+
+[lints]
+workspace = true
+
+# Helpers two or more test targets share go here (compiled once, linked by each target); there are none yet.
+[lib]
+doctest = false
+test = false
+
+# One target per area: an edit of a replay rebuilds its area only.
+[[test]]
+name = "workflow"
+path = "tests/workflow/main.rs"
+
+[[test]]
+name = "surface"
+path = "tests/surface/main.rs"
+
+[[test]]
+name = "process"
+path = "tests/process/main.rs"
+
+[dependencies]
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+mixdog-core ={ workspace = true, features = ["count-work", "test-support"] }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+futures = { workspace = true, features = ["alloc", "async-await", "std", "executor"] }
+mixdog-agent = { workspace = true, features = ["test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-app-protocol = { workspace = true }
+mixdog-core-agents = { workspace = true }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-core-config = { workspace = true, features = ["count-work"] }
+mixdog-core-domains = { workspace = true, features = ["count-work"] }
+mixdog-core-ports = { workspace = true }
+mixdog-core-prompt = { workspace = true }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-ledger = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-services = { workspace = true }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+mixdog-testkit = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "sync", "time"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-core-review = { workspace = true, features = ["test-support"] }
+mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-mcp = { workspace = true, features = ["test-support"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }

@@ -119,8 +119,6 @@ pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
-#[cfg(test)]
-mod quota_lane_tests;
 mod usage_books;
 mod usage_metadata;
 pub mod goal_recovery_host;
