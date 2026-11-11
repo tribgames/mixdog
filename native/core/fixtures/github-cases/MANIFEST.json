@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 245515,
+      "bytes": 245355,
       "path": "golden.json",
-      "sha256": "32b4cc92c948f40ea8e11a032446efcde24c857fae1d27898cfca6b834b5b244"
+      "sha256": "217fb5769d88ff4c8c4f2ae4c87a95869f051ca7282a142aef0ec893d76352e4"
     }
   ],
   "inputs": [
@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
@@ -60,9 +60,7 @@
       "$.cases[12].observed.generic.text",
       "$.cases[13].observed.excerptCut.text",
       "$.cases[13].observed.rowsCut.text",
-      "$.cases[16].observed.destination",
-      "$.cases[16].observed.outcomes[1].rejected.message",
-      "$.cases[16].observed.outcomes[1].rejected.props.path"
+      "$.cases[16].observed.destination"
     ],
     "reason": "per-run temp path (or generated name) replaced by a placeholder"
   },
@@ -84,18 +82,21 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
-  "recorderSha256": "1d87ced1616c8db5825d4c3f747064ab5faeb1d9fa33166ecd3d176d343c0611",
+  "recorderSha256": "d076eca8bd01c1236290e62d11df2cf1b1414560c7c7ee5887b9a55de9920a4a",
   "replay": {
     "compare": "mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)",
-    "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates.",
-    "missingOnO1": [
-      "the github tool request handler is private (mixdog-scm/src/service.rs:452 `github_request`)"
+    "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates; github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`).",
+    "existsButNotPublicOnO1": [
+      "mixdog-scm/src/service.rs:452 `github_request` (the handler behind github/request) is private; the method table is its public door"
     ],
+    "missingOnO1": [],
     "normalised": {
       "cwd": "the process cwd is not recorded",
       "tempDirs": "temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest"
     },
-    "protocolMethods": [],
+    "protocolMethods": [
+      "github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`)"
+    ],
     "rustTargets": [
       {
         "line": 61,
@@ -126,6 +127,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "github-cases",
-  "totalBytes": 245515,
+  "totalBytes": 245355,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
