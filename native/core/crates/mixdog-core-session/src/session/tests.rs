@@ -4526,6 +4526,18 @@ async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_mo
     })
     .await;
     assert_eq!(list, ["[redacted] is the code from the mail"]);
+    // What a client (the desktop, or a paired phone through the relay: the same `thread/read`) reads after the mark once
+    // the thread is loaded again from its stored files. The live view of the still-loaded thread keeps its rows as sent,
+    // as Node's does.
+    let restarted = SessionDirectory::new(Arc::new(rig.deps_parts(threads.clone())));
+    let reread = restarted.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    let read = reread
+        .request(request("thread/read", json!({ "threadId": handle.id }), "op-read"))
+        .await
+        .expect("thread/read");
+    let Reply::Value(read) = read else { panic!("thread/read answers a value") };
+    let read = serde_json::to_string(&read).expect("json");
+    assert!(!read.contains(CODE) && read.contains("[redacted] is the code from the mail"), "the loaded view: {read}");
 }
 
 /// A value a worker marks after its report reached its owner leaves the owner's stored files, and on up the chain: a
