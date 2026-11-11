@@ -1,0 +1,52 @@
+{
+  "port": 47312,
+  "entry": {
+    "name": "gh",
+    "instructions": "Triage the issue.",
+    "secret": "late-reload-secret"
+  },
+  "body": "{\"action\":\"opened\"}",
+  "headers": {
+    "content-type": "application/json",
+    "x-github-event": "issues",
+    "x-hub-signature-256": "sha256=4b1d56b3834e999d287c53cdc35771a3b2fdea0666a947a8634dcd1ccd2f78ae"
+  },
+  "saveReply": {
+    "name": "gh",
+    "owner": "lead",
+    "executorAgentId": null,
+    "description": "",
+    "parser": "github",
+    "secret": "late-reload-secret",
+    "instructions": "Triage the issue."
+  },
+  "listeningBefore": true,
+  "edit": {
+    "name": "gh",
+    "instructions": "Triage the issue again.",
+    "secret": "late-reload-secret",
+    "overwrite": true
+  },
+  "editReply": {
+    "name": "gh",
+    "owner": "lead",
+    "executorAgentId": null,
+    "description": "",
+    "parser": "github",
+    "secret": "late-reload-secret",
+    "instructions": "Triage the issue again."
+  },
+  "delivery": {
+    "status": 202,
+    "body": {
+      "status": "accepted",
+      "handler": "session",
+      "id": "body-sha256-d592421cfe150deec6c49b8989cc99478e39c7f8cdd4c36f5b1c4cfeff394e24"
+    }
+  },
+  "listeningAfter": true,
+  "log": [
+    "mixdog webhook: listening on 127.0.0.1:47312",
+    "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>"
+  ]
+}
