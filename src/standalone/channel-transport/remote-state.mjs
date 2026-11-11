@@ -14,7 +14,8 @@ export function createRemoteStatePublisher({ state, log, remoteStatePath, onRemo
 
   return function publishRemoteState() {
     const pointerClient = state.pointerToken ? state.clients.get(state.pointerToken) : null;
-    const sessionId = String(state.remoteAcquired ? state.pinnedSessionId : '');
+    // A pinned id of null/undefined is no session: `String(null)` would publish Remote as enabled for the session "null".
+    const sessionId = state.remoteAcquired ? String(state.pinnedSessionId ?? '') : '';
     const remoteState = {
       enabled: state.remoteAcquired === true && Boolean(sessionId),
       sessionId: state.remoteAcquired === true && sessionId ? sessionId : null,
