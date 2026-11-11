@@ -11,6 +11,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openSet } from './lib/case-set.mjs';
+import { realDeadline } from './lib/virtual-timers.mjs';
 
 const set = openSet('github-cases', import.meta.url);
 const { GITHUB_ACTIONS, githubRequestMutates, validateGithubRequest } = await set.load('src/runtime/github/contract.mjs');
@@ -113,7 +114,7 @@ await set.run('writes serialize; a failed write is never replayed and does not p
   const run = async (command) => { const title = JSON.parse(command.input).title; order.push(title); if (title === 'first') { started.resolve(); await first.promise; throw new Error('connection lost'); } return '{"number":8}'; };
   const a = executeGithubRequest({ action: 'issue.create', repo, title: 'first' }, CWD, { run });
   const aOutcome = a.then((r) => ({ resolved: r }), (e) => ({ rejected: e }));
-  await started.promise;
+  await realDeadline('the first write to start', started.promise, 10_000);
   const b = executeGithubRequest({ action: 'issue.create', repo, title: 'second' }, CWD, { run });
   const orderWhileFirstHeld = [...order];
   first.resolve();
@@ -164,7 +165,7 @@ await set.run('list actions return compact projected rows while raw keeps the fu
   const calls = [];
   const call = async (action, items, extra = {}, collection) => {
     const out = await tool({ action, repo, ...extra }, () => JSON.stringify(collection ? { [collection]: items } : items), { sessionId: 'sess_github_list', toolCallId: `call_${action}` });
-    calls.push({ action, collection, items, extra, text: out.text, rawFile: out.rawFile });
+    calls.push({ action, collection, items, extra, out });
   };
   await call('issue.list', [{ ...common, number: 1, title: 'Bug', state: 'open', labels: [{ name: 'bug', id: 9 }], comments: 2 }]);
   await call('issue.list', [{ number: 2, title: 'T', state: 'closed', user, body: '', labels: [], comments: 0 }]);
