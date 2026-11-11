@@ -18,7 +18,7 @@ use mixdog_protocol::PromptPriority;
 use mixdog_protocol::SubmitOptions;
 use mixdog_rt::CancellationToken;
 use mixdog_services::bots::{RoutineTurn, TurnSettle};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tokio::sync::oneshot;
 
 use std::sync::Arc;
@@ -27,6 +27,24 @@ use super::SessionDirectory;
 use super::SessionHandle;
 use super::control::RoutineStart;
 use super::seams::RunOutcome;
+
+/// The end of a sent turn as its `onSettled` detail reads (`turnStatus(detail)`, `detail.result.content || detail.error`):
+/// `completed`, `failed` or `cancelled` (also a turn that never ran), and its text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendSettle {
+    pub status: &'static str,
+    pub text: String,
+}
+
+impl SendSettle {
+    fn of(outcome: Option<RunOutcome>) -> Self {
+        match outcome {
+            Some(RunOutcome::Completed(result)) => Self { status: "completed", text: result.content.clone() },
+            Some(RunOutcome::Failed(error)) => Self { status: "failed", text: error.message },
+            Some(RunOutcome::Interrupted) | None => Self { status: "cancelled", text: String::new() },
+        }
+    }
+}
 
 /// A prompt the queue entry shows: the content as parts when it is parts, else its text.
 fn prompt_of(content: &Value) -> PromptContent {
@@ -79,6 +97,7 @@ impl SessionDirectory {
             bot_chain: Vec::new(),
             room_row: None,
             skill_selection: None,
+            meta: Map::new(),
             on_start: Box::new(|| {}),
             done,
         };
@@ -104,15 +123,18 @@ impl SessionDirectory {
     /// an idle thread, else rides the queue; false when the thread did not accept it. The turn's
     /// end is read from the session, not awaited.
     pub async fn submit_member_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, room_row: &str) -> bool {
-        self.submit_chained_turn(thread, content, id, hop, &[], room_row).await
+        self.submit_chained_turn(thread, content, id, hop, &[], &Map::new(), room_row).await.is_some()
     }
 
-    /// [`Self::submit_member_turn`] for a send that also carries its bot chain
-    /// (`transcriptMeta: { sender: 'lead', hop, botChain }`, `daemon-session-control.mjs:186-195`):
-    /// the turn it starts, or the steering it joins, is in that chain (`bot-hops.mjs:52,70`).
-    pub async fn submit_chained_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], room_row: &str) -> bool {
+    /// [`Self::submit_member_turn`] for a send that also carries its bot chain and the sender's
+    /// own transcript meta (`transcriptMeta: { sender: 'lead', fromAgent, hop, botChain }`,
+    /// `daemon-session-control.mjs:186-195`, `sendTranscriptMeta`): the turn it starts, or the
+    /// steering it joins, is in that chain (`bot-hops.mjs:52,70`). The receiver answers the turn's
+    /// end as `onSettled` hands it; `None` when the thread did not accept it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn submit_chained_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], meta: &Map<String, Value>, room_row: &str) -> Option<oneshot::Receiver<SendSettle>> {
         let ctx = CallContext::internal("room-turn");
-        let Ok(handle) = self.open_handle(thread, &ctx).await else { return false };
+        let handle = self.open_handle(thread, &ctx).await.ok()?;
         let (done, outcome) = oneshot::channel();
         let start = RoutineStart {
             content: content.clone(),
@@ -121,18 +143,18 @@ impl SessionDirectory {
             bot_chain: bot_chain.to_vec(),
             room_row: Some(room_row.to_owned()).filter(|row| !row.is_empty()),
             skill_selection: None,
+            meta: meta.clone(),
             on_start: Box::new(|| {}),
             done,
         };
         let options = SubmitOptions { client_submission_id: Some(id.to_owned()).filter(|id| !id.is_empty()), ..SubmitOptions::default() };
         let op = OpId::from(format!("room-turn:{}", uuid::Uuid::new_v4()));
-        if enqueue(&handle, id, &op, start, options, &ctx).await.is_err() {
-            return false;
-        }
+        enqueue(&handle, id, &op, start, options, &ctx).await.ok()?;
+        let (settled, settle) = oneshot::channel();
         drop(mixdog_rt::spawn("room-turn-settle", mixdog_rt::TaskClass::Work, async move {
-            let _ = outcome.await;
+            let _ = settled.send(SendSettle::of(outcome.await.ok()));
         }));
-        true
+        Some(settle)
     }
     /// `liveSessionBusy`: the thread is loaded here and runs a turn or holds queued input.
     pub fn thread_busy(&self, id: &ThreadId) -> bool {
@@ -163,6 +185,7 @@ impl SessionDirectory {
             bot_chain: Vec::new(),
             room_row: None,
             skill_selection: Some(turn.skill_selection.clone()),
+            meta: Map::new(),
             on_start,
             done,
         };

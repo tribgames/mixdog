@@ -169,6 +169,8 @@ pub struct SessionPortParts {
     pub suggestions: Arc<dyn Suggestions>,
     /// The session catalog `session action=list` pages.
     pub listing: Arc<dyn SessionListing>,
+    /// What `session action=send` queues and reports through.
+    pub send: Arc<super::session_send::LateSend>,
     pub io: InteractiveIo,
 }
 
@@ -206,7 +208,7 @@ impl DirectorySessionPort {
     /// `targetRequest` checks it.
     async fn cross_session(&self, call: &ControlCall) -> Result<Value, PortError> {
         let action = call.action.as_str();
-        if !matches!(action, "list" | "read" | "cancel" | "delete") {
+        if !matches!(action, "list" | "read" | "send" | "cancel" | "delete") {
             return Err(PortError::Unavailable {
                 capability: "session-control".to_owned(),
                 message: format!("session: action={action} is not available in this runtime"),
@@ -226,6 +228,7 @@ impl DirectorySessionPort {
                 };
                 session_control::read(&target.session_id, &rows, has_older, &target, call.args.get("item_id")).map_err(failed)
             }
+            "send" => self.parts.send.get().map_err(failed)?.send(call, &target.session_id).await.map_err(failed),
             "cancel" => {
                 let aborted = self.parts.requests.interrupt(&thread).map_err(core)?;
                 Ok(json!({ "sessionId": thread.as_str(), "aborted": aborted }))

@@ -154,4 +154,5 @@ pub mod workflow_surface;
 pub mod member_names;
 pub mod room_daemon;
 pub mod room_files;
+pub mod task_report_store;
 pub mod room_labels;

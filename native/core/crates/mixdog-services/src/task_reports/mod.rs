@@ -11,6 +11,7 @@ pub mod follow;
 pub mod host;
 pub mod rearm;
 pub mod runtime_state;
+pub mod send;
 
 /// The queue row of the progress update of task session `session_id` carrying the answer of turn
 /// `answer_id`: one per answer, across restarts and however many open sends reach it.

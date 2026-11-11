@@ -334,6 +334,11 @@ impl SessionDirectory {
         self.handle(id).map(|handle| handle.cell.turn_chain.bots()).unwrap_or_default()
     }
 
+    /// `turnHopOf(session)`: the hop of the turn the loaded thread is in; 0 for a thread not loaded.
+    pub fn turn_hop(&self, id: &ThreadId) -> u32 {
+        self.handle(id).map_or(0, |handle| handle.cell.turn_chain.hop())
+    }
+
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)

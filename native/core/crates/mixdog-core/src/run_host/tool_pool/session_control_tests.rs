@@ -120,11 +120,11 @@ fn session_tool(caller: Map<String, Value>, known: &[String], bots: &[&'static s
     for id in known {
         threads.0.lock().expect("threads").entry(id.clone()).or_insert_with(|| Map::from_iter([("id".to_owned(), json!(id))]));
     }
-    tool_over(threads, bots, listing, requests)
+    tool_over(threads, bots, listing, requests, Arc::default())
 }
 
 /// The real `SessionTool` over the real port, its threads read and patched through `threads`.
-fn tool_over(threads: Arc<dyn ThreadState>, bots: &[&'static str], listing: Arc<dyn SessionListing>, requests: Arc<dyn ThreadRequests>) -> SessionTool {
+fn tool_over(threads: Arc<dyn ThreadState>, bots: &[&'static str], listing: Arc<dyn SessionListing>, requests: Arc<dyn ThreadRequests>, send: Arc<super::super::session_send::LateSend>) -> SessionTool {
     let callers = || Arc::new(ThreadCallers::new(threads.clone(), HeartbeatSessions::new(), UnattendedRunRegistry::new(Arc::new(NoStamps))));
     let port = DirectorySessionPort::new(SessionPortParts {
         callers: callers(),
@@ -136,6 +136,7 @@ fn tool_over(threads: Arc<dyn ThreadState>, bots: &[&'static str], listing: Arc<
         bots: Arc::new(Bots(bots.to_vec())),
         suggestions: Arc::new(Suggested::default()),
         listing,
+        send,
         io: mixdog_rt::testing::tokens().interactive_io,
     });
     SessionTool::new(Arc::new(port), callers())
@@ -224,7 +225,7 @@ async fn session_fork_answers_as_node() {
             *rig.compaction.heir_rows.lock().expect("rows") = Some(compactor["rows"].as_array().expect("rows").clone());
         }
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
-        let tool = tool_over(threads, &[], Arc::new(Fixture::default()), directory.clone());
+        let tool = tool_over(threads, &[], Arc::new(Fixture::default()), directory.clone(), Arc::default());
         let caller_id = scenario["callerSessionId"].as_str().unwrap_or(source.as_str()).to_owned();
         let surface = if scenario["callerSessionId"].is_string() { SurfaceKind::Agent } else { SurfaceKind::Lead };
         let (ok, mut text) = call_on(&tool, &caller_id, surface, scenario["args"].clone()).await;
@@ -246,6 +247,321 @@ async fn session_fork_answers_as_node() {
         replayed += 1;
     }
     assert!(replayed > 0, "no fork- scenario recorded");
+}
+
+// --- send -------------------------------------------------------------------------------------------
+
+/// `atask_<uuid>`, a send's minted id, as the recording names it: `atask_<send>`.
+fn masked(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("atask_") {
+        let (head, tail) = rest.split_at(at + "atask_".len());
+        out.push_str(head);
+        let uuid = tail.get(..36).filter(|id| id.bytes().enumerate().all(|(i, b)| if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() }));
+        match uuid {
+            Some(id) => {
+                out.push_str("<send>");
+                rest = &tail[id.len()..];
+            }
+            None => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn masked_value(value: &Value) -> Value {
+    serde_json::from_str(&masked(&value.to_string())).expect("json")
+}
+
+/// The bot's home and the durable watches (`watches`, `deliver`), keeping what they are given as
+/// Node's recorder keeps it; a scenario's `send.watch` makes the watch store refuse. Woken on each
+/// report and each dropped record of work.
+#[derive(Default)]
+struct HomeRecords {
+    refuse: Option<mixdog_services::bots::delivery::queue::WatchError>,
+    watches: Mutex<Vec<Value>>,
+    unwatched: Mutex<Vec<Value>>,
+    owned: Mutex<Vec<Value>>,
+    disowned: Mutex<Vec<Value>>,
+    delivered: Mutex<Vec<(String, String)>>,
+    settled: tokio::sync::Notify,
+}
+
+/// A process token and time as the recording names them.
+fn stamped(mut record: Value) -> Value {
+    record["owner"] = json!("<process>");
+    record["at"] = json!("<now>");
+    masked_value(&record)
+}
+
+#[async_trait]
+impl mixdog_services::task_reports::host::HomeQueue for HomeRecords {
+    async fn enqueue_task(&self, agent_id: &str, report: &mixdog_services::bots::delivery::home::TaskReport) -> Result<(), String> {
+        self.delivered.lock().expect("delivered").push((agent_id.to_owned(), masked(&format!("{report:?}"))));
+        self.settled.notify_one();
+        Ok(())
+    }
+    async fn disown(&self, _: &str) -> Result<(), String> {
+        unreachable!("only a re-attached watch disowns one run")
+    }
+    async fn watches(&self) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+    async fn owned(&self) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+    async fn watch(&self, watch: Value) -> Result<(), mixdog_services::bots::delivery::queue::WatchError> {
+        if let Some(refused) = &self.refuse {
+            return Err(refused.clone());
+        }
+        self.watches.lock().expect("watches").push(stamped(watch));
+        Ok(())
+    }
+    async fn unwatch(&self, run_id: &str) -> Result<(), String> {
+        self.unwatched.lock().expect("unwatched").push(json!(masked(run_id)));
+        Ok(())
+    }
+    async fn own(&self, work: Value) -> Result<(), String> {
+        self.owned.lock().expect("owned").push(stamped(work));
+        Ok(())
+    }
+    async fn disown_all(&self, run_ids: Vec<String>) -> Result<(), String> {
+        self.disowned.lock().expect("disowned").push(masked_value(&json!(run_ids)));
+        self.settled.notify_one();
+        Ok(())
+    }
+}
+
+/// Node's recorder: no agent work is pending for a task session.
+struct NothingPending;
+
+#[async_trait]
+impl mixdog_services::task_reports::host::AgentRegistry for NothingPending {
+    async fn owed_results(&self, _: &str) -> Vec<mixdog_services::task_reports::chain::Owed> {
+        Vec::new()
+    }
+    fn in_flight(&self) -> mixdog_services::task_reports::host::InFlight {
+        Default::default()
+    }
+    fn agent_task_owners(&self) -> HashSet<String> {
+        HashSet::new()
+    }
+    fn agent_tasks(&self) -> Vec<mixdog_services::task_reports::chain::AgentTask> {
+        Vec::new()
+    }
+    async fn stored_workers(&self, _: &HashSet<String>) -> Vec<Value> {
+        Vec::new()
+    }
+    async fn settle_restart_failures(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+struct Named(Vec<Value>);
+
+#[async_trait]
+impl super::super::session_send::AgentNames for Named {
+    async fn name(&self, agent_id: &str) -> String {
+        self.0.iter().find(|bot| bot["id"] == agent_id).and_then(|bot| bot["name"].as_str()).unwrap_or(agent_id).to_owned()
+    }
+}
+
+struct Rows(Vec<Value>);
+
+#[async_trait]
+impl super::super::session_send::ModelRows for Rows {
+    async fn rows(&self) -> Result<Vec<Value>, String> {
+        Ok(self.0.clone())
+    }
+}
+
+/// `configureSession({ action: 'setEffort', args })` as Node's recorder keeps it.
+#[derive(Default)]
+struct Efforts(Mutex<Vec<Value>>);
+
+#[async_trait]
+impl super::super::session_send::SessionEffort for Efforts {
+    async fn set_effort(&self, thread: &ThreadId, level: Option<&str>) -> Result<(), String> {
+        self.0.lock().expect("efforts").push(json!({ "sessionId": thread.as_str(), "action": "setEffort", "args": [level, { "sessionOnly": true }] }));
+        Ok(())
+    }
+}
+
+struct NoRebind;
+
+#[async_trait]
+impl super::super::session_send::Rebind for NoRebind {
+    async fn rebind(&self, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// `session action=send` over the real session directory, the real report host and the real send
+/// path (`TaskSends`, `DirectorySubmit`): the target sessions hold the recorded records, a turn
+/// ends with the recorded answer, and the stores Node's recorder stood in are stood in the same
+/// way. The answer is Node's (its minted send id named as recorded); the turns submitted carry
+/// Node's prompt and transcript meta; the effort set, the watches, the records of quiet work and the
+/// reports delivered are Node's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_send_answers_as_node() {
+    use mixdog_core_session::session::SessionDirectory;
+    use mixdog_core_session::session::testing::Rig;
+    use mixdog_core_session::session::thread_state::SessionThreads;
+    use mixdog_services::bots::delivery::queue::WatchError;
+    use mixdog_services::task_reports::host::TaskReportHost;
+    use mixdog_services::task_reports::send::TaskSends;
+    let golden = golden();
+    let send = &golden["send"];
+    let final_text = send["final"].as_str().expect("final").to_owned();
+    let mut replayed = 0;
+    for scenario in golden["scenarios"].as_array().expect("scenarios").iter().filter(|s| s["name"].as_str().expect("name").starts_with("send-")) {
+        let name = scenario["name"].as_str().expect("name");
+        let rig = Rig::new();
+        let answer = final_text.clone();
+        rig.set_script(Arc::new(move |_run| {
+            let content = answer.clone();
+            Box::pin(async move { mixdog_core_session::session::RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult { content, ..Default::default() })) })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let caller = scenario["caller"].as_object().expect("caller").clone();
+        let caller_id = caller["id"].as_str().expect("caller id").to_owned();
+        // The stored sessions: the recorded targets, and the caller's record over its own.
+        let mut records: Map<String, Value> = send["targets"].as_object().expect("targets").clone();
+        let mut own = records.get(&caller_id).and_then(Value::as_object).cloned().unwrap_or_default();
+        for (key, value) in &caller {
+            if !matches!(key.as_str(), "turnHop" | "turnBotChain") {
+                own.insert(key.clone(), value.clone());
+            }
+        }
+        records.insert(caller_id.clone(), Value::Object(own));
+        for (id, record) in &records {
+            let mut header = record.as_object().expect("record").clone();
+            header.shift_remove("id");
+            header.shift_remove("messages");
+            header.insert("cwd".into(), json!("/ws"));
+            directory.create_with_id(ThreadId::from(id.as_str()), header, json!({})).await.unwrap_or_else(|e| panic!("{name}: create {id}: {e:?}"));
+        }
+        let refuse = match scenario["send"]["watch"].as_str() {
+            Some("cap") => Some(WatchError::Cap("watch cap".into())),
+            Some("fails") => Some(WatchError::Failed("the watch store is unavailable".into())),
+            _ => None,
+        };
+        let home = Arc::new(HomeRecords { refuse, ..HomeRecords::default() });
+        let data = tempfile::tempdir().expect("data dir");
+        let queue = Arc::new(mixdog_core_session::session::pending_read::PendingQueue::new(
+            directory.clone(),
+            Arc::new(mixdog_core_session::session::delivered::DeliveredCompletions::new(rig.clock.clone())),
+        ));
+        let host = TaskReportHost::new(
+            home.clone(),
+            Arc::new(crate::run_host::task_report_store::DirectoryReportSessions {
+                directory: directory.clone(),
+                queue,
+                completions: Arc::new(mixdog_core_session::session::agent_registry::flow::SessionCompletions::new(directory.clone())),
+                lane: mixdog_rt::testing::tokens().durability_io,
+                data_dir: data.path().to_path_buf(),
+                scopes: Vec::new(),
+            }),
+            Arc::new(NothingPending),
+            Arc::new(mixdog_services::task_reports::host::BotWork::new(Arc::new(|_: &str| {}))),
+            Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
+        );
+        let tasks = TaskSends::with_timing(
+            host,
+            Arc::new(super::super::session_send::DirectorySubmit(directory.clone())),
+            "process".into(),
+            Arc::new(|| 0),
+            std::time::Duration::ZERO,
+            mixdog_services::task_reports::follow::FINAL_POLL,
+            Vec::new(),
+        );
+        let (turn_hop, turn_bots) = (
+            caller.get("turnHop").and_then(Value::as_u64).map_or(0, |hop| hop as u32),
+            caller.get("turnBotChain").and_then(Value::as_array).map(|bots| bots.iter().map(|b| b.as_str().expect("bot").to_owned()).collect::<Vec<_>>()).unwrap_or_default(),
+        );
+        let (record, turn_of) = (Value::Object(caller.clone()), caller_id.clone());
+        let record_of = caller_id.clone();
+        let efforts = Arc::new(Efforts::default());
+        let late = Arc::new(super::super::session_send::LateSend::default());
+        late.bind(Arc::new(super::super::session_send::SessionSend {
+            directory: directory.clone(),
+            tasks,
+            chains: super::super::session_send::CallerChains {
+                record: Arc::new(move |id: &str| (id == record_of).then(|| record.clone())),
+                turn: Arc::new(move |id: &str| if id == turn_of { (turn_hop, turn_bots.clone()) } else { (0, Vec::new()) }),
+            },
+            names: Arc::new(Named(golden["bots"].as_array().expect("bots").clone())),
+            catalog: Arc::new(Rows(send["modelRows"].as_array().expect("rows").clone())),
+            effort: efforts.clone(),
+            rebind: Arc::new(NoRebind),
+        }))
+        .expect("bind");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let bots: Vec<&'static str> = golden["bots"].as_array().expect("bots").iter().map(|b| &*b["id"].as_str().expect("bot id").to_owned().leak()).collect();
+        let tool = tool_over(threads, &bots, Arc::new(Fixture::default()), directory.clone(), late);
+        let expected = &scenario["expected"];
+        let recorded = &expected["send"];
+        // Each submitted turn is watched to its end before its rows are read.
+        let mut runtimes = Vec::new();
+        for submitted in recorded["submitted"].as_array().expect("submitted") {
+            let target = ThreadId::from(submitted["sessionId"].as_str().expect("target"));
+            let runtime = directory.report_runtime(&target).await.expect("the target's runtime");
+            let changes = runtime.subscribe();
+            runtimes.push((target, runtime, changes));
+        }
+        let (ok, text) = call_on(&tool, &caller_id, SurfaceKind::Lead, scenario["args"].clone()).await;
+        assert_eq!((ok, masked(&text).as_str()), (expected["ok"].as_bool().expect("ok"), expected["text"].as_str().expect("text")), "{name}");
+        for ((target, runtime, mut changes), submitted) in runtimes.into_iter().zip(recorded["submitted"].as_array().expect("submitted")) {
+            // The turn's start and its end, each one change.
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                let mut seen = 0;
+                while changes.recv().await.is_some() {
+                    seen += 1;
+                    if seen >= 2 && !runtime.busy() && runtime.queued_ids().is_empty() {
+                        break;
+                    }
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("{name}: the turn sent to {target:?} did not end within 10s"));
+            let messages = directory.session_messages(&target).await.expect("read").expect("the target's messages");
+            let users: Vec<&Value> = messages.iter().filter(|m| m["role"] == "user").collect();
+            assert_eq!(users.len(), 1, "{name}: one turn in {target:?}");
+            assert_eq!(users[0]["content"], submitted["prompt"], "{name}: the prompt {target:?} took");
+            let meta = &users[0]["meta"]["transcript"];
+            let sent: Map<String, Value> = ["sender", "fromAgent", "hop", "botChain"].iter().filter_map(|key| meta.get(*key).map(|v| ((*key).to_owned(), v.clone()))).collect();
+            assert_eq!(Value::Object(sent), submitted["options"]["transcriptMeta"], "{name}: the transcript meta of the turn in {target:?}");
+            if let Some(id) = submitted["options"].get("id") {
+                assert_eq!(masked_value(&meta["submissionIds"]), json!([id]), "{name}: the turn takes the send's submission");
+            }
+        }
+        // A reporting turn's end is delivered (or, reporting nothing, its record dropped) after the turn settles.
+        let reports = |records: &HomeRecords| records.delivered.lock().expect("delivered").len() + records.disowned.lock().expect("disowned").len();
+        let owed = recorded["delivered"].as_array().expect("delivered").len() + recorded["disowned"].as_array().expect("disowned").len();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while reports(&home) < owed {
+                home.settled.notified().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{name}: the send's end was not reported within 10s"));
+        assert_eq!(json!(*efforts.0.lock().expect("efforts")), recorded["effort"], "{name}: the effort set");
+        assert_eq!(json!(*home.watches.lock().expect("watches")), recorded["watches"], "{name}: the watches");
+        assert_eq!(json!(*home.unwatched.lock().expect("unwatched")), recorded["unwatched"], "{name}: the dropped watches");
+        assert_eq!(json!(*home.owned.lock().expect("owned")), recorded["owned"], "{name}: the records of quiet work");
+        assert_eq!(json!(*home.disowned.lock().expect("disowned")), recorded["disowned"], "{name}: the dropped records");
+        let delivered: Vec<(String, String)> = recorded["delivered"]
+            .as_array()
+            .expect("delivered")
+            .iter()
+            .map(|d| (d["agentId"].as_str().expect("agent").to_owned(), format!("{:?}", mixdog_services::task_reports::host::report_of(&d["report"]))))
+            .collect();
+        assert_eq!(*home.delivered.lock().expect("delivered"), delivered, "{name}: the reports");
+        replayed += 1;
+    }
+    assert!(replayed > 0, "no send- scenario recorded");
 }
 
 #[tokio::test]

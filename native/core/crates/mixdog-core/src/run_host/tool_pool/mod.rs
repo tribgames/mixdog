@@ -6,6 +6,7 @@ pub mod dispatcher;
 pub mod model_surface;
 pub mod session_control;
 pub mod session_port;
+pub mod session_send;
 
 #[cfg(test)]
 mod tests;
