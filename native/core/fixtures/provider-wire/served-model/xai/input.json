@@ -5,6 +5,7 @@
     "preconnect": false,
     "apiMode": "chat"
   },
+  "clientVersion": "1.4.5",
   "model": "grok-4",
   "messages": [
     {

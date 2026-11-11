@@ -12,6 +12,7 @@
       "project_id": "fixture-project"
     }
   },
+  "clientVersion": "1.4.5",
   "model": "claude-opus-4-6-thinking",
   "messages": [
     {

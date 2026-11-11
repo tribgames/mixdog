@@ -4,6 +4,7 @@
     "apiKey": "fixture-key",
     "preconnect": false
   },
+  "clientVersion": "1.4.5",
   "model": "meta-llama/llama-4-maverick",
   "messages": [
     {

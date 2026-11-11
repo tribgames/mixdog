@@ -3,6 +3,7 @@
   "config": {
     "apiKey": "fixture-key"
   },
+  "clientVersion": "1.4.5",
   "model": "gemini-2.5-pro",
   "messages": [
     {
