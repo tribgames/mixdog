@@ -394,6 +394,13 @@ async fn glob_refuses_a_path_that_is_not_a_string_as_node_does() {
     replay_fs_search("glob-path-array").await;
 }
 
+/// A Win32 verbatim path or pattern (`\\?\C:\x`, `\\?\UNC\…`), present or missing, is a UNC/device spelling and
+/// refused, as Node with node-fix-glob-verbatim-path.patch refuses it.
+#[tokio::test]
+async fn glob_refuses_a_verbatim_path_as_node_does() {
+    replay_fs_search("glob-verbatim").await;
+}
+
 /// The expansion's root is Node's `path.parse(raw).root` (Node v22 `path.win32.parse`, the runtime of b6f10295a).
 #[cfg(windows)]
 #[test]
