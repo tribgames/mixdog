@@ -111,10 +111,18 @@ impl Bridge {
                 // A conversation no desktop follows is unloaded; the session publishing to it opens it again, as the core does.
                 let handle = self.directory.open_handle(&id, &CallContext::internal("test")).await.map_err(|error| format!("{error:?}"))?;
                 let messages = call.get("messages").and_then(Value::as_array).cloned().ok_or("`messages` is missing")?;
-                let last = messages.last().and_then(|m| m.pointer("/meta/transcript/clientSubmissionId")).and_then(Value::as_str).ok_or("each message names its row id")?.to_owned();
+                // The last row that shows: a prompt with no text shows none (transcript_rows.rs user_rows, as Node's restore.mjs:519).
+                let last = messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.get("content").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty()))
+                    .map(|m| m.pointer("/meta/transcript/clientSubmissionId").and_then(Value::as_str).map(str::to_owned).ok_or("each message names its row id"))
+                    .transpose()?;
                 let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
                 handle.request(append).await.map_err(|error| format!("{error:?}"))?;
-                eventually_on!(&[&handle.cell.stepped], || position_of_id(handle.cell.view.load_full().items.iter().map(|item| item.as_ref()), &last).map(|_| ())).await;
+                if let Some(last) = last {
+                    eventually_on!(&[&handle.cell.stepped], || position_of_id(handle.cell.view.load_full().items.iter().map(|item| item.as_ref()), &last).map(|_| ())).await;
+                }
                 Ok(json!({}))
             }
             // `thread/resume` on `conn`: the `thread/snapshot` params it is answered with.
