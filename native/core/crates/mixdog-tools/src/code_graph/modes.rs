@@ -31,8 +31,13 @@ pub(super) struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
+    /// Node names the graph root by the explicit `cwd` argument as written (`baseCwd = args.cwd.trim()`) when the
+    /// call ran there, else by the resolved root.
     fn cwd_text(&self) -> String {
-        self.cwd.to_string_lossy().into_owned()
+        match self.args.cwd.as_deref().map(str::trim) {
+            Some(raw) if super::roots::path_key(&super::roots::abs_from(self.default_cwd, raw)) == super::roots::path_key(self.cwd) => raw.to_owned(),
+            _ => self.cwd.to_string_lossy().into_owned(),
+        }
     }
 
     fn scope(&self) -> Scope<'_> {

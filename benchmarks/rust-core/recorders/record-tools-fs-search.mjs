@@ -176,6 +176,26 @@ const SCENARIOS = [
       { tool: 'code_graph', input: { mode: 'references', symbols: ['Shape'], limit: 3 } },
     ],
   },
+  // The casing hint reads the resident graph's token index (search-references.mjs _formatNoSymbolMatches); the graph
+  // stays resident while fewer than CODE_GRAPH_MEMORY_MAX_ENTRIES (6) other roots were used since (memory-cache.mjs), and
+  // a graph rebuilt after its eviction knows no earlier lookup.
+  {
+    name: 'code-graph-casing-eviction',
+    files: Object.fromEntries(
+      ['a', ...Array.from({ length: 11 }, (_, i) => `p${i + 1}`)].flatMap((p) => [
+        [`${p}/package.json`, '{}\n'],
+        [`${p}/src/main.ts`, p === 'a' ? 'export class Widget {}\n' : `export const ${p} = 1;\n`],
+      ])
+    ),
+    warmup: [{ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'], cwd: '<ROOT>/a' } }],
+    calls: [
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['Widget'], cwd: '<ROOT>/a' } },
+      ...Array.from({ length: 5 }, (_, i) => ({ tool: 'code_graph', input: { mode: 'find_symbol', symbols: [`p${i + 1}`], cwd: `<ROOT>/p${i + 1}` } })),
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'], cwd: '<ROOT>/a' } },
+      ...Array.from({ length: 6 }, (_, i) => ({ tool: 'code_graph', input: { mode: 'find_symbol', symbols: [`p${i + 6}`], cwd: `<ROOT>/p${i + 6}` } })),
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'], cwd: '<ROOT>/a' } },
+    ],
+  },
   // REFERENCE_HIT_CAP (code-graph/search.mjs _cheapReferenceSearch): `Math.max(1, Number(env) || 200)` mentions per
   // scan, read at each scan; `env` is the scenario process's environment.
   ...[['2.5', 'fraction'], [' 0x2 ', 'hex'], ['-3', 'negative'], ['0', 'zero'], ['many', 'nan']].map(([cap, label]) => ({

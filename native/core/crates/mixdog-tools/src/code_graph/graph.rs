@@ -201,7 +201,8 @@ impl Graph {
             for node in &graph.nodes {
                 (&node.rel, node.fingerprint).hash(&mut hasher);
             }
-            graph.lookups = cache.lookups_for(&path_key(root), hasher.finish());
+            let base_bytes = graph.nodes.iter().map(|node| node.text.len() as u64).sum();
+            graph.lookups = cache.lookups_for(&path_key(root), hasher.finish(), base_bytes);
         }
         Ok(graph)
     }
