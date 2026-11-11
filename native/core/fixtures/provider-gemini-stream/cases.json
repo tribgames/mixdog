@@ -1,6 +1,7 @@
 {
   "set": "provider-gemini-stream",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "whole-call-without-finish",
@@ -57,7 +58,34 @@
           "tool"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "one-complete-one-unfinished-0",
@@ -99,16 +127,47 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "tool"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "one-complete-one-unfinished-1",
@@ -150,16 +209,47 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "tool"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "one-complete-one-unfinished-2",
@@ -202,16 +292,47 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "tool"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "several-complete-calls-without-finish",
@@ -284,7 +405,34 @@
           "tool"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "no-finish-text-only",
@@ -308,15 +456,19 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true,
-          "liveTextEmitted": true,
-          "unsafeToRetry": true,
-          "streamStalled": true,
-          "partialContent": "half an answer",
-          "pendingToolUse": false
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true,
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamStalled": true,
+            "partialContent": "half an answer",
+            "pendingToolUse": false
+          }
         },
         "progress": [
           "text"
@@ -324,7 +476,34 @@
         "text": [
           "half an answer"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "no-finish-thoughts-only",
@@ -349,16 +528,47 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "reasoning"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "no-finish-partial-functionCall",
@@ -389,16 +599,47 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "tool"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "no-finish-empty-candidate",
@@ -418,16 +659,47 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "transport"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "native-tool-chunks-replayable",
@@ -458,16 +730,47 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "tool"
         ],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "visible-text-then-native-chunk",
@@ -511,15 +814,19 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true,
-          "liveTextEmitted": true,
-          "unsafeToRetry": true,
-          "streamStalled": true,
-          "partialContent": "visible",
-          "pendingToolUse": false
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true,
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamStalled": true,
+            "partialContent": "visible",
+            "pendingToolUse": false
+          }
         },
         "progress": [
           "text",
@@ -528,7 +835,34 @@
         "text": [
           "visible"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "leaked-call-held-back",
@@ -552,10 +886,14 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true
+          }
         },
         "progress": [
           "text"
@@ -571,7 +909,73 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.createGeminiTextLeakGuard",
+          "args": [
+            {
+              "knownToolNames": [
+                "read"
+              ],
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "deferToolCalls": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "textLeakGuard": {
+                "enabled": true,
+                "defersToolCalls": true,
+                "feedText": {
+                  "callback": "feedText"
+                },
+                "finalize": {
+                  "callback": "finalize"
+                },
+                "scrubAssistantText": {
+                  "callback": "scrubAssistantText"
+                },
+                "filterNativeToolCalls": {
+                  "callback": "filterNativeToolCalls"
+                },
+                "getLeakedToolCalls": {
+                  "callback": "getLeakedToolCalls"
+                },
+                "releaseDeferredToolCalls": {
+                  "callback": "releaseDeferredToolCalls"
+                },
+                "getRelayedText": {
+                  "callback": "getRelayedText"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "leaked-call-dispatched",
@@ -595,12 +999,16 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "TruncatedStreamError",
           "message": "fixture truncated: no finishReason",
           "code": "TRUNCATED_STREAM",
-          "truncatedStream": true,
-          "emittedToolCall": true,
-          "unsafeToRetry": true
+          "props": {
+            "name": "TruncatedStreamError",
+            "truncatedStream": true,
+            "emittedToolCall": true,
+            "unsafeToRetry": true
+          }
         },
         "progress": [
           "text"
@@ -624,7 +1032,73 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.createGeminiTextLeakGuard",
+          "args": [
+            {
+              "knownToolNames": [
+                "read"
+              ],
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "deferToolCalls": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "textLeakGuard": {
+                "enabled": true,
+                "defersToolCalls": false,
+                "feedText": {
+                  "callback": "feedText"
+                },
+                "finalize": {
+                  "callback": "finalize"
+                },
+                "scrubAssistantText": {
+                  "callback": "scrubAssistantText"
+                },
+                "filterNativeToolCalls": {
+                  "callback": "filterNativeToolCalls"
+                },
+                "getLeakedToolCalls": {
+                  "callback": "getLeakedToolCalls"
+                },
+                "releaseDeferredToolCalls": {
+                  "callback": "releaseDeferredToolCalls"
+                },
+                "getRelayedText": {
+                  "callback": "getRelayedText"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "ordered-parts-and-signatures",
@@ -666,7 +1140,34 @@
         "text": [
           "answer"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "in-band-error-before-text",
@@ -690,35 +1191,66 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "GeminiInBandError",
           "message": "fixture in-band error 429: quota gone",
-          "status": 429,
-          "httpStatus": 429,
-          "geminiStatus": "RESOURCE_EXHAUSTED",
-          "error": {
-            "code": 429,
-            "status": "RESOURCE_EXHAUSTED",
-            "message": "quota gone",
+          "code": "resource_exhausted",
+          "props": {
+            "name": "GeminiInBandError",
+            "status": 429,
+            "httpStatus": 429,
+            "geminiStatus": "RESOURCE_EXHAUSTED",
+            "error": {
+              "code": 429,
+              "status": "RESOURCE_EXHAUSTED",
+              "message": "quota gone",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                  "retryDelay": "5s"
+                }
+              ]
+            },
             "details": [
               {
                 "@type": "type.googleapis.com/google.rpc.RetryInfo",
                 "retryDelay": "5s"
               }
-            ]
-          },
-          "details": [
-            {
-              "@type": "type.googleapis.com/google.rpc.RetryInfo",
-              "retryDelay": "5s"
-            }
-          ],
-          "retryAfterMs": 5000,
-          "resetAt": 1794225605000,
-          "code": "resource_exhausted"
+            ],
+            "retryAfterMs": 5000,
+            "resetAt": 1794225605000
+          }
         },
         "progress": [],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "in-band-error-after-stop",
@@ -757,33 +1289,37 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "GeminiInBandError",
           "message": "fixture in-band error 429: quota gone",
-          "status": 429,
-          "httpStatus": 429,
-          "geminiStatus": "RESOURCE_EXHAUSTED",
-          "error": {
-            "code": 429,
-            "status": "RESOURCE_EXHAUSTED",
-            "message": "quota gone",
+          "code": "resource_exhausted",
+          "props": {
+            "name": "GeminiInBandError",
+            "status": 429,
+            "httpStatus": 429,
+            "geminiStatus": "RESOURCE_EXHAUSTED",
+            "error": {
+              "code": 429,
+              "status": "RESOURCE_EXHAUSTED",
+              "message": "quota gone",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                  "retryDelay": "5s"
+                }
+              ]
+            },
             "details": [
               {
                 "@type": "type.googleapis.com/google.rpc.RetryInfo",
                 "retryDelay": "5s"
               }
-            ]
-          },
-          "details": [
-            {
-              "@type": "type.googleapis.com/google.rpc.RetryInfo",
-              "retryDelay": "5s"
-            }
-          ],
-          "retryAfterMs": 5000,
-          "resetAt": 1794225605000,
-          "code": "resource_exhausted",
-          "liveTextEmitted": true,
-          "unsafeToRetry": true
+            ],
+            "retryAfterMs": 5000,
+            "resetAt": 1794225605000,
+            "liveTextEmitted": true,
+            "unsafeToRetry": true
+          }
         },
         "progress": [
           "text"
@@ -791,7 +1327,34 @@
         "text": [
           "ok"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "in-band-error-unterminated-tail",
@@ -802,20 +1365,92 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "GeminiInBandError",
           "message": "fixture in-band error 503: UNAVAILABLE",
-          "status": 503,
-          "httpStatus": 503,
-          "geminiStatus": "UNAVAILABLE",
-          "error": {
-            "code": 503,
-            "status": "UNAVAILABLE"
-          },
-          "code": "unavailable"
+          "code": "unavailable",
+          "props": {
+            "name": "GeminiInBandError",
+            "status": 503,
+            "httpStatus": 503,
+            "geminiStatus": "UNAVAILABLE",
+            "error": {
+              "code": 503,
+              "status": "UNAVAILABLE"
+            }
+          }
         },
         "progress": [],
         "text": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": [
+                [
+                  "content-type",
+                  "text/plain;charset=UTF-8"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "first-chunk-window-follows-caller-and-names-phase",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:196",
+      "input": {
+        "firstByteTimeoutMs": 25,
+        "label": "fixture",
+        "body": "a ReadableStream that never produces a chunk",
+        "advanceMs": [
+          25
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "GeminiTimeoutError",
+          "message": "fixture first byte timed out after 25ms",
+          "code": "EGEMINITIMEOUT",
+          "props": {
+            "name": "GeminiTimeoutError",
+            "timeoutPhase": "first-chunk"
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "",
+              "url": "",
+              "headers": []
+            },
+            {
+              "label": "fixture",
+              "firstByteTimeoutMs": 25
+            }
+          ]
+        }
+      ]
     }
   ]
 }
