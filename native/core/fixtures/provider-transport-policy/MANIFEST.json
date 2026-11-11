@@ -11,15 +11,15 @@
   "entry": "openai-transport-policy.mjs resolveOpenAiTransportPolicy / resolveResponsesTransportPolicy / _normalizeTransportMode / _gateTransportMode, openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame, openai-codex-metadata.mjs _withCodexWsClientMetadata, openai-ws-stream.mjs _captureTurnStateFromEvent, gemini-stream.mjs geminiChunkProgressKind, shared/stream-progress.mjs isVisibleStreamProgress, openai-ws-pool.mjs acquireWebSocket / releaseWebSocket with _setOpenSocketForTest(opener) scripted. Not run: a real socket.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 65933,
+      "bytes": 65957,
       "path": "cases.json",
-      "sha256": "5b7ad04a28999d6bd53043d3a9d40a935ea49329ce50254c144b0e60946eb364"
+      "sha256": "0da3e21361215fa878cd3501dd6d9a1a17ac8606863bb8fde3ba307c8bc1d7ce"
     }
   ],
   "inputs": [
@@ -41,11 +41,97 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "policy-defaults-and-modes",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "response-frame-omits-transport-fields",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mode-token-aliases",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "ws-delta-drives-computeDelta-delta-frame",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "ws-full-forces-computeDelta-full",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "responses-policy-full-caps-equal-legacy",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "responses-policy-capabilities-table",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "responses-policy-openai-direct-ws-delta",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "responses-policy-xai",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "stream-progress-visible-ttft",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "gate-transport-mode-down-shifts",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "turn-state-captured-once-never-synthesized",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "turn-state-nested-header-shapes",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "turn-state-echoed-within-turn-dropped-across",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "turn-state-prewarm-seeds-logical-turn",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "turn-state-parity-disabled-untouched",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "turn-state-never-enters-connection-handshake",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +153,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-transport-policy.mjs",
-  "recorderSha256": "c494805e7e3a2d2be8ffb399f1607af9fd2b75032c4e61a161da6a08d2b2a866",
+  "recorderSha256": "53b34d470c1ff08675f511c7705d4d1c0ea9cb4cf76fef48b2adf367723f2358",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178). The mode selection is DefaultProviderBuilder::build (registry/builder.rs:1295).",
   "set": "provider-transport-policy",
-  "totalBytes": 65933,
+  "totalBytes": 65957,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

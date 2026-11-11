@@ -1583,7 +1583,9 @@
               "type": "response.created",
               "headers": {}
             },
-            "turnState": null
+            "turnState": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": {
@@ -2310,8 +2312,7 @@
           "advanceMs": 1,
           "fromMs": 0,
           "fired": [],
-          "toMs": 1,
-          "armed": []
+          "toMs": 1
         }
       ]
     }
