@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // Recording of shared/git-launch.test.mjs (b6f10295a): how Node resolves the git it starts. Real git-launch.mjs (resolveGitLaunch,
-// gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) and git-runner.mjs runGitOffThread, over directory trees
-// built in a temp folder (the file layout of each case is part of the recording; every path in the results is relative to the temp
-// root, written <root>). The recording is Windows-only where Node's own test is (`skip: process.platform !== 'win32'`): on another
-// platform those cases record {skipped}. The two "real install" cases record the outcomes on the recording machine's own git.
+// gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync), over directory trees built in a temp folder (the file
+// layout of each case is part of the recording; every temp root is written <root> wherever it occurs, with the separators Node
+// produced: backslashes on win32, which is the platform recorded). The recording is Windows-only where Node's own test is
+// (`skip: process.platform !== 'win32'`): on another platform those cases record {skipped}.
+// Nothing here runs the machine's git. The two Node cases that ran a real git (the direct binary's environment; the runner's PATH
+// fallback) are recorded on controlled installs the recorder creates (trees of empty files) with a scripted spawn that records the
+// whole launch request (command, args, cwd, environment) and answers as scripted below; git-runner-worker.mjs's body is
+// `startGit(request.env, (command, env) => runChildTimed(...))`, which is what these cases call with the scripted spawn.
 //
 //   node benchmarks/rust-core/recorders/record-git-launch-cases.mjs --tree <export of b6f10295a with node_modules>
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
@@ -14,10 +17,8 @@ import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('git-launch-cases', import.meta.url);
 const { gitChildEnv, gitCommand, gitLaunchEnvironment, resolveGitLaunch, startGit, startGitSync } = await set.load('src/runtime/shared/git-launch.mjs');
-const { runGitOffThread } = await set.load('src/runtime/shared/git-runner.mjs');
 const WIN = process.platform === 'win32';
 const roots = [];
-const failure = (e) => ({ name: e?.name ?? null, code: e?.code ?? null, message: String(e?.message ?? e) });
 function tree(files) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-launch-'));
   roots.push(root);
@@ -28,29 +29,26 @@ function tree(files) {
   }
   return root;
 }
-/** A path under `root` as a recording string (`<root>/…`, forward slashes), anything else as is. */
-const rel = (root) => (value) => (typeof value === 'string' && value.startsWith(root) ? `<root>/${value.slice(root.length + 1).replaceAll('\\', '/')}`.replace(/\/$/, '') : value);
-const launchView = (root, launch) => (launch === null ? null : { command: rel(root)(launch.command), root: rel(root)(launch.root), msystem: launch.msystem, msysConfig: launch.msysConfig ?? null, keys: Object.keys(launch).sort() });
 const INSTALL = ['Git/cmd/git.exe', 'Git/bin/git.exe', 'Git/git-bash.exe', 'Git/usr/bin/', 'Git/mingw64/bin/git.exe'];
 const win = (pathValue) => resolveGitLaunch({ platform: 'win32', pathValue });
 const skipped = (reason) => ({ skipped: reason });
 const enoent = () => Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
 const winOnly = (fn) => (WIN ? fn() : skipped('Node test skips: process.platform !== win32'));
+/** A scripted spawn: records the whole launch request; `answer(command)` is the scripted outcome (a value, or a thrown error). */
+const scriptedSpawn = (requests, args, cwd, answer) => (command, childEnv) => { requests.push({ command, args, cwd, childEnv: structuredClone(childEnv) }); return answer(command); };
 
 await set.run('Git for Windows launchers resolve to the real binary of their install', () => winOnly(() => {
   const root = tree(INSTALL);
-  const r = rel(root);
-  const launchers = ['cmd', 'bin'].map((launcher) => ({ pathValue: `<root>/Git/${launcher}`, launch: launchView(root, win(join(root, 'Git', launcher))) }));
+  const launchers = ['cmd', 'bin'].map((launcher) => ({ pathValue: join(root, 'Git', launcher), launch: win(join(root, 'Git', launcher)) }));
   const armFiles = ['Git/cmd/git.exe', 'Git/git-bash.exe', 'Git/usr/bin/', 'Git/clangarm64/bin/git.exe'];
   const arm = tree(armFiles);
-  return { files: INSTALL, launchers, arm: { files: armFiles, launch: launchView(arm, win(join(arm, 'Git', 'cmd'))) }, r: r(root) === '<root>' };
+  return { files: INSTALL, launchers, arm: { files: armFiles, pathValue: join(arm, 'Git', 'cmd'), launch: win(join(arm, 'Git', 'cmd')) } };
 }));
 await set.run('every other git keeps plain `git`', () => winOnly(() => {
   const files = [...INSTALL, 'scoop/shims/git.exe', 'MinGit/cmd/git.exe', 'MinGit/usr/bin/', 'MinGit/mingw64/bin/git.exe', 'Both/cmd/git.exe', 'Both/git-bash.exe', 'Both/usr/bin/', 'Both/mingw64/bin/git.exe', 'Both/clangarm64/bin/git.exe', 'NoUsr/cmd/git.exe', 'NoUsr/git-bash.exe', 'NoUsr/mingw64/bin/git.exe', 'com/git.com'];
   const root = tree(files);
   const install = join(root, 'Git', 'cmd');
-  const answer = (platform, pathValue) => launchView(root, resolveGitLaunch({ platform, pathValue }));
-  const q = (label, pathValue, platform = 'win32') => ({ label, platform, pathValue: pathValue.replaceAll(root, '<root>').replaceAll('\\', '/'), launch: answer(platform, pathValue) });
+  const q = (label, pathValue, platform = 'win32') => ({ label, platform, pathValue, launch: resolveGitLaunch({ platform, pathValue }) });
   return {
     files,
     cases: [
@@ -66,100 +64,101 @@ await set.run('the child environment is the one the launcher builds', () => {
   const launch = { command: 'C:\\Git\\mingw64\\bin\\git.exe', root: 'C:\\Git', msystem: 'MINGW64', msysConfig: [] };
   const base = { Path: 'C:\\Windows', MSYSTEM: 'MSYS', USERPROFILE: 'C:\\Users\\u' };
   const baseBefore = structuredClone(base);
-  const norm = (value) => JSON.parse(JSON.stringify(value).replaceAll(root.replaceAll('\\', '\\\\'), '<root>'));
-  const env = gitLaunchEnvironment(launch, { ...base, HOMEDRIVE: '', HOMEPATH: join(root, 'home') });
-  const missing = gitLaunchEnvironment(launch, { ...base, HOMEDRIVE: '', HOMEPATH: join(root, 'absent') });
+  const withHomeInput = { ...base, HOMEDRIVE: '', HOMEPATH: join(root, 'home') };
+  const missingInput = { ...base, HOMEDRIVE: '', HOMEPATH: join(root, 'absent') };
+  const env = gitLaunchEnvironment(launch, withHomeInput);
+  const missing = gitLaunchEnvironment(launch, missingInput);
   const keptIn = { PATH: 'C:\\bin', HOME: 'D:\\h\\', PLINK_PROTOCOL: 'telnet', MSYS: 'noglob' };
-  const kept = gitLaunchEnvironment({ ...launch, msysConfig: ['winsymlinks:nativestrict', 'disable_pcon'] }, keptIn);
+  const keptLaunch = { ...launch, msysConfig: ['winsymlinks:nativestrict', 'disable_pcon'] };
+  const kept = gitLaunchEnvironment(keptLaunch, keptIn);
   return {
     homeDirectoryExists: 'home/', launch,
-    withHomeDir: { input: norm({ ...base, HOMEDRIVE: '', HOMEPATH: join(root, 'home') }), env: norm(env), pathUndefined: env.PATH === undefined, callerUnchanged: JSON.stringify(base) === JSON.stringify(baseBefore) },
-    homeMissing: { input: norm({ ...base, HOMEDRIVE: '', HOMEPATH: join(root, 'absent') }), env: norm(missing) },
-    kept: { launch: { ...launch, msysConfig: ['winsymlinks:nativestrict', 'disable_pcon'] }, input: keptIn, env: kept },
+    withHomeDir: { input: withHomeInput, env, pathIsUndefined: env.PATH === undefined, callerAfter: base, callerBefore: baseBefore },
+    homeMissing: { input: missingInput, env: missing },
+    kept: { launch: keptLaunch, input: keptIn, env: kept },
   };
 });
 await set.run("each environment's own PATH decides the git it starts", () => winOnly(() => {
   const files = [...INSTALL, 'scoop/shims/git.exe'];
   const root = tree(files);
-  const r = rel(root);
   const install = { PATH: join(root, 'Git', 'cmd') };
   const shim = { Path: join(root, 'scoop', 'shims') };
   const installEnv = gitChildEnv(install);
   const shimEnv = gitChildEnv(shim);
   return {
     files,
-    install: { pathValue: '<root>/Git/cmd', command: r(gitCommand(install)), childPathStartsWithMingwBin: installEnv.PATH.startsWith(`${join(root, 'Git', 'mingw64', 'bin')};`), childPathHead: installEnv.PATH.split(';').slice(0, 3).map(r) },
-    shim: { pathValue: '<root>/scoop/shims', command: gitCommand(shim), childEnvIsTheSameObject: shimEnv === shim },
+    install: { input: install, command: gitCommand(install), childEnv: installEnv },
+    shim: { input: shim, command: gitCommand(shim), childEnv: shimEnv, childEnvIsTheSameObject: shimEnv === shim },
   };
 }));
 await set.run('a resolved binary that is gone is resolved again, and that spawn retried once', () => winOnly(async () => {
   const root = tree(INSTALL);
-  const r = rel(root);
   const env = { PATH: join(root, 'Git', 'cmd') };
   const binary = join(root, 'Git', 'mingw64', 'bin', 'git.exe');
-  const resolvedBefore = r(gitCommand(env));
+  const resolvedBefore = gitCommand(env);
   rmSync(join(root, 'Git'), { recursive: true, force: true });
   const calls = [];
-  const result = await startGit(env, async (command, childEnv) => { calls.push({ command, childEnv }); if (command === binary) throw enoent(); return 'ran'; });
-  const afterRetry = r(gitCommand(env));
+  const childEnvs = [];
+  const result = await startGit(env, async (command, childEnv) => { calls.push({ command, childEnv: structuredClone(childEnv) }); childEnvs.push(childEnv); if (command === binary) throw enoent(); return 'ran'; });
+  const afterRetry = gitCommand(env);
   const stale = tree(INSTALL);
-  const sr = rel(stale);
   const staleEnv = { PATH: join(stale, 'Git', 'cmd') };
   const staleBinary = gitCommand(staleEnv);
   rmSync(join(stale, 'Git'), { recursive: true, force: true });
   const synced = [];
   const outcome = startGitSync(staleEnv, (command) => { synced.push(command); return command === staleBinary ? { error: enoent() } : { status: 0 }; });
   return {
-    files: INSTALL, resolvedBefore, uninstalledAfterResolve: true,
-    startGit: { result, spawnedCommands: calls.map((c) => r(c.command)), secondChildEnvIsCallerEnv: calls[1].childEnv === env, resolutionAfterRetry: afterRetry },
-    startGitSync: { outcome, spawnedCommands: synced.map(sr) },
+    files: INSTALL, env, resolvedBefore, uninstalledAfterResolve: true,
+    startGit: { result, spawnedCommands: calls, secondChildEnvIsCallerEnv: childEnvs[1] === env, resolutionAfterRetry: afterRetry },
+    startGitSync: { staleEnv, outcome, spawnedCommands: synced },
   };
 }));
 await set.run('only a missing binary retries, and only once', () => winOnly(async () => {
   const root = tree(INSTALL);
-  const r = rel(root);
   const env = { PATH: join(root, 'Git', 'cmd') };
   const binary = gitCommand(env);
-  const run = async (throwing) => { let calls = 0; let outcome; try { await startGit(env, async () => { calls += 1; throw throwing(); }); outcome = { resolved: true }; } catch (e) { outcome = { rejected: failure(e) }; } return { calls, outcome }; };
+  const run = async (throwing) => { let calls = 0; let outcome; try { await startGit(env, async () => { calls += 1; throw throwing(); }); outcome = { resolved: true }; } catch (e) { outcome = { rejected: e }; } return { calls, outcome }; };
   const missingCwd = await run(enoent);
-  const stays = r(gitCommand(env)) === r(binary);
+  const stays = gitCommand(env);
   const denied = await run(() => Object.assign(new Error('denied'), { code: 'EACCES' }));
   rmSync(join(root, 'Git'), { recursive: true, force: true });
   const goneAndRetryFails = await run(enoent);
-  return { files: INSTALL, enoentWithBinaryInPlace: missingCwd, resolutionStays: stays, otherSpawnFailure: denied, goneAndRetryFails };
+  return { files: INSTALL, env, binary, enoentWithBinaryInPlace: missingCwd, resolutionAfter: stays, otherSpawnFailure: denied, goneAndRetryFails };
 }));
-await set.run('the git runner falls back to the git PATH names once the resolved one is removed', async () => {
-  const skip = gitCommand() === 'git';
-  if (skip) return skipped('Node test skips: gitCommand() === git (no Git for Windows launcher on PATH on the recording machine)');
-  const real = resolveGitLaunch();
-  const root = tree(INSTALL);
-  const env = { ...process.env, PATH: `${join(root, 'Git', 'cmd')}${delimiter}${join(real.root, 'cmd')}` };
-  delete env.Path;
-  const options = { cwd: root, env, timeoutMs: 30_000, maxBytes: 1_000_000 };
-  const first = await runGitOffThread(['--version'], options).then((r) => ({ code: r.code }), (e) => ({ rejected: failure(e) }));
-  rmSync(join(root, 'Git'), { recursive: true, force: true });
-  const result = await runGitOffThread(['--version'], options);
-  return { files: INSTALL, staleInstallResolvedFirst: first, afterRemoval: { code: result.code, stdoutStartsWithGitVersion: /^git version /.test(result.stdout), stderr: result.stderr }, note: 'depends on the recording machine\'s own Git for Windows install (stdout is not recorded)' };
-});
+await set.run('the git runner falls back to the git PATH names once the resolved one is removed', () => winOnly(async () => {
+  // Controlled installs: `stale` is removed after the first resolution; `fallback` stays and answers `git --version` as scripted.
+  const stale = tree(INSTALL);
+  const fallback = tree(INSTALL);
+  const env = { PATH: `${join(stale, 'Git', 'cmd')}${delimiter}${join(fallback, 'Git', 'cmd')}` };
+  const staleBinary = gitCommand(env);
+  const scripted = { code: 0, stdout: 'git version 2.50.0.windows.1\n', stderr: '' };
+  const args = ['--version'];
+  const requests = [];
+  const first = await startGit(env, scriptedSpawn(requests, args, stale, () => scripted));
+  rmSync(join(stale, 'Git'), { recursive: true, force: true });
+  const second = await startGit(env, scriptedSpawn(requests, args, stale, (command) => { if (command === staleBinary) throw enoent(); return scripted; }));
+  return { files: INSTALL, env, scriptedAnswer: scripted, firstCommand: staleBinary, first, afterRemoval: second, afterRemovalCommand: gitCommand(env), requests };
+}));
 await set.run('without a bypass the command and environment are unchanged', () => {
-  if (gitCommand() !== 'git') return skipped('Node test skips: gitCommand() !== git (a Git for Windows launcher is on PATH on the recording machine)');
-  const env = { PATH: 'x' };
-  return { gitChildEnvOfNothing: gitChildEnv(), sameEnvObject: gitChildEnv(env) === env };
+  const emptyDir = tree(['empty/']);
+  const env = { PATH: join(emptyDir, 'empty') };
+  const plain = { PATH: 'x' };
+  return { env, command: gitCommand(env), gitChildEnvOfEnv: gitChildEnv(env), plain, sameEnvObject: gitChildEnv(plain) === plain };
 });
-await set.run('the direct binary sees the environment the launcher would give it', () => {
-  if (gitCommand() === 'git') return skipped('Node test skips: gitCommand() === git');
+await set.run('the direct binary sees the environment the launcher would give it', () => winOnly(async () => {
+  // The Node test dumped the environment of a real git through the launcher and directly; here the launch request of startGit is recorded.
+  const root = tree(INSTALL);
+  const env = { PATH: join(root, 'Git', 'cmd'), HOME: 'D:\\h', MSYS: 'noglob' };
   const args = ['-c', 'alias.dumpenv=!env', 'dumpenv'];
-  const viaLauncher = spawnSync('git', args, { encoding: 'utf8', windowsHide: true });
-  const direct = spawnSync(gitCommand(), args, { encoding: 'utf8', windowsHide: true, env: gitChildEnv() });
-  const lines = (output) => output.split('\n').filter(Boolean).sort();
-  return { args, launcherStatus: viaLauncher.status, directStatus: direct.status, sameVariablesAndValues: JSON.stringify(lines(direct.stdout)) === JSON.stringify(lines(viaLauncher.stdout)), variableCount: lines(direct.stdout).length, note: 'depends on the recording machine\'s own install; the environment lines are not recorded (they hold the machine\'s variables)' };
-});
+  const requests = [];
+  const result = await startGit(env, scriptedSpawn(requests, args, root, () => ({ code: 0, stdout: '', stderr: '' })));
+  return { files: INSTALL, env, args, command: gitCommand(env), launcherEnvironment: gitChildEnv(env), result, requests };
+}));
 
 await set.finish({
-  entry: { runs: 'src/runtime/shared/git-launch.mjs (resolveGitLaunch with an explicit platform and PATH, gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) and git-runner.mjs runGitOffThread over trees of empty files in a temp folder', notRun: 'startGit/startGitSync get a scripted spawn function; git is run for real only in the two real-install cases' },
-  replay: { entry: 'mixdog-scm git_launch.rs: rebuild each case\'s tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole (paths relative to <root>)', normalised: { tempRoots: 'every temp root is <root>; a scripted-spawn case records commands relative to <root>' }, platform: 'recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere' },
+  entry: { runs: 'src/runtime/shared/git-launch.mjs (resolveGitLaunch with an explicit platform and PATH, gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) over trees of empty files in a temp folder', notRun: 'no git is run: startGit/startGitSync get a scripted spawn function that records the launch request; git-runner.mjs runGitOffThread and its worker thread are not run (the worker body is startGit with the real spawn)' },
+  replay: { entry: 'mixdog-scm git_launch.rs: rebuild each case\'s tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole', normalised: { tempRoots: 'every temp root is written <root> wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)' }, platform: 'recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere' },
   replaceInText: roots.map((r) => [r, '<root>']),
-  replaceRegex: [[/<tmp>/g, '<tmp>']],
 });
 for (const r of roots) rmSync(r, { recursive: true, force: true });
 process.exit(0);
