@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 26859,
+      "bytes": 26862,
       "path": "golden.json",
-      "sha256": "3f88b8dd211b8c5caf5a816eed77584b8cc0531e3898c0dbcb6cfbbb4fd89ad9"
+      "sha256": "6bcd93c3761eb9f69e0caf63d0de32fdbbd4dfaeb45742cbc5c6d1b6f1f2cebe"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -29,7 +33,7 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "undefined arguments": "written as {\"$undefined\":true}"
+    "values": "every value is stored through exact (lib/exact.mjs): an explicit undefined, NaN, -0, Date, Error are tagged; an omitted argument is absent"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-query-ranking.mjs",
-  "recorderSha256": "f1a0d9cd6bbc1b02183e5ecf38814325a92bf807249f4355970df2ebff0b7274",
-  "replay": "mixdog-services memory: mem/recall/ranking.rs (latest/historical/bound), mem/recall/format.rs interleave_raw_rows, mem/recall/mod.rs unique_rows_by_id; compares the returned rows in order (whole rows, including _historicalRootSummary on merged rows)",
+  "recorderSha256": "70c0e72d37b74c7413a4b534d662bac1ffe3e12351058e37b9d40dae55d633f4",
+  "replay": "mixdog-services memory/recall/ranking.rs (pub): rank_latest_rows (:162), merge_historical_rows (:217), bound_rows_to_temporal (:311), and memory/recall/browse.rs merge_event_rows (:986, the interleave); all reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay feeds the recorded rows and compares the returned rows whole, in returned order",
   "set": "memory-query-ranking",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 26859,
-  "uuidsNormalised": "none"
+  "totalBytes": 26862,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
