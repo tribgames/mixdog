@@ -1,5 +1,6 @@
 // Scripted LSP server for the lone-surrogate wire recording: Content-Length framed JSON-RPC on stdio. It offers rename,
-// workspace symbols, code actions and one command, and answers every request with the params it received, as its JSON parser read them
+// workspace symbols, code actions and their resolve, completion and its resolve, signature help, on-type formatting, inlay hints and
+// their resolve, and one command, and answers every request with the params it received, as its JSON parser read them
 // (`received`), so the recording shows what reached the server. Before answering, it reports the request (method and params) to the
 // recording's local server (`POST /lsp`, JSON.stringify: a lone unit as its escape), which logs it among the case's requests.
 import { ORIGIN } from './lone-surrogate-wire-cases.mjs';
@@ -14,7 +15,17 @@ async function handle({ id, method, params }) {
     return send({
       id,
       result: {
-        capabilities: { textDocumentSync: 1, renameProvider: true, workspaceSymbolProvider: true, codeActionProvider: true, executeCommandProvider: { commands: ['stub.run'] } },
+        capabilities: {
+          textDocumentSync: 1,
+          renameProvider: true,
+          workspaceSymbolProvider: true,
+          codeActionProvider: { resolveProvider: true },
+          completionProvider: { resolveProvider: true },
+          signatureHelpProvider: {},
+          documentOnTypeFormattingProvider: { firstTriggerCharacter: '}' },
+          inlayHintProvider: { resolveProvider: true },
+          executeCommandProvider: { commands: ['stub.run'] },
+        },
         serverInfo: { name: 'echo-stub', version: '0.0.0' },
       },
     });
