@@ -233,14 +233,11 @@ try {
   rmSync(dir, { recursive: true, force: true });
 }
 
-// Real differences, each with Node's result and the core's (each step replays from the file Node left before it).
+// Each step replays from the file Node left before it.
 const excluded = {
-  'a setProfile':
-    "difference: the first settings save over the test's hand-written agent section rewrites it whole in Node (default-valued compaction, autoClear and skills dropped; agents, providers, modelSettings, webSearchRoute: null and profile.experienceLevel added); the core writes only the changed profile field",
   'save title after secrets load':
-    'difference: saveConfigAsync with no baseConfig writes the whole stored form in Node (every provider entry, mcpServers, default: null, onboarding); the core has no base-less save and its save_agent_config writes only the changed fields',
-  'alias patch':
-    'difference: createConfigPatch reads the legacy aliases (autoClear.thresholdMs, compaction.enabled) as their current keys, so Node answers []; the core answers remove thresholdMs, set idleMs 90000, remove compaction.enabled, set compaction.auto false',
+    'no client reaches it: saveConfig/saveConfigAsync without baseConfig (the whole-section save) has no caller in the product at ' +
+    'b6f10295a (every provider-admin save and the config writers pass a baseline or a patch); only this test calls it, so the core has no such save',
 };
 const finalDir = join(FIXTURES_ROOT, 'config-concurrency-cases');
 const stage = stageSet(finalDir);
