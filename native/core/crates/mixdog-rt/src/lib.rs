@@ -30,6 +30,10 @@ pub mod scoped;
 pub mod serial;
 pub mod ticker;
 pub mod tokens;
+#[cfg(feature = "virtual-clock")]
+pub mod virtual_clock;
+#[cfg(all(feature = "virtual-clock", not(debug_assertions)))]
+compile_error!("feature `virtual-clock` puts the core's clock under a replay's control: it is for debug test builds only");
 
 pub use cancel::CancelSource;
 pub use cancel::CancelView;

@@ -411,6 +411,11 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
+        // A replay's clock, once frozen, is the wall clock: it moves with the timers (mixdog_rt::virtual_clock).
+        #[cfg(feature = "virtual-clock")]
+        if let Some(now) = mixdog_rt::virtual_clock::now_ms() {
+            return now;
+        }
         let since = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
