@@ -68,7 +68,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs",
-  "recorderSha256": "e241dd5e06276760c82951e19d773af11fb54a94a63410a23a40c81acd074e6c",
+  "recorderSha256": "1c38a55a48228f168a954634ddaac3c73bc41e9aae9657d76bd1a12d542d60f0",
   "replay": {
     "compare": "native/core/crates/mixdog-core/src/run_host/pool_list_replay.rs: each recorded store (the per-case files named in the case) is written as Node's data dir, migrated as the core does at its first start and opened through the real store; every listing is AgentPool::list over run_host/pool_inputs.rs RegistryPoolStore (what agent/pool/list answers with, composed as compose_flip.rs) and is compared whole",
     "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (new (pool_list.rs:619), list (pool_list.rs:624); re-exported by agents/mod.rs:50).",

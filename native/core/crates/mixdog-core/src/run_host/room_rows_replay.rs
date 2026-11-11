@@ -234,6 +234,8 @@ async fn core_values() -> Value {
         "text": log.stored_text(&part_ref("text")).await,
     });
 
+    // `normalizedRow` (written to agent-room-core.json) is the name of Node's observed value in case 3, the row as the log
+    // stores it; nothing of it is normalised.
     json!({
         "3": { "normalizedRow": normalized_row, "legacyLines": legacy_lines },
         "25": { "named": named, "row": row, "lines": sender_lines },

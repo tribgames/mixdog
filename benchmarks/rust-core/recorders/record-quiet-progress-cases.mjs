@@ -89,6 +89,7 @@ await set.run('the lead turn\'s quiet watch reads each second, publishes a froze
         getTurnLiveness() {
           const at = virtual.elapsed();
           reads.push(at);
+          // The recorder's own input: the script step in force at this instant (nothing of Node's answer is dropped).
           return livenessScript.filter((step) => step.fromMs <= at).at(-1).liveness;
         },
       },
