@@ -31,6 +31,20 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     ("mixdog-core-session/src/session/new_task.rs", "writes: Mutex::default(),", "the record above"),
     ("mixdog-core-session/src/session/new_task.rs", "lock(&self.writes).push(", "the record above"),
+    (
+        "mixdog-core-session/src/session/control.rs",
+        "pub ask_marked: std::sync::atomic::AtomicBool,",
+        "a turn mark only the inline `offload_prune_order_tests` set (they write no turn rows, as Node's `markSessionAskStart` does not): a replay build has no one to set it, so it reads false there as in a release build",
+    ),
+    ("mixdog-core-session/src/session/directory.rs", "ask_marked: Default::default(),", "the mark above"),
+    ("mixdog-core-session/src/session/actor.rs", "fn ask_marked(&self) -> bool {", "the mark above, and the release build's constant in its place"),
+    ("mixdog-core-session/src/session/actor.rs", "AskEnded,", "the end of the mark above: only the inline tests send it"),
+    ("mixdog-core-session/src/session/actor.rs", "Inbox::AskEnded => {", "the end of the mark above"),
+    (
+        "mixdog-core-session/src/session/actor.rs",
+        "pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;",
+        "a crate-private constant re-exported for the inline tests alone: under `test-support` the re-export would be unused",
+    ),
 ];
 
 /// The item an attribute applies to: the next line that is not itself an attribute or a comment.
