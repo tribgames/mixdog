@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use mixdog_js::{JsRegex, js_trim, slice_utf16, string_to_number, utf16_len};
 use sha2::{Digest, Sha256};
@@ -126,7 +126,7 @@ pub struct RawEmbedFlush {
     db: Db,
     provider: Option<Arc<EmbeddingProvider>>,
     cache_ready: AtomicBool,
-    pruned_at: Mutex<Option<Instant>>,
+    pruned_at: Mutex<i64>,
     /// The cache cap, read from `MIXDOG_EMBED_CACHE_MAX_ROWS` once (Node reads it at module load).
     cache_max_rows: i64,
     /// The root flush running now, if any: `_flushInFlight`.
@@ -150,7 +150,7 @@ impl RawEmbedFlush {
             db,
             provider,
             cache_ready: AtomicBool::new(false),
-            pruned_at: Mutex::new(None),
+            pruned_at: Mutex::new(0),
             cache_max_rows: resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref()),
             roots_in_flight: Mutex::new(None),
             #[cfg(test)]
@@ -394,11 +394,13 @@ impl RawEmbedFlush {
     /// would wait for this transaction's lock on the cache table).
     async fn maybe_prune(&self, client: &deadpool_postgres::Object) -> Option<Result<PruneOutcome>> {
         {
-            let mut at = self.pruned_at.lock().expect("prune clock");
-            if at.is_some_and(|last| last.elapsed() < PRUNE_EVERY) {
+            // `maybePruneEmbCache` (memory-embed.mjs:25-29): the next allowed prune, in `Date.now()` ms.
+            let now = crate::memory::core::store::now_ms();
+            let mut next = self.pruned_at.lock().expect("prune clock");
+            if now < *next {
                 return None;
             }
-            *at = Some(Instant::now());
+            *next = now + PRUNE_EVERY.as_millis() as i64;
         }
         let outcome = prune(client, self.cache_max_rows).await;
         if let Err(error) = &outcome {
