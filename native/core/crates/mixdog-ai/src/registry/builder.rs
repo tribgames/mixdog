@@ -1342,6 +1342,17 @@ impl ProviderBuilder for DefaultProviderBuilder {
         // A read that never ran is a momentary failure (Node's catch), not a logout.
         Ok(self.env.accounts.credential_state(name, "default").await.unwrap_or(CredentialState::Unreadable))
     }
+
+    async fn oauth_credential_expiry(&self, name: &str) -> Option<f64> {
+        if !OAUTH_PROVIDER_NAMES.contains(&name) || !self.available(name) {
+            return None;
+        }
+        self.env.accounts.credential_expiry(name).await
+    }
+
+    fn credential_inputs(&self) -> Vec<std::path::PathBuf> {
+        self.env.accounts.credential_inputs()
+    }
 }
 
 #[cfg(test)]

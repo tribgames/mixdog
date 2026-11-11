@@ -1,26 +1,18 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-config-snapshot-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compared": "after each step, the whole config a read returns (loadConfig with secrets, `loaded`), once the snapshot took the step in, compared in its stored form (`stored`: createConfigPatch(base, loaded) from `base`, Node's read over an empty data dir; the core's create_config_patch from the same base on its side): the core's loaded config lays no defaults on, Node's carries them",
+  "compared": "after each step, the whole config a read returns (loadConfig with secrets, `loaded`), once the snapshot took the step in, compared as its change from the read over an empty data dir (`stored`: createConfigPatch(base, loaded); the core's create_config_patch from its own loaded config over an empty data dir on its side): the core's loaded config lays no defaults on, Node's carries them",
   "excluded": {
-    "a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can": "Node's cache internals behind a mocked fs.promises.stat: the stat stamp the snapshot keys its rebuild on; the core keeps no stamp, every read probes the file",
-    "a credential file whose directory does not exist yet is seen once another process creates both": "difference: Node's next read has openai-oauth's enabled follow the credential file (true once written, false once removed); the core's loaded config is not rebuilt on a credential file change, so it keeps the previous enabled",
-    "a last good config kept over a torn file never extends a credential past its expiry": "difference: Node's read has openai-oauth enabled:false from the token's expires_at on (an expiry timer); the core's loaded config is not rebuilt at an expiry, so it stays enabled:true",
-    "a secret change moves the config inputs, so the next read rebuilds": "Node's cache internals: the config input epoch and the rebuilt snapshot's identity; the core has no snapshot to rebuild",
-    "a warm snapshot read does no synchronous file system work": "Node's cache internals: the snapshot's object identity and its spied synchronous fs calls; the core reads the in-memory document and probes per call, with no snapshot object",
-    "an OAuth credential file caught mid-write is probed again when the write completes": "difference: Node's next read has openai-oauth's enabled follow the credential file (true once written, false once removed); the core's loaded config is not rebuilt on a credential file change, so it keeps the previous enabled",
-    "an access token with no refresh token stops counting at its expiry, with no file changing": "difference: Node's read has openai-oauth enabled:false from the token's expires_at on (an expiry timer); the core's loaded config is not rebuilt at an expiry, so it stays enabled:true",
-    "another process’s OAuth login and logout reach the snapshot through the credential file watch": "difference: Node's next read has openai-oauth's enabled follow the credential file (true once written, false once removed); the core's loaded config is not rebuilt on a credential file change, so it keeps the previous enabled",
-    "another process’s write landing while a build runs is still observed": "Node's cache internals behind an injected loader: the epoch recorded after a build; the core has no build to race",
-    "one timer at the exact expiry tells the epoch’s listeners, with no read": "difference: Node's read has openai-oauth enabled:false from the token's expires_at on (an expiry timer); the core's loaded config is not rebuilt at an expiry, so it stays enabled:true",
-    "this process’s OAuth token save and forget are visible to the very next read": "the token save is the last step of an interactive OAuth login (saveTokens after the browser exchange); the core's save is inside its login flow, with no other entry, and the forget half is the forgetProviderAuth case",
-    "this process’s own config write and logout are visible to the very next read": "difference: after this process's forgetProviderAuth, Node's next read has openai-oauth enabled:false; in the core the logout's refresh reloads an unchanged config file, which ticks nothing, so the loaded config keeps enabled:true"
+    "a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the logged EACCES": "the failed stat is Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80, logged by watched-file-cache.mjs); the core keeps no stamp and never stats the file, so it has no stat failure to log; the config after the removal and after the rewrite is replayed",
+    "a secret change moves the config inputs, so the next read rebuilds": "not observable: the test changes no secret value (config-snapshot.test.mjs:178-189 calls invalidateSecretCache on an unset key) and asserts only the input epoch moving and the snapshot's object identity changing (`assert.notEqual(full(), before)`), which no reader can see; the rebuilt config equals the one before",
+    "a warm snapshot read does no synchronous file system work: the spied fs calls, the object identity and freezing": "not observable: a warm read hands back the cached frozen object with no I/O (src/runtime/agent/orchestrator/config-snapshot.mjs:173-177); a reader gets the same config either way, and that config is the replayed part",
+    "another process’s write landing while a build runs is still observed": "not reachable by a client: the write is placed between the probes and the epoch read of one build through an injected loader (config-snapshot.mjs:144-165, the test wraps createConfigSnapshot's `load`); outside the module a write is only ever seen by its watch event, which the credential-watch cases replay"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 129975,
+      "bytes": 170585,
       "path": "golden.json",
-      "sha256": "ef969bc80850d6b78793919c5ab5e95ebf2632fb170ba403bd9dfbcfed681d11"
+      "sha256": "b15c5a547fcbaf04a875a6a72280b231a69363f7f04b1ddb66f2d0c9d3624b73"
     }
   ],
   "inputs": [
@@ -53,7 +45,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-config-snapshot-cases.mjs",
-  "recorderSha256": "34b2752fe706b5be22163af52eb7537e445bf588a221ce377e8f6118a4330a4e",
+  "recorderSha256": "f4c01836b6c6b0199ad4db054c9cb47898e8d2065bccc0b1c104dc6127350077",
   "set": "config-snapshot-cases",
-  "totalBytes": 129975
+  "totalBytes": 170585
 }

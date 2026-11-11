@@ -367,7 +367,7 @@ pub fn builder_env_shared(p: &ProcessServices) -> (BuilderEnv, BuilderShared) {
         bidi: link,
         dial: Arc::new(KeepaliveDialer::routed(schedule, p.network.clone())),
         keys: ApiKeyStore::new(p.vault.clone(), p.env.clone(), client),
-        accounts: AccountStore::new(p.plugin_data.clone(), io).remote_client(client),
+        accounts: AccountStore::new(p.plugin_data.clone(), io).remote_client(client).with_env(p.env.clone()),
         anthropic_caps: CatalogCaps::new(p.catalog.clone(), &*p.env).lookup(),
         google_traits: Arc::new(CatalogGoogleTraits(["gemini", "vertex-ai", "antigravity-oauth"].map(|id| Arc::new(p.catalog.traits(ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>).to_vec())),
         openai_facts: Arc::new(CatalogOpenAiFacts::new(p.catalog.clone())),
