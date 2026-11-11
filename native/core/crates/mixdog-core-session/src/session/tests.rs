@@ -4291,7 +4291,7 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     subscribe(&handle);
     handle.cell.unsubscribed();
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Both decisions are made where the turn settles and the session unloads, before anything is spawned.
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
     assert!(lock(&rig.live_memory.seen).is_empty(), "nor is a turn fed to it");
 }
@@ -4324,8 +4324,10 @@ async fn each_settled_turn_is_fed_to_memory_while_the_session_lives() {
     let worker = directory.handle(&ThreadId::from("sess_w1")).expect("loaded");
     turn(&worker, "work", "op-w").await;
     eventually_on!(&[&rig.ingests.1], || lock(&rig.ingests.0).iter().any(|(id, _)| id == &worker.id).then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert_eq!(lock(&rig.live_memory.seen).len(), 2, "the agent's turn is not fed to memory");
+    // The Lead's next turn is fed after the worker's ended; the worker's never is.
+    turn(&handle, "again", "op-3").await;
+    eventually_on!(&[&*rig.live_memory.ended], || (lock(&rig.live_memory.seen).len() == 3).then_some(())).await;
+    assert!(lock(&rig.live_memory.seen).iter().all(|(id, _)| *id == handle.id), "the agent's turn is not fed to memory");
 }
 
 #[tokio::test(start_paused = true)]

@@ -610,6 +610,8 @@ pub(crate) struct SessionActor {
     suppressed: std::collections::HashSet<String>,
     /// Completions a wake drained that still wait for their own turns, oldest first.
     wake_tail: Vec<String>,
+    /// The live memory feed's one running and one waiting conversation.
+    memory_feed: Arc<super::memory_feed::MemoryFeed>,
     /// A delete closed the thread (`Ctl::Delete`): no run starts again.
     deleting: bool,
     /// The thread's tombstone landed (`Ctl::Closed`).
@@ -940,6 +942,7 @@ impl SessionActor {
             listened: Default::default(),
             suppressed: Default::default(),
             wake_tail: Vec::new(),
+            memory_feed: Default::default(),
             deleting: false,
             tombstoned: false,
             goal_suppressed: String::new(),
@@ -2878,13 +2881,16 @@ impl SessionActor {
             input: mixdog_core_api::ids::ItemId::from(String::new()),
         };
         let memory = self.deps.live_memory.clone();
+        let feed = self.memory_feed.clone();
         let cwd = self.cwd();
         tokio::spawn(async move {
             if !matches!(rx.await, Ok(Ok(()))) {
                 return;
             }
+            // Read as soon as the end is durable, then wait for memory without holding a turn's
+            // read per settlement ([`super::memory_feed::MemoryFeed`]).
             if let Ok(rows) = context.read().await {
-                memory.ingest(&context.thread, &cwd, rows.into_iter().map(|(_, body)| body).collect()).await;
+                feed.offer(memory, context.thread.clone(), cwd, rows.into_iter().map(|(_, body)| body).collect());
             }
         });
         Some(tx)
