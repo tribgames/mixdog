@@ -41,6 +41,9 @@ struct State {
     limit: Duration,
     received: Vec<u8>,
     chunks: u64,
+    /// Reads that returned at their own timeout.
+    #[cfg(test)]
+    read_timeouts: u64,
     ended: Option<std::io::Result<()>>,
     /// Reader threads that have not finished.
     readers: u64,
@@ -85,8 +88,23 @@ impl IdleWatch {
         state.limit = limit;
         state.received.clear();
         state.chunks = 0;
+        #[cfg(test)]
+        {
+            state.read_timeouts = 0;
+        }
         state.ended = None;
         Exchange(state.exchange)
+    }
+
+    /// The longest a single read waits. It decides nothing (a read that times out is read again unless the exchange was
+    /// given up); it only bounds the join of a reader whose read a shutdown did not wake. Under the manual clock it is
+    /// short, so the tests meet reads that time out.
+    fn read_bound(&self, limit: Duration) -> Duration {
+        match self.clock {
+            Clock::Monotonic(_) => limit,
+            #[cfg(test)]
+            Clock::Manual => Duration::from_millis(10),
+        }
     }
 
     /// `stream` read to its end, or `None` once it has been silent for the exchange's limit. Either way the reader has
@@ -98,9 +116,9 @@ impl IdleWatch {
             Err(e) => return Some(Err(e)),
         };
         // The join below cannot outlast one read even where a shutdown would not wake a blocked read: no single read
-        // waits longer than the limit itself, which is a limit on inactivity like this one.
+        // waits longer than the limit itself, and a reader whose exchange was given up stops at its read's return.
         let limit = self.lock().limit;
-        if let Err(e) = stream.set_read_timeout(Some(limit)) {
+        if let Err(e) = stream.set_read_timeout(Some(self.read_bound(limit))) {
             return Some(Err(e));
         }
         let watch = Arc::clone(self);
@@ -122,6 +140,15 @@ impl IdleWatch {
                         state.last_activity = watch.now(&state);
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    // Only the watch's clock gives an exchange up; a read's own timeout is not an end.
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                        #[cfg(test)]
+                        {
+                            state.read_timeouts += 1;
+                            watch.changed.notify_all();
+                        }
+                        continue;
+                    }
                     Err(e) => state.ended = Some(Err(e)),
                 }
                 let ended = state.ended.is_some();
@@ -139,7 +166,8 @@ impl IdleWatch {
             // Ends the reader's blocked read; an error means the connection is already gone, so the read has ended too.
             let _ = closer.shutdown(std::net::Shutdown::Both);
         }
-        // The reader ends on its read's return, which the shutdown, the end of the answer or the read timeout brings.
+        // The reader ends on its read's return after the exchange is over, which the shutdown, the end of the answer or
+        // the read bound brings.
         let _ = reader.join();
         outcome
     }
@@ -185,6 +213,16 @@ impl IdleWatch {
     pub fn wait_chunks(&self, n: u64) {
         let mut state = self.lock();
         while state.chunks < n {
+            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    /// Returns once a read of the exchange has timed out after this call.
+    #[cfg(test)]
+    pub fn wait_a_read_timeout(&self) {
+        let mut state = self.lock();
+        let seen = state.read_timeouts;
+        while state.read_timeouts == seen {
             state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
