@@ -7,7 +7,7 @@
 //   node benchmarks/rust-core/recorders/record-provider-auth-api.mjs --tree <exact export of b6f10295a>
 import { register } from 'node:module';
 import { setTimeout as realTimeout, clearTimeout as realClearTimeout } from 'node:timers';
-// Waits for an effect the API starts in the background ON THE EVENT: every stubbed call is a push to `calls`, which wakes the waiters; each wait has a 5 s deadline (real clock).
+// Waits for an effect the API starts in the background ON THE EVENT: every stubbed call is noted in `calls`, which wakes the waiters; each wait has a 5 s deadline (real clock).
 const waiters = new Set();
 const until = (predicate, what) => new Promise((resolve, reject) => {
   const check = () => {
@@ -44,35 +44,35 @@ export async function load(url, context, next) {
 register(`data:text/javascript,${encodeURIComponent(hooks)}`);
 
 const calls = [];
-const realPush = calls.push.bind(calls);
-calls.push = (...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; };
+// `calls` stays a plain array (a case result holds clones of it); every stubbed effect is noted through `note`, which also wakes the waiters.
+const note = (...items) => { const n = calls.push(...items); for (const w of [...waiters]) w(); return n; };
 let pendingCallback = null;
 const admin = {
   keychainIssueFor: () => null,
-  beginOAuthProviderLogin: async (_cfg, providerId, options) => { calls.push(['beginOAuth', providerId, options]); pendingCallback = Promise.withResolvers(); return { url: 'https://login', waitForCallback: pendingCallback.promise, completeCode: async (code) => { calls.push(['completeCode', code]); return true; } }; },
-  forgetProviderAuth: (_cfg, providerId, accountId) => calls.push(['forget', providerId, accountId]) && 'forgot',
-  loginOAuthProvider: async (_cfg, providerId) => calls.push(['loginOAuth', providerId]) && 'logged-in',
+  beginOAuthProviderLogin: async (_cfg, providerId, options) => { note(['beginOAuth', providerId, options]); pendingCallback = Promise.withResolvers(); return { url: 'https://login', waitForCallback: pendingCallback.promise, completeCode: async (code) => { note(['completeCode', code]); return true; } }; },
+  forgetProviderAuth: (_cfg, providerId, accountId) => note(['forget', providerId, accountId]) && 'forgot',
+  loginOAuthProvider: async (_cfg, providerId) => note(['loginOAuth', providerId]) && 'logged-in',
   renderProviderStatus: (config) => ['status', config],
-  saveOpenAIUsageSessionKey: (_cfg, secret) => calls.push(['saveUsageKey', secret]) && 'saved-usage',
-  saveProviderApiKey: (_cfg, providerId, secret, options) => calls.push(options === undefined ? ['saveKey', providerId, secret] : ['saveKey', providerId, secret, options]) && 'saved-key',
-  saveCustomProvider: async (_cfg, input) => calls.push(['saveCustom', input]) && { id: 'custom-1' },
-  saveCustomProviderKey: async (_cfg, id, secret) => calls.push(['saveCustomKey', id, secret]) && { id },
-  removeCustomProvider: (_cfg, id) => calls.push(['removeCustom', id]) && { provider: id },
-  updateCustomProviderModel: async (_cfg, id, modelId, patch) => calls.push(['updateCustomModel', id, modelId, patch]) && { id },
-  saveModelPreferences: (_cfg, provider, changes) => calls.push(['modelPreferences', provider, changes]) && { provider, changed: changes.length, customCatalogChanged: provider.startsWith('custom-') },
-  testCustomProvider: async (_cfg, input) => calls.push(['testCustom', input]) && { ok: true },
+  saveOpenAIUsageSessionKey: (_cfg, secret) => note(['saveUsageKey', secret]) && 'saved-usage',
+  saveProviderApiKey: (_cfg, providerId, secret, options) => note(options === undefined ? ['saveKey', providerId, secret] : ['saveKey', providerId, secret, options]) && 'saved-key',
+  saveCustomProvider: async (_cfg, input) => note(['saveCustom', input]) && { id: 'custom-1' },
+  saveCustomProviderKey: async (_cfg, id, secret) => note(['saveCustomKey', id, secret]) && { id },
+  removeCustomProvider: (_cfg, id) => note(['removeCustom', id]) && { provider: id },
+  updateCustomProviderModel: async (_cfg, id, modelId, patch) => note(['updateCustomModel', id, modelId, patch]) && { id },
+  saveModelPreferences: (_cfg, provider, changes) => note(['modelPreferences', provider, changes]) && { provider, changed: changes.length, customCatalogChanged: provider.startsWith('custom-') },
+  testCustomProvider: async (_cfg, input) => note(['testCustom', input]) && { ok: true },
   checkCustomProviderKeyEnv: (name) => ({ found: name === 'SET_VAR' }),
-  discoverCustomProviderModels: async (_cfg, input) => calls.push(['discoverCustom', input]) && { models: [] },
+  discoverCustomProviderModels: async (_cfg, input) => note(['discoverCustom', input]) && { models: [] },
   listProviderAccounts: (providerId) => ({ providerId, accounts: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }, { id: 'a4' }, { id: 'a5' }], selectedId: 'a1' }),
   materializeProviderAccounts: async (providerId) => admin.listProviderAccounts(providerId),
-  updateProviderAccounts: (providerId, change) => { calls.push(['updateAccounts', providerId, change]); return { selectedId: change.selectedId ?? 'a1' }; },
+  updateProviderAccounts: (providerId, change) => { note(['updateAccounts', providerId, change]); return { selectedId: change.selectedId ?? 'a1' }; },
 };
 const providers = { oauth: { forAccount: (id) => ({ account: id }) }, plain: {} };
 globalThis.__stubs = {
   'services/provider-admin.mjs': admin,
-  'agent/orchestrator/providers/admission-scheduler.mjs': { resetProviderAdmissionCooldowns: () => calls.push(['resetCooldowns']) },
+  'agent/orchestrator/providers/admission-scheduler.mjs': { resetProviderAdmissionCooldowns: () => note(['resetCooldowns']) },
   'agent/orchestrator/providers/registry.mjs': { getProvider: (id) => providers[id] },
-  'agent/orchestrator/providers/oauth-usage.mjs': { fetchOAuthUsageSnapshot: async (target, provider, _onUpdate, options) => { calls.push(['usage', target, provider, options]); return null; } },
+  'agent/orchestrator/providers/oauth-usage.mjs': { fetchOAuthUsageSnapshot: async (target, provider, _onUpdate, options) => { note(['usage', target, provider, options]); return null; } },
 };
 const { createProviderAuthApi } = await rec.load('src/session-runtime/provider-auth-api.mjs');
 const SRC = 'src/session-runtime/provider-auth-api.test.mjs';
@@ -81,9 +81,9 @@ function fixture(overrides = {}) {
   calls.length = 0;
   return createProviderAuthApi({
     cfgMod: { listPresets: (config) => ['presets', config] }, getConfig: () => ({}), saveConfigAndAdopt: () => {}, displayConfig: () => ({ display: true }),
-    reloadFullConfig: () => calls.push(['reload']), applyConfigChange: () => calls.push(['apply']), awaitKeychainPrewarm: async () => calls.push(['keychain']),
-    invalidateProviderCaches: () => calls.push(['invalidate']), warmProviderModelCache: () => calls.push(['warm']), refreshProviderCatalogs: async (options) => calls.push(['refreshCatalogs', options]),
-    cachedProviderSetup: async (options) => { calls.push(['setup', options]); if (options.quick) return { providers: 'quick' }; return { providers: options.force ? 'forced' : 'full' }; },
+    reloadFullConfig: () => note(['reload']), applyConfigChange: () => note(['apply']), awaitKeychainPrewarm: async () => note(['keychain']),
+    invalidateProviderCaches: () => note(['invalidate']), warmProviderModelCache: () => note(['warm']), refreshProviderCatalogs: async (options) => note(['refreshCatalogs', options]),
+    cachedProviderSetup: async (options) => { note(['setup', options]); if (options.quick) return { providers: 'quick' }; return { providers: options.force ? 'forced' : 'full' }; },
     getUsageDashboard: async (options) => ['dashboard', options], consumeCodexRateLimitResetCredit: async (options) => ['reset', options], collectProviderModels: async (options) => ['models', options],
     ...overrides,
   });
