@@ -20,16 +20,14 @@ const rec = await startRecording({
     'anthropic-custom-vs-first-party-isolated': 'RUST WORK: buildAnthropicApiRequest has no public Rust counterpart (anthropic/body.rs is private; AnthropicCodec::encode returns a framed WireRequest)',
   },
   set: 'provider-custom-reasoning',
-  entry: 'custom-reasoning.mjs (snapCustomEffort, customEffortLevels, customWireFormat, resolveCustomReasoning), openai-compat-wire.mjs toOpenAIMessages, openai-compat-options.mjs applyCompatProviderChatOptions, openai-compat-chat-send.mjs sendCompatChat and openai-compat-responses.mjs sendCompatResponses on a real OpenAICompatProvider("custom-x", { baseURL: https://custom.invalid/v1 }) whose catalog lookup (getCachedModelInfo) returns the scripted model row, anthropic-api-request.mjs buildAnthropicApiRequest, runtime-core/effort.mjs. The scripted model row is the input; no catalog file is read.',
+  entry: 'custom-reasoning.mjs (snapCustomEffort, customEffortLevels, customWireFormat, resolveCustomReasoning), openai-compat-wire.mjs toOpenAIMessages, openai-compat-options.mjs applyCompatProviderChatOptions, openai-compat-chat-send.mjs sendCompatChat and openai-compat-responses.mjs sendCompatResponses on a real OpenAICompatProvider("custom-x", { baseURL: https://custom.invalid/v1 }) built by createCustomProvider from the stored config (the model row is the catalog entry of that provider, getCachedModelInfo over the manual model override of the config), anthropic-api-request.mjs buildAnthropicApiRequest, runtime-core/effort.mjs.',
   compare: 'mixdog-ai providers::custom::reasoning (reasoning.rs:121-200, :392-444), compat chat/options.rs and compat Responses codec, anthropic body.rs: feed `input` (model row, protocol, effort, base URL, history) and compare `result` whole; for the send cases the request body is `requests[0].body`.',
-  replay: "PURE: the public mixdog-ai/src/providers/custom/reasoning.rs functions named per case in `levels` (snap_effort :121, wire_format :149, resolve :174, canonical_level :261, ReasoningRow::effort_levels :100). The send cases (sendCompatChat-custom-row-and-padding, sendCompatResponses-snaps-without-promotion) are WIRE: the request that arrived is `requests`; the model row is the product's catalog seam getCachedModelInfo set to the scripted row, as the Node test sets it. Cases marked RUST WORK have no public Rust function of the same input and output.",
+  replay: "PURE: the public mixdog-ai/src/providers/custom/reasoning.rs functions named per case in `levels` (snap_effort :121, wire_format :149, resolve :174, canonical_level :261, ReasoningRow::effort_levels :100). The send cases (sendCompatChat-custom-row-and-padding, sendCompatResponses-snaps-without-promotion) are WIRE: the request that arrived is `requests`; the model row is the product's own catalog entry (createCustomProvider over the stored config's manual model override, then getCachedModelInfo), the call a turn makes; the Node test substitutes it, the recording does not. Public Rust function of the same input and output for these two cases: none in o1 (they are the wire request). Cases marked RUST WORK have no public Rust function of the same input and output.",
 });
 const P = 'agent/orchestrator/providers/';
 const { CUSTOM_EFFORT_LEVELS, customEffortLevels, customWireFormat, resolveCustomReasoning, snapCustomEffort } = await rec.P(`${P}custom-reasoning.mjs`);
 const { applyCompatProviderChatOptions } = await rec.P(`${P}openai-compat-options.mjs`);
-const { sendCompatChat } = await rec.P(`${P}openai-compat-chat-send.mjs`);
-const { sendCompatResponses } = await rec.P(`${P}openai-compat-responses.mjs`);
-const { OpenAICompatProvider } = await rec.P(`${P}openai-compat.mjs`);
+const { createCustomProvider } = await rec.P(`${P}custom-provider.mjs`);
 const { toOpenAIMessages } = await rec.P(`${P}openai-compat-wire.mjs`);
 const { buildAnthropicApiRequest } = await rec.P(`${P}anthropic-api-request.mjs`);
 const { setModelEffortCapabilities } = await rec.P(`${P}anthropic-effort.mjs`);
@@ -155,14 +153,7 @@ await rec.run('chat-options', `${SRC}:266`, {}, () => {
   };
 });
 
-const compatProvider = (name, info) => {
-  const provider = new OpenCompat(name);
-  provider.getCachedModelInfo = (id) => (info && info.id === id ? info : null);
-  return provider;
-};
-function OpenCompat(name) {
-  return new OpenAICompatProvider(name, { apiKey: 'fixture', baseURL: 'https://custom.invalid/v1', preconnect: false });
-}
+const customConfig = (protocol, reasoning) => ({ type: 'custom', name: 'Custom', protocol, baseURL: 'https://custom.invalid/v1', enabled: true, apiKey: 'fixture', preconnect: false, schemaVersion: 2, modelOverrides: { m1: { manual: true, reasoning } } });
 const chatReply = () => ({ status: 200, contentType: 'text/event-stream', body: `${sseBody([{ choices: [{ index: 0, delta: { content: 'done', reasoning_content: 'r' }, finish_reason: 'stop' }] }])}data: [DONE]\n\n` });
 const responsesReply = () => ({
   status: 200, contentType: 'text/event-stream',
@@ -170,20 +161,24 @@ const responsesReply = () => ({
 });
 const toolHistory = [{ role: 'user', content: 'go' }, { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 't', arguments: {} }] }, { role: 'tool', toolCallId: 'c1', content: 'ok' }];
 
-await rec.run('sendCompatChat-custom-row-and-padding', `${SRC}:307`, { history: toolHistory }, async ({ net }) => {
-  const info = row(['none', 'high'], { wireFormat: 'deepseek', replay: true });
+// A turn on a custom provider built by the product from its stored config (createCustomProvider): the model row the send reads is the one the provider's own
+// catalog entry returns (getCachedModelInfo over the config's model override), nothing is substituted.
+await rec.run('sendCompatChat-custom-row-and-padding', `${SRC}:307`, { history: toolHistory, config: customConfig('openai-chat', { levels: ['none', 'high'], wireFormat: 'deepseek', replay: true }) }, async ({ net }) => {
+  const provider = await createCustomProvider('custom-x', customConfig('openai-chat', { levels: ['none', 'high'], wireFormat: 'deepseek', replay: true }));
+  const info = provider.getCachedModelInfo('m1');
   net.reply = chatReply;
-  const on = await sendCompatChat(compatProvider('custom-x', info), toolHistory, 'm1', [], { effort: 'max' });
+  const on = await provider.send(toolHistory, 'm1', [], { effort: 'max' });
   const onRequests = net.records.splice(0);
-  const off = await sendCompatChat(compatProvider('custom-x', info), toolHistory, 'm1', [], { effort: 'none' });
+  const off = await provider.send(toolHistory, 'm1', [], { effort: 'none' });
   return { info, on, onRequests, off };
 });
-await rec.run('sendCompatResponses-snaps-without-promotion', `${SRC}:328`, {}, async ({ net }) => {
-  const info = row(['high', 'max'], { wireValues: { max: 'ultra-wire' } });
+await rec.run('sendCompatResponses-snaps-without-promotion', `${SRC}:328`, { config: customConfig('openai-responses', { levels: ['high', 'max'], wireValues: { max: 'ultra-wire' } }) }, async ({ net }) => {
+  const provider = await createCustomProvider('custom-r', customConfig('openai-responses', { levels: ['high', 'max'], wireValues: { max: 'ultra-wire' } }));
+  const info = provider.getCachedModelInfo('m1');
   net.reply = responsesReply;
-  const ultra = await sendCompatResponses(compatProvider('custom-r', info), [{ role: 'user', content: 'hi' }], 'm1', [], { effort: 'ultra' });
+  const ultra = await provider.send([{ role: 'user', content: 'hi' }], 'm1', [], { effort: 'ultra' });
   const ultraRequests = net.records.splice(0);
-  const low = await sendCompatResponses(compatProvider('custom-r', info), [{ role: 'user', content: 'hi' }], 'm1', [], { effort: 'low' });
+  const low = await provider.send([{ role: 'user', content: 'hi' }], 'm1', [], { effort: 'low' });
   return { info, ultra, ultraRequests, low };
 });
 const anthropicRequest = (name, modelInfo, effort, model = 'claude-opus-5') =>

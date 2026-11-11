@@ -15991,14 +15991,45 @@
             "toolCallId": "c1",
             "content": "ok"
           }
-        ]
+        ],
+        "config": {
+          "type": "custom",
+          "name": "Custom",
+          "protocol": "openai-chat",
+          "baseURL": "https://custom.invalid/v1",
+          "enabled": true,
+          "apiKey": "fixture",
+          "preconnect": false,
+          "schemaVersion": 2,
+          "modelOverrides": {
+            "m1": {
+              "manual": true,
+              "reasoning": {
+                "levels": [
+                  "none",
+                  "high"
+                ],
+                "wireFormat": "deepseek",
+                "replay": true
+              }
+            }
+          }
+        }
       },
       "result": {
         "info": {
           "id": "m1",
+          "name": "m1",
           "provider": "custom-x",
+          "contextWindow": 0,
+          "outputTokens": null,
           "hidden": false,
           "manual": true,
+          "inherited": {
+            "name": "m1",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
           "supportsReasoning": true,
           "reasoningOptions": [
             {
@@ -16017,7 +16048,8 @@
             "wireFormat": "deepseek",
             "wireValues": {},
             "replay": true
-          }
+          },
+          "reasoningContentField": "reasoning_content"
         },
         "on": {
           "content": "done",
@@ -16130,123 +16162,32 @@
       },
       "calls": [
         {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "entry": "src/runtime/agent/orchestrator/providers/custom-provider.mjs.createCustomProvider",
           "args": [
             "custom-x",
             {
-              "apiKey": "fixture",
+              "type": "custom",
+              "name": "Custom",
+              "protocol": "openai-chat",
               "baseURL": "https://custom.invalid/v1",
-              "preconnect": false
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs.sendCompatChat",
-          "args": [
-            {
-              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-              "constructedWith": [
-                "custom-x",
-                {
-                  "apiKey": "fixture",
-                  "baseURL": "https://custom.invalid/v1",
-                  "preconnect": false
-                }
-              ]
-            },
-            [
-              {
-                "role": "user",
-                "content": "go"
-              },
-              {
-                "role": "assistant",
-                "content": "",
-                "toolCalls": [
-                  {
-                    "id": "c1",
-                    "name": "t",
-                    "arguments": {}
-                  }
-                ]
-              },
-              {
-                "role": "tool",
-                "toolCallId": "c1",
-                "content": "ok"
-              }
-            ],
-            "m1",
-            [],
-            {
-              "effort": "max"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
-          "args": [
-            "m1"
-          ]
-        },
-        {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-          "args": [
-            "custom-x",
-            {
+              "enabled": true,
               "apiKey": "fixture",
-              "baseURL": "https://custom.invalid/v1",
-              "preconnect": false
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs.sendCompatChat",
-          "args": [
-            {
-              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-              "constructedWith": [
-                "custom-x",
-                {
-                  "apiKey": "fixture",
-                  "baseURL": "https://custom.invalid/v1",
-                  "preconnect": false
-                }
-              ]
-            },
-            [
-              {
-                "role": "user",
-                "content": "go"
-              },
-              {
-                "role": "assistant",
-                "content": "",
-                "toolCalls": [
-                  {
-                    "id": "c1",
-                    "name": "t",
-                    "arguments": {}
+              "preconnect": false,
+              "schemaVersion": 2,
+              "modelOverrides": {
+                "m1": {
+                  "manual": true,
+                  "reasoning": {
+                    "levels": [
+                      "none",
+                      "high"
+                    ],
+                    "wireFormat": "deepseek",
+                    "replay": true
                   }
-                ]
-              },
-              {
-                "role": "tool",
-                "toolCallId": "c1",
-                "content": "ok"
+                }
               }
-            ],
-            "m1",
-            [],
-            {
-              "effort": "none"
             }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
-          "args": [
-            "m1"
           ]
         }
       ],
@@ -16337,13 +16278,46 @@
     {
       "id": "sendCompatResponses-snaps-without-promotion",
       "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:328",
-      "input": {},
+      "input": {
+        "config": {
+          "type": "custom",
+          "name": "Custom",
+          "protocol": "openai-responses",
+          "baseURL": "https://custom.invalid/v1",
+          "enabled": true,
+          "apiKey": "fixture",
+          "preconnect": false,
+          "schemaVersion": 2,
+          "modelOverrides": {
+            "m1": {
+              "manual": true,
+              "reasoning": {
+                "levels": [
+                  "high",
+                  "max"
+                ],
+                "wireValues": {
+                  "max": "ultra-wire"
+                }
+              }
+            }
+          }
+        }
+      },
       "result": {
         "info": {
           "id": "m1",
-          "provider": "custom-x",
+          "name": "m1",
+          "provider": "custom-r",
+          "contextWindow": 0,
+          "outputTokens": null,
           "hidden": false,
           "manual": true,
+          "inherited": {
+            "name": "m1",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
           "supportsReasoning": true,
           "reasoningOptions": [
             {
@@ -16544,91 +16518,33 @@
       },
       "calls": [
         {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "entry": "src/runtime/agent/orchestrator/providers/custom-provider.mjs.createCustomProvider",
           "args": [
             "custom-r",
             {
-              "apiKey": "fixture",
+              "type": "custom",
+              "name": "Custom",
+              "protocol": "openai-responses",
               "baseURL": "https://custom.invalid/v1",
-              "preconnect": false
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
-          "args": [
-            {
-              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-              "constructedWith": [
-                "custom-r",
-                {
-                  "apiKey": "fixture",
-                  "baseURL": "https://custom.invalid/v1",
-                  "preconnect": false
-                }
-              ]
-            },
-            [
-              {
-                "role": "user",
-                "content": "hi"
-              }
-            ],
-            "m1",
-            [],
-            {
-              "effort": "ultra"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
-          "args": [
-            "m1"
-          ]
-        },
-        {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-          "args": [
-            "custom-r",
-            {
+              "enabled": true,
               "apiKey": "fixture",
-              "baseURL": "https://custom.invalid/v1",
-              "preconnect": false
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
-          "args": [
-            {
-              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-              "constructedWith": [
-                "custom-r",
-                {
-                  "apiKey": "fixture",
-                  "baseURL": "https://custom.invalid/v1",
-                  "preconnect": false
+              "preconnect": false,
+              "schemaVersion": 2,
+              "modelOverrides": {
+                "m1": {
+                  "manual": true,
+                  "reasoning": {
+                    "levels": [
+                      "high",
+                      "max"
+                    ],
+                    "wireValues": {
+                      "max": "ultra-wire"
+                    }
+                  }
                 }
-              ]
-            },
-            [
-              {
-                "role": "user",
-                "content": "hi"
               }
-            ],
-            "m1",
-            [],
-            {
-              "effort": "low"
             }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
-          "args": [
-            "m1"
           ]
         }
       ],
