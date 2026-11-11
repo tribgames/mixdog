@@ -241,10 +241,16 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     (working, committed.result)
 }
 
-/// `pruneOffloadSession(sessionId, ...)` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
-pub(crate) async fn prune_offloads(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId, transcripts: String) {
+/// `pruneOffloadSession`'s listing over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
+pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId) -> Vec<std::path::PathBuf> {
     let now = u64::try_from(clock.now_ms()).unwrap_or(0);
-    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune(transcripts, now).await;
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune_candidates(now).await
+}
+
+/// The rest of `pruneOffloadSession` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
+pub(crate) async fn prune_offloads(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
+    let now = u64::try_from(clock.now_ms()).unwrap_or(0);
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune(candidates, transcripts, now).await;
 }
 
 /// `compactSessionMessages` after a pass that did not fail: the reading of the last request is reset.
@@ -431,8 +437,12 @@ impl ManualCompaction for HostManualCompaction {
         self.parts.hooks.post(thread, trigger).await;
     }
 
-    async fn prune_offloads(&self, thread: &ThreadId, transcripts: String) {
-        prune_offloads(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread, transcripts).await;
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+        offload_candidates(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread).await
+    }
+
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
+        prune_offloads(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread, candidates, transcripts).await;
     }
 
     /// `rearmLateDeferredTools(session)` and `rearmPromptSettingsNotice(session)` of the session ops,

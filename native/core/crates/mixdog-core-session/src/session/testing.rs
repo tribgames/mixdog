@@ -111,6 +111,11 @@ pub struct TestCompaction {
     pub heir_fails: std::sync::atomic::AtomicBool,
     /// Each `prune_offloads`: the thread and the transcripts it was given.
     pub pruned: Mutex<Vec<(String, String)>>,
+    /// The sidecar directory: every `.txt` file in it is a candidate, and a prune deletes the candidates whose
+    /// file name the transcripts do not name. None lists nothing.
+    pub offloads: Mutex<Option<std::path::PathBuf>>,
+    /// The next listing tells `.0` it arrived, then waits for `.1`.
+    pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 #[async_trait::async_trait]
@@ -134,7 +139,24 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     async fn post_compact(&self, _: &ThreadId, trigger: &str) {
         lock(&self.calls).push(format!("post {trigger}"));
     }
-    async fn prune_offloads(&self, thread: &ThreadId, transcripts: String) {
+    #[allow(clippy::disallowed_methods, reason = "test engine lists its fixture directory")]
+    async fn offload_candidates(&self, _: &ThreadId) -> Vec<std::path::PathBuf> {
+        let gate = lock(&self.listing_gate).take();
+        if let Some((arrived, release)) = gate {
+            arrived.notify_one();
+            release.notified().await;
+        }
+        let Some(dir) = lock(&self.offloads).clone() else { return Vec::new() };
+        std::fs::read_dir(dir).map(|entries| entries.flatten().map(|entry| entry.path()).collect()).unwrap_or_default()
+    }
+    #[allow(clippy::disallowed_methods, reason = "test engine deletes its fixture files")]
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
+        for path in candidates {
+            let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            if !transcripts.contains(&name) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
         lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }
     async fn rearm(&self, _: &ThreadId) {
