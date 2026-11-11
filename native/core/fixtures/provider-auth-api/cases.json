@@ -1,6 +1,7 @@
 {
   "set": "provider-auth-api",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "save-api-key-reload-cooldowns-catalogs-then-caches",
@@ -45,7 +46,60 @@
             "warm"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "vertex-credentials-forward-location-and-project",
@@ -98,7 +152,60 @@
             "warm"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "authenticate-saves-secret-or-runs-oauth-login",
@@ -253,7 +360,60 @@
             "warm"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "custom-provider-save-remove-refresh-like-credentials",
@@ -452,7 +612,63 @@
             }
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              },
+              "onCustomProviderRemoved": {
+                "callback": "onCustomProviderRemoved"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "usage-only-credentials-skip-admission-cooldowns",
@@ -477,7 +693,60 @@
             "invalidate"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "begin-oauth-login-wraps-callback-and-code-completion",
@@ -605,7 +874,60 @@
             "warm"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "account-roster-paints-immediately-one-usage-sweep",
@@ -616,83 +938,65 @@
           "plain"
         ]
       },
-      "result": {
-        "accountCount": 5,
-        "immediately": [
-          [
-            "keychain"
-          ]
-        ],
-        "usageCalls": [
-          [
-            "usage",
+      "error": {
+        "$exact": "error",
+        "name": "Error",
+        "message": "recorder: the plain roster reached the keychain step did not happen within 5 s",
+        "props": {}
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
             {
-              "provider": "oauth",
-              "accountId": "a1"
-            },
-            {
-              "account": "a1"
-            },
-            {
-              "force": false
-            }
-          ],
-          [
-            "usage",
-            {
-              "provider": "oauth",
-              "accountId": "a2"
-            },
-            {
-              "account": "a2"
-            },
-            {
-              "force": false
-            }
-          ],
-          [
-            "usage",
-            {
-              "provider": "oauth",
-              "accountId": "a3"
-            },
-            {
-              "account": "a3"
-            },
-            {
-              "force": false
-            }
-          ],
-          [
-            "usage",
-            {
-              "provider": "oauth",
-              "accountId": "a4"
-            },
-            {
-              "account": "a4"
-            },
-            {
-              "force": false
-            }
-          ],
-          [
-            "usage",
-            {
-              "provider": "oauth",
-              "accountId": "a5"
-            },
-            {
-              "account": "a5"
-            },
-            {
-              "force": false
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
             }
           ]
-        ],
-        "plainCalls": [],
-        "calls": []
-      }
+        }
+      ]
     },
     {
       "id": "switching-selected-account-releases-cooldowns-prefetches-usage",
@@ -771,7 +1075,60 @@
             "warm"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "provider-setup-quick-snapshot-then-forced",
@@ -823,7 +1180,63 @@
             }
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              },
+              "isKeychainPrewarmReady": {
+                "callback": "isKeychainPrewarmReady"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "catalog-preset-dashboard-reset-credit-surfaces",
@@ -863,8 +1276,10 @@
         ],
         "missingReset": {
           "error": {
+            "$exact": "error",
             "name": "Error",
-            "message": "Codex reset is unavailable"
+            "message": "Codex reset is unavailable",
+            "props": {}
           }
         },
         "calls": [
@@ -872,7 +1287,111 @@
             "keychain"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "$exact": "undefined"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
