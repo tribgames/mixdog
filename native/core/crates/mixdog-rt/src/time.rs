@@ -148,8 +148,16 @@ mod on_virtual_clock {
     /// Node's `await new Promise((resolve) => setImmediate(resolve))`: on the replay's clock, ready in the check phase after the
     /// loop turn that made it (after every timer of that turn), in the order immediates were made; without one,
     /// `tokio::task::yield_now()`. Queued when made, not when first polled.
-    pub fn immediate() -> Immediate {
-        Immediate(if virtual_clock::active() { Queued::Check(virtual_clock::immediate()) } else { Queued::Yield { yielded: false } })
+    pub fn immediate() -> impl Future<Output = ()> + Send + 'static {
+        let queued = virtual_clock::active().then(|| Immediate(Queued::Check(virtual_clock::immediate())));
+        async move {
+            match queued {
+                Some(queued) => queued.await,
+                // tokio's own, not a wake of our own: it defers its wake until the scheduler has polled the I/O driver, so
+                // a socket's close that has arrived is seen first (wire parity's connection reuse depends on it).
+                None => tokio::task::yield_now().await,
+            }
+        }
     }
 
     /// Node's `setImmediate(f)` for an `f` a new task runs: await this first. On the replay's clock, [`immediate`]; without one,
@@ -164,8 +172,6 @@ mod on_virtual_clock {
 
     enum Queued {
         Check(Arc<Slot>),
-        /// `yield_now` without its allocation: pending once with the task woken, then ready.
-        Yield { yielded: bool },
         Ready,
     }
 
@@ -175,12 +181,6 @@ mod on_virtual_clock {
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
             match &mut self.get_mut().0 {
                 Queued::Check(slot) => slot.poll(cx),
-                Queued::Yield { yielded: true } => Poll::Ready(()),
-                Queued::Yield { yielded } => {
-                    *yielded = true;
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
                 Queued::Ready => Poll::Ready(()),
             }
         }
