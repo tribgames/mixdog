@@ -4620,6 +4620,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "base64 0.22.1",
+ "fancy-regex",
  "flate2",
  "futures",
  "jsonschema",

@@ -158,6 +158,7 @@ zbus = { version = "4.4", default-features = false } # not in Codex's pins; D-Bu
 dom_query = "0.29" # not in Codex (web extraction)
 dom_smoothie = "0.19" # not in Codex (web extraction)
 encoding_rs = "0.8" # not in Codex (web charset decoding)
+fancy-regex = "0.19" # not in Codex (MCP outputSchema: ajv-formats' url pattern; already in the tree through jsonschema)
 flate2 = "1.1.8"
 futures = { version = "0.3", default-features = false }
 gix = { version = "0.89.0", default-features = false, features = ["sha1"] }

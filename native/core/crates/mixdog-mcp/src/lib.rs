@@ -32,6 +32,7 @@ pub mod setup_actions;
 pub mod setup_runtime;
 pub mod naming;
 pub mod oauth;
+mod ajv_formats;
 pub mod outbound;
 pub mod output_schema;
 pub mod permissions;
