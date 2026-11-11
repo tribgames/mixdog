@@ -2,8 +2,11 @@
 //! begun, polled and pasted while Node's desktop replaced its control session between the calls. The core has no control session:
 //! the sign-in registry is the process's own (`McpLogins`, reached by the `mcp/*` methods of `McpService`), so the replay sends the
 //! same calls in the same order to one `McpService` and compares each answer's value whole. As in Node, the registry is real and the
-//! MCP client is the recording's fake: its interactive connect announces the recorded authorize URL, a paste other than the
-//! recorded callback is refused with the recorded sentence, and the plain reconnect answers one unconnected server.
+//! MCP client is the recording's fake: its interactive connect announces the recorded authorize URL and the plain reconnect answers
+//! one unconnected server. A pasted URL is judged by the core's own parser (`oauth::callback::parse_pasted`) against the recorded
+//! redirect and state, so the refusal is the core's and is compared with Node's recorded one. As the desktop transport does after a
+//! failed control call, each call is addressed to the control thread it would hold (`threadId`), replaced as often as the recording
+//! counted.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,6 +35,8 @@ use mixdog_mcp::mcp_logins::McpLogins;
 use mixdog_mcp::mcp_logins::Started;
 use mixdog_mcp::mcp_secrets::McpServerSecrets;
 use mixdog_mcp::mcp_secrets::SecretOps;
+use mixdog_mcp::oauth::callback::Pasted;
+use mixdog_mcp::oauth::callback::parse_pasted;
 use mixdog_mcp::mcp_service::McpRuntime;
 use mixdog_mcp::mcp_service::McpService;
 use mixdog_mcp::mcp_service::OAuthState;
@@ -111,12 +116,12 @@ impl ExtensionHost for Host {
     }
 }
 
-/// The interactive connect of the recording's fake client: it announces the authorize URL, takes the recorded callback and refuses
-/// any other paste with the recorded sentence (`completeMcpLogin`), leaving the sign-in waiting.
+/// The interactive connect of the recording's fake client: it announces the authorize URL and judges a paste with the core's parser
+/// against the redirect and state of the recorded login (`completeMcpLogin`); a refused paste leaves the sign-in waiting.
 struct Paste {
     live: LiveLoginSession,
-    callback: String,
-    refusal: String,
+    redirect: String,
+    state: String,
 }
 
 #[async_trait]
@@ -129,10 +134,10 @@ impl LoginSession for Paste {
     }
     async fn provide(&self, input: LoginInput) -> Result<(), LoginError> {
         let LoginInput::AuthorizationCode(pasted) = &input;
-        if *pasted != self.callback {
-            return Err(LoginError::Failed(LoginFailure::Failed { code: "invalid_paste".into(), message: self.refusal.clone() }));
+        match parse_pasted(pasted, &self.redirect, &self.state) {
+            Err(message) => Err(LoginError::Failed(LoginFailure::Failed { code: "invalid_paste".into(), message: message.to_owned() })),
+            Ok(Pasted::Code(_) | Pasted::Denied) => self.live.provide(input).await,
         }
-        self.live.provide(input).await
     }
     fn cancel(&self) {
         self.live.cancel();
@@ -141,8 +146,8 @@ impl LoginSession for Paste {
 
 struct Backend {
     auth_url: String,
-    callback: String,
-    refusal: String,
+    redirect: String,
+    state: String,
 }
 
 #[async_trait]
@@ -150,7 +155,7 @@ impl LoginBackend for Backend {
     async fn start(&self, _: &str, _: AccountMode, _: bool) -> Result<Started, String> {
         let live = LiveLoginSession::new(LoginState::Starting);
         live.emit(LoginState::Authorize { url: self.auth_url.clone(), manual_url: None });
-        Ok(Started::Browser(Box::new(Paste { live, callback: self.callback.clone(), refusal: self.refusal.clone() })))
+        Ok(Started::Browser(Box::new(Paste { live, redirect: self.redirect.clone(), state: self.state.clone() })))
     }
     /// The fake connect resolves connected once the callback was taken.
     async fn settle(&self, _: &str, _: AccountMode, _: bool, _: Option<String>) -> (bool, Option<String>) {
@@ -289,29 +294,42 @@ async fn a_sign_in_survives_between_begin_polls_and_the_paste_as_node_recorded()
         Exact::Error { message, .. } => message.clone(),
         other => panic!("a recorded refusal: {other:?}"),
     };
+    // The recorded login's redirect and state: the recorded callback without its query, and the recorded authorize URL's `state`.
+    let mut redirect = url::Url::parse(&callback).expect("the recorded callback");
+    redirect.set_query(None);
+    let state = url::Url::parse(&auth_url).expect("the recorded authorize URL").query_pairs().find(|(key, _)| key == "state").map(|(_, value)| value.into_owned()).expect("a state");
     let feeds = Arc::new(LoginFeeds::new(Arc::new(MockScopedFeeds::new(MockLimits::default()))));
-    let backend = Arc::new(Backend { auth_url, callback: callback.clone(), refusal: refusal.clone() });
+    let backend = Arc::new(Backend { auth_url, redirect: redirect.to_string(), state });
     let runtime = Arc::new(Runtime { logins: McpLogins::new(backend, feeds) });
     let home = tempfile::tempdir().expect("home");
     let secrets = Arc::new(McpServerSecrets::new(Arc::new(Keychain::default()), Default::default()));
     let service = McpService::new(Arc::new(Config), Arc::new(Host), runtime, secrets, home.path().join("home"), Arc::new(NoToasts));
 
-    let sign_out = call(&service, "mcp/signOutMcpServer", json!({ "name": "fixture" })).await;
+    // The control thread the desktop holds: the transport numbers its session runtimes (the recording counts them), and a failed
+    // control call replaces it. Every call carries it, as `MCP_ACTIONS` are addressed (session-host-transport.ts).
+    let mut control = 1_u64;
+    let (after_failed_read, after_invalid_paste) = (observed.get("runtimesAfterFailedRead").as_f64() as u64, observed.get("runtimesAfterInvalidPaste").as_f64() as u64);
+    let sign_out = call(&service, "mcp/signOutMcpServer", json!({ "name": "fixture", "threadId": format!("control-{control}") })).await;
     assert_eq!(sign_out["value"], value_of(observed.get("signOut")), "the sign-out");
-    let begun = call(&service, "mcp/beginMcpOAuthLogin", json!({ "name": "fixture", "options": { "openBrowser": false } })).await;
+    let begun = call(&service, "mcp/beginMcpOAuthLogin", json!({ "name": "fixture", "options": { "openBrowser": false }, "threadId": format!("control-{control}") })).await;
     let flow = begun["value"]["flowId"].as_str().expect("a flow id").to_owned();
     assert_eq!(masked(&begun["value"], &flow), value_of(observed.get("begun")), "the begin");
-    // Node's status read failed once and the desktop retried it on a new control session; the core's read has no session to lose.
-    let status = call(&service, "mcp/mcpStatus", json!({})).await;
+    // Node's status read failed once and the desktop replaced its control session and read again: the replacement happens here
+    // as recorded, and the read is answered on the new control thread.
+    assert!(observed.get("controlSessionReplaced").as_bool(), "the recording replaced the control session");
+    control = after_failed_read;
+    let status = call(&service, "mcp/mcpStatus", json!({ "threadId": format!("control-{control}") })).await;
     assert_eq!(status["value"], value_of(observed.get("statusRead").get("value")), "the status read");
-    let polled = call(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
+    let polled = call(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow, "threadId": format!("control-{control}") })).await;
     assert_eq!(masked(&polled["value"], &flow), value_of(observed.get("statusAfterReplace")), "the status after the replacement");
-    let invalid = call(&service, "mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": "garbage" })).await;
-    assert_eq!(invalid, json!({ "threw": { "name": "Error", "message": refusal } }), "the invalid paste");
-    let still = call(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
+    let invalid = call(&service, "mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": "garbage", "threadId": format!("control-{control}") })).await;
+    assert_eq!(invalid, json!({ "threw": { "name": "Error", "message": refusal } }), "the invalid paste: the core's refusal is Node's");
+    // The refused call replaces the control session once more.
+    control = after_invalid_paste;
+    let still = call(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow, "threadId": format!("control-{control}") })).await;
     assert_eq!(masked(&still["value"], &flow), value_of(observed.get("statusAfterInvalidPaste")), "the status after the invalid paste");
-    let corrected = call(&service, "mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": callback })).await;
+    let corrected = call(&service, "mcp/completeMcpOAuthLogin", json!({ "flowId": flow, "callbackUrl": callback, "threadId": format!("control-{control}") })).await;
     assert_eq!(masked(&corrected["value"], &flow), value_of(observed.get("correctedPaste")), "the corrected paste");
-    let last = call(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow })).await;
+    let last = call(&service, "mcp/getMcpOAuthLoginStatus", json!({ "flowId": flow, "threadId": format!("control-{control}") })).await;
     assert_eq!(masked(&last["value"], &flow), value_of(observed.get("finalStatus")), "the final status");
 }
