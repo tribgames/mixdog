@@ -117,8 +117,7 @@
             },
             "mime": "video/mp4",
             "bytes": 5,
-            "createdAt": 1783220400000,
-            "durationSeconds": 7
+            "createdAt": 1783220400000
           }
         ],
         "migratedFilesExist": [
