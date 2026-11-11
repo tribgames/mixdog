@@ -1,0 +1,57 @@
+{
+  "command": "node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-memory-session-ingest-runtime.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL (db.query is the test file's in-memory entries stand-in, which only answers MAX(source_turn) and INSERT INTO entries) and the embedding flush (flushRawEmbeddings replaced at its module boundary by a recorder)",
+    "runs": "createSessionIngestRuntime(...).ingestSessionMessages (session-ingest-runtime.mjs) with the real projection, identity hashing and ordinals"
+  },
+  "exclusions": "test cases 53, 71, 87, 100 are covered by the ingest golden (mem/tests/ingest.rs) and not recorded again",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11329,
+      "path": "golden.json",
+      "sha256": "9706fc9e2539e6599a8cf32af7a272f091e2b34b53ca19a092cfb11f1e55f631"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "a77c6c7ed731f67d9ec1dce798d2080b7c82613f6a1021b0c7920b40b9fdf58c"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "clock": "Date.now() fixed at clock.dateNowMs"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-session-ingest-runtime.mjs",
+  "recorderSha256": "b6ca931503ba44583f5e96fc3c2496cc8407fa60bea4bacce56329e466a91144",
+  "replay": "mixdog-services memory: mem/ingest/mod.rs ingest_session + ordinals.rs persist_durable/load, with a recording db seam and a recording flush seam; compares each call's result text (or error), the rows inserted (role, source_turn, time_source, ts, source_ref), the statements (text, params), the saved high-water snapshot and the flush option objects ({limit, ids} then the backlog sweep {limit})",
+  "set": "memory-session-ingest-runtime",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 11329
+}
