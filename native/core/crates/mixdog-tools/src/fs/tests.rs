@@ -417,6 +417,13 @@ async fn code_graph_answers_casing_misses_and_capped_references_as_node_does() {
     replay_fs_search("code-graph-refs-casing").await;
 }
 
+/// Every code_graph mode, through the tool's entry, whole answers and outcomes as Node's (the replay of the cases
+/// fixtures/tools/code_graph held, recorded anew through Node's entry).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_answers_every_mode_as_node_does() {
+    replay_fs_search("code-graph-modes").await;
+}
+
 /// The casing hint's looked-up names live with the project root's resident graph, as Node's do: they survive five
 /// other roots, and after six more evict the root its rebuilt graph knows no earlier lookup.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
