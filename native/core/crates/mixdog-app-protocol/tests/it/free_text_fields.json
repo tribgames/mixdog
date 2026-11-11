@@ -1478,16 +1478,120 @@
    },
    "lsp/request": {
     "/request": {
-     "source": "native/core/crates/mixdog-workspace/src/service.rs lsp/request, lsp.rs request",
+     "source": "native/core/crates/mixdog-workspace/src/service.rs lsp/request, lsp.rs request (forwarded as given; the fields are those of the params of each method Node allows, apps/desktop/src/shared/contract-workspace.ts DESKTOP_LSP_REQUEST_METHODS, by the LSP 3.17 specification)",
      "fields": [
       "/relPath",
       "/languageId",
-      "/method"
+      "/method",
+      "/params/textDocument/uri",
+      "/params/workDoneToken",
+      "/params/partialResultToken",
+      "/params/context/triggerCharacter",
+      "/params/label",
+      "/params/labelDetails/detail",
+      "/params/labelDetails/description",
+      "/params/detail",
+      "/params/documentation",
+      "/params/documentation/kind",
+      "/params/documentation/value",
+      "/params/sortText",
+      "/params/filterText",
+      "/params/insertText",
+      "/params/textEditText",
+      "/params/textEdit/newText",
+      "/params/additionalTextEdits/*/newText",
+      "/params/commitCharacters/*",
+      "/params/command/title",
+      "/params/command/command",
+      "/params/context/activeSignatureHelp/signatures/*/label",
+      "/params/context/activeSignatureHelp/signatures/*/documentation",
+      "/params/context/activeSignatureHelp/signatures/*/documentation/kind",
+      "/params/context/activeSignatureHelp/signatures/*/documentation/value",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/label",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/kind",
+      "/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/value",
+      "/params/newName",
+      "/params/context/only/*",
+      "/params/context/diagnostics/*/code",
+      "/params/context/diagnostics/*/codeDescription/href",
+      "/params/context/diagnostics/*/source",
+      "/params/context/diagnostics/*/message",
+      "/params/context/diagnostics/*/relatedInformation/*/location/uri",
+      "/params/context/diagnostics/*/relatedInformation/*/message",
+      "/params/title",
+      "/params/kind",
+      "/params/diagnostics/*/code",
+      "/params/diagnostics/*/codeDescription/href",
+      "/params/diagnostics/*/source",
+      "/params/diagnostics/*/message",
+      "/params/diagnostics/*/relatedInformation/*/location/uri",
+      "/params/diagnostics/*/relatedInformation/*/message",
+      "/params/disabled/reason",
+      "/params/edit/changes/{}",
+      "/params/edit/changes/*/*/newText",
+      "/params/edit/changes/*/*/annotationId",
+      "/params/edit/documentChanges/*/textDocument/uri",
+      "/params/edit/documentChanges/*/edits/*/newText",
+      "/params/edit/documentChanges/*/edits/*/annotationId",
+      "/params/edit/documentChanges/*/kind",
+      "/params/edit/documentChanges/*/uri",
+      "/params/edit/documentChanges/*/oldUri",
+      "/params/edit/documentChanges/*/newUri",
+      "/params/edit/documentChanges/*/annotationId",
+      "/params/edit/changeAnnotations/{}",
+      "/params/edit/changeAnnotations/*/label",
+      "/params/edit/changeAnnotations/*/description",
+      "/params/options/{}",
+      "/params/options/*",
+      "/params/ch",
+      "/params/target",
+      "/params/tooltip",
+      "/params/tooltip/kind",
+      "/params/tooltip/value",
+      "/params/previousResultId",
+      "/params/label/*/value",
+      "/params/label/*/tooltip",
+      "/params/label/*/tooltip/kind",
+      "/params/label/*/tooltip/value",
+      "/params/label/*/location/uri",
+      "/params/label/*/command/title",
+      "/params/label/*/command/command",
+      "/params/textEdits/*/newText",
+      "/params/item/name",
+      "/params/item/detail",
+      "/params/item/uri",
+      "/params/query",
+      "/params/command"
      ],
      "open": {
-      "/params": {
-       "class": "free",
-       "reason": "language-server request params the editor (Monaco, a tool) wrote per the LSP specification, which the protocol does not type: they carry what a person typed (a rename's newName, a symbol query), sent to the server process; positions and URIs come from the editor's own document model, never from typed text"
+      "/params/data": {
+       "class": "refused",
+       "reason": "a server's own data on an item it returned (completion item, code lens, code action, document link, inlay hint), sent back for the server to find the item by: opaque to the client, refused whole"
+      },
+      "/params/item/data": {
+       "class": "refused",
+       "reason": "a call-hierarchy item's server data, sent back for the server to find the item by: refused whole"
+      },
+      "/params/command/arguments": {
+       "class": "refused",
+       "reason": "a command's arguments, given to the command the server runs: refused whole"
+      },
+      "/params/label/*/command/arguments": {
+       "class": "refused",
+       "reason": "an inlay-hint label part's command arguments, given to the command the server runs: refused whole"
+      },
+      "/params/arguments": {
+       "class": "refused",
+       "reason": "workspace/executeCommand's arguments, given to the command the server runs: refused whole"
+      },
+      "/params/context/diagnostics/*/data": {
+       "class": "refused",
+       "reason": "a diagnostic's server data, sent back for the server to match its own diagnostic: refused whole"
+      },
+      "/params/diagnostics/*/data": {
+       "class": "refused",
+       "reason": "a code action's diagnostics' server data, sent back for the server to match its own diagnostic: refused whole"
       }
      }
     }
@@ -2135,13 +2239,6 @@
     "request projectFs/writeText /expectedContent",
     "request projectFs/writeTextBatch /files/*/content",
     "request projectFs/writeTextBatch /files/*/expectedContent"
-   ]
-  },
-  {
-   "class": "free",
-   "reason": "Language-server params the editor wrote (a rename's new name, a symbol query), sent to the server process.",
-   "fields": [
-    "request lsp/request /request/params/**"
    ]
   },
   {
@@ -4331,6 +4428,129 @@
    "fields": [
     "request mcp/addMcpServer /input/headers/*",
     "request mcp/saveMcpServer /input/headers/*"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "Language-server params a person reads or a document receives as given: an item's detail, documentation, label details and tooltips, a code action's title and disabled reason, a command's title, a call-hierarchy item's detail, a signature's label and documentation, and the new text of an edit (insert text, text edits, workspace-edit text and change annotations). The server shows them or writes them into a document and compares them with nothing; Node sent a lone unit there as its JSON escape and the core sends U+FFFD, the replacement glyph either way (decisions.md \"frame-lone-surrogate\").",
+   "fields": [
+    "request lsp/request /request/params/detail",
+    "request lsp/request /request/params/documentation",
+    "request lsp/request /request/params/documentation/value",
+    "request lsp/request /request/params/labelDetails/detail",
+    "request lsp/request /request/params/labelDetails/description",
+    "request lsp/request /request/params/insertText",
+    "request lsp/request /request/params/textEditText",
+    "request lsp/request /request/params/textEdit/newText",
+    "request lsp/request /request/params/additionalTextEdits/*/newText",
+    "request lsp/request /request/params/textEdits/*/newText",
+    "request lsp/request /request/params/title",
+    "request lsp/request /request/params/command/title",
+    "request lsp/request /request/params/label/*/command/title",
+    "request lsp/request /request/params/disabled/reason",
+    "request lsp/request /request/params/tooltip",
+    "request lsp/request /request/params/tooltip/value",
+    "request lsp/request /request/params/label/*/tooltip",
+    "request lsp/request /request/params/label/*/tooltip/value",
+    "request lsp/request /request/params/edit/changes/*/*/newText",
+    "request lsp/request /request/params/edit/documentChanges/*/edits/*/newText",
+    "request lsp/request /request/params/edit/changeAnnotations/*/label",
+    "request lsp/request /request/params/edit/changeAnnotations/*/description",
+    "request lsp/request /request/params/item/detail",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/label",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/documentation",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/documentation/value",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/value"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a language-server lookup key or command: a rename's new name (the identifier written into the code), a workspace-symbol query (matched against the server's symbols), a command (run by the server), a trigger or typed character, a completion item's label, sort and filter text, commit characters, a signature parameter's label (a range of its signature's label) and a call-hierarchy item's name. Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)",
+   "fields": [
+    "request lsp/request /request/params/newName",
+    "request lsp/request /request/params/query",
+    "request lsp/request /request/params/command",
+    "request lsp/request /request/params/command/command",
+    "request lsp/request /request/params/label/*/command/command",
+    "request lsp/request /request/params/context/triggerCharacter",
+    "request lsp/request /request/params/ch",
+    "request lsp/request /request/params/label",
+    "request lsp/request /request/params/label/*/value",
+    "request lsp/request /request/params/sortText",
+    "request lsp/request /request/params/filterText",
+    "request lsp/request /request/params/commitCharacters/*",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/label",
+    "request lsp/request /request/params/item/name"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text",
+   "fields": [
+    "request lsp/request /request/params/textDocument/uri",
+    "request lsp/request /request/params/workDoneToken",
+    "request lsp/request /request/params/partialResultToken",
+    "request lsp/request /request/params/edit/changes/{}",
+    "request lsp/request /request/params/edit/changes/*/*/annotationId",
+    "request lsp/request /request/params/edit/documentChanges/*/textDocument/uri",
+    "request lsp/request /request/params/edit/documentChanges/*/edits/*/annotationId",
+    "request lsp/request /request/params/edit/documentChanges/*/uri",
+    "request lsp/request /request/params/edit/documentChanges/*/oldUri",
+    "request lsp/request /request/params/edit/documentChanges/*/newUri",
+    "request lsp/request /request/params/edit/documentChanges/*/annotationId",
+    "request lsp/request /request/params/edit/changeAnnotations/{}",
+    "request lsp/request /request/params/target",
+    "request lsp/request /request/params/previousResultId",
+    "request lsp/request /request/params/item/uri",
+    "request lsp/request /request/params/label/*/location/uri"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a diagnostic the server published, sent back in a code action request (its code, source, message, related information and description link): the server matches it with its own diagnostics, so text that differs matches none",
+   "fields": [
+    "request lsp/request /request/params/context/diagnostics/*/code",
+    "request lsp/request /request/params/context/diagnostics/*/codeDescription/href",
+    "request lsp/request /request/params/context/diagnostics/*/source",
+    "request lsp/request /request/params/context/diagnostics/*/message",
+    "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/location/uri",
+    "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/message",
+    "request lsp/request /request/params/diagnostics/*/code",
+    "request lsp/request /request/params/diagnostics/*/codeDescription/href",
+    "request lsp/request /request/params/diagnostics/*/source",
+    "request lsp/request /request/params/diagnostics/*/message",
+    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/location/uri",
+    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/message"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text",
+   "fields": [
+    "request lsp/request /request/params/documentation/kind",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/documentation/kind",
+    "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/kind",
+    "request lsp/request /request/params/tooltip/kind",
+    "request lsp/request /request/params/label/*/tooltip/kind",
+    "request lsp/request /request/params/kind",
+    "request lsp/request /request/params/context/only/*",
+    "request lsp/request /request/params/edit/documentChanges/*/kind",
+    "request lsp/request /request/params/options/{}",
+    "request lsp/request /request/params/options/*"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server",
+   "fields": [
+    "request lsp/request /request/params/data/**",
+    "request lsp/request /request/params/item/data/**",
+    "request lsp/request /request/params/command/arguments/**",
+    "request lsp/request /request/params/label/*/command/arguments/**",
+    "request lsp/request /request/params/arguments/**",
+    "request lsp/request /request/params/context/diagnostics/*/data/**",
+    "request lsp/request /request/params/diagnostics/*/data/**"
    ]
   }
  ]
