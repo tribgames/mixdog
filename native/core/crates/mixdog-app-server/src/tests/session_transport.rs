@@ -48,6 +48,48 @@ fn step<'a>(case: &'a Value, starts: &str) -> &'a Value {
     case["result"]["steps"].as_array().unwrap().iter().find(|step| step["step"].as_str().unwrap().starts_with(starts)).unwrap_or_else(|| panic!("no step {starts}"))
 }
 
+/// The recorded cases of the three sets that no test below replays, each with why (the sets' manifests say the same). A case of a set
+/// that is neither replayed nor listed here fails [`every_recorded_case_is_replayed_or_declared`], so a re-recording that adds a case
+/// cannot pass unseen. The key is the case's `testLine`, or its name for the one line two cases share.
+const NOT_REPLAYED: [(&str, &str, &str); 16] = [
+    ("session-transport-call-contract", "15", "the OAuth registry's status, complete and cancel answers are replayed from fixtures/login-status by mixdog-core-domains (ai_account/tests.rs); this case's flow starts with url null, which no core sign-in start produces"),
+    ("session-transport-call-contract", "82", "no thread list rides a session answer: the core's thread/start, thread/read and thread/name/set answers are typed with no list field, and thread/list is the one route"),
+    ("session-transport-call-contract", "call-idempotency-is-isolated-per-client-process", "the base commit's defect (one submission run twice); the case replayed is the one recorded with the fix"),
+    ("session-transport-call-contract", "299", "Node's session.read actions getProfile/getOutputStyle/getTheme have no core method; a core failure is a JSON-RPC error by construction and an answer is serde JSON, which holds no non-serializable value"),
+    ("session-transport-call-contract", "320", "a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed"),
+    ("session-transport-call-contract", "369", "a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed"),
+    ("session-transport-call-contract", "465", "the Node TUI's remote-runtime proxy: client code, Rust-side client work"),
+    ("session-transport-state-lanes", "48", "Node's transcript patch has no core counterpart: the core's thread lane carries one event per item after its snapshot, never the transcript"),
+    ("session-transport-state-lanes", "192", "Node's SSE event stream: reconnect in place with the same registration, by Node's HTTP client"),
+    ("session-transport-state-lanes", "275", "Node's resync marker frame; a lagging core subscription is resynced by the app-server lane recovery (tests/storm.rs)"),
+    ("session-transport-state-lanes", "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence", "the base commit records the String(null) defect the patch fixes; the case replayed is the one recorded with the fix"),
+    ("session-transport-state-lanes", "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence--with-the-fix", "replayed by mixdog-services channels/tests_runtime.rs, where the channel transport is"),
+    ("session-transport-state-lanes", "428", "replayed by mixdog-app-server-daemon late_lifecycle.rs, where the in-daemon transport is"),
+    ("session-transport-state-lanes", "446", "Node's SSE event stream: a silent stream ends only with its socket, by Node's HTTP client"),
+    ("session-transport-state-lanes", "493", "Node's SSE event stream: liveness timeout and reconnect budget of Node's HTTP client"),
+    ("session-transport-steering-recovery", "90", "the TUI's resume holds commandBusy while it restores queued steering: client code with no core counterpart (the restored queue itself is case 75)"),
+];
+
+/// Every case of the three recordings is consumed by a test of this file (named in a `case(set, line)` or `named(set, name)` call)
+/// or listed in [`NOT_REPLAYED`] with its reason; a listed case that is consumed is a stale entry.
+#[test]
+fn every_recorded_case_is_replayed_or_declared() {
+    // The replays follow the marker line below; the marker is written here in two pieces so that this text does not hold it.
+    let source = include_str!("session_transport.rs");
+    let consumers = source.split(concat!("// ---- ", "replays ----")).nth(1).expect("the marker line follows this test");
+    for set in ["session-transport-call-contract", "session-transport-state-lanes", "session-transport-steering-recovery"] {
+        for recorded in recording(set)["cases"].as_array().unwrap() {
+            let (line, name) = (recorded["testLine"].as_u64().unwrap(), recorded["name"].as_str().unwrap());
+            let consumed = consumers.contains(&format!("case(\"{set}\", {line})")) || consumers.contains(&format!("named(\"{set}\", \"{name}\")"));
+            let declared = NOT_REPLAYED.iter().any(|(declared_set, key, _)| *declared_set == set && (*key == line.to_string() || *key == name));
+            assert!(consumed || declared, "{set} case {line} ({name}) is neither replayed nor declared not replayed");
+            assert!(!(consumed && declared), "{set} case {line} ({name}) is replayed and also declared not replayed");
+        }
+    }
+}
+
+// ---- replays ----
+
 /// The prompt texts of a Node `full` snapshot's items, in order.
 fn node_texts(full: &Value) -> Vec<String> {
     full["items"].as_array().unwrap().iter().map(|item| item["text"].as_str().unwrap().to_owned()).collect()
@@ -95,6 +137,11 @@ fn whole(name: &str, frames: &[Value], generated: &[&str], expected: Vec<Value>)
 
 const EPOCH: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
+/// The feed publications a thread started through `thread/start` has made before a wire client attaches to it (the first one, at
+/// seq 0, as the frames the replays received show), so the sequence numbers below count from there. The numbers are the core's own
+/// feed numbering, not Node's.
+const BEFORE_ATTACH: u64 = 1;
+
 fn uuid(n: u32) -> String {
     format!("00000000-0000-7000-8000-{n:012}")
 }
@@ -125,7 +172,7 @@ fn state(busy: bool, history: &[&str]) -> Value {
             "rawContextWindow": null, "effectiveContextWindowPercent": null, "compactBoundaryTokens": 0,
         },
         "queued": [],
-        "agents": { "agentWorkers": [], "agentJobs": [], "agentScope": null },
+        "agents": { "agentWorkers": [], "agentJobs": [], "agentScope": { "clientHostPid": 0 } },
         "workflow": { "orchestrationMode": "balanced", "pendingWorkflowSwitch": false, "pendingOrchestrationModeSwitch": false },
         "approvals": { "toolApprovalResult": null },
         "promptHistoryList": history,
@@ -154,6 +201,7 @@ fn read(id: i64, thread: &ThreadId, state: Value, items: Vec<Value>) -> Value {
 
 /// A `thread/resume` answer on the `connection`-th connection and the snapshot that follows it, the feed at `seq`.
 fn resumed(connection: u64, id: i64, thread: &ThreadId, seq: u64, state: Value, items: Vec<Value>) -> [Value; 2] {
+    let seq = seq + BEFORE_ATTACH;
     let subscription = json!({ "id": format!("c{connection}-1"), "mode": "snapshot", "epoch": EPOCH, "startSeq": seq + 1, "liveSeq": seq + 1 });
     [
         answer(id, json!({ "thread": meta(thread), "subscription": subscription })),
@@ -162,7 +210,7 @@ fn resumed(connection: u64, id: i64, thread: &ThreadId, seq: u64, state: Value, 
 }
 
 fn event(thread: &ThreadId, seq: u64, method: &str, params: Value) -> Value {
-    json!({ "method": method, "params": params, "feed": { "id": thread, "epoch": EPOCH, "seq": seq } })
+    json!({ "method": method, "params": params, "feed": { "id": thread, "epoch": EPOCH, "seq": seq + BEFORE_ATTACH } })
 }
 
 /// One turn's frames on a subscribed client, the feed from `seq`: [`turn_start`], `ack` (the submitter's `turn/start`
@@ -567,13 +615,15 @@ async fn a_queued_submission_keeps_its_id_across_a_restart() {
 
 /// steering-recovery case 139: a stop sent while 64 ordinary calls of the same client are held is answered ahead of them,
 /// and every call is then answered with no refusal. Node's calls were a settings read its stub runtime held on a gate
-/// (`scripts/session-transport/steering-recovery.test.mjs:151-163`); here they are `config/read` (C1, the core's settings
-/// read) served by a gate the test releases. The core runs 16 of one connection's C1 requests at a time and the rest wait
-/// their turn in arrival order (`Connection::admit_or_queue`, bound `WAIT_BOUND` in server.rs), so none is refused. Node's
+/// (`scripts/session-transport/steering-recovery.test.mjs:151-163`); here they are `config/read` (the core's settings
+/// read) served by a gate the test releases, answering what Node's read answered (`readOutcomes[n].ok.value`). All 64 start
+/// before the stop is sent (`startedBeforeAbort`), each lane turn starting one in request order, and none is refused. Node's
 /// abort answer is its stub runtime's (`steering-recovery.test.mjs:198-205`: `aborted: true` with nothing running); the
 /// core's idle stop hands back the queued prompt the stub returned, with its pasted text, and answers `aborted: false`, as
-/// nothing ran. The 64 answers are released together, so they are compared in request order: Node recorded them by
-/// index (`readOutcomes`), not by arrival.
+/// nothing ran. What Node does not order, and the one thing sorted: the arrival order of the 64 answers (the test collects
+/// them by index, `steering-recovery.test.mjs:185`, and the wire tap lists exchanges in request order); the core writes them
+/// from tasks that finish in parallel once the gate opens, so they are compared sorted by request id, after the stop's answer,
+/// which Node's test saw before it opened the gate (`steering-recovery.test.mjs:164-184`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_is_answered_while_reads_are_in_flight() {
     let node = case("session-transport-steering-recovery", 139);
@@ -587,22 +637,28 @@ async fn a_stop_is_answered_while_reads_are_in_flight() {
     let submission = options["submissionId"].as_str().unwrap();
     let rig = Rig::routed(super::domain_methods(), vec![("config", &["config/read"])]);
     let gate = Arc::clone(rig.gate("config"));
+    gate.answers.lock().unwrap().extend(outcomes.iter().map(|read| read["ok"]["value"].clone()));
     let world = World::idle_on(rig, &[(submission, abort["restoreText"].as_str().unwrap())], abort["pastedTexts"].clone()).await;
     let mut client = world.client(1).await;
+    let mut started = gate.started.subscribe();
     for n in 0..reads {
         client.send(100 + n, "config/read", json!({})).await;
     }
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(20), started.wait_for(|count| *count as i64 == reads))
+        .await
+        .expect("every read to start within 20 s (Node: startedBeforeAbort)")
+        .expect("the gate outlives the test");
     let mut stop = options.clone();
     stop["threadId"] = json!(world.id);
     client.send(1, "turn/interrupt", stop).await;
     client.answer(1).await;
-    assert_eq!(gate.log.lock().unwrap().len(), 16, "the class cap runs; the rest wait");
     gate.permits.add_permits(reads as usize);
     client.until("every call answered", |frames| frames.len() as i64 == reads + 1).await;
+    let mut expected = vec![stop_answer(1, abort["restoreText"].as_str().unwrap(), abort["pastedTexts"].clone(), &[submission])];
+    expected.extend((0..reads).map(|n| answer(100 + n, outcomes[n as usize]["ok"]["value"].clone())));
+    // The 64 answers are sorted by request id, the one thing Node does not order (see above); the stop's comes first as recorded.
     let mut frames = client.frames.clone();
     frames[1..].sort_by_key(|frame| frame["id"].as_i64());
-    let mut expected = vec![stop_answer(1, abort["restoreText"].as_str().unwrap(), abort["pastedTexts"].clone(), &[submission])];
-    expected.extend((0..reads).map(|n| answer(100 + n, json!({ "done": "config/read:" }))));
     whole("steering-recovery-139", &frames, &[world.id.as_str()], expected);
 }
 
