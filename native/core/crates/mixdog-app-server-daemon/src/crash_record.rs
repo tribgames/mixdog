@@ -25,8 +25,8 @@ use serde_json::json;
 /// `CAPTURE_DIR_NAME` (`daemon-crash-capture/paths.mjs`).
 const CAPTURE_DIR_NAME: &str = "daemon-crash";
 const REASON_MAX_CHARS: usize = 512;
-/// The exit status of a process whose main thread panicked.
-pub const PANIC_EXIT_CODE: i32 = 101;
+/// The exit status of a process a panic ended: Node's after an uncaught exception (`onFatalError` → `process.exit(1)`).
+pub const PANIC_EXIT_CODE: i32 = 1;
 
 /// `daemonCrashCaptureDir({ dataDir })`.
 pub fn capture_dir(data_dir: &Path) -> PathBuf {
@@ -108,11 +108,15 @@ pub struct ExitRecorder {
     pid: u32,
     started_ms: i64,
     located: Mutex<Option<PathBuf>>,
+    /// The `exitedAt` this core filled in (the launcher had not): while the sidecar still holds it, a later write of this
+    /// core states the later exit. In Node the first write is the one before the process ends; here a panic the runtime
+    /// caught is written when it happens and the process can still end later.
+    filled: Mutex<Option<String>>,
 }
 
 impl ExitRecorder {
     pub fn new(dir: PathBuf, pid: u32, started_ms: i64) -> Self {
-        Self { dir, pid, started_ms, located: Mutex::new(None) }
+        Self { dir, pid, started_ms, located: Mutex::new(None), filled: Mutex::new(None) }
     }
 
     /// The exit block in this process's sidecar; the launcher's own fields are filled when it never saw the exit
@@ -135,7 +139,10 @@ impl ExitRecorder {
         });
         // Re-read: the launcher may have updated the sidecar since it was found.
         let Some(mut next) = read_record(file) else { return false };
-        if open(&next) {
+        let mut filled = self.filled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ours = filled.as_ref().is_some_and(|at| next.get("exitedAt").and_then(Value::as_str) == Some(at.as_str()));
+        if open(&next) || ours {
+            *filled = Some(at.clone());
             next.insert("exitedAt".into(), json!(at));
             next.insert("exitCode".into(), json!(code));
             next.insert("exitSignal".into(), Value::Null);
@@ -187,11 +194,30 @@ pub fn panic_text(info: &std::panic::PanicHookInfo<'_>) -> String {
 }
 
 static RECORDER: OnceLock<ExitRecorder> = OnceLock::new();
-/// The newest panic's text, from the hook: the one that ends the process is the last before the exit.
-static LAST_PANIC: Mutex<Option<String>> = Mutex::new(None);
 
-/// This core's recorder over `data_dir`'s captures: the earlier lost boots are settled, and every panic is noted (the
-/// default hook still writes it to fd 2, the capture file) for the exit it may end in. Once per process.
+/// Why the next exit happens (`installDaemonExitRecorder`'s `pending`): its reason, code and error.
+struct Pending {
+    reason: String,
+    error: Option<String>,
+}
+
+static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
+/// The newest panic's text (`daemon.mjs` `fatalExit.detail`): a stop after it names it, whatever ends the process.
+static FATAL: Mutex<Option<String>> = Mutex::new(None);
+
+fn lock<T>(slot: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn write(reason: &str, code: i32, error: Option<&str>) {
+    if let Some(recorder) = RECORDER.get() {
+        recorder.write(reason, Some(code), error, now_ms());
+    }
+}
+
+/// This core's recorder over `data_dir`'s captures: the earlier lost boots are settled, and every panic, on any thread and
+/// whether or not the runtime catches it, is written into the boot's sidecar when it happens (`uncaughtExceptionMonitor`;
+/// the default hook still writes it to fd 2, the capture file). Once per process.
 pub fn install(data_dir: &Path, alive: &dyn Fn(u32) -> bool) {
     let dir = capture_dir(data_dir);
     let pid = std::process::id();
@@ -202,50 +228,58 @@ pub fn install(data_dir: &Path, alive: &dyn Fn(u32) -> bool) {
     reconcile_lost(&dir, pid, alive, now);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        *LAST_PANIC.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(panic_text(info));
+        note_panic(&panic_text(info));
         previous(info);
     }));
 }
 
-/// A panic unwound out of `serve`: the process ends with [`PANIC_EXIT_CODE`] (`uncaughtExceptionMonitor` + `exit`).
-pub fn record_fatal_panic() {
-    let error = LAST_PANIC.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-    if let Some(recorder) = RECORDER.get() {
-        let reason = format!("fatal panic ({})", describe_exit(Some(PANIC_EXIT_CODE)));
-        recorder.write(&reason, Some(PANIC_EXIT_CODE), error.as_deref(), now_ms());
-    }
+/// `uncaughtExceptionMonitor(error, 'uncaughtException')`: the panic is the pending reason and is written at once.
+fn note_panic(text: &str) {
+    *lock(&FATAL) = Some(text.to_owned());
+    let reason = "fatal uncaughtException";
+    *lock(&PENDING) = Some(Pending { reason: reason.to_owned(), error: Some(text.to_owned()) });
+    write(reason, PANIC_EXIT_CODE, Some(text));
 }
 
-/// `serve` failed: the process ends with `code`.
-pub fn record_fatal_error(code: i32, error: &str) {
-    if let Some(recorder) = RECORDER.get() {
-        recorder.write(&format!("fatal error ({})", describe_exit(Some(code))), Some(code), Some(error), now_ms());
-    }
+/// `settleExit(reason, code)` (`exitRecorder.setReason`): the stop the release procedure runs names its reason; after a
+/// panic it carries the panic (`shutdown: <reason> (fatal uncaught exception)`, with its text). Answers `code`.
+pub fn settle_exit(reason: &str, code: i32) -> i32 {
+    let pending = match lock(&FATAL).clone() {
+        Some(detail) => Pending { reason: format!("shutdown: {reason} (fatal uncaught exception)"), error: Some(detail) },
+        None => Pending { reason: format!("shutdown: {reason}"), error: None },
+    };
+    *lock(&PENDING) = Some(pending);
+    code
 }
 
-/// `mixdogd serve` over `run`: a panic that unwinds out of it and an error it returns are recorded before the
-/// process ends; answers the exit status (0, 1, or [`PANIC_EXIT_CODE`]).
+/// `mixdogd serve` over `run`. A panic that unwinds out of it is `onFatalError('uncaught exception')` (written, then the
+/// stop it ends in, exit 1); an error it returns is `main().catch` (`shutdown('fatal boot error', 2)`). Answers the exit
+/// status, recorded as the process exit is.
 pub fn serve_recorded<E: std::fmt::Display>(run: impl FnOnce() -> Result<(), E> + std::panic::UnwindSafe) -> i32 {
-    match std::panic::catch_unwind(run) {
+    let code = match std::panic::catch_unwind(run) {
         Ok(Ok(())) => 0,
         Ok(Err(error)) => {
-            let error = error.to_string();
             eprintln!("mixdogd: {error}");
-            record_fatal_error(1, &error);
-            1
+            settle_exit("fatal boot error", 2)
         }
         Err(_) => {
-            record_fatal_panic();
-            PANIC_EXIT_CODE
+            let detail = lock(&FATAL).clone();
+            write("fatal uncaught exception", PANIC_EXIT_CODE, detail.as_deref());
+            settle_exit("fatal uncaught exception", PANIC_EXIT_CODE)
         }
-    }
+    };
+    record_exit(code);
+    code
 }
 
-/// The release procedure ends the process with `code` (`process.on('exit')`).
+/// The process ends with `code` (`process.on('exit')`): the pending reason with the exit described, or the exit alone.
 pub fn record_exit(code: i32) {
-    if let Some(recorder) = RECORDER.get() {
-        recorder.write(&describe_exit(Some(code)), Some(code), None, now_ms());
-    }
+    let pending = lock(&PENDING).take();
+    let (reason, error) = match pending {
+        Some(pending) => (format!("{} ({})", pending.reason, describe_exit(Some(code))), pending.error),
+        None => (describe_exit(Some(code)), None),
+    };
+    write(&reason, code, error.as_deref());
 }
 
 #[cfg(test)]
