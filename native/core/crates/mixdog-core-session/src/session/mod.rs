@@ -183,6 +183,8 @@ mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
 #[cfg(test)]
+mod offload_prune_order_tests;
+#[cfg(test)]
 mod steer_tests;
 #[cfg(test)]
 mod assembly_tests;

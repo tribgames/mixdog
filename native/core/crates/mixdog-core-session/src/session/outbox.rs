@@ -295,6 +295,11 @@ impl Outbox {
         gone
     }
 
+    /// The records accepted and not yet released, stored or not, in accept order.
+    pub fn records(&self) -> impl Iterator<Item = &Record> {
+        self.entries.iter().filter_map(|entry| entry.durable.as_ref().map(|durable| &*durable.record))
+    }
+
     /// The unreleased changes in accept order.
     pub fn changes(&self) -> impl Iterator<Item = &Change> {
         self.entries.iter().map(|entry| &entry.change)

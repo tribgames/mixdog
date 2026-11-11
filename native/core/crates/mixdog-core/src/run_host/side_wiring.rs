@@ -229,7 +229,7 @@ mod tests {
         let saved = |compacted: bool| store.saved_request(&thread).map(|r| r.compacted == compacted);
         let side = SideWiring::new(SideRequests { store: store.clone(), ..requests(dir.path()).await });
         side.requests().tap(run).begin(&request(1)).settle(&reply());
-        let ask = |budget_tokens| CompactRequest { messages: &[], budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
+        let ask = |budget_tokens| CompactRequest { messages: &[], budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, latest_user_prefix: "" };
 
         retiring.compact(ask(0)).await.unwrap();
         assert_eq!(saved(false), Some(true), "a skipped pass adopts nothing");

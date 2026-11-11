@@ -145,6 +145,10 @@ use mixdog_core_base::approvals::request_frame;
 use mixdog_core_base::approvals::request_params;
 use mixdog_core_base::approvals::resolved_frame;
 
+mod compaction_reminder;
+mod offload_prune;
+#[cfg(test)]
+pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;
 mod turn_ops;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
@@ -255,6 +259,10 @@ pub(crate) enum Inbox {
     /// A test's injected unwind of the actor.
     #[cfg(test)]
     Unwind(UnwindAt),
+    /// The end of a test's marked turn (`ControlCell::ask_marked`; Node's `markSessionDone`): the mark is cleared and
+    /// the prune the turn stopped runs, as a turn's end runs it (`run_ended`).
+    #[cfg(test)]
+    AskEnded,
 }
 
 /// Where a test's injected unwind of the actor happens.
@@ -351,6 +359,12 @@ pub(crate) enum JobDone {
     Resumed(Box<ResumeDone>),
     /// The model context a manual compaction's commit reconciles with (`commitSessionCompaction`).
     CompactionRows(Box<CommitRows>),
+    /// The Goal the runtime shows, read for a pre-send compaction's reminder.
+    CompactionReminder(Box<compaction_reminder::ReminderRead>),
+    /// A durable compaction's prune starts (`pruneCompactedOffloads`): told when done.
+    PruneOffloads(oneshot::Sender<()>),
+    /// The prune's old tool-result sidecars, listed: the actor decides and deletes; told when done.
+    PruneListed(Vec<std::path::PathBuf>, oneshot::Sender<()>),
 }
 
 /// A manual compaction's result and the context read to reconcile it with.
@@ -684,6 +698,8 @@ pub(crate) struct SessionActor {
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
     /// was named: the next turn names a new one (`mintTranscriptEpoch`, `turn-checkpoint.mjs`).
     transcript_rewritten: bool,
+    /// A compaction's prune a running turn stopped: it runs once that turn has ended (`offload_prune`).
+    prune_deferred: bool,
     /// The failed turn's provenance a retry row carries as `meta.provenance` (`retryProvenance`,
     /// `ask-session.mjs:199`, `ask-turn-execute.mjs:27-34`); taken by the next turn start like `retry_hidden`.
     /// `None`: not read yet (a plain `turn/start` carrying the retry flags reads it first);
@@ -975,6 +991,7 @@ impl SessionActor {
             compactions: 0,
             retry_hidden: false,
             transcript_rewritten: false,
+            prune_deferred: false,
             retry_provenance: None,
             retry_prior: None,
             runs_begun: 0,
@@ -1030,6 +1047,7 @@ impl SessionActor {
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
         // the marks that move agent status are the status listener's signals.
         self.read_agent_status(false);
+        self.reconcile_offloads();
         let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes().map(SettingsFollow::begin));
         loop {
             let deadline = self.book.next_deadline();
@@ -1040,7 +1058,10 @@ impl SessionActor {
                 Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
                 go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.ok()),
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
-                Some(done) = self.jobs_rx.recv() => self.on_job(done),
+                Some(done) = self.jobs_rx.recv() => match done {
+                    JobDone::PruneListed(candidates, told) => self.prune_listed(candidates, told).await,
+                    done => self.on_job(done),
+                },
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
@@ -1534,7 +1555,7 @@ impl SessionActor {
                 // earlier Goal calls of this thread.
                 let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
                 self.goal_call(Box::pin(async move {
-                    let goal = goals.goal_status(&thread).await.ok().flatten();
+                    let goal = goals.stored_goal(&thread).await.ok().flatten();
                     JobDone::ReminderGoal(start, goal)
                 }));
             }
@@ -1558,6 +1579,9 @@ impl SessionActor {
             JobDone::QuotaFireChecked { generation, tx, retained, provenance } => self.quota_fire_checked(generation, tx, retained, provenance),
             JobDone::Resumed(done) => self.resumed(*done),
             JobDone::CompactionRows(done) => self.compaction_rows(*done),
+            JobDone::CompactionReminder(read) => self.compaction_reminder_read(*read),
+            JobDone::PruneOffloads(told) => self.prune_offloads(told),
+            JobDone::PruneListed(..) => unreachable!("the run loop awaits it"),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);
@@ -1700,20 +1724,8 @@ impl SessionActor {
     /// (`markPendingGoalReminder`: one more revision, the next turn's tail carries it), then the
     /// next continuation carries the full rules again.
     fn mark_goal_reminder(&mut self, reason: &str) {
-        // `Math.max(0, Number(x) || 0)`.
-        let number = |value: Option<&Value>| value.and_then(Value::as_f64).filter(|n| !n.is_nan()).unwrap_or(0.0).max(0.0);
-        let header = &self.projected.header;
-        let pending = number(header.get("pendingGoalReminder").and_then(|pending| pending.get("revision")));
-        let revision = mixdog_js::json_number(pending.max(number(header.get("goalReminderRevision"))) + 1.0);
-        let reason = match mixdog_js::js_trim(reason) {
-            "" => "compaction",
-            reason => reason,
-        };
-        let mut set = serde_json::Map::new();
-        set.insert("goalReminderRevision".into(), revision.clone());
-        set.insert("pendingGoalReminder".into(), json!({ "version": 1, "type": "goal_state", "revision": revision, "reason": reason }));
-        set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        let change = super::goal_reminder::mark(&self.projected.header, reason, self.deps.clock.now_ms());
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
         self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
     }
@@ -2625,6 +2637,7 @@ impl SessionActor {
         if self.deleting {
             self.delete_turn_ended();
         }
+        self.run_deferred_prune();
         // The queue moves on, and the thread may unload, once the settlement is back
         // (`JobDone::GoalSettled`).
     }
@@ -3059,7 +3072,17 @@ impl SessionActor {
     /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its
     /// Goal settlement (`publishTurnClose`).
     fn ui_busy(&self) -> bool {
-        self.run.is_some() || self.starting
+        self.run.is_some() || self.starting || self.ask_marked()
+    }
+
+    #[cfg(test)]
+    fn ask_marked(&self) -> bool {
+        self.cell.ask_marked.load(SeqCst)
+    }
+
+    #[cfg(not(test))]
+    fn ask_marked(&self) -> bool {
+        false
     }
 
     /// `shouldRunGoalContinuation(entry)` for a dequeued Goal entry: a closeout reads the
@@ -3331,6 +3354,8 @@ impl SessionActor {
                     None => drop(ack.send(Ok(()))),
                 }
             }
+            ProducerMsg::GoalReminder { turn, preview, reply } => self.compaction_reminder_asked(turn, preview, reply),
+            ProducerMsg::GoalReminderAcknowledged { revision } => self.compaction_reminder_acknowledged(revision),
             ProducerMsg::Header { turn, change, ack } => {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
@@ -3942,6 +3967,11 @@ impl SessionActor {
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
             #[cfg(test)]
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
+            #[cfg(test)]
+            Inbox::AskEnded => {
+                self.cell.ask_marked.store(false, SeqCst);
+                self.run_deferred_prune();
+            }
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {

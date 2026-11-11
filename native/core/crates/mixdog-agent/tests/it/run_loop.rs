@@ -2569,10 +2569,10 @@ struct Artifacts(Mutex<Vec<String>>);
 impl mixdog_agent::offload::ArtifactStore for Artifacts {
     async fn persist(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
         self.0.lock().unwrap().push(content.to_owned());
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
     }
     async fn preview(&self, _content: &str) -> Option<mixdog_agent::offload::Artifact> {
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
     }
 }
 
@@ -3527,7 +3527,7 @@ impl mixdog_agent::offload::ArtifactStore for Persisting {
         self.preview(content).await
     }
     async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
     }
 }
 
