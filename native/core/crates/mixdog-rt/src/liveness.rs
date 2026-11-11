@@ -28,6 +28,23 @@ pub struct Expired {
     pub after: Duration,
 }
 
+/// A content window's end on the runtime's clock (a paused test clock reaches it only by an explicit advance): armed
+/// by its owner, re-armed by building a new one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Deadline(tokio::time::Instant);
+
+impl Deadline {
+    /// The end of a window of `window` starting now.
+    pub fn after(window: Duration) -> Self {
+        Self(tokio::time::Instant::now() + window)
+    }
+
+    /// `work`, or `None` when the deadline passes first.
+    pub async fn bound<T>(self, work: impl Future<Output = T>) -> Option<T> {
+        tokio::time::timeout_at(self.0, work).await.ok()
+    }
+}
+
 impl Liveness {
     pub const fn unary(total: Duration) -> Self {
         Self::Unary { total }

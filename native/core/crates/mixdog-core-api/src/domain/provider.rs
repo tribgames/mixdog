@@ -1218,6 +1218,12 @@ pub struct SendStages {
     pub each_attempt: bool,
     /// A `requesting` stage before the re-issue of a spent send ([`ProviderAdapter::recover_spent`]).
     pub before_recovery: bool,
+    /// The `reconnecting` stage before each retry wait of the provider's own ladder (Gemini's `geminiRetryLogger`).
+    pub reconnecting: bool,
+    /// The ladder is chosen by whether the attempt's response opened (its headers arrived and were accepted), and each
+    /// stream attempt opens under a fresh connection ladder (`runGeminiStreamAttempts`' `connected()`); otherwise by
+    /// whether the attempt produced an event.
+    pub ladder_by_connection: bool,
 }
 
 /// How a logical send ended when it did not succeed.

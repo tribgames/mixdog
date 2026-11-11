@@ -411,12 +411,18 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     /// `GeminiProvider._doSend`: `requesting` once the request is built and again once its cache is settled, then
-    /// before every attempt (`run`) and before the non-streaming re-issue.
+    /// before every attempt (`run`) and before the non-streaming re-issue, and `reconnecting` before each retry wait
+    /// (`geminiRetryLogger`, gemini.mjs:239-246). Gemini models on the Gemini API and on Vertex AI run
+    /// `runGeminiStreamAttempts` (gemini.mjs:866-876, vertex-ai.mjs:382-398): the ladder by the response having opened;
+    /// Vertex AI passes no `onRetry`, so it raises no `reconnecting`.
     fn send_stages(&self, model: &str) -> SendStages {
+        let gemini_ladder = !matches!(self.codec.target(), Target::Antigravity { .. })
+            && self.codec.maas_model(model).is_none()
+            && self.codec.claude_model(model).is_none();
         if !self.direct_gemini(model) {
-            return SendStages::default();
+            return SendStages { ladder_by_connection: gemini_ladder, ..SendStages::default() };
         }
-        SendStages { preparing: 2, each_attempt: true, before_recovery: true }
+        SendStages { preparing: 2, each_attempt: true, before_recovery: true, reconnecting: true, ladder_by_connection: true }
     }
 
     /// `geminiRetryLogger(opts, '[gemini]')` of a send without a cached prefix (`_streamViaRest`'s label).
@@ -794,6 +800,8 @@ impl ModelStream for GoogleStream {
                 },
                 Some(Err(fault)) => {
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                    // Node reads the body through `fetch` (gemini-rest-stream), whose socket failure is undici's.
+                    err.message = crate::transport::link::TERMINATED.to_owned();
                     err.exposure = self.decoder.exposure();
                     self.fail(err);
                 }

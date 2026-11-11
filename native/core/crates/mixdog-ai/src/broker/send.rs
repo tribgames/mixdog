@@ -71,12 +71,18 @@ impl ModelBroker {
 
     /// Runs the request to its terminal event. Returns the attempts made.
     ///
-    /// A failure before the attempt's stream opened (the response's headers
-    /// arrived and it was accepted) counts against the policy's `request` row,
-    /// a failure after it against `midstream` (`runGeminiStreamAttempts`'
-    /// `connected()`); each row keeps its own state across attempts. Each retry
-    /// raises the `reconnecting` stage before its wait. The permit is held
-    /// across retries, so a retry never re-queues.
+    /// A failure before any event of the attempt counts against the policy's
+    /// `request` row, a later one against `midstream`; for a provider whose
+    /// ladder goes by the connection ([`SendStages::ladder_by_connection`]) a
+    /// failure before the attempt's stream opened is the `request` row's and
+    /// one after it the `midstream` row's, each stream attempt under a fresh
+    /// `request` row. Each row keeps its own state across attempts. A provider
+    /// that raises `reconnecting` ([`SendStages::reconnecting`]) gets it before
+    /// each retry wait. The permit is held across retries, so a retry never
+    /// re-queues.
+    ///
+    /// [`SendStages::ladder_by_connection`]: mixdog_core_api::domain::provider::SendStages::ladder_by_connection
+    /// [`SendStages::reconnecting`]: mixdog_core_api::domain::provider::SendStages::reconnecting
     pub async fn send(
         &self,
         adapter: &dyn ProviderAdapter,
@@ -113,7 +119,7 @@ impl ModelBroker {
             }
             let mut streamed = false;
             let failure = match self
-                .attempt(adapter, &send.request, sink, cancel, &mut streamed, liveness.as_deref())
+                .attempt(adapter, &send.request, sink, cancel, &mut streamed, stages.ladder_by_connection, liveness.as_deref())
                 .await
             {
                 Ok(()) => {
@@ -130,8 +136,10 @@ impl ModelBroker {
                 permit.report_rate_limit(failure.retry_after);
             }
             let (state, class) = if streamed {
-                // `runGeminiStreamAttempts`: each stream attempt opens under a fresh connection ladder.
-                request_state = RetryState::new(RetryClass::Request, model.clone());
+                if stages.ladder_by_connection {
+                    // `runGeminiStreamAttempts`: each stream attempt opens under a fresh connection ladder.
+                    request_state = RetryState::new(RetryClass::Request, model.clone());
+                }
                 (&mut midstream_state, RetryClass::Midstream)
             } else {
                 (&mut request_state, RetryClass::Request)
@@ -141,7 +149,9 @@ impl ModelBroker {
             // `emitProviderRetryStage`'s attempt: the one about to run, of the row's attempts.
             let attempt = decision.next.count(None).retries + 1;
             *state = decision.next;
-            let exhausted = matches!(decision.verdict, Verdict::Exhausted);
+            // `runGeminiStreamAttempts` marks every failure after its stream opened as its connection ladder's spent
+            // one (`gemini-retry-policy.mjs:151`), whether or not the stream ladder re-issues it.
+            let exhausted = matches!(decision.verdict, Verdict::Exhausted) || (streamed && stages.ladder_by_connection);
             let end = |permit: crate::admission::Permit, error: ProviderError| {
                 permit.finish(Outcome::Failure {
                     status: error.status,
@@ -151,8 +161,10 @@ impl ModelBroker {
             };
             match decision.verdict {
                 Verdict::Retry { delay, .. } => {
-                    let max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
-                    sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
+                    if stages.reconnecting {
+                        let max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
+                        sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
+                    }
                     if let Some(tag) = adapter.retry_log_tag(&model) {
                         mixdog_rt::node_stderr!("{tag} retry attempt {attempt} after {}", failure.message);
                     }
@@ -191,8 +203,8 @@ impl ModelBroker {
                         Err(Stop::Failed(_)) => return Err(SendError::Provider(end(permit, failure))),
                     }
                 }
-                Verdict::Surface => return Err(SendError::Provider(end(permit, failure))),
-                Verdict::Exhausted => return Err(SendError::Exhausted(end(permit, failure))),
+                Verdict::Surface | Verdict::Exhausted if exhausted => return Err(SendError::Exhausted(end(permit, failure))),
+                Verdict::Surface | Verdict::Exhausted => return Err(SendError::Provider(end(permit, failure))),
                 Verdict::Fallback { model } => {
                     return Err(SendError::Fallback {
                         model,
@@ -210,6 +222,7 @@ impl ModelBroker {
         sink: &mut dyn AttemptSink,
         cancel: &CancellationToken,
         streamed: &mut bool,
+        by_connection: bool,
         liveness: Option<&RunLiveness>,
     ) -> Result<(), Stop> {
         let stream = tokio::select! {
@@ -217,9 +230,11 @@ impl ModelBroker {
             _ = cancel.cancelled() => return Err(Stop::Cancelled),
             opened = adapter.attempt(request.clone()) => opened.map_err(Stop::Failed)?,
         };
-        // The stream opened: a failure from here on is the stream's, not the request's.
-        *streamed = true;
-        Self::consume(stream, sink, cancel, liveness).await
+        if by_connection {
+            // The stream opened: a failure from here on is the stream's, not the request's.
+            *streamed = true;
+        }
+        Self::consume(stream, sink, cancel, (!by_connection).then_some(streamed), liveness).await
     }
 
     /// The provider's re-issue of a spent send ([`ProviderAdapter::recover_spent`]), to its terminal event.
@@ -236,14 +251,15 @@ impl ModelBroker {
             _ = cancel.cancelled() => return Err(Stop::Cancelled),
             opened = adapter.recover_spent(request.clone()) => opened.map_err(Stop::Failed)?,
         };
-        Self::consume(stream, sink, cancel, liveness).await
+        Self::consume(stream, sink, cancel, None, liveness).await
     }
 
-    /// An opened stream's events into `sink`, to its terminal event.
+    /// An opened stream's events into `sink`, to its terminal event; `evented` is set by the first event.
     async fn consume(
         mut stream: Box<dyn mixdog_core_api::domain::provider::ModelStream>,
         sink: &mut dyn AttemptSink,
         cancel: &CancellationToken,
+        mut evented: Option<&mut bool>,
         liveness: Option<&RunLiveness>,
     ) -> Result<(), Stop> {
         let mut reported: Option<Usage> = None;
@@ -255,6 +271,9 @@ impl ModelBroker {
             };
             match item {
                 Some(Ok(event)) => {
+                    if let Some(evented) = evented.as_deref_mut() {
+                        *evented = true;
+                    }
                     // A provider keepalive is informational, never progress (SPEC §4.9).
                     if let Some(liveness) = liveness
                         && !matches!(event, StreamEvent::ProviderKeepalive)
