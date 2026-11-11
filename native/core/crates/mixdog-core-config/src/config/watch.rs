@@ -85,6 +85,7 @@ impl ConfigWatcher {
                 if let Some(secrets) = &secrets {
                     secrets.sync().await;
                 }
+                config.shared.passes.send_modify(|passes| *passes += 1);
             }
         });
         Ok(Self { watcher, task })

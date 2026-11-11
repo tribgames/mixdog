@@ -257,6 +257,26 @@ await record('a credential file that cannot be stat’ed is not read as unchange
   observe();
 });
 
+// The test's loader (config-snapshot.test.mjs:333) writes the credential file after the build's probes read it and before the build
+// records its epoch: the first read is built from what it read before the write, the write is still observed.
+await record('another process’s write landing while a build runs is still observed', async () => {
+  useDataDir({ silent: true });
+  let landed = false;
+  snapshot = createConfigSnapshot((options) => {
+    const value = cfg.loadConfig(options);
+    if (!landed && options.secrets !== false) {
+      landed = true;
+      foreignWrite(credentials(), SIGNED_IN);
+    }
+    return value;
+  });
+  steps.push({ op: 'writeDuringBuild', text: JSON.stringify(SIGNED_IN) });
+  observe();
+  if (!landed) throw new Error('the write did not land during the build');
+  await until(() => read().providers['openai-oauth'].enabled === true);
+  observe();
+});
+
 // The fake clock cases: Date and setTimeout are mocked from NOW, as the test's `mock.timers`.
 mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW });
 // `epochMoved`: whether the tick told the config inputs' listeners (config-snapshot.test.mjs:380-382, :400-402).
@@ -322,13 +342,9 @@ const excluded = {
     "only the input epoch moving and the snapshot's object identity changing (`assert.notEqual(full(), before)`), which no reader can see; " +
     'the rebuilt config equals the one before',
   'a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the logged EACCES':
-    "the failed stat is Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80, logged by watched-file-cache.mjs); the core " +
-    'keeps no stamp and never stats the file, so it has no stat failure to log; the config after the removal and after the rewrite is replayed',
-  'another process’s write landing while a build runs is still observed':
-    'not reachable by a client: the write is placed between the probes and the epoch read of one build through an injected loader ' +
-    '(config-snapshot.mjs:144-165, the test wraps createConfigSnapshot\'s `load`); outside the module a write is only ever seen ' +
-    'by its watch event, which the credential-watch cases replay',
-};
+    "Rust absence: the failed stat and its log line are Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80, " +
+    'logged by watched-file-cache.mjs); the core keeps no stamp and never stats a credential file to compare it, so it has no stat failure ' +
+    'to log, and a denied read of the file is not injectable at its seam. The config after the removal and after the rewrite is replayed',};
 
 const finalDir = join(FIXTURES_ROOT, 'config-snapshot-cases');
 const stage = stageSet(finalDir);
@@ -347,9 +363,7 @@ writeSetManifest(stage, {
       "core's loaded config lays no defaults on, Node's carries them. Also the config listener's first read (`listener`, " +
       "test :197), whether each clock tick told the config inputs' listeners (`epochMoved`, test :380-402) and that a torn file " +
       "moves nothing (`quiet`, test :263-267). A listener's notification count is not compared: the core's change cell " +
-      'coalesces ticks (`Config::changes`), where Node tells once per file event. A torn in-place write makes no core notification (the reload fails, the last good document stays), so the pass over its first bytes is not awaited; the completing write is. The replay waits for each rebuild\'s notification and accepts, between ' +
-      "the recorded moments, a rebuild equal to the last observation or to the empty-data-dir base: the core reads the file by path, and a foreign " +
-      "replace (temp file renamed over it, as `foreignWrite` does) can be read while the path is empty on Windows",
+      'coalesces ticks (`Config::changes`), where Node tells once per file event. The replay holds each observation until the rebuild that takes the step in has produced the recorded state, under one deadline whose failure names the step and shows the last read; it does not judge the states in between (the core reads the file by path, and a foreign replace, a temp file renamed over it as `foreignWrite` does, can be read while the path is empty on Windows). A torn in-place write makes no `Config::changes` notification (the reload fails, the last good document stays); its pass is awaited through the file watch pass counter (`Config::watch_passes`), the core signal added for it. The write landing during a build (`writeDuringBuild`) lands after the first load and before the sync starts, and the sync takes it in as its own first rebuild.',
     isolated: 'an in-memory keychain and a fresh HOME; the fake clock cases start at 2026-03-01T10:00:00.000Z',
     excluded,
   },

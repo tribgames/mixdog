@@ -63,6 +63,9 @@ pub async fn load_config(config: &Config, effective: &EffectiveProviders) -> Res
 /// causes; `task` ends with `stop` or with the config.
 pub struct ProviderSync {
     pub applied: watch::Receiver<u64>,
+    /// 	rue once the sync has taken in what changed before its watch began and has read the credential expiry it waits for:
+    /// from then on every change reaches pplied.
+    pub ready: watch::Receiver<bool>,
     pub task: tokio::task::JoinHandle<()>,
 }
 
@@ -113,6 +116,7 @@ pub fn spawn_provider_sync_on(
     pace: Arc<dyn Pace>,
 ) -> ProviderSync {
     let (applied_tx, applied) = watch::channel(0u64);
+    let (ready_tx, ready) = watch::channel(false);
     // Subscribed before the task starts, so no change between the two is missed.
     let mut changes = config.changes();
     // Watched before the task starts, for the same reason. A watch that cannot start leaves the config trigger.
@@ -123,7 +127,20 @@ pub fn spawn_provider_sync_on(
     let task = mixdog_rt::spawn("providers.sync", TaskClass::Work, async move {
         let _watch = watch;
         let mut count = 0u64;
+        // Node watches its inputs before it loads (`config-snapshot.mjs`, "Watch before loading, so a write after the load is
+        // never missed"); the caller loaded before this watch began, so what changed in between is taken in now, and only that:
+        // a load that finds the same config hands nothing on.
+        if let Ok(next) = load_config(&config, &effective).await
+            && next != *loaded.get()
+        {
+            let providers = next.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
+            loaded.replace(next);
+            readiness.set_providers(providers);
+            count += 1;
+            applied_tx.send_replace(count);
+        }
         let mut expiry = effective.credential_expiry().await;
+        ready_tx.send_replace(true);
         loop {
             let deadline = {
                 let pace = pace.clone();
@@ -153,5 +170,5 @@ pub fn spawn_provider_sync_on(
             }
         }
     });
-    ProviderSync { applied, task }
+    ProviderSync { applied, ready, task }
 }

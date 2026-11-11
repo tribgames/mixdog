@@ -4584,6 +4584,348 @@
       ]
     },
     {
+      "case": "another process’s write landing while a build runs is still observed",
+      "steps": [
+        {
+          "op": "writeDuringBuild",
+          "text": "{\"access_token\":\"access\",\"refresh_token\":\"refresh\"}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": []
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
       "case": "an access token with no refresh token stops counting at its expiry, with no file changing",
       "steps": [
         {
