@@ -2,8 +2,8 @@
 //! judgment before its next request, so this future always completes: a
 //! model that is not installed or being installed, a load failure, a run
 //! error, a lane that refuses the job and a worker that dies or panics all
-//! answer `None`, which leaves the step at the effort in force. There are no
-//! timers: a judgment ends when the inference ends.
+//! answer `None`, which leaves the step at the effort in force. A judgment ends
+//! when the inference ends, or when the watchdog gives its thread up ([`JudgeWorker`]).
 //!
 //! The model load, its warm-up and every inference run on the judge's own thread
 //! ([`JudgeWorker`], Node's judge worker): normal priority, one judgment at a time
@@ -37,7 +37,7 @@ use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::input::{TurnInput, clip_turn};
 use crate::effort_judge::ladder::StepLadder;
 use crate::effort_judge::model::{JudgeModel, ModelConfig, available, available_on, steps_in};
-use crate::effort_judge::worker::JudgeWorker;
+use crate::effort_judge::worker::{Alarm, JudgeWorker, Seat, TickerAlarm};
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{JudgeStatus, StateTick};
 
@@ -57,7 +57,13 @@ impl Resident for JudgeModel {
     }
 }
 
-type Loaded = Option<Result<Arc<dyn Resident>, JudgeError>>;
+/// The model's load: the generation of the judge thread holding it, or the remembered failure.
+type Loaded = Option<Result<u64, JudgeError>>;
+
+/// The model a judge thread holds.
+fn resident(seat: &Seat) -> Result<&Arc<dyn Resident>, JudgeError> {
+    seat.model.as_ref().ok_or_else(|| JudgeError::Worker("no model on the effort judge thread".to_owned()))
+}
 
 /// A load that tests run on the judge's thread instead of the ONNX model's.
 #[cfg(test)]
@@ -139,6 +145,7 @@ fn skip_reason(error: &JudgeError) -> String {
         JudgeError::Installing => "installing".to_owned(),
         JudgeError::Unsupported => "unsupported".to_owned(),
         JudgeError::Worker(_) | JudgeError::Cancelled => EXITED.to_owned(),
+        JudgeError::Busy => "busy".to_owned(),
         JudgeError::Run(message) => message.clone(),
         JudgeError::StepsUnsupported => "step-unsupported".to_owned(),
     }
@@ -165,13 +172,12 @@ pub struct EffortJudgeModel {
     /// One load or judgment at a time: waiting happens here, not on a lane thread. Every entry
     /// carries a cancel token, so a waiter (and a stuck section) never outlives its caller.
     turn: Gate,
-    /// The loaded model (or its remembered load failure). Held for a few instructions only,
-    /// never across an await; the `turn` gate orders the loads and judgments that change it.
+    /// Where the model is loaded (or its remembered load failure). Held for a few instructions only,
+    /// never across an await; the `turn` gate orders the loads and judgments that change it. A model
+    /// on a thread no longer taking jobs is no model. Readable without the turn gate.
     model: std::sync::Mutex<Loaded>,
     /// An install or repair is replacing the files: judgments answer at once.
     installing: AtomicBool,
-    /// Readable without the turn gate, which a running judgment holds.
-    ready: AtomicBool,
     last_error: std::sync::Mutex<String>,
     /// When the remembered load failure happened (`lastLoadErrorAt`).
     failed_at: std::sync::Mutex<Option<std::time::Instant>>,
@@ -192,18 +198,31 @@ impl EffortJudgeModel {
     }
 
     pub fn with_options(config: ModelConfig, lanes: JudgeLanes, options: JudgeOptions) -> Result<Arc<Self>, InstallError> {
-        Self::create(config, lanes, options).map(Arc::new)
+        Self::create(config, lanes, options, Arc::new(TickerAlarm)).map(Arc::new)
     }
 
     /// A judge whose loads run `script` on its thread instead of loading the ONNX model.
     #[cfg(test)]
     pub(crate) fn scripted(config: ModelConfig, lanes: JudgeLanes, script: Script) -> Arc<Self> {
-        let mut judge = Self::create(config, lanes, JudgeOptions::default()).expect("the bundled manifest");
+        Self::scripted_on(config, lanes, script, Arc::new(TickerAlarm), StateTick::default())
+    }
+
+    /// [`Self::scripted`] with the watchdog on `alarm` and the state changes on `tick`.
+    #[cfg(test)]
+    pub(crate) fn scripted_on(config: ModelConfig, lanes: JudgeLanes, script: Script, alarm: Arc<dyn Alarm>, tick: StateTick) -> Arc<Self> {
+        let options = JudgeOptions { tick, ..JudgeOptions::default() };
+        let mut judge = Self::create(config, lanes, options, alarm).expect("the bundled manifest");
         judge.script = Some(script);
         Arc::new(judge)
     }
 
-    fn create(config: ModelConfig, lanes: JudgeLanes, options: JudgeOptions) -> Result<Self, InstallError> {
+    /// The judge's threads, for tests.
+    #[cfg(test)]
+    pub(crate) fn worker(&self) -> &JudgeWorker {
+        &self.worker
+    }
+
+    fn create(config: ModelConfig, lanes: JudgeLanes, options: JudgeOptions, alarm: Arc<dyn Alarm>) -> Result<Self, InstallError> {
         let manifest = match options.manifest {
             Some(manifest) => manifest,
             None => Manifest::bundled()?,
@@ -211,13 +230,12 @@ impl EffortJudgeModel {
         Ok(Self {
             config,
             lanes,
-            worker: JudgeWorker::new(lanes.thread),
+            worker: JudgeWorker::new(lanes.thread, options.tick.clone(), alarm),
             manifest,
             progress: options.progress,
             turn: Gate::new(),
             model: std::sync::Mutex::new(None),
             installing: AtomicBool::new(false),
-            ready: AtomicBool::new(false),
             last_error: std::sync::Mutex::new(String::new()),
             failed_at: std::sync::Mutex::new(None),
             tick: options.tick,
@@ -245,9 +263,19 @@ impl EffortJudgeModel {
         self.config.runtime_supported() && available(&self.config)
     }
 
-    /// `effortJudgeReady()`.
+    /// `effortJudgeReady()`: the model is loaded on the thread taking jobs.
     pub fn is_ready(&self) -> bool {
-        self.ready.load(Ordering::Acquire)
+        matches!(self.loaded(), Some(Ok(_)))
+    }
+
+    /// The load as it stands for the thread taking jobs: a model on a thread given up (stuck,
+    /// panicked, shut down) or stalled is none, as Node's `ready` falls with its worker.
+    fn loaded(&self) -> Loaded {
+        let state = self.model_state().clone();
+        match state {
+            Some(Ok(generation)) if self.worker.generation() != Some(generation) => None,
+            other => other,
+        }
     }
 
     /// `effortJudgeLastError()`: empty when the model loaded or never failed.
@@ -255,9 +283,8 @@ impl EffortJudgeModel {
         self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
-    fn set_load_state(&self, ready: bool, error: String) {
+    fn set_load_state(&self, error: String) {
         *self.failed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (!error.is_empty()).then(std::time::Instant::now);
-        self.ready.store(ready, Ordering::Release);
         *self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = error;
         self.tick.bump();
     }
@@ -307,45 +334,52 @@ impl EffortJudgeModel {
         self.model.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Drops the resident model on the judge's thread: the session's drop joins its intra-op
+    /// Drops the model on the judge's thread, which owns it: the session's drop joins its intra-op
     /// threads, which no async worker may wait for.
     fn unload(&self) {
-        let resident = self.model_state().take();
-        if let Some(resident) = resident {
-            // A thread that cannot start never loaded this model; it is dropped here then.
-            let _ = self.worker.post(move || drop(resident));
+        if self.model_state().take().is_some() {
+            self.worker.post(|seat| seat.model = None);
         }
     }
 
-    /// The load job: tokenizer, session and the warm-up run, all on the judge's thread.
-    fn load_job(&self) -> impl FnOnce() -> Result<Arc<dyn Resident>, JudgeError> + Send + 'static {
+    /// The load job: tokenizer, session and the warm-up run, all on the judge's thread, which keeps
+    /// the model. Answers that thread's generation.
+    fn load_job(&self) -> impl FnOnce(&mut Seat) -> Result<u64, JudgeError> + Send + 'static {
         let (config, threads) = (self.config.clone(), self.lanes.thread);
         #[cfg(test)]
         let script = self.script.clone();
-        move || {
+        move |seat| {
             #[cfg(test)]
-            if let Some(script) = script {
-                return script();
-            }
-            JudgeModel::load(&config, threads).map(|model| Arc::new(model) as Arc<dyn Resident>)
+            let loaded = match script {
+                Some(script) => script(),
+                None => JudgeModel::load(&config, threads).map(|model| Arc::new(model) as Arc<dyn Resident>),
+            };
+            #[cfg(not(test))]
+            let loaded = JudgeModel::load(&config, threads).map(|model| Arc::new(model) as Arc<dyn Resident>);
+            seat.model = Some(loaded?);
+            Ok(seat.generation)
         }
     }
 
-    /// Loads the model unless it is already there (or failed); callers hold the `turn` gate.
-    /// A model that is not installed is not remembered: an install can follow.
-    /// A thread that cannot start is not remembered either; a load failure is.
-    async fn ensure_loaded(&self) -> Result<Arc<dyn Resident>, JudgeError> {
-        let resident = self.model_state().clone();
-        if let Some(outcome) = resident {
+    /// Loads the model unless the thread taking jobs has it (or it failed); callers hold the `turn`
+    /// gate. Answers the generation of the thread holding it. A model that is not installed is not
+    /// remembered: an install can follow. A thread that cannot take the job is not remembered
+    /// either; a load failure is, a panicking load included.
+    async fn ensure_loaded(&self) -> Result<u64, JudgeError> {
+        if let Some(outcome) = self.loaded() {
             return outcome;
         }
-        let outcome = self.worker.run(self.load_job()).await?;
+        let outcome = match self.worker.load(self.load_job()).await {
+            Ok(outcome) => outcome,
+            Err(error @ JudgeError::Load(_)) => Err(error),
+            Err(error) => return Err(error),
+        };
         if matches!(outcome, Err(JudgeError::NotInstalled(_))) {
             return outcome;
         }
         match &outcome {
-            Ok(_) => self.set_load_state(true, String::new()),
-            Err(error) => self.set_load_state(false, error.to_string()),
+            Ok(_) => self.set_load_state(String::new()),
+            Err(error) => self.set_load_state(error.to_string()),
         }
         *self.model_state() = Some(outcome.clone());
         outcome
@@ -369,14 +403,15 @@ impl EffortJudgeModel {
                 if self.is_installing() {
                     return Err(JudgeError::Installing);
                 }
-                let model = match self.ensure_loaded().await {
-                    Ok(model) => model,
+                let generation = match self.ensure_loaded().await {
+                    Ok(generation) => generation,
                     Err(error) => {
                         load_failure = Some(error.clone());
                         return Err(error);
                     }
                 };
-                self.worker.run(move || model.probs(&input)).await?
+                // Dropping this future (the step's run was cancelled) drops the job unless it runs.
+                self.worker.judge(generation, &self.cancel, move |seat| resident(seat)?.probs(&input)).await?
             })
             .await
             .map_err(|_| JudgeError::Cancelled)?;
@@ -403,8 +438,8 @@ impl EffortJudgeModel {
             Ok(false) => return TurnVerdict::skipped("model-missing"),
             Err(error) => return TurnVerdict::skipped(error.to_string()),
         }
-        // The turn's inference holds the gate only while this call waits for it: the token fires
-        // when the call returns, whatever the way, so a stuck inference never outlives its caller.
+        // Fires when the call returns, whatever the way: a turn still waiting for its place leaves the
+        // queue then, and one that has not reached the thread is not run (Node's `abandoned`).
         let call = self.cancel.child_token();
         let _call_ends = call.clone().drop_guard();
         if !self.is_ready() {
@@ -429,33 +464,29 @@ impl EffortJudgeModel {
                 }
             }
         }
-        // The task takes its place in the queue and keeps it while the caller waits; the caller's
-        // deadline (or its own cancel) ends the task, wherever it is, and frees the gate.
+        // Node's `target`: the thread whose model is ready as the turn arrives.
+        let Some(Ok(target)) = self.loaded() else { return TurnVerdict::skipped(EXITED) };
+        // The task takes its place in the queue and keeps it while the caller waits for it. Once the
+        // judgment is sent it holds the queue until the thread answers, or is given up by the
+        // watchdog, whether or not the caller still waits: Node sends the next request only then.
         let (started_tx, started_rx) = oneshot::channel();
         let (result_tx, result_rx) = oneshot::channel();
         let this = self.clone();
         let clipped = clip_turn(&input);
         let turn_cancel = call.clone();
         mixdog_rt::spawn("services.effort-judge.turn", TaskClass::Work, async move {
-            let ran = this
-                .turn
-                .run(&turn_cancel, async {
-                    if started_tx.send(()).is_err() {
-                        return None;
-                    }
-                    let outcome = async {
-                        let model = this.ensure_loaded().await?;
-                        let began = std::time::Instant::now();
-                        let probs = this.worker.run(move || model.turn_probs(&clipped)).await??;
-                        Ok::<_, JudgeError>((probs, u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX)))
-                    }
-                    .await;
-                    Some(outcome)
-                })
-                .await;
-            if let Ok(Some(outcome)) = ran {
-                drop(result_tx.send(outcome));
+            let Ok(_turn) = this.turn.enter(&turn_cancel).await else { return };
+            if started_tx.send(()).is_err() {
+                return;
             }
+            // A thread given up (or shut down) while the turn waited: Node's `worker !== target`.
+            if !matches!(this.loaded(), Some(Ok(generation)) if generation == target) {
+                drop(result_tx.send(Err(JudgeError::Worker(EXITED.to_owned()))));
+                return;
+            }
+            let began = std::time::Instant::now();
+            let outcome = this.worker.judge(target, &turn_cancel, move |seat| resident(seat)?.turn_probs(&clipped)).await;
+            drop(result_tx.send(outcome.and_then(|probs| Ok((probs?, u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX))))));
         });
         match tokio::time::timeout(timing.queue, started_rx).await {
             Ok(Ok(())) => {}
@@ -579,7 +610,7 @@ impl EffortJudgeModel {
         if self.turn.is_busy() {
             return true;
         }
-        let resident = self.model_state().as_ref().map(Result::is_ok);
+        let resident = self.loaded().as_ref().map(Result::is_ok);
         match resident {
             Some(ok) => ok,
             None => {
@@ -603,10 +634,11 @@ impl EffortJudgeModel {
 
     /// `shutdownEffortJudge()`: unloads the model; the next judgment loads it again.
     pub async fn shutdown(&self) {
-        // Not behind the gate: a stuck judgment must not hold the exit. It keeps its own `Arc`
-        // of the model until it ends.
-        self.unload();
-        self.ready.store(false, Ordering::Release);
+        // Not behind the gate, and nothing waits for the thread: a running judgment must not hold
+        // the exit. Its waiters, and the turns queued behind it, answer "effort judge exited" as
+        // Node's terminated worker does; the thread drops its model when that judgment returns.
+        self.model_state().take();
+        self.worker.leave();
         self.tick.bump();
     }
 
@@ -632,7 +664,6 @@ impl EffortJudgeModel {
             let _idle = self.turn.enter(cancel).await.map_err(|_| InstallError::Cancelled)?;
             self.unload();
         }
-        self.ready.store(false, Ordering::Release);
         self.tick.bump();
         let outcome = work.await;
         if outcome.is_ok() {

@@ -242,13 +242,25 @@ impl JitterSource for HalfJitter {
     }
 }
 
+/// Records each wait; with a hold, a wait ends only when the test lets it ([`HeldTimer`]).
 #[derive(Default)]
-struct RecordedWait(Mutex<Vec<Duration>>);
+struct RecordedWait(Mutex<Vec<Duration>>, Option<Arc<HeldTimer>>);
 #[async_trait]
 impl RetryWait for RecordedWait {
     async fn wait(&self, delay: Duration) {
         self.0.lock().unwrap().push(delay);
+        if let Some(held) = &self.1 {
+            held.waiting.notify_one();
+            held.elapse.notified().await;
+        }
     }
+}
+
+/// The host's timer under the test's hand: a wait announces itself and its time passes when the test says so.
+#[derive(Default)]
+struct HeldTimer {
+    waiting: tokio::sync::Notify,
+    elapse: tokio::sync::Notify,
 }
 
 #[derive(Default)]
@@ -2453,10 +2465,12 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    let h = Harness::new(vec![
+    let mut h = Harness::new(vec![
         turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
+    let timer = Arc::new(HeldTimer::default());
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
     let seed = EffortSnapshot {
         provider: "openai".into(),
@@ -2482,16 +2496,12 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
     run.set_step_judge(judge.clone());
     let task = tokio::spawn(run.run());
-    while !judge.entered.load(Ordering::SeqCst) {
-        tokio::task::yield_now().await;
-    }
-    // The judge is held: the second request must not have been sent.
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
+    tokio::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    // The judge is held and the grace has not passed: the second request must not have been sent.
     assert_eq!(h.provider.requests().len(), 1);
+    // The judgment resolves inside the grace, whose time never passes.
     judge.gate.notify_one();
-    let output = task.await.unwrap().expect("run");
+    let output = tokio::time::timeout(Duration::from_secs(30), task).await.expect("the run ends once judged").unwrap().expect("run");
     assert_eq!(h.provider.requests().len(), 2);
     let seen = adapter.seen.lock().unwrap().clone();
     assert!(seen[0].as_ref().is_some_and(|p| p.updates.is_empty()), "the first request has nothing to update");
@@ -2509,16 +2519,18 @@ impl mixdog_agent::step_effort::StepEffortJudge for SilentJudge {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_only() {
     use mixdog_agent::effort::EffortMode;
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    let h = Harness::new(vec![
+    let mut h = Harness::new(vec![
         turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
+    let timer = Arc::new(HeldTimer::default());
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
     let seed = EffortSnapshot {
         provider: "openai".into(),
@@ -2542,10 +2554,13 @@ async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_on
     cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: "do it".into(), base: "low".into() });
     let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
     run.set_step_judge(Arc::new(SilentJudge));
-    let began = tokio::time::Instant::now();
-    // The paused clock jumps to the next timer when the run is idle: the grace, or this bound.
-    let output = tokio::time::timeout(Duration::from_secs(3600), run.run()).await.expect("the request is not held by the judge").expect("run");
-    assert_eq!(began.elapsed(), mixdog_agent::step_effort::STEP_EFFORT_GRACE);
+    let task = tokio::spawn(run.run());
+    tokio::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    assert_eq!(*h.waiter.0.lock().unwrap(), [mixdog_agent::step_effort::STEP_EFFORT_GRACE]);
+    assert_eq!(h.provider.requests().len(), 1, "held while the grace has not passed");
+    // The grace passes; the judge still has not answered.
+    timer.elapse.notify_one();
+    let output = tokio::time::timeout(Duration::from_secs(30), task).await.expect("the request goes out once the grace has passed").unwrap().expect("run");
     assert_eq!(h.provider.requests().len(), 2);
     assert!(output.transcript[2].effort.is_none(), "an unanswered step stays at the effort in force");
 }

@@ -4,9 +4,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 32769,
+      "bytes": 33689,
       "path": "golden.json",
-      "sha256": "b30a84d027b8706f0ecd892e67603f5f82114305ca7b56824b9e5ed5a93d4d79"
+      "sha256": "47bb8dac769712f42af2d965040a900485332137d5c12ac8bd8fb745c7b04027"
     }
   ],
   "inputs": [
@@ -48,7 +48,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-effort-decision-log.mjs",
-  "recorderSha256": "0e54a49c418a48ad00cea1997f19b25f2988b023db577cbb0f83d56e6f7ca2bd",
+  "recorderSha256": "87084bfc6e116c0d4156b60bd0bd3289923dbc9c07f10cce4287c52a85820086",
   "scenarios": [
     {
       "entries": 26,
@@ -94,5 +94,5 @@
     }
   ],
   "set": "effort-decision-log",
-  "totalBytes": 32769
+  "totalBytes": 33689
 }

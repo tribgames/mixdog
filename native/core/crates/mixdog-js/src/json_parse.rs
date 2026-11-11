@@ -63,6 +63,47 @@ pub(crate) fn escape_at(rest: &str) -> Option<(Escape, usize)> {
     (0xD800..0xE000).contains(&unit).then_some((Escape::Surrogate(unit), 4))
 }
 
+/// The UTF-16 code units JavaScript holds for parsed text, a lone surrogate as its own unit: what
+/// `length`, `slice` and `<` work on.
+pub fn parsed_utf16(text: &str) -> Vec<u16> {
+    let mut units = Vec::with_capacity(text.len());
+    let mut at = 0;
+    while let Some(c) = text[at..].chars().next() {
+        at += c.len_utf8();
+        if c == ESC {
+            match escape_at(&text[at..]) {
+                Some((Escape::Escaped, len)) => {
+                    at += len;
+                }
+                Some((Escape::Surrogate(unit), len)) => {
+                    at += len;
+                    units.push(unit as u16);
+                    continue;
+                }
+                None => {}
+            }
+        }
+        let mut buf = [0u16; 2];
+        units.extend_from_slice(c.encode_utf16(&mut buf));
+    }
+    units
+}
+
+/// Parsed text holding `units` (the inverse of [`parsed_utf16`]): a lone surrogate in-band.
+pub fn parsed_from_utf16(units: &[u16]) -> String {
+    let mut out = String::with_capacity(units.len());
+    for decoded in char::decode_utf16(units.iter().copied()) {
+        match decoded {
+            Ok(c) => push_char(&mut out, c),
+            Err(lone) => {
+                out.push(ESC);
+                out.push_str(&format!("{:04x}", lone.unpaired_surrogate()));
+            }
+        }
+    }
+    out
+}
+
 /// True for the ESC character.
 pub(crate) fn is_esc(c: char) -> bool {
     c == ESC

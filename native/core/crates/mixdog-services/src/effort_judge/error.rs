@@ -17,6 +17,9 @@ pub enum JudgeError {
     /// The inference lane refused the job, or the job died before answering.
     #[error("effort judge worker unavailable: {0}")]
     Worker(String),
+    /// The judge's thread already has a judgment waiting behind the running one.
+    #[error("effort judge is busy")]
+    Busy,
     /// The platform has no ONNX Runtime binding (macOS Intel).
     #[error("effort judge is unsupported on this platform")]
     Unsupported,
