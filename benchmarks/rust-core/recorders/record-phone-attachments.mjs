@@ -147,7 +147,7 @@ writeSetManifest(out, {
       heldWhole:'a string over 64 KiB in an answer (limit.bin read whole, the 2 MiB thumbnail) is held as its length and sha256, on both sides',
       recoveryStore: "each recovery folder's store after the script (the project, each worktree, the ready worktree's subfolder) is compared by entry name (record ids as $record<n>) and each payload's size and sha256; manifest.json and state.json by name only (they hold the record id and the world's file identities)",
       worktreeRegistry:
-        "the worktree registry after the script, every record whole but `updatedAt` (Node's putRecord stamps it, the core's registry write does not), with each editorRecoveryStores directory as $journal/<digest of its root>: Node keeps the stores in <userData>/editor-recovery, the core in <data>/recovery",
+        "the worktree registry after the script, every record whole but `updatedAt` (Node's putRecord stamps it, the core's registry write does not) and with baseCommit, ownerSessionId, mergeTarget left out when null and sharedSessionIds when empty (the core writes them, Node's records omit them, and Node's readers take the absent field as that value: contract.mjs normalizeWorktreeEntry, registry.mjs entryView, maintenance.mjs), with each editorRecoveryStores directory as $journal/<digest of its root>: Node keeps the stores in <userData>/editor-recovery, the core in <data>/recovery",
     },
     notRecorded: {
       pathDeadline:
