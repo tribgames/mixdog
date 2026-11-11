@@ -3,32 +3,63 @@
   "command": "node benchmarks/rust-core/recorders/record-media-store-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "native rendition generation (the stub bytes cannot render; generate:false or the miss is what is recorded)",
-    "runs": "src/runtime/media/store.mjs (listMediaAssets, saveMediaAsset, resolveMediaFile, readMediaAsset, cacheMediaThumbnail, deleteMediaAsset(s), mediaOpenCommand, mediaStoreCacheStats, boards API) as a fresh module instance per case, over a temp data dir"
+    "runs": "src/runtime/media/store.mjs (listMediaAssets, saveMediaAsset, resolveMediaFile, readMediaAsset, cacheMediaThumbnail, deleteMediaAsset(s), mediaOpenCommand, mediaStoreCacheStats, boards API) as a fresh module instance per case, over a temp data dir",
+    "scripted": {
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
+    }
   },
   "exclusions": {},
   "fileCount": 1,
   "files": [
     {
-      "bytes": 12332,
+      "bytes": 20558,
       "path": "golden.json",
-      "sha256": "5f6a7d7b0fa912e9b2cc3e4bb7fe7fcad0d2f54b83e04f64f8e821b4ad6d7678"
+      "sha256": "9c2daf0c9281399b1671ac6e14d146b0a073c8815ca1dd820af58de85ab88074"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "db4c434c9e5db314d766b0efecf3bc81d4a267abdb4eaf23e524bfa5b829a0d2"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.readVideo.path",
+      "$.cases[0].observed.readThumbDowngraded.path",
+      "$.cases[0].observed.cachedTarget.path",
+      "$.cases[0].observed.cachedRead.path",
+      "$.cases[1].observed.cacheMediaThumbnail.threw.message",
+      "$.cases[1].observed.cacheMediaThumbnail.threw.props.path",
+      "$.cases[1].observed.cacheMediaThumbnail.threw.props.dest"
+    ],
+    "reason": "the temp data dir is written <data>; the store's temp file names index.json.mixdog-tmp-<16 random hex> are written mixdog-tmp-<random>"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,14 +78,51 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-media-store-cases.mjs",
-  "recorderSha256": "d450b79de2243e220e17e7cbc8fb443bf9727484c3fafe84705180e31cc4d335",
+  "recorderSha256": "638066c8f1528be719acef5378e8c031bc5d8ecfbb464c415a467ebf54ac0d87",
   "replay": {
-    "entry": "mixdog-store media: write the case's start files into a temp data dir and compare each result whole; uuids by first-seen order; the date folder of a saved asset by the layout regex",
+    "compare": "mixdog-store media: write the case's start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock",
+    "entry": "Drive these public items on o1: mixdog-services/src/media/store.rs:317 list_assets; mixdog-services/src/media/store.rs:436 delete_assets; mixdog-services/src/media/store.rs:472 list_boards; mixdog-services/src/media/store.rs:498 create_board; mixdog-services/src/media/store.rs:523 delete_board; media/listMediaAssets; media/deleteMediaAssets; media/listMediaBoards; media/createMediaBoard.",
+    "missingOnO1": [],
     "normalised": {
-      "dataDir": "temp, not in the recording",
-      "uuids": "renamed <uuidN> in first-seen order"
-    }
+      "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)",
+      "uuids": "generated ids are scripted (a counter, as the entry says), recorded as they came"
+    },
+    "protocolMethods": [
+      "media/listMediaAssets",
+      "media/deleteMediaAssets",
+      "media/listMediaBoards",
+      "media/createMediaBoard"
+    ],
+    "rustTargets": [
+      {
+        "line": 317,
+        "name": "list_assets",
+        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+      },
+      {
+        "line": 436,
+        "name": "delete_assets",
+        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+      },
+      {
+        "line": 472,
+        "name": "list_boards",
+        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+      },
+      {
+        "line": 498,
+        "name": "create_board",
+        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+      },
+      {
+        "line": 523,
+        "name": "delete_board",
+        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "media-store-cases",
-  "totalBytes": 12332
+  "totalBytes": 20558,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
