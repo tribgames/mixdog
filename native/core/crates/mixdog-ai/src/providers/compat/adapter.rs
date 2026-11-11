@@ -186,6 +186,13 @@ impl ProviderAdapter for CompatAdapter {
         false
     }
 
+    /// `compatFirstResponseBudget(this.name, chatProfile)`: a profile with a first-byte window of its own states the
+    /// worst case over its retry ladder; one on the shared window leaves the watchdog's default.
+    fn first_response_budget(&self, _model: &str, _parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
+        let policy = self.profile().chat.first_byte?;
+        Some(crate::providers::first_byte::first_byte_budget(&policy, &self.policy.request.schedule))
+    }
+
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         // Only a gateway with a model-family table or its own inputs routes
         // models (Node's `PROFILES`); xAI's two wires are the codec's choice.

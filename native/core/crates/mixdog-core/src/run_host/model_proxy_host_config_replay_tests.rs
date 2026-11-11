@@ -161,15 +161,6 @@ async fn a_disabled_or_removed_provider_is_not_reached_while_the_registry_keeps_
     assert_eq!(pc.provider("openai").await, log[2]["provider"]);
 }
 
-/// `value` without the `mixdog-local` entry: the Rust registry never builds it (mixdog-ai registry/builder.rs:1286 —
-/// it is built per turn from the managed runtime's endpoint), and enabling it fails the whole init
-/// (registry/providers.rs:388) where Node registers `MixdogLocalProvider`. Declared in the manifest (24/28).
-fn without_local(value: &Value) -> Value {
-    let mut value = value.clone();
-    value.as_object_mut().unwrap().shift_remove("mixdog-local").expect("Node's case names mixdog-local");
-    value
-}
-
 /// The credential probe of a PC whose Developer options are `developer`: a dev-gated provider whose option is off always
 /// reads `absent` (`oauthCredentialProbeState`, through `provider_available`, the gate the registry admits by); every
 /// other credential is present (Node's recorder scripts the external store the same way).
@@ -195,19 +186,8 @@ fn sign_in(plugin_data: &std::path::Path) {
 async fn families_are_advertised_as_their_adapters_declare(case: &str) {
     let node = observed(case);
     let developer = node["developer"].clone();
-    let pc = pc_over(without_local(&node["available"]), Arc::new(GatedAuth(developer.clone())), &[], developer, |_, plugin_data| sign_in(plugin_data)).await;
-    let mut want = node["advertised"].clone();
-    want["providers"] = without_local(&want["providers"]);
-    // Declared: Node's mimo-oauth and antigravity-oauth classes state a `firstResponseBudget` (`compatFirstResponseBudget`,
-    // `antigravityFirstResponseBudget`); no adapter of the core implements `ProviderAdapter::first_response_budget` yet (the
-    // agent watchdog's floor reads it too). Node's figures are asserted and taken off the compared answer.
-    for id in ["mimo-oauth", "antigravity-oauth"] {
-        if want["providers"][id]["enabled"] == true {
-            let budget = want["providers"][id]["modelProxy"].as_object_mut().unwrap().shift_remove("firstResponseBudget");
-            assert!(budget.is_some_and(|b| b["transportMs"].as_u64().unwrap() > 0 && b["semanticMs"].as_u64().unwrap() > 0), "{id}: Node states a budget");
-        }
-    }
-    same(&pc.answer().await, &want, "advertised");
+    let pc = pc_over(node["available"].clone(), Arc::new(GatedAuth(developer.clone())), &[], developer, |_, plugin_data| sign_in(plugin_data)).await;
+    same(&pc.answer().await, &node["advertised"], "advertised");
 }
 
 /// Case 24, every Developer option off: the three dev-gated providers are never admitted, whatever the config says.
@@ -395,12 +375,13 @@ async fn an_unreadable_credential_with_a_live_adapter_is_advertised_at_once() {
     same(&pc.answer().await["providers"]["openai-oauth"], &node["second"], "second");
 }
 
-/// Case 28, the `openai` half; the `mixdog-local` half (`localTraits`) is left: see [`without_local`].
+/// Case 28: the registered `mixdog-local` (text-only: no PDF, no image) and `openai` advertise their traits.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_text_only_adapter_advertises_its_image_trait() {
     let node = observed("a text-only adapter's image trait is advertised, so a remote read sends it OCR text");
-    let pc = pc(json!({ "openai": { "enabled": true } }), scripted("present")).await;
+    let pc = pc(json!({ "mixdog-local": { "enabled": true }, "openai": { "enabled": true } }), scripted("present")).await;
     let providers = pc.answer().await["providers"].clone();
+    same(&providers["mixdog-local"]["modelProxy"], &node["localTraits"], "mixdog-local");
     same(&providers["openai"]["modelProxy"], &node["openaiTraits"], "openai");
 }
 

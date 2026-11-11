@@ -814,6 +814,7 @@ pub(crate) async fn built_on(
         home_dir: dir.path().to_path_buf(),
         io,
         gated_off: Arc::new(|_| false),
+        local: None,
     });
     let provider = input["provider"].as_str().expect("provider");
     let name = provider.strip_suffix("-adc").or_else(|| provider.strip_suffix("-express")).unwrap_or(provider);

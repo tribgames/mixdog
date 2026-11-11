@@ -10,6 +10,7 @@ pub mod compat;
 pub mod connect;
 pub mod cursor;
 pub mod devin;
+pub mod first_byte;
 pub(crate) mod flat_schema;
 pub mod custom;
 pub mod google;

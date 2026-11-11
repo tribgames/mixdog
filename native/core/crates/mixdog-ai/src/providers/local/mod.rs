@@ -10,10 +10,16 @@ pub mod listing;
 mod listing_tests;
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
+use async_trait::async_trait;
+use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::ModelStream;
+use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireRequest;
@@ -102,6 +108,101 @@ pub fn codec(base_url: &str) -> Arc<dyn WireCodec> {
         ..CompatConfig::for_profile(&profile)
     };
     Arc::new(CompatChatCodec::new(profile, config))
+}
+
+/// Where the managed llama.cpp server listens once it is up (`ensureLocalProviderServer`'s `{ baseURL, apiKey }`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Endpoint {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+/// The managed runtime as the registered provider needs it: the installed models, and the server started (or reused)
+/// for a model.
+#[async_trait]
+pub trait LocalRuntime: InstalledModels {
+    /// `ensureLocalProviderServer(model)`.
+    async fn ensure_server(&self, model: &str) -> Result<Endpoint, ProviderError>;
+}
+
+/// `MixdogLocalProvider` as the registry holds it (`registry.mjs`'s `mixdog-local` row): registered with no endpoint,
+/// because the server starts on a send. Each attempt asks the runtime for the model's server and sends through the
+/// Chat adapter aimed at it; the adapter is kept while the endpoint stays the same (`_providerFor`). It is text-only
+/// (`nativePdf = false`) and lists the installed models.
+pub struct RegisteredAdapter {
+    id: ProviderId,
+    codec: Arc<dyn WireCodec>,
+    policy: RetryPolicy,
+    keepalive: KeepaliveSchedule,
+    http: Arc<dyn HttpSend>,
+    runtime: Arc<dyn LocalRuntime>,
+    listing: LocalListing,
+    current: Mutex<Option<(Endpoint, Arc<HttpAdapter>)>>,
+}
+
+impl RegisteredAdapter {
+    pub fn new(http: Arc<dyn HttpSend>, runtime: Arc<dyn LocalRuntime>) -> Self {
+        Self {
+            id: ProviderId::from(PROVIDER_ID),
+            codec: codec("http://127.0.0.1/v1"),
+            policy: crate::providers::compat::retry::unprofiled(),
+            keepalive: KeepaliveSchedule::SPEC,
+            http,
+            listing: LocalListing::new(runtime.clone()),
+            runtime,
+            current: Mutex::new(None),
+        }
+    }
+
+    fn inner_for(&self, endpoint: Endpoint) -> Arc<HttpAdapter> {
+        let mut current = self.current.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((kept, adapter)) = current.as_ref()
+            && *kept == endpoint
+        {
+            return adapter.clone();
+        }
+        let built = Arc::new(adapter(self.http.clone(), endpoint.base_url.clone(), &endpoint.api_key, self.policy.clone(), self.runtime.clone()));
+        *current = Some((endpoint, built.clone()));
+        built
+    }
+}
+
+#[async_trait]
+impl ProviderAdapter for RegisteredAdapter {
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    fn codec(&self) -> &dyn WireCodec {
+        &*self.codec
+    }
+
+    fn retry_policy(&self) -> &RetryPolicy {
+        &self.policy
+    }
+
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        &self.keepalive
+    }
+
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let endpoint = self.runtime.ensure_server(&request.model).await?;
+        self.inner_for(endpoint).attempt(request).await
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(&self.listing)
+    }
+
+    /// `nativePdf = false`: the managed runtime is text-only.
+    fn native_pdf(&self) -> bool {
+        false
+    }
+
+    /// `static inputExcludesCache = false`.
+    fn input_excludes_cache(&self) -> Option<bool> {
+        Some(false)
+    }
 }
 
 /// The adapter for the endpoint the managed runtime reported for this turn.

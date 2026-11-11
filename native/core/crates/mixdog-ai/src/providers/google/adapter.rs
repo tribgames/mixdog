@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::FirstResponseBudget;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -45,6 +46,10 @@ use super::codec::Target;
 use super::models;
 use super::redirect;
 use crate::catalog::ListingLookup;
+use crate::providers::first_byte::FirstBytePolicy;
+use crate::providers::first_byte::PROVIDER_MAX_BEFORE_WARN_MS;
+use crate::providers::first_byte::SHARED_FIRST_BYTE_MS;
+use crate::providers::first_byte::first_byte_budget;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
@@ -396,6 +401,25 @@ impl ProviderAdapter for GoogleAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         Some(self)
+    }
+
+    /// `antigravityFirstResponseBudget(antigravityFirstBytePolicy(model || DEFAULT_ANTIGRAVITY_MODEL))`: the gateway
+    /// queues or thinks server-side, so a Pro-class model waits `MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` (300 s, clamped
+    /// to the provider ceiling) and a Flash-class one the shared 60 s, each on a doubling window with one first-byte retry;
+    /// a model without a Gemini family keeps the shared window on the ordinary ladder. The Gemini API and Vertex AI state none.
+    fn first_response_budget(&self, model: &str, _parameters: Option<&mixdog_protocol::JsonValue>) -> Option<FirstResponseBudget> {
+        if !matches!(self.codec.target(), Target::Antigravity { .. }) {
+            return None;
+        }
+        let schedule = &self.policy.request.schedule;
+        let model = if model.is_empty() { models::DEFAULT_ANTIGRAVITY_MODEL } else { model };
+        let family = models::antigravity_family(&self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner), model);
+        let policy = match family.as_deref() {
+            Some("gemini-pro") => FirstBytePolicy { timeout_ms: PROVIDER_MAX_BEFORE_WARN_MS, max_ms: PROVIDER_MAX_BEFORE_WARN_MS, retries: Some(1.min(schedule.max_retries)) },
+            Some("gemini-flash") => FirstBytePolicy { timeout_ms: SHARED_FIRST_BYTE_MS, max_ms: PROVIDER_MAX_BEFORE_WARN_MS, retries: Some(1.min(schedule.max_retries)) },
+            _ => FirstBytePolicy { timeout_ms: SHARED_FIRST_BYTE_MS, max_ms: SHARED_FIRST_BYTE_MS, retries: None },
+        };
+        Some(first_byte_budget(&policy, schedule))
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
