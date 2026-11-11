@@ -379,6 +379,9 @@ pub trait ThreadStore: Send + Sync + 'static {
         id: &ThreadId,
         session: &CommitRecord,
     ) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
+
+    /// A write of a run's draft file beside the thread's log (`mixdog_store::draft_file`).
+    fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
 }
 
 /// One item a history row shows.

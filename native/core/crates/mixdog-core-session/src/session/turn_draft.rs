@@ -1,6 +1,7 @@
-//! An open run's draft (`draft` records): what its interrupted response produced that no row holds yet, the 1.4.5
-//! turn checkpoint's interruption snapshot (`turn-interruption.mjs` `snapshot()`). A run writes it while it streams;
-//! recovery at open commits it, finalized as Node's restart recovery finalizes a checkpoint (`replayCheckpoint`).
+//! An open run's draft: what its interrupted response produced that no row holds yet, the 1.4.5 turn checkpoint's
+//! interruption snapshot (`turn-interruption.mjs` `snapshot()`). A run writes it while it streams, to its draft file beside
+//! the session's log (`mixdog_store::draft_file`; a log written before held `draft` records, which are still read); recovery
+//! at open commits it, finalized as Node's restart recovery finalizes a checkpoint (`replayCheckpoint`).
 
 use mixdog_core_api::ids::ThreadId;
 use serde_json::Value;
@@ -76,6 +77,35 @@ impl RunDraft {
         self.calls.clear();
         self.sealed = None;
     }
+
+    /// The bodies of the run's draft file, in order. A `committed` body names the assistant row that took the message so
+    /// far: it ends the draft's message only when `landed` finds that row in the log (a row whose save never landed leaves
+    /// its text to the draft).
+    pub fn apply_file(&mut self, bodies: &[Value], landed: impl Fn(&str) -> bool) {
+        for body in bodies {
+            match body.get("committed").and_then(Value::as_str) {
+                Some(iid) => {
+                    if landed(iid) {
+                        self.message_committed();
+                    }
+                }
+                None => self.apply(body),
+            }
+        }
+    }
+}
+
+/// A write of a run's draft file (`draft-<rid>.jsonl` beside the session's log, the 1.4.5 checkpoint's place).
+#[derive(Clone, Debug, PartialEq)]
+pub enum DraftWrite {
+    /// One more body.
+    Append { rid: String, body: Value },
+    /// The whole draft as one body, replacing the file atomically (a value marked sensitive).
+    Replace { rid: String, body: Value },
+    /// The run ended durably, or its draft could not be redacted: the file goes.
+    Remove { rid: String },
+    /// At open: the drafts of runs not in `open` (ended, the file left by a kill before its removal) go.
+    Sweep { open: Vec<String> },
 }
 
 /// The live run's draft as it streamed, and what of its text the log holds: each `draft` chunk is written redacted with
@@ -92,9 +122,24 @@ pub struct DraftJournal {
     written_reasoning: String,
     /// The last request's context reading, not written yet: it goes with the next write.
     context: Option<u64>,
+    /// Something of the draft is in its file.
+    written: bool,
+    /// The file is gone (a redaction that could not be written removed it): the next write is the whole draft.
+    lost: bool,
 }
 
 impl DraftJournal {
+    /// Something of the draft is in its file.
+    pub fn written(&self) -> bool {
+        self.written
+    }
+
+    /// The draft's file was removed: the next write starts it again whole.
+    pub fn lost(&mut self) {
+        self.lost = true;
+        self.written = false;
+    }
+
     /// A request's context reading, written with the draft's next chunk.
     pub fn context(&mut self, tokens: u64) {
         self.context = Some(tokens);
@@ -116,8 +161,9 @@ impl DraftJournal {
         self.written_reasoning.clear();
     }
 
-    /// The body to write for the chunk `body` the run drafted, or `None` when nothing of it can be written yet.
-    pub fn chunk(&mut self, body: &Value, marks: &dyn super::seams::SensitiveMarks, thread: &ThreadId) -> Option<Value> {
+    /// The body to write for the chunk `body` the run drafted, and whether it is the whole draft (it replaces the file);
+    /// `None` when nothing of it can be written yet.
+    pub fn chunk(&mut self, body: &Value, marks: &dyn super::seams::SensitiveMarks, thread: &ThreadId) -> Option<(Value, bool)> {
         let part = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or_default();
         self.text.push_str(part("text"));
         self.reasoning.push_str(part("reasoning"));
@@ -130,9 +176,14 @@ impl DraftJournal {
         }
         let text = marks.redact_settled(thread, &self.text);
         let reasoning = marks.redact_settled(thread, &self.reasoning);
-        if !text.starts_with(self.written_text.as_str()) || !reasoning.starts_with(self.written_reasoning.as_str()) {
-            // What the log holds is no longer a prefix of the text as it is redacted now: the whole draft again.
-            return Some(self.reset(marks, thread));
+        if self.lost || !text.starts_with(self.written_text.as_str()) || !reasoning.starts_with(self.written_reasoning.as_str()) {
+            // What the file holds is no longer a prefix of the text as it is redacted now, or the file is gone: the whole
+            // draft again, with the chunk's seal.
+            let mut whole = self.reset(marks, thread);
+            if let Some(row) = body.get("sealed") {
+                whole["sealed"] = marks.redact_messages(thread, std::slice::from_ref(row)).into_iter().next().unwrap_or_default();
+            }
+            return Some((whole, true));
         }
         let mut out = serde_json::Map::new();
         for (key, settled, written) in [("text", text, &mut self.written_text), ("reasoning", reasoning, &mut self.written_reasoning)] {
@@ -157,11 +208,14 @@ impl DraftJournal {
             return None;
         }
         self.with_context(&mut out);
-        Some(Value::Object(out))
+        self.written = true;
+        Some((Value::Object(out), false))
     }
 
     /// The whole draft, redacted with the thread's values as they are now; `None` for an empty draft.
     pub fn reset(&mut self, marks: &dyn super::seams::SensitiveMarks, thread: &ThreadId) -> Value {
+        self.lost = false;
+        self.written = true;
         self.written_text = marks.redact_settled(thread, &self.text);
         self.written_reasoning = marks.redact_settled(thread, &self.reasoning);
         let mut out = serde_json::Map::new();

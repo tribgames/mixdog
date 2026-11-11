@@ -4,9 +4,9 @@
 // (`projectStoredTranscript`, which recovers a dead owner's turn checkpoint). Each step writes what a client sees and what is on
 // disk to the `out` JSON lines file, before any kill.
 //   node turn-durability-child.mjs <tree> <case> <run|reopen> <out> <work dir>
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [tree, caseName, phase, out, workdir] = process.argv.slice(2);
@@ -109,6 +109,24 @@ const { settleRecorder } = await imp(`${S}session/store/session-writers.mjs`);
 const { createInheritance } = await imp('src/session-runtime/lifecycle/inheritance.mjs');
 const { pickDoneVerb } = await imp('src/tui/session/labels.mjs');
 const { createTranscriptRouteMetadata } = await imp('src/runtime/shared/transcript-metadata.mjs');
+const { rememberSensitiveValues } = await imp(`${S}session/sensitive-values.mjs`);
+// `crash-sensitive`: the value the turn streams, then marks sensitive (a browser fill), as `turn-checkpoint-sensitive.test.mjs`.
+const SECRET = '731905';
+// Which files of the case's data (every folder of the sandbox but the work dir and the steps file) hold the value.
+const secretFiles = () => {
+  const sandbox = dirname(workdir);
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (path === workdir || path === out) continue;
+      if (entry.isDirectory()) walk(path);
+      else if (readFileSync(path).includes(SECRET)) found.push(relative(sandbox, path).replaceAll('\\', '/'));
+    }
+  };
+  walk(sandbox);
+  return found.sort();
+};
 // The turn's identity as the desktop's turn start stamps it (`beginTurn`, `tui/session/turn.mjs:127-135`): the turn's start
 // and the session's route (`createTranscriptRouteMetadata(session)`, as `applyTurnRouteMetadata` stamps it, turn.mjs:120; no
 // desktop runtime here, so no workflow agent), the done verb of the session's `index`th turn and a fresh attempt id.
@@ -172,8 +190,9 @@ const answer = (opts, text) => {
 await _withRegisteredProviderForTestAsync('durability-stub', provider, async () => {
   if (phase === 'reopen') {
     const id = readFileSync(idFile, 'utf8');
-    step({ step: 'reopened', ...(await observe(id)) });
-    step({ step: 'read again', ...(await observe(id)) });
+    const secrets = () => (caseName === 'crash-sensitive' ? { secretFiles: secretFiles() } : {});
+    step({ step: 'reopened', ...(await observe(id)), ...secrets() });
+    step({ step: 'read again', ...(await observe(id)), ...secrets() });
     return;
   }
   // A fixed id: a minted one carries this process's pid.
@@ -190,7 +209,7 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
   writeFileSync(idFile, id);
   const settleThenKill = async () => {
     await settleTurnCheckpointWrites(id);
-    step({ step: 'killed', sends });
+    step({ step: 'killed', sends, ...(caseName === 'crash-sensitive' ? { secretFiles: secretFiles() } : {}) });
     kill();
   };
   if (caseName === 'save-failure') {
@@ -329,6 +348,18 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
         opts.onTextDelta?.('streamed answer');
       });
       // The checkpoint's streaming flush is due 150 ms after the previous one.
+      advance(150);
+      await settleThenKill();
+    };
+  } else if (caseName === 'crash-sensitive') {
+    // A value streams and is checkpointed, then is marked sensitive (a browser fill); the next flush rewrites the checkpoint
+    // redacted (`commitHeader` on a new version), then the process dies. No stored copy of the value is left.
+    onSend = async (_n, opts) => {
+      scoped(() => opts.onTextDelta?.(`the code is ${SECRET}, `));
+      advance(150);
+      await settleTurnCheckpointWrites(id);
+      rememberSensitiveValues(id, [{ name: 'browser', arguments: { action: 'fill', input: { ref: 'p1-s1-e3', text: SECRET, sensitive: true } } }]);
+      scoped(() => opts.onTextDelta?.('entered.'));
       advance(150);
       await settleThenKill();
     };
