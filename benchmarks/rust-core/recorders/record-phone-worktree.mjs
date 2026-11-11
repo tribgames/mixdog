@@ -18,7 +18,6 @@
 // Each group runs in a world of its own (made again, a daemon of its own), so `--only` records or replays exactly what the full run
 // holds for that group.
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { join } from 'node:path';
@@ -26,6 +25,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { startRelay } from './lib/phone-relay-core.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-worktree');
@@ -35,9 +35,7 @@ const SUPERVISOR = 'D:\\mixdog-build\\tmp\\real-turn-harness\\cache\\supervisor-
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
 const ONLY = args.get('only') ?? null;
-const RECORDER_FILES = ['record-phone-worktree.mjs', 'lib/common.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
-const recorderFiles = () =>
-  RECORDER_FILES.map((path) => ({ path, sha256: createHash('sha256').update(readFileSync(join(REPO_ROOT, path), 'utf8').replaceAll('\r\n', '\n')).digest('hex') }));
+const PROVENANCE = recorderProvenance(import.meta.url);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 
@@ -470,12 +468,7 @@ async function recordGroup(group) {
     let frameId = 0;
     for (const request of GROUPS[group]) {
       const sent = filled(request, ctx);
-      const run = async () => clone(await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params: [sent] })));
-      let answer = await run();
-      // A pooled socket the daemon was closing at that moment (session-client.mjs daemonCallAgent): the request never reached
-      // the daemon, so it is sent once more; it is not Node's answer to the input.
-      if (answer.errorCode === 'ECONNRESET') answer = await run();
-      const { id: _id, ...frame } = answer;
+      const { id: _id, ...frame } = clone(await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params: [sent] })));
       noteRevision(frame, ctx);
       cases.push({ group, request: clone([request])[0] ?? null, frame: kept(frame, ctx), repository: kept(repository(), ctx) });
     }
@@ -509,9 +502,8 @@ writeSetManifest(stage, {
   command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of ${REF} with node_modules>`,
   identity,
   extra: {
-    node: process.version,
+    ...PROVENANCE,
     cases: cases.length,
-    recorderFiles: recorderFiles(),
     entry: {
       runs: "executeRemoteFrame over createRemoteMethods (remote-methods.ts:828, :1256) with SessionHost (session-host.ts) attached to the tree's own daemon (session-client.mjs ensureDaemon, attachSession; session-protocol.mjs createSessionProtocolClient), one world and one daemon per group",
       notRun: 'the relay transport (encryption, admission) and the window process; the daemon runs without memory worker and MCP servers (MIXDOG_DAEMON_SKIP_MEMORY, MIXDOG_DISABLE_MCP), with the supervisor binary the real-turn harness cached',
@@ -543,7 +535,7 @@ async function replay(exe) {
   );
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
   const manifest = JSON.parse(readFileSync(join(FIXTURES, 'MANIFEST.json'), 'utf8'));
-  if (!isDeepStrictEqual(manifest.recorderFiles, recorderFiles())) throw new Error('the recording was made by another recorder than this one: record again before comparing');
+  if (manifest.recorderSha256 !== PROVENANCE.recorderSha256 || !isDeepStrictEqual(manifest.inputs, PROVENANCE.inputs)) throw new Error('the recording was made by another recorder than this one: record again before comparing');
   globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
   const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
