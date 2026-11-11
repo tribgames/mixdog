@@ -57,10 +57,12 @@ await set.run('an idle session with a running Goal and agent job sends no state 
     const deliver = (snapshot) => {
       const encoded = encoder.encode(snapshot);
       if (isNoDelta(encoded)) return null;
-      const wire = structuredClone(encoded);
+      // The relay sends JSON: what crosses is the text; the decoder reads it back.
+      const wireText = JSON.stringify(encoded);
+      const wire = JSON.parse(wireText);
       if (compact && !Object.hasOwn(wire, '__itemsRevision')) markCompactWire(wire);
       const decoded = decoder.decode(wire);
-      return structuredClone({ wire, ok: decoded.ok, snapshot: decoded.snapshot });
+      return structuredClone({ wireText, wireReadByDecoder: wire, ok: decoded.ok, snapshot: decoded.snapshot });
     };
     const rec = { compact };
     const first = deliver(snapshotAt(ticks[0]));
@@ -91,7 +93,7 @@ await set.run('goal state snapshots are idempotent and leave clock-less Goals un
 });
 
 await set.finish({
-  entry: {
+  entry: { hops: "The relay hop is JSON: each delivered frame is recorded as the text the encoder produced (`wireText`) and as the value the decoder read after markCompactWire (`wireReadByDecoder`).",
     runs: 'src/session-runtime/goal-state.mjs, standalone/agent-tool/job-views.mjs (createJobViews list/listJobs) and job-views/session-progress.mjs liveAgentStatusRow with a registered background agent task, apps/desktop/src/main/state-delta.ts (encoder compact/plain, decoder, isNoDelta, markCompactWire), renderer/session-goal-presentation.ts labels',
     notRun: 'the relay transport: the wires are taken from the encoder as the relay would send them. Date.now is read through the test\'s own withClock (T0 + offsets); the global clock is T0',
   },
