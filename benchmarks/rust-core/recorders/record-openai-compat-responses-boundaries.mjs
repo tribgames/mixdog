@@ -38,7 +38,7 @@ const fb = (provider, opts, fn) => withEffortConfigurationFallback(provider, MOD
 const mode = (provider) => effortConfigurationMode(provider, MODEL, MODE);
 
 for (const callback of ['onStreamDelta', 'onTextDelta', 'onToolCall']) {
-  await rec.run(`no-replay-after-${callback}-reaches-caller`, `${SRC}:14`, { callback }, async () => {
+  await rec.run(`no-replay-after-${callback}-reaches-caller`, `${SRC}:18`, { callback }, async () => {
     const provider = `custom-output-${callback}`;
     const error = rejection();
     const received = [];
@@ -188,7 +188,7 @@ for (const [shape, reject] of [['http-400-before-stream-opens', rejected400], ['
     return { ...out, requests, progress, visibleBeforeReplay: progress.filter(([n, kind]) => n !== 2 && isVisibleStreamProgress(kind)), modeAfter: effortConfigurationMode(provider.name, MODEL, MODE) };
   });
 }
-await rec.run('visible-output-then-rejection-not-replayed', `${SRC}:432`, {}, async () => {
+await rec.run('visible-output-then-rejection-not-replayed', `${SRC}:434`, {}, async () => {
   const { provider, requests } = fixture('e2e-visible', { sdk: true, reply: () => sse(createdEvent, textDeltaEvent, failedEvent) });
   const { messages, opts } = updatedTurn(provider);
   const text = [];

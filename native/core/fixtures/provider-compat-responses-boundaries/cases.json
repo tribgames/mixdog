@@ -5,7 +5,7 @@
   "cases": [
     {
       "id": "no-replay-after-onStreamDelta-reaches-caller",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:14",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:18",
       "input": {
         "callback": "onStreamDelta"
       },
@@ -55,7 +55,7 @@
     },
     {
       "id": "no-replay-after-onTextDelta-reaches-caller",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:14",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:18",
       "input": {
         "callback": "onTextDelta"
       },
@@ -108,7 +108,7 @@
     },
     {
       "id": "no-replay-after-onToolCall-reaches-caller",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:14",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:18",
       "input": {
         "callback": "onToolCall"
       },
@@ -2766,7 +2766,7 @@
     },
     {
       "id": "visible-output-then-rejection-not-replayed",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:432",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:434",
       "input": {},
       "result": {
         "error": {
