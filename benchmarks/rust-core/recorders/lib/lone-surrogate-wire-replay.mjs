@@ -2,16 +2,18 @@
 // client sends it (packages/protocol-client `call`, which adds the `opId`), to the same local HTTP server Node talked to.
 //
 // - A case the core refuses by decision (`refused`): the client failure's detail equals the core's lone refusal of that field, whole;
-//   the local server got no request; for an MCP server, `mcp/getMcpServerConfig` answers for its name as for a name never added
-//   (nothing was saved). Node's answer is shown beside it.
+//   the local server got no request; for an MCP server, `mcp/mcpStatus` and `mcp/getMcpServerConfig` answer after the call what they
+//   answered before it (nothing was saved). Node's answer is shown beside it.
 // - Every other case: what the window is given (the value, or the failure's message as apps/desktop/src/main/protocol/core-error.ts
-//   frames it for the window) equals Node's outcome, and the requests the local server got equal Node's, in order.
+//   frames it for the window) equals Node's outcome, and the requests the local server got equal Node's, in order; Node's values go
+//   through the manifest's one mapping (`mapping.at`, lone-mapping.mjs) and nothing else.
 import { basename, join } from 'node:path';
 import { rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
 import { CASES, loneRefusal } from './lone-surrogate-wire-cases.mjs';
+import { mapAt } from './lone-mapping.mjs';
 import { NoAnswer, answered, killTree, startCore } from './phone-files-replay.mjs';
 
 const WORLDS = join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-lone-surrogate-wire-replay`);
@@ -54,18 +56,17 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
       if (!entry.core || (only && entry.name !== only)) continue;
       const node = golden.cases.find((recorded) => recorded.name === entry.name);
       if (!node) throw new Error(`the recording has no case ${entry.name}`);
+      // What a client reads of an MCP server (`after`): the server list and its config.
+      const state = async () => (entry.after ? { status: await call('mcp/mcpStatus', {}), config: await call('mcp/getMcpServerConfig', { name: entry.after }) } : null);
+      const before = entry.refused ? await state() : null;
       server.log.splice(0);
       const got = await call(entry.core.method, entry.core.params);
       const requests = server.log.splice(0);
       compared += 1;
       if (entry.refused) {
-        const effect = { requests };
-        if (entry.absent) {
-          const named = (name) => call('mcp/getMcpServerConfig', { name }).then((answer) => JSON.stringify(answer).split(name).join('<name>'));
-          effect.configSameAsNeverAdded = (await named(entry.absent)) === (await named(`${entry.absent}-never-added`));
-        }
-        const core = { detail: got.ok ? got : got.detail, ...effect };
-        const expected = { detail: loneRefusal(entry.refused), requests: [], ...(entry.absent ? { configSameAsNeverAdded: true } : {}) };
+        // Refused naming the field, nothing sent, nothing stored: what a client reads after the call is what it read before.
+        const core = { detail: got.ok ? got : got.detail, requests, state: await state() };
+        const expected = { detail: loneRefusal(entry.refused), requests: [], state: before };
         if (!isDeepStrictEqual(core, expected)) unexpected.push({ case: `${entry.name} (refused by decision)`, node: expected, core });
         else refused.push({ case: entry.name, node: node.node, nodeRequests: node.requests, core: core.detail });
         continue;
@@ -79,20 +80,10 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
         }
         return log.filter((_, index) => !declared.some((only) => only.index === index));
       };
-      const answer = got.ok ? { ok: true, value: got.value } : { ok: false, error: got.error };
-      let core = { node: answer, requests };
-      // Node's value with each lone unit read as U+FFFD, as the core reads it (the manifest's normalisations).
-      const asRead = (value) => JSON.parse(JSON.stringify(value).replace(/\\ud[89a-f][0-9a-f]{2}/g, '\\ufffd'));
-      const received = (answer) => ({ ...answer, value: { ...answer.value, result: { received: asRead(answer.value.result.received) } } });
-      let expected = { node: entry.lone ? received(node.node) : node.node, requests: sent(node.requests) };
-      if (entry.after) {
-        // What a client reads after the call: the status, and the server's config (its header value's lone unit read as U+FFFD,
-        // the manifest's normalisation).
-        const status = await call('mcp/mcpStatus', {});
-        const config = await call('mcp/getMcpServerConfig', { name: entry.after });
-        core = { node: { answer, status, config }, requests: core.requests };
-        expected = { node: { ...node.node, config: asRead(node.node.config) }, requests: expected.requests };
-      }
+      const core = { node: got.ok ? { ok: true, value: got.value } : { ok: false, error: got.error }, requests };
+      // Node's value through the one mapping, at the places the manifest lists for this case (lone-mapping.mjs).
+      const mapped = mapAt({ node: node.node, requests: node.requests }, manifest.mapping.at[entry.name] ?? []);
+      const expected = { node: mapped.node, requests: sent(mapped.requests) };
       if (!isDeepStrictEqual(core, expected)) unexpected.push({ case: entry.name, node: expected, core });
     }
     console.log(`lone-surrogate-wire replay over ${exe}: ${compared} compared, ${refused.length} refused by decision, ${unexpected.length} unexpected`);

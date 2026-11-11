@@ -21,8 +21,9 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { CASES, PORT, PROJECT, ROOT, loneRefusal } from './lib/lone-surrogate-wire-cases.mjs';
+import { LONE_MAPPING, lonePlaces } from './lib/lone-mapping.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -40,12 +41,24 @@ function within(promise, what) {
 }
 
 /** The local HTTP server: every request logged (method, path, the X-Token header's bytes as sent, hex); `/v1/models` lists one
- *  model, everything else is 404. */
+ *  model, everything else is 404. A `POST /lsp` is the language server's report of a request it received (lib/lsp-echo-stub.mjs):
+ *  logged once its body is read, with that request (`received`, JSON.parse: an escaped lone unit stays one). */
 export async function startServer() {
   const log = [];
   const server = createServer((req, res) => {
     const at = req.rawHeaders.findIndex((name, index) => index % 2 === 0 && name.toLowerCase() === 'x-token');
-    log.push({ method: req.method, url: req.url, xToken: at < 0 ? null : Buffer.from(req.rawHeaders[at + 1], 'latin1').toString('hex') });
+    const entry = { method: req.method, url: req.url, xToken: at < 0 ? null : Buffer.from(req.rawHeaders[at + 1], 'latin1').toString('hex') };
+    if (req.method === 'POST' && req.url === '/lsp') {
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        log.push({ ...entry, received: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+        res.writeHead(204);
+        res.end();
+      });
+      return;
+    }
+    log.push(entry);
     req.resume();
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -188,6 +201,13 @@ const warmup = {
   reason: "Node's first custom provider for an origin sends a fire-and-forget HEAD / (openai-compat.mjs preconnect, once per origin and process); the core does not warm a custom origin here. A difference of provider construction, not of the string under test",
   replayedBySet: 'provider-setup-warmup',
 };
+// The inventory's refused fields of the language-server request and of an MCP server's header values, with its reasons.
+const INVENTORY = 'native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json';
+const DECLARED = (field) => field.startsWith('request lsp/request ') || /^request mcp\/(add|save)McpServer \/input\/headers\/\*$/.test(field);
+const refusedFields = JSON.parse(readFileSync(join(REPO_ROOT, INVENTORY), 'utf8'))
+  .classes.filter((entry) => entry.class === 'refused')
+  .flatMap((entry) => entry.fields.filter(DECLARED).map((field) => ({ field, reason: entry.reason })))
+  .sort((a, b) => (a.field < b.field ? -1 : 1));
 const stage = stageSet(SET);
 writeJson(join(stage, 'golden.json'), {
   note: 'What Node b6f10295a did with a client string holding a lone surrogate where it becomes an HTTP header, a URL query or a language-server request, or where its serialised size is limited; and every request each case sent to the local server.',
@@ -200,19 +220,26 @@ writeSetManifest(stage, {
   identity,
   extra: {
     exact: true,
-    ...recorderProvenance(import.meta.url),
+    ...recorderProvenance(import.meta.url, ['benchmarks/rust-core/recorders/lib/lsp-echo-stub.mjs', INVENTORY]),
     exclusions: [],
-    // The MCP cases' config read after the call: Node keeps the header value with its lone unit; the core holds it as U+FFFD (the
-    // accepted echo difference, decisions.md "frame-lone-surrogate"). Its status, error text included, is compared unchanged.
-    // A language-server request carrying free text: the server echoes what it read, the unit from Node and U+FFFD from the core.
-    normalisations: [
-      { cases: CASES.filter((entry) => entry.after).map((entry) => entry.name), field: 'node.config.value.config.headers.*', how: 'each lone surrogate read as U+FFFD before comparing' },
-      { cases: CASES.filter((entry) => entry.lone).map((entry) => entry.name), field: 'node.value.result.received', how: 'each lone surrogate read as U+FFFD before comparing' },
-    ],
+    // The only change made to Node's values before comparing: at each listed place (a JSON pointer into the case's
+    // {node, requests}) Node holds a lone unit where the core holds U+FFFD. Every place of a compared case holding one is listed.
+    mapping: {
+      ...LONE_MAPPING,
+      at: Object.fromEntries(
+        CASES.filter((entry) => entry.core && !entry.refused)
+          .map((entry) => cases.find((recorded) => recorded.name === entry.name))
+          .map((recorded) => [recorded.name, lonePlaces({ node: recorded.node, requests: recorded.requests })])
+          .filter(([, places]) => places.length),
+      ),
+    },
     // Cases the core refuses by decision: the field is not free text (mixdog-app-protocol free_text.rs, tests/it/free_text_fields.json).
     // Node's answer and what reached the local server are recorded (golden.json cases[].node, cases[].requests).
     refusedByRule: {
-      decision: 'decisions.md "frame-lone-surrogate": a lone surrogate outside the free-text fields refuses the request whole before any service runs',
+      decision:
+        'decisions.md "Lone UTF-16 surrogates in client strings": a field whose value becomes a header, a URL, a path, a command or an identifier refuses the call naming the field, before anything is stored or sent; Node may store or forward it, and the refusal without side effect is the accepted difference',
+      // Every such field of the requests these cases reach, as the inventory classes them (`refused`).
+      fields: refusedFields,
       cases: CASES.filter((entry) => entry.refused).map((entry) => ({
         case: entry.name,
         field: entry.refused,
@@ -220,7 +247,8 @@ writeSetManifest(stage, {
         nodeRequests: cases.find((recorded) => recorded.name === entry.name).requests,
         coreMustAnswer: loneRefusal(entry.refused),
       })),
-      check: 'the client failure detail equals coreMustAnswer whole; the local server got no request; for an MCP server, mcp/getMcpServerConfig answers for its name as for a name never added',
+      check:
+        "the client failure detail equals coreMustAnswer whole; the local server got no request (nor the language server, which reports each request it receives there); for an MCP server, mcp/mcpStatus and mcp/getMcpServerConfig of its name answer after the call what they answered before it",
     },
     // Compared outside the replay: the Hugging Face search URL, by mixdog-services local_provider/hugging_face.rs (its HTTP is
     // a trait there; the core's catalog has no address but huggingface.co).

@@ -5,9 +5,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 452188,
+      "bytes": 454540,
       "path": "golden.json",
-      "sha256": "4c570c61c65f56c168b9f5d94218e3f0aac4f64e4c03ce890d7fb26ffac67552"
+      "sha256": "576009849912f3a194a443819525722f02636d3b86328cb6af847c155559b223"
     }
   ],
   "inputs": [
@@ -20,12 +20,20 @@
       "sha256": "c3e584cfa44431a8d7b51ce7b5e7a2516bbcd5984a35ad385312a566404f379e"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/lone-mapping.mjs",
+      "sha256": "9a8a960606fd1571a349f6eb136894caeb630fb6edd499f1c0a476bcf2a9b0cd"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-cases.mjs",
-      "sha256": "6a3c5d499b133b91dc9c86340e3c99ea409df77fb53375e0788fd2431bb5c873"
+      "sha256": "ed20864da77d9743b941ad3c4f12e9d0887a8b7157a270b2082814e17d801afd"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
-      "sha256": "0279e8c82b5692197f5d18994f53a07f7c10be1d4bda3803d574cf6328bad64a"
+      "sha256": "e5afe2385774132c09f67bd49b5a203b668e7e29984bc337269d05b88ed79e5b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/lsp-echo-stub.mjs",
+      "sha256": "87874854dea0411e9398eb1f5948233d630c373c1afc21386a70e77b8c36b9f7"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -46,8 +54,27 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json",
+      "sha256": "9771c0ef2c31ef4d77bbcc040186d894f39661c24ea30db6bfc0ba8eb469f271"
     }
   ],
+  "mapping": {
+    "at": {
+      "lsp-code-action-diagnostic-lone": [
+        {
+          "pointer": "/node/value/result/received/context/diagnostics/0/message"
+        },
+        {
+          "pointer": "/requests/0/received/params/context/diagnostics/0/message"
+        }
+      ]
+    },
+    "decision": "decisions.md \"Lone UTF-16 surrogates in client strings\"",
+    "helper": "benchmarks/rust-core/recorders/lib/lone-mapping.mjs mapAt",
+    "how": "each unpaired UTF-16 surrogate of the string, or the object key, at a listed JSON pointer becomes U+FFFD (String.prototype.toWellFormed); nothing else changes"
+  },
   "nodeOnlyRequests": [
     {
       "case": "custom-discover-body-2729-lone",
@@ -62,23 +89,6 @@
     }
   ],
   "nodeVersion": "v22.20.0",
-  "normalisations": [
-    {
-      "cases": [
-        "mcp-add-header-lone",
-        "mcp-save-header-lone"
-      ],
-      "field": "node.config.value.config.headers.*",
-      "how": "each lone surrogate read as U+FFFD before comparing"
-    },
-    {
-      "cases": [
-        "lsp-code-action-diagnostic-lone"
-      ],
-      "field": "node.value.result.received",
-      "how": "each lone surrogate read as U+FFFD before comparing"
-    }
-  ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -97,9 +107,251 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
-  "recorderSha256": "312edddb9ed53c81631d5640efa7cc2b6abfe583382d75cc61fa18c7bce6b9b3",
+  "recorderSha256": "2b7930f0000544277d897a6a56d03bbe9540216208be9c3c9e42e3538895b318",
   "refusedByRule": {
     "cases": [
+      {
+        "case": "mcp-add-header-lone",
+        "coreMustAnswer": {
+          "code": -32602,
+          "data": {
+            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in mcp/addMcpServer.params/input/headers/X-Token",
+            "path": "mcp/addMcpServer.params/input/headers/X-Token",
+            "reason": "invalidParams"
+          },
+          "kind": "rpc",
+          "message": "invalidParams",
+          "reason": "invalidParams"
+        },
+        "field": "mcp/addMcpServer.params/input/headers/X-Token",
+        "nodeAnswered": {
+          "answer": {
+            "ok": true,
+            "value": {
+              "name": "lone-header",
+              "status": {
+                "configuredCount": 1,
+                "connectedCount": 0,
+                "declarationErrors": [],
+                "failedCount": 1,
+                "googleClient": false,
+                "servers": [
+                  {
+                    "capabilities": {
+                      "prompts": false,
+                      "resources": false,
+                      "tools": false
+                    },
+                    "configured": true,
+                    "connected": false,
+                    "enabled": true,
+                    "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                    "name": "lone-header",
+                    "source": "config",
+                    "status": "failed",
+                    "toolCount": 0,
+                    "tools": [],
+                    "transport": "http",
+                    "warnings": []
+                  }
+                ],
+                "warnings": []
+              }
+            }
+          },
+          "config": {
+            "ok": true,
+            "value": {
+              "config": {
+                "headers": {
+                  "X-Token": "abc\ud83d"
+                },
+                "type": "http",
+                "url": "http://127.0.0.1:47815/mcp"
+              },
+              "enabled": true,
+              "name": "lone-header",
+              "source": "config"
+            }
+          },
+          "status": {
+            "ok": true,
+            "value": {
+              "configuredCount": 1,
+              "connectedCount": 0,
+              "declarationErrors": [],
+              "failedCount": 1,
+              "googleClient": false,
+              "servers": [
+                {
+                  "activeHere": true,
+                  "capabilities": {
+                    "prompts": false,
+                    "resources": false,
+                    "tools": false
+                  },
+                  "configured": true,
+                  "connected": false,
+                  "enabled": true,
+                  "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                  "inheritedScope": null,
+                  "name": "lone-header",
+                  "scope": null,
+                  "source": "config",
+                  "status": "failed",
+                  "toolCount": 0,
+                  "tools": [],
+                  "transport": "http",
+                  "warnings": []
+                }
+              ],
+              "warnings": []
+            }
+          }
+        },
+        "nodeRequests": []
+      },
+      {
+        "case": "mcp-save-header-lone",
+        "coreMustAnswer": {
+          "code": -32602,
+          "data": {
+            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in mcp/saveMcpServer.params/input/headers/X-Token",
+            "path": "mcp/saveMcpServer.params/input/headers/X-Token",
+            "reason": "invalidParams"
+          },
+          "kind": "rpc",
+          "message": "invalidParams",
+          "reason": "invalidParams"
+        },
+        "field": "mcp/saveMcpServer.params/input/headers/X-Token",
+        "nodeAnswered": {
+          "answer": {
+            "ok": true,
+            "value": {
+              "name": "lone-header-save",
+              "source": "config",
+              "status": {
+                "configuredCount": 2,
+                "connectedCount": 0,
+                "declarationErrors": [],
+                "failedCount": 2,
+                "googleClient": false,
+                "servers": [
+                  {
+                    "capabilities": {
+                      "prompts": false,
+                      "resources": false,
+                      "tools": false
+                    },
+                    "configured": true,
+                    "connected": false,
+                    "enabled": true,
+                    "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                    "name": "lone-header",
+                    "source": "config",
+                    "status": "failed",
+                    "toolCount": 0,
+                    "tools": [],
+                    "transport": "http",
+                    "warnings": []
+                  },
+                  {
+                    "capabilities": {
+                      "prompts": false,
+                      "resources": false,
+                      "tools": false
+                    },
+                    "configured": true,
+                    "connected": false,
+                    "enabled": true,
+                    "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                    "name": "lone-header-save",
+                    "source": "config",
+                    "status": "failed",
+                    "toolCount": 0,
+                    "tools": [],
+                    "transport": "http",
+                    "warnings": []
+                  }
+                ],
+                "warnings": []
+              }
+            }
+          },
+          "config": {
+            "ok": true,
+            "value": {
+              "config": {
+                "headers": {
+                  "X-Token": "abc\ud83d"
+                },
+                "type": "http",
+                "url": "http://127.0.0.1:47815/mcp"
+              },
+              "enabled": true,
+              "name": "lone-header-save",
+              "source": "config"
+            }
+          },
+          "status": {
+            "ok": true,
+            "value": {
+              "configuredCount": 2,
+              "connectedCount": 0,
+              "declarationErrors": [],
+              "failedCount": 2,
+              "googleClient": false,
+              "servers": [
+                {
+                  "activeHere": true,
+                  "capabilities": {
+                    "prompts": false,
+                    "resources": false,
+                    "tools": false
+                  },
+                  "configured": true,
+                  "connected": false,
+                  "enabled": true,
+                  "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                  "inheritedScope": null,
+                  "name": "lone-header",
+                  "scope": null,
+                  "source": "config",
+                  "status": "failed",
+                  "toolCount": 0,
+                  "tools": [],
+                  "transport": "http",
+                  "warnings": []
+                },
+                {
+                  "activeHere": true,
+                  "capabilities": {
+                    "prompts": false,
+                    "resources": false,
+                    "tools": false
+                  },
+                  "configured": true,
+                  "connected": false,
+                  "enabled": true,
+                  "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                  "inheritedScope": null,
+                  "name": "lone-header-save",
+                  "scope": null,
+                  "source": "config",
+                  "status": "failed",
+                  "toolCount": 0,
+                  "tools": [],
+                  "transport": "http",
+                  "warnings": []
+                }
+              ],
+              "warnings": []
+            }
+          }
+        },
+        "nodeRequests": []
+      },
       {
         "case": "lsp-rename-lone",
         "coreMustAnswer": {
@@ -179,7 +431,26 @@
             "status": "ready"
           }
         },
-        "nodeRequests": []
+        "nodeRequests": [
+          {
+            "method": "POST",
+            "received": {
+              "method": "textDocument/rename",
+              "params": {
+                "newName": "x\ud83d",
+                "position": {
+                  "character": 3,
+                  "line": 0
+                },
+                "textDocument": {
+                  "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+                }
+              }
+            },
+            "url": "/lsp",
+            "xToken": null
+          }
+        ]
       },
       {
         "case": "lsp-workspace-symbol-lone",
@@ -253,7 +524,19 @@
             "status": "ready"
           }
         },
-        "nodeRequests": []
+        "nodeRequests": [
+          {
+            "method": "POST",
+            "received": {
+              "method": "workspace/symbol",
+              "params": {
+                "query": "m\ud83d"
+              }
+            },
+            "url": "/lsp",
+            "xToken": null
+          }
+        ]
       },
       {
         "case": "lsp-execute-command-lone",
@@ -328,11 +611,238 @@
             "status": "ready"
           }
         },
-        "nodeRequests": []
+        "nodeRequests": [
+          {
+            "method": "POST",
+            "received": {
+              "method": "workspace/executeCommand",
+              "params": {
+                "arguments": [],
+                "command": "stub.run\ud83d"
+              }
+            },
+            "url": "/lsp",
+            "xToken": null
+          }
+        ]
       }
     ],
-    "check": "the client failure detail equals coreMustAnswer whole; the local server got no request; for an MCP server, mcp/getMcpServerConfig answers for its name as for a name never added",
-    "decision": "decisions.md \"frame-lone-surrogate\": a lone surrogate outside the free-text fields refuses the request whole before any service runs"
+    "check": "the client failure detail equals coreMustAnswer whole; the local server got no request (nor the language server, which reports each request it receives there); for an MCP server, mcp/mcpStatus and mcp/getMcpServerConfig of its name answer after the call what they answered before it",
+    "decision": "decisions.md \"Lone UTF-16 surrogates in client strings\": a field whose value becomes a header, a URL, a path, a command or an identifier refuses the call naming the field, before anything is stored or sent; Node may store or forward it, and the refusal without side effect is the accepted difference",
+    "fields": [
+      {
+        "field": "request lsp/request /opId",
+        "reason": "an id, cursor, revision or digest the core, a client or a service generated: matched against its record, never typed text"
+      },
+      {
+        "field": "request lsp/request /projectPath",
+        "reason": "a path, or a file, command or record name compared with what is on disk or in a store: a name holding a lone unit names nothing Node would have found (decisions.md \"frame-lone-surrogate\")"
+      },
+      {
+        "field": "request lsp/request /request/languageId",
+        "reason": "an id, cursor, revision or digest the core, a client or a service generated: matched against its record, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/method",
+        "reason": "a kind, mode, scope, phase, sort, state or other word from a fixed vocabulary the reader matches, written by the client app, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/arguments/**",
+        "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server"
+      },
+      {
+        "field": "request lsp/request /request/params/command",
+        "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)"
+      },
+      {
+        "field": "request lsp/request /request/params/command/arguments/**",
+        "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server"
+      },
+      {
+        "field": "request lsp/request /request/params/command/command",
+        "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)"
+      },
+      {
+        "field": "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/documentation/kind",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/kind",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/context/diagnostics/*/code",
+        "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/context/diagnostics/*/codeDescription/href",
+        "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/context/diagnostics/*/data/**",
+        "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server"
+      },
+      {
+        "field": "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/location/uri",
+        "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/context/only/*",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/data/**",
+        "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server"
+      },
+      {
+        "field": "request lsp/request /request/params/diagnostics/*/code",
+        "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/diagnostics/*/codeDescription/href",
+        "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/diagnostics/*/data/**",
+        "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server"
+      },
+      {
+        "field": "request lsp/request /request/params/diagnostics/*/relatedInformation/*/location/uri",
+        "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/documentation/kind",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/changeAnnotations/{}",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/changes/*/*/annotationId",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/changes/{}",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/documentChanges/*/annotationId",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/documentChanges/*/edits/*/annotationId",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/documentChanges/*/kind",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/documentChanges/*/newUri",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/documentChanges/*/oldUri",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/documentChanges/*/textDocument/uri",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/edit/documentChanges/*/uri",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/item/data/**",
+        "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server"
+      },
+      {
+        "field": "request lsp/request /request/params/item/name",
+        "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)"
+      },
+      {
+        "field": "request lsp/request /request/params/item/uri",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/kind",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/label/*/command/arguments/**",
+        "reason": "language-server data the server wrote or runs, sent back whole (an item's or diagnostic's `data`, a command's arguments): opaque to the client, looked up or executed by the server"
+      },
+      {
+        "field": "request lsp/request /request/params/label/*/command/command",
+        "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)"
+      },
+      {
+        "field": "request lsp/request /request/params/label/*/location/uri",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/label/*/tooltip/kind",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/newName",
+        "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)"
+      },
+      {
+        "field": "request lsp/request /request/params/options/*",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/options/{}",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/partialResultToken",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/previousResultId",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/query",
+        "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)"
+      },
+      {
+        "field": "request lsp/request /request/params/target",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/textDocument/uri",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/tooltip/kind",
+        "reason": "a language-server word from a fixed vocabulary (a markup kind, a code action kind or `only` filter, a resource operation kind) or a formatting option's name and value: matched by the server, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/params/workDoneToken",
+        "reason": "a language-server URI, token, result id or annotation id (a document, a work-done or partial-result token, a semantic-tokens result, a workspace edit's document or annotation keys): an address the server resolves, never typed text"
+      },
+      {
+        "field": "request lsp/request /request/relPath",
+        "reason": "a path, or a file, command or record name compared with what is on disk or in a store: a name holding a lone unit names nothing Node would have found (decisions.md \"frame-lone-surrogate\")"
+      },
+      {
+        "field": "request lsp/request /root",
+        "reason": "a path, or a file, command or record name compared with what is on disk or in a store: a name holding a lone unit names nothing Node would have found (decisions.md \"frame-lone-surrogate\")"
+      },
+      {
+        "field": "request mcp/addMcpServer /input/headers/*",
+        "reason": "an MCP server's header value becomes a header on every request to the server: refused naming the field, nothing saved (decisions.md \"Lone UTF-16 surrogates in client strings\"). Node saves the server and its fetch refuses the value when it connects (`Cannot convert argument to a ByteString ...`), sending nothing; the core's refusal without side effect is the accepted difference (recorded: native/core/fixtures/lone-surrogate-wire mcp-add-header-lone, mcp-save-header-lone)"
+      },
+      {
+        "field": "request mcp/saveMcpServer /input/headers/*",
+        "reason": "an MCP server's header value becomes a header on every request to the server: refused naming the field, nothing saved (decisions.md \"Lone UTF-16 surrogates in client strings\"). Node saves the server and its fetch refuses the value when it connects (`Cannot convert argument to a ByteString ...`), sending nothing; the core's refusal without side effect is the accepted difference (recorded: native/core/fixtures/lone-surrogate-wire mcp-add-header-lone, mcp-save-header-lone)"
+      }
+    ]
   },
   "replayedByRustTest": [
     {
@@ -341,5 +851,5 @@
     }
   ],
   "set": "lone-surrogate-wire",
-  "totalBytes": 452188
+  "totalBytes": 454540
 }

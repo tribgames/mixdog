@@ -719,7 +719,26 @@
           }
         }
       },
-      "requests": []
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "textDocument/rename",
+            "params": {
+              "position": {
+                "line": 0,
+                "character": 3
+              },
+              "newName": "x\ud83d",
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "name": "lsp-workspace-symbol-lone",
@@ -796,7 +815,19 @@
           }
         }
       },
-      "requests": []
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "workspace/symbol",
+            "params": {
+              "query": "m\ud83d"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "lsp-execute-command-lone",
@@ -875,7 +906,20 @@
           }
         }
       },
-      "requests": []
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "workspace/executeCommand",
+            "params": {
+              "command": "stub.run\ud83d",
+              "arguments": []
+            }
+          }
+        }
+      ]
     },
     {
       "name": "lsp-code-action-diagnostic-lone",
@@ -1015,7 +1059,52 @@
           }
         }
       },
-      "requests": []
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "textDocument/codeAction",
+            "params": {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 4
+                }
+              },
+              "context": {
+                "diagnostics": [
+                  {
+                    "range": {
+                      "start": {
+                        "line": 0,
+                        "character": 0
+                      },
+                      "end": {
+                        "line": 0,
+                        "character": 4
+                      }
+                    },
+                    "severity": 2,
+                    "message": "unused variable: `x\ud83d`",
+                    "source": "rustc",
+                    "code": "unused_variables"
+                  }
+                ],
+                "triggerKind": 1
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }
