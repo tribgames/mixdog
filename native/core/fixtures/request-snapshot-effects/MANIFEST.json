@@ -28,11 +28,11 @@
   "recorder": "native/core/crates/mixdog-core/src/run_host/snapshot_effects/record.mjs",
   "recorderSha256": "6dadec45f7fcd9ba1958b315b882b0460e70de7cf610d355bdead13e08e6cf8a",
   "runtime": {
-    "electron": "43.8.4",
-    "node": "v24.22.1"
+    "electron": null,
+    "node": "v22.20.0"
   },
   "scripts": {
-    "benchmarks/rust-core/recorders/lib/common.mjs": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+    "benchmarks/rust-core/recorders/lib/common.mjs": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
   },
   "set": "request-snapshot-effects",
   "totalBytes": 3906

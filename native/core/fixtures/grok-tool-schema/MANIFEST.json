@@ -33,11 +33,11 @@
   "recorder": "native/core/crates/mixdog-ai/src/providers/grok/tool_schema/record.mjs",
   "recorderSha256": "2ca6c5a6758e1a7bd9aa71e964e3b2cea55b7bbf66d30e8fa89577effef4608c",
   "runtime": {
-    "electron": "43.8.4",
-    "node": "v24.22.1"
+    "electron": null,
+    "node": "v22.20.0"
   },
   "scripts": {
-    "benchmarks/rust-core/recorders/lib/common.mjs": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+    "benchmarks/rust-core/recorders/lib/common.mjs": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
   },
   "set": "grok-tool-schema",
   "totalBytes": 228590

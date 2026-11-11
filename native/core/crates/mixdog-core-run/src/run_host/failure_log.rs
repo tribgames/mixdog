@@ -19,7 +19,9 @@ use std::time::Duration;
 
 use mixdog_agent::env::Clock;
 use mixdog_agent::env::FailedCall;
+use mixdog_agent::env::ToolBatch;
 use mixdog_agent::env::ToolFailureLog;
+use mixdog_agent::env::TracedCall;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::LaneToken;
@@ -221,6 +223,20 @@ impl FailureWriter {
         self.after_append(due);
     }
 
+    /// `traceAgentBatch(args)`: the `batch` row of the agent trace, queued behind the same buffers.
+    pub fn record_batch(self: &Arc<Self>, args: &Map<String, Value>) {
+        let due = self.trace.append(&mixdog_trace::batch_record(args), self.clock.now_ms());
+        self.after_append(due);
+    }
+
+    /// `traceAgentTool(args)`: the `tool` and `tool_slow` rows of one call and, for an error call, its failure row.
+    pub fn record_tool(self: &Arc<Self>, args: &Map<String, Value>) {
+        let due = self.trace.tool(args, self.clock.now_ms());
+        #[cfg(feature = "test-support")]
+        self.tell_appended("tool");
+        self.after_append(due);
+    }
+
     /// `recordAgentWatchdogAbort(ctx)`: the `stall_abort` rows of a stopped turn (`mixdog_trace::watchdog_abort_records` has the
     /// fields of `ctx`), queued behind the same buffers.
     pub fn record_watchdog_abort(self: &Arc<Self>, ctx: &Map<String, Value>) {
@@ -351,21 +367,111 @@ pub async fn flush_all() {
     }
 }
 
-/// One run's failed calls, with the thread, agent and working directory they belong to.
+/// One run's tool batches and calls, with the thread, agent and working directory they belong to.
 pub struct RunFailureLog {
     writer: Arc<FailureWriter>,
     session_id: String,
     agent: Option<String>,
     cwd: String,
+    /// The id of the run's current batch (`toolBatchId`), its calls' rows name it.
+    batch_id: Mutex<Option<String>>,
 }
 
 impl RunFailureLog {
     pub fn new(writer: Arc<FailureWriter>, session_id: &str, agent: Option<&str>, cwd: &str) -> Self {
-        Self { writer, session_id: session_id.to_owned(), agent: agent.map(str::to_owned), cwd: cwd.to_owned() }
+        Self { writer, session_id: session_id.to_owned(), agent: agent.map(str::to_owned), cwd: cwd.to_owned(), batch_id: Mutex::new(None) }
     }
 }
 
 impl ToolFailureLog for RunFailureLog {
+    /// `recordToolBatch`: no row (and no id) for a batch without calls or a run without a session.
+    fn batch(&self, batch: &ToolBatch) {
+        let id = (!self.session_id.is_empty() && !batch.calls.is_empty()).then(mixdog_ai::registry::accounting::random_uuid);
+        *self.batch_id.lock().unwrap_or_else(PoisonError::into_inner) = id.clone();
+        let Some(id) = id else {
+            return;
+        };
+        let calls: Vec<Value> = batch
+            .calls
+            .iter()
+            .map(|call| {
+                json!({
+                    "tool_call_id": call.tool_call_id,
+                    "tool_name": call.tool_name,
+                    "array_lengths": call.array_lengths.as_ref().map(|lengths| lengths.iter().map(|(field, n)| (field.clone(), json!(n))).collect::<Map<String, Value>>()),
+                })
+            })
+            .collect();
+        let args = json!({
+            "sessionId": self.session_id,
+            "toolCallCount": batch.calls.len(),
+            "batchId": id,
+            "batchCalls": calls,
+            "iteration": batch.iteration,
+        });
+        if let Value::Object(args) = args {
+            self.writer.record_batch(&args);
+        }
+    }
+
+    fn tool(&self, call: TracedCall) {
+        let TracedCall {
+            iteration,
+            tool_call_id,
+            tool_name,
+            tool_kind,
+            tool_ms,
+            tool_args,
+            model,
+            result_kind,
+            result,
+            timing,
+            execution_intervals,
+            result_telemetry,
+            local_search,
+            ..
+        } = call;
+        let mut args = json!({
+            "sessionId": self.session_id,
+            "iteration": iteration,
+            "toolName": tool_name,
+            "toolKind": tool_kind,
+            "toolMs": tool_ms,
+            "toolArgs": tool_args,
+            "agent": self.agent,
+            "model": model,
+            "resultKind": result_kind,
+            "resultText": result,
+            "cwd": self.cwd,
+        });
+        if let Some(id) = self.batch_id.lock().unwrap_or_else(PoisonError::into_inner).clone() {
+            args["toolBatchId"] = json!(id);
+            args["toolCallId"] = json!(tool_call_id);
+        }
+        if let Some(t) = timing {
+            args["toolTiming"] = json!({
+                "dispatchStartedAt": t.dispatch_started_at,
+                "executionStartedAt": t.execution_started_at,
+                "executionCompletedAt": t.execution_completed_at,
+                "postprocessStartedAt": t.postprocess_started_at,
+                "resultCompletedAt": t.result_completed_at,
+            });
+        }
+        args["executionIntervals"] = execution_intervals
+            .iter()
+            .map(|(started, completed)| json!({ "started_at_ms": started, "completed_at_ms": completed }))
+            .collect();
+        if let Some(telemetry) = result_telemetry {
+            args["resultTelemetry"] = telemetry;
+        }
+        if let Some(search) = local_search {
+            args["localSearchTelemetry"] = search;
+        }
+        if let Value::Object(args) = args {
+            self.writer.record_tool(&args);
+        }
+    }
+
     fn failed(&self, call: FailedCall) {
         let FailedCall { iteration, tool_name, tool_kind, tool_ms, tool_args, model, result_text } = call;
         let args = json!({
