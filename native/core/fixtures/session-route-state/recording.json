@@ -326,31 +326,13 @@
           },
           "state": {
             "contextPercent": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "undefined"
-                ]
-              ]
+              "$exact": "undefined"
             },
             "contextDefaultPercent": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "undefined"
-                ]
-              ]
+              "$exact": "undefined"
             },
             "selectedContextWindow": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "undefined"
-                ]
-              ]
+              "$exact": "undefined"
             }
           },
           "lookups": [
@@ -681,48 +663,18 @@
           },
           "first": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction"
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction",
+              "props": {}
             }
           },
           "second": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction"
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction",
+              "props": {}
             }
           },
           "calls": [
@@ -1011,13 +963,7 @@
             }
           ],
           "sourceCompaction": {
-            "$exact": "object",
-            "entries": [
-              [
-                "$exact",
-                "undefined"
-              ]
-            ]
+            "$exact": "undefined"
           },
           "target": {
             "id": "heir",
@@ -1164,49 +1110,16 @@
         "failing": {
           "inherit": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the conversation could not be compacted for the new session"
-                ],
-                [
-                  "cause",
-                  {
-                    "$exact": "object",
-                    "entries": [
-                      [
-                        "$exact",
-                        "error"
-                      ],
-                      [
-                        "name",
-                        "Error"
-                      ],
-                      [
-                        "message",
-                        "compactor down"
-                      ],
-                      [
-                        "props",
-                        {}
-                      ]
-                    ]
-                  }
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the conversation could not be compacted for the new session",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "compactor down",
+                "props": {}
+              },
+              "props": {}
             }
           },
           "target": {
@@ -1228,25 +1141,10 @@
         "empty": {
           "inherit": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the conversation could not be compacted for the new session"
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the conversation could not be compacted for the new session",
+              "props": {}
             }
           },
           "target": {

@@ -5,14 +5,26 @@
 // The compactor is a scripted endpoint: every call it receives is recorded.
 //
 //   node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <dir>
-import { exact, exactArgs } from './lib/exact.mjs';
-import { outcomeExact as outcome, runSessionRecorder } from './lib/session-rec.mjs';
+import { exact as encode, exactArgs as encodeArgs, fromExact } from './lib/exact.mjs';
+import { runSessionRecorder } from './lib/session-rec.mjs';
+
+// A copy of a value as it is at this moment (later mutation of the original does not reach it), still a plain value:
+// `add` encodes the whole case through `exact` once, so a snapshot must not be encoded already.
+const exact = (value) => fromExact(encode(value));
+const exactArgs = (args) => fromExact(encodeArgs(args));
+async function outcome(fn) {
+  try {
+    return { ok: exact(await fn()) };
+  } catch (error) {
+    return { error: exact(error) };
+  }
+}
 
 await runSessionRecorder(import.meta.url, {
   set: 'session-route-state',
   testFile: 'src/session-runtime/session-lifecycle.test.mjs',
   entry: 'Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file\'s inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction).',
-  replay: 'mixdog-core-session route state (S/state.rs resolve of effort/fast/context percent against model metadata) and the thread inheritance preflight/carry: feed each case\'s inputs (CONVERSATION expanded from its repeat spec) and compare every output, thrown message and compactor call (budgetTokens, threshold, copy-not-source) whole and in order.',
+  replay: 'mixdog-core run_host/session_route_state_replay.rs: mixdog_ai::service::admin_route (resolve_route_effort_state, resolve_route_context_state, selection_fast_capable, save_model_settings, resolve_route, window_meta_of) for cases 10, 27, 49, 74, 104, 149, 229, and mixdog_core_session::session::inheritance::inheritance_fit over run_host::inheritance_fit::HostInheritanceFit for 255, each result compared whole. Cases 306 and 372 (inheritFrom) are played through thread/inheritancePreflight, thread/fork and thread/messages/read on a real session directory and compared at what a client observes: the verdict, the answer or refusal text, the heir\'s conversation. Not compared: the compactor calls Node\'s mock counted (budgetTokens, threshold, copy-not-source) — no client sees them; the heir\'s conversation and the refusal text are their observable consequence.',
   values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: ['no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it'],
 }, async ({ imp }) => {
@@ -27,7 +39,7 @@ await runSessionRecorder(import.meta.url, {
   // Input and result are encoded here, right after the case computed them.
   const FIXED_NOW = 1_700_000_000_000; // the inheritance record stamps Date.now(): a recorded input, fixed here
   Date.now = () => FIXED_NOW;
-  const add = (name, line, input, result) => cases.push({ name, testLine: line, input: exact({ ...input, clock: { 'Date.now()': FIXED_NOW } }), result: exact(result) });
+  const add = (name, line, input, result) => cases.push({ name, testLine: line, input: encode({ ...input, clock: { 'Date.now()': FIXED_NOW } }), result: encode(result) });
 
   // 1 placeholder metadata keeps a saved Fast setting
   {
