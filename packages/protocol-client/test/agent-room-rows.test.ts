@@ -6,7 +6,8 @@
 // `roomRow` lines into rows, and each case is compared whole, in recorded key order, with the recording.
 //
 // A line's item id is minted per run; the core file holds `<item-id>` and each line gets the id the recorder passed to `roomRowItem`
-// (the manifest's `replay.normalised.lineItemId`).
+// (the manifest's `replay.normalised.lineItemId`): the id is the only value set here, because the recording's id was the
+// recorder's argument, not something Node computed.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -58,6 +59,8 @@ test('case 3: a row keeps its addressees as an ordered list; older single ids re
   const legacy = row(core['3'].legacyLines[0]).room;
   same(
     {
+      // `normalizedRow` is the name of Node's observed value in case 3 (the row as the room log stores it), not a
+      // normalisation of this test: the core's stored row is compared whole under it.
       normalizedRow: core['3'].normalizedRow,
       legacyInput: fromExact(want.legacyInput),
       legacyItemRoomTo: legacy.to,

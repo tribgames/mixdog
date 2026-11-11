@@ -56,12 +56,15 @@ async function withDataDir(run) {
 function storeFiles(root) {
   const out = {};
   for (const name of ['agent-workers.json', 'lead-workers.json']) if (existsSync(join(root, name))) out[name] = readFileSync(join(root, name), 'utf8');
+  // Sorted: this is the input dump of the store's files, not a value Node answered; readdir's order is the file system's,
+  // and the replay writes each file by its path, so a fixed order only keeps two recordings byte-identical.
   for (const name of readdirSync(join(root, 'sessions')).sort()) out[`sessions/${name}`] = readFileSync(join(root, 'sessions', name), 'utf8');
   return out;
 }
 /** What changed between two stores: each changed path's new text, `null` for a removed file. */
 function storeChanges(before, after) {
   const out = {};
+  // Sorted: the changed input files by path, applied to the store one file each; no Node answer is reordered.
   for (const path of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) if (before[path] !== after[path]) out[path] = after[path] ?? null;
   return out;
 }
@@ -368,6 +371,8 @@ await set.finish({
   replay: {
     entry: 'native/core/crates/mixdog-core/src/run_host/pool_list_replay.rs: each recorded store (the per-case files named in the case) is written as Node\'s data dir, migrated as the core does at its first start and opened through the real store; every listing is AgentPool::list over run_host/pool_inputs.rs RegistryPoolStore (what agent/pool/list answers with, composed as compose_flip.rs) and is compared whole',
     missingOnO1: ['the persisted header cache, the link list and the stat / read / fs-call counters: the format of Node\'s listing, no counterpart in the core'],
+    // The one declared normalisation: each run's temp data dir is written as `<data>` (replaceInText below), so no path of
+    // this machine is in the recording; every listed value is compared as recorded.
     normalised: { dataDir: 'temp, not in the recording' },
   },
   replaceInText: roots.map((r) => [r, '<data>']),
