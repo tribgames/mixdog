@@ -239,6 +239,31 @@ fn is_unc_or_smb(path: &str) -> bool {
     path.starts_with("\\\\") || path.starts_with("//")
 }
 
+/// Node's win32 `path.resolve` of a path it reads as a UNC or device root whatever its separators (`/\server/share`,
+/// `\/./C:/x`): the `\\server\share\…` it resolves to; `None` for any other path.
+fn win32_unc_resolution(raw: &str) -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let fwd = raw.replace('\\', "/");
+    let root_len = parse_root_len(&fwd);
+    if !fwd.starts_with("//") || root_len <= 1 {
+        return None;
+    }
+    let mut rest: Vec<&str> = Vec::new();
+    for segment in fwd[root_len..].split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                rest.pop();
+            }
+            s => rest.push(s),
+        }
+    }
+    let root = format!("{}/", fwd[..root_len].trim_end_matches('/'));
+    Some(format!("{root}{}", rest.join("/")).replace('/', "\\"))
+}
+
 /// Node `globUncRefusal`: the base path (as given, then resolved) and every absolute pattern, before any walk.
 fn glob_unc_refusal(ctx: &ToolContext, raw: &str, patterns: &[String]) -> Option<String> {
     let refuse = |shown: &str| {
@@ -249,6 +274,9 @@ fn glob_unc_refusal(ctx: &ToolContext, raw: &str, patterns: &[String]) -> Option
     };
     if is_unc_or_smb(raw) {
         return Some(refuse(raw));
+    }
+    if let Some(resolved) = win32_unc_resolution(raw) {
+        return Some(refuse(&resolved));
     }
     if let Ok(resolved) = resolve_path(&ctx.cwd, raw)
         && is_unc_or_smb(&resolved.as_path().to_string_lossy())

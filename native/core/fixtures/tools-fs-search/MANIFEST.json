@@ -1,10 +1,10 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
+  "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the --patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
   "exclusions": [
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
   ],
-  "fileCount": 16,
+  "fileCount": 20,
   "files": [
     {
       "bytes": 5739,
@@ -37,6 +37,16 @@
       "sha256": "6722b73ab22733c41ee2ee7daa6973d3e61c8b3e33ee260948547c6df2d709a6"
     },
     {
+      "bytes": 1907070,
+      "path": "code-graph-memory-budget.json",
+      "sha256": "abcebfff54c53617a4592aa8073be1073b1effbe0351157d38484210c9aafaf6"
+    },
+    {
+      "bytes": 8508,
+      "path": "code-graph-modes.json",
+      "sha256": "e24b8fa89ec431402cd175fa6dc91d2487d1ff266094e07d8e1e49ed2c4fc73c"
+    },
+    {
       "bytes": 74808,
       "path": "code-graph-refs-casing.json",
       "sha256": "72461a7664ec05994eb673eeee963622f3e45caca4d344a382af60fb5f4851ee"
@@ -52,9 +62,14 @@
       "sha256": "a95b954ac10d7698d920c660b5031416abd305c93578b8c9d6aa4b61cadcf333"
     },
     {
-      "bytes": 2306,
+      "bytes": 5530,
       "path": "glob-unc.json",
-      "sha256": "2a21e6b72257645cf67f7cc3f15f92dca73f911dc506a0a2de3591fa40673ed7"
+      "sha256": "6f55c68fff917f11e3b4394d37171bf0c52c08200a29ffd6f251c65aaea5525e"
+    },
+    {
+      "bytes": 2592,
+      "path": "grep-missing-indexed.json",
+      "sha256": "d2a72a68dc52483f26f0766848d193baa96b9e365227e7096be164ab193334e6"
     },
     {
       "bytes": 5732,
@@ -70,6 +85,11 @@
       "bytes": 8518,
       "path": "not-found-hints.json",
       "sha256": "c0b66247e7c17c99266c79aea3bdd763355a145ee0787f83d4b27775cfef6258"
+    },
+    {
+      "bytes": 13657,
+      "path": "read-ipynb-image.json",
+      "sha256": "50a1ffa9873a9fb2f967edb5f1af608045c6835b4e3d392badb02c64565960b0"
     },
     {
       "bytes": 3656,
@@ -112,29 +132,38 @@
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs"
+      ],
+      "sha256": "1bf4e5b273d83cacd5100e4969ebab862be23a2d230f77f4b76dc0f02e21416b"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 1
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "b70cbecb9053f58eacbfa2586f51dc459e84ad1fb0e17a6ffe842265be24f3a7",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "6cb351faf2d7831d48fe4e932e6c1945a0f5e4dbee450b64de9be626aae0bdd5",
+  "recorderSha256": "26e94cbef7a8f7150646b8c6101a039094a88ab0a36a95cd4ac210f85b15c90f",
   "scenarios": [
     "read-modes",
     "read-shapes",
     "not-found-hints",
     "code-graph-refs-casing",
     "code-graph-casing-eviction",
+    "code-graph-modes",
     "code-graph-hit-cap-fraction",
     "code-graph-hit-cap-hex",
     "code-graph-hit-cap-negative",
@@ -144,9 +173,12 @@
     "grep-multi-pattern",
     "glob-absolute",
     "glob-unc",
+    "code-graph-memory-budget",
+    "grep-missing-indexed",
+    "read-ipynb-image",
     "glob-past-cap",
     "list-glob-path"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 197933
+  "totalBytes": 2132984
 }

@@ -9,6 +9,8 @@
 //
 //   node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <exact export of b6f10295a with node_modules> \
 //        --graph-bin <mixdog-graph built from b6f10295a:native/mixdog-graph> --scratch <scratch parent> [--only <scenario>]
+//        [--patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch: the tree is the export
+//        with that fix applied (a sentinel-free cwd took its own lowercased graph-cache root for a child and federated into itself)]
 //
 // Output: native/core/fixtures/tools-fs-search/<scenario>.json (+ MANIFEST.json); with --only the one scenario is recorded and printed.
 import { createHash } from 'node:crypto';
@@ -27,6 +29,9 @@ const FIXED = '2026-01-02T03:04:05Z';
 // time), the folder the calls run in (`cwd`, under the workspace), unrecorded `warmup` calls and the calls, in order. `<ROOT>` in an input is the workspace
 // path, written with forward slashes.
 const notebook = (cells) => JSON.stringify({ cells, metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1);
+// A 1x1 PNG, and its base64 cut into `width`-character lines.
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const wrap = (text, width, eol) => text.match(new RegExp(`.{1,${width}}`, 'g')).join(eol);
 const SCENARIOS = [
   // The public read's `mode` (read-tool.mjs, read-single-tool.mjs): the legacy `path` form reads every glance mode, the
   // `file_path` form only `count` and `hex`; an entry object of a `file_path` array may not carry one.
@@ -196,6 +201,42 @@ const SCENARIOS = [
       { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'], cwd: '<ROOT>/a' } },
     ],
   },
+  // Every code_graph mode over a small sentinel-free tree (the cases of fixtures/tools/code_graph, recorded through the
+  // tool's entry with their outcome).
+  {
+    name: 'code-graph-modes',
+    files: {
+      'src/lib/math.mjs': 'export function add(a, b) {\n  return a + b;\n}\n\nexport function sub(a, b) {\n  return a - b;\n}\n',
+      'src/lib/util.mjs': "import { add } from './math.mjs';\n\nexport const twice = (x) => add(x, x);\n",
+      'src/main.mjs': "import { add, sub } from './lib/math.mjs';\n\nexport function main() {\n  return add(1, 2) + sub(5, 3);\n}\n\nexport function other() {\n  return add(3, 4);\n}\n",
+      'src/app.py': 'def greet(name):\n    return name\n\n\nclass Greeter:\n    def run(self):\n        return 1\n',
+    },
+    warmup: [{ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'] } }],
+    calls: [
+      { tool: 'code_graph', input: { mode: 'nope' } },
+      { tool: 'code_graph', input: { files: ['src/missing.mjs'], mode: 'symbols' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol' } },
+      { tool: 'code_graph', input: { file: 'src/lib/math.mjs', mode: 'symbols' } },
+      { tool: 'code_graph', input: { mode: 'callees', symbols: ['main'] } },
+      { tool: 'code_graph', input: { depth: 2, mode: 'callers', symbols: ['add'] } },
+      { tool: 'code_graph', input: { mode: 'callers', symbols: ['add'] } },
+      { tool: 'code_graph', input: { files: ['src/lib/math.mjs'], mode: 'dependents' } },
+      { tool: 'code_graph', input: { body: false, mode: 'find_symbol', symbols: ['add'] } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['add'] } },
+      { tool: 'code_graph', input: { files: ['src/lib/math.mjs'], mode: 'impact' } },
+      { tool: 'code_graph', input: { files: ['src/main.mjs'], mode: 'imports' } },
+      { tool: 'code_graph', input: { depth: 2, files: ['src/main.mjs'], mode: 'overview' } },
+      { tool: 'code_graph', input: { files: ['src/main.mjs'], mode: 'overview' } },
+      { tool: 'code_graph', input: { body: true, limit: 2, mode: 'references', symbols: ['add'] } },
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['add'] } },
+      { tool: 'code_graph', input: { files: ['src/lib/math.mjs'], mode: 'related' } },
+      { tool: 'code_graph', input: { mode: 'search', symbols: ['twice'] } },
+      { tool: 'code_graph', input: { mode: 'symbol_search', symbols: ['gree'] } },
+      { tool: 'code_graph', input: { files: ['src/lib/math.mjs'], mode: 'symbols', symbols: ['sub'] } },
+      { tool: 'code_graph', input: { files: ['src/app.py'], mode: 'symbols' } },
+      { tool: 'code_graph', input: { files: ['src/lib/math.mjs'], mode: 'symbols' } },
+    ],
+  },
   // REFERENCE_HIT_CAP (code-graph/search.mjs _cheapReferenceSearch): `Math.max(1, Number(env) || 200)` mentions per
   // scan, read at each scan; `env` is the scenario process's environment.
   ...[['2.5', 'fraction'], [' 0x2 ', 'hex'], ['-3', 'negative'], ['0', 'zero'], ['many', 'nan']].map(([cap, label]) => ({
@@ -308,6 +349,111 @@ const SCENARIOS = [
       { tool: 'glob', input: { pattern: '*.ts', path: '//server/share' } },
       { tool: 'glob', input: { pattern: '*.ts', path: '\\\\server\\share\\dir' } },
       { tool: 'glob', input: { pattern: '<ROOT>\\j*\\x.ts' } },
+      // Mixed separators: Node's win32 resolve reads `/\` and `\/` as a UNC or device root too.
+      { tool: 'glob', input: { pattern: '/\\server/share/x/*.ts' } },
+      { tool: 'glob', input: { pattern: '\\/server/share/x/*.ts' } },
+      { tool: 'glob', input: { pattern: '\\\\?\\C:\\x\\*.ts' } },
+      { tool: 'glob', input: { pattern: '\\\\.\\C:\\x\\*.ts' } },
+      { tool: 'glob', input: { pattern: '/\\./C:/x/*.ts' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '/\\server/share' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '\\/server/share/dir' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '/\\server/share/a/../b/./c' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '\\\\.\\C:\\x' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '//./C:/x' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '\\/./C:/x' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '/\\./C:/x' } },
+    ],
+  },
+  // The resident graphs' memory budget (memory-cache.mjs _pruneCodeGraphMemoryCache, graph-model.mjs
+  // _estimateGraphRetainedBytes) at 1 MB: a graph's retained bytes are its node records, token index and source caches,
+  // not its files' text. Each `widget` after a `Widget` shows whether the first root's lookups survived.
+  {
+    name: 'code-graph-memory-budget',
+    env: { MIXDOG_CODE_GRAPH_MEMORY_MAX_MB: '1' },
+    files: {
+      'a/package.json': '{}\n',
+      'a/src/main.ts': 'export class Widget {}\n',
+      'text/package.json': '{}\n',
+      'text/src/main.ts': `// ${'x'.repeat(600000)}\nexport const t = 1;\n`,
+      'pa/package.json': '{}\n',
+      'pa/src/main.ts': `// ${'x'.repeat(600000)}\nexport const pa = 1;\n`,
+      'pb/package.json': '{}\n',
+      'pb/src/main.ts': `// ${'x'.repeat(600000)}\nexport const pb = 1;\n`,
+      'mid/package.json': '{}\n',
+      'mid/src/main.ts': `${Array.from({ length: 800 }, (_, i) => `export const m${i} = ${i};`).join('\n')}\n`,
+      'big/package.json': '{}\n',
+      'big/src/main.ts': `${Array.from({ length: 3000 }, (_, i) => `export const v${i} = ${i};`).join('\n')}\n`,
+    },
+    warmup: [{ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'], cwd: '<ROOT>/a' } }],
+    calls: [
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['Widget'], cwd: '<ROOT>/a' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['t'], cwd: '<ROOT>/text' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'], cwd: '<ROOT>/a' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['Widget'], cwd: '<ROOT>/a' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['zzz'], cwd: '<ROOT>/pa' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['zzz'], cwd: '<ROOT>/pb' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'], cwd: '<ROOT>/a' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['m1'], cwd: '<ROOT>/mid' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'], cwd: '<ROOT>/a' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['v1'], cwd: '<ROOT>/big' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'], cwd: '<ROOT>/a' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['v2'], cwd: '<ROOT>/big' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['V2'], cwd: '<ROOT>/big' } },
+    ],
+  },
+  // A missing grep path whose basename scans end inconclusive (past their 6000 directories) is looked up as a
+  // `**/<basename>` glob (search-path-diagnostics.mjs _suggestIndexedPaths); `list` has no such fallback.
+  // `bulkDirs` makes <dir>/<00000..count-1>, empty.
+  {
+    name: 'grep-missing-indexed',
+    files: {
+      'zz/sub/nope.txt': 'n\n',
+      ...Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`zz/m${i}/other.txt`, 'o\n'])),
+    },
+    bulkDirs: { dir: 'd', count: 6100 },
+    warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+    calls: [
+      { tool: 'grep', input: { pattern: 'x', path: 'nope.txt' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'zz/nope.txt' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'other.txt' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'none.md' } },
+      { tool: 'grep', input: { pattern: 'x', path: ['nope.txt'] } },
+      { tool: 'list', input: { path: 'nope.txt' } },
+    ],
+  },
+  // A notebook image whose base64 is wrapped with line breaks is decoded as Node's Buffer.from(b64, 'base64') decodes
+  // it (read-special-files.mjs notebookImageBlocks). `resizer`: the images the resize service (sharp, the core's
+  // extension host) is asked to resize, with its replies, recorded through resizeImageBuffer.
+  {
+    name: 'read-ipynb-image',
+    resizerImages: [PNG_B64],
+    files: {
+      'img.ipynb': notebook([
+        { cell_type: 'code', execution_count: 1, metadata: {}, source: ['plot()'], outputs: [
+          { output_type: 'display_data', metadata: {}, data: { 'image/png': wrap(PNG_B64, 16, '\n') } },
+        ] },
+      ]),
+      'lines.ipynb': notebook([
+        { cell_type: 'code', execution_count: 1, metadata: {}, source: ['plot()'], outputs: [
+          { output_type: 'display_data', metadata: {}, data: { 'image/png': wrap(PNG_B64, 20, '\n').split(/(?<=\n)/) } },
+        ] },
+      ]),
+      'crlf.ipynb': notebook([
+        { cell_type: 'code', execution_count: 1, metadata: {}, source: ['plot()'], outputs: [
+          { output_type: 'display_data', metadata: {}, data: { 'image/png': ` ${wrap(PNG_B64, 12, '\r\n')}\r\n` } },
+        ] },
+      ]),
+      'plain.ipynb': notebook([
+        { cell_type: 'code', execution_count: 1, metadata: {}, source: ['plot()'], outputs: [
+          { output_type: 'display_data', metadata: {}, data: { 'image/png': PNG_B64 } },
+        ] },
+      ]),
+    },
+    calls: [
+      { tool: 'read', input: { path: 'img.ipynb', full: true } },
+      { tool: 'read', input: { path: 'lines.ipynb', full: true } },
+      { tool: 'read', input: { path: 'crlf.ipynb', full: true } },
+      { tool: 'read', input: { path: 'plain.ipynb', full: true } },
     ],
   },
   // gaps-tools item 11: past GLOB_ACCUM_CAP (50 000) matches an unbounded glob keeps the first 50 000 and says the list is
@@ -397,6 +543,10 @@ if (process.argv[2] === '--child') {
       utimesSync(file, new Date(FIXED), new Date(FIXED));
     }
   }
+  if (scenario.bulkDirs) {
+    const { dir, count } = scenario.bulkDirs;
+    for (let i = 0; i < count; i++) mkdirSync(join(ws, dir, String(i).padStart(5, '0')), { recursive: true });
+  }
   // Directories are dated last: writing their files moved their mtimes.
   for (const [rel, iso] of Object.entries(scenario.mtimes ?? {})) {
     if (!(rel in (scenario.files ?? {}))) utimesSync(join(ws, rel), new Date(iso), new Date(iso));
@@ -406,7 +556,8 @@ if (process.argv[2] === '--child') {
   const { normalizeToolEnvelope } = await imp('src/runtime/agent/orchestrator/session/tool-envelope.mjs');
   const { classifyResultKind } = await imp('src/runtime/agent/orchestrator/session/result-classification.mjs');
   const fwd = ws.replace(/\\/g, '/');
-  const scrub = (text) => String(text).replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
+  // A rich answer is its JSON text, where the workspace's backslashes are escaped.
+  const scrub = (text) => String(text).replaceAll(JSON.stringify(ws).slice(1, -1), '<ROOT>').replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
   const cwd = scenario.cwd ? join(ws, scenario.cwd) : ws;
   // Unrecorded calls first: the search server's first start can miss Node's 1 s readiness bound, which is a cold-start
   // artefact of the recording machine, not an answer.
@@ -431,16 +582,26 @@ if (process.argv[2] === '--child') {
     }
     calls.push({ tool: call.tool, input: call.input, ...outcome });
   }
-  writeFileSync(process.env.RECORDER_RESULT, JSON.stringify(calls));
+  // The resize service's replies, from the module the extension host answers with, on the original image bytes.
+  let resizer;
+  if (scenario.resizerImages) {
+    const { resizeImageBuffer } = await imp('src/runtime/shared/read-image-resize.mjs');
+    resizer = [];
+    for (const b64 of scenario.resizerImages) {
+      const bytes = Buffer.from(b64, 'base64');
+      resizer.push({ inputSha256: createHash('sha256').update(bytes).digest('hex'), ext: 'png', reply: await resizeImageBuffer(bytes, 'png') });
+    }
+  }
+  writeFileSync(process.env.RECORDER_RESULT, JSON.stringify({ calls, resizer }));
   process.exit(0);
 }
 
-const { FIXTURES_ROOT, REPO_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, REPO_ROOT, commitStage, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
 const { recorderProvenance } = await import('./lib/provenance.mjs');
 const args = parseArgs();
 const tree = resolveTree(args);
-const identity = exactProductIdentity(tree, NODE_COMMIT);
+const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
 const graphBin = args.get('graph-bin');
 if (!graphBin || !existsSync(graphBin)) throw new Error('--graph-bin <mixdog-graph built from b6f10295a:native/mixdog-graph> is required');
 const scratch = args.get('scratch');
@@ -480,8 +641,9 @@ async function recordScenario(scenario) {
   }
   const job = readJobReport(report);
   if (job.exitCode !== 0) throw new Error(`scenario ${scenario.name} failed (${job.exitCode}):\n${output}`);
-  const { calls: _calls, ...rest } = scenario;
-  return { ...rest, calls: JSON.parse(readFileSync(join(sandbox, 'result.json'), 'utf8')) };
+  const { calls: _calls, resizerImages: _images, ...rest } = scenario;
+  const { calls, resizer } = JSON.parse(readFileSync(join(sandbox, 'result.json'), 'utf8'));
+  return { ...rest, ...(resizer ? { resizer } : {}), calls };
 }
 
 let failure = null;
@@ -497,7 +659,7 @@ try {
     writeSetManifest(stage, {
       set: 'tools-fs-search',
       recorder: RECORDER,
-      command: `node ${RECORDER} --tree <exact export of ${NODE_COMMIT}> --graph-bin <mixdog-graph built from ${NODE_COMMIT}:native/mixdog-graph> --scratch <scratch parent>`,
+      command: `node ${RECORDER} --tree <export of ${NODE_COMMIT} with the --patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch --graph-bin <mixdog-graph built from ${NODE_COMMIT}:native/mixdog-graph> --scratch <scratch parent>`,
       identity,
       extra: {
         ...recorderProvenance(import.meta.url),
