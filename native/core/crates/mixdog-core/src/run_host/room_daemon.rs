@@ -72,6 +72,10 @@ impl RoomDaemon for DirectoryRoomDaemon {
     fn republish_catalog(&self) {
         (self.republish_catalog)();
     }
+
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        self.directory.deps().sensitive.redact_text(&ThreadId::from(session_id), text)
+    }
 }
 
 #[cfg(test)]

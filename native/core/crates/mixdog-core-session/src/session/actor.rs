@@ -145,6 +145,10 @@ use mixdog_core_base::approvals::request_frame;
 use mixdog_core_base::approvals::request_params;
 use mixdog_core_base::approvals::resolved_frame;
 
+mod compaction_reminder;
+mod offload_prune;
+#[cfg(test)]
+pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;
 mod turn_ops;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
@@ -163,6 +167,10 @@ pub(super) const IDLE_EVICT: Duration = Duration::from_secs(5 * 60);
 /// `STATUS_SETTLE_MS` (`session-status-scheduler.mjs:14`): the beat a status pass waits after its
 /// first mark, here the load's.
 pub(super) const STATUS_SETTLE: Duration = Duration::from_millis(16);
+/// How long a route move waits for its new route's context status before it is accepted without it.
+const ROUTE_STATUS_DEADLINE: Duration = Duration::from_secs(10);
+/// The header keys that move the route's context window (`applyRouteContextWindow`).
+const WINDOW_KEYS: [&str; 5] = ["provider", "model", "contextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
 
 /// `item/completed` of an item a history row shows.
 fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Note {
@@ -220,6 +228,9 @@ pub(crate) enum Inbox {
     /// The job board's activity signal: a job of this thread was added or finished
     /// (`agent_activity.rs`).
     AgentActivity,
+    /// A value marked in a session whose text this thread holds reached it (`SensitiveMarks::carry`): what the thread
+    /// stored goes as for a mark of its own, whether a turn runs or not.
+    SensitiveCarried,
     Request {
         req: CoreRequest,
         tx: Waiter,
@@ -256,16 +267,46 @@ pub(crate) enum Inbox {
     /// The step must not call the same session's actor.
     UpdateHeaderAwaiting { update: AwaitingHeaderUpdate, tx: Waiter },
     /// A test's injected unwind of the actor.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     Unwind(UnwindAt),
+    /// The end of a test's marked turn (`ControlCell::ask_marked`; Node's `markSessionDone`): the mark is cleared and
+    /// the prune the turn stopped runs, as a turn's end runs it (`run_ended`).
+    #[cfg(test)]
+    AskEnded,
+}
+
+/// A route move waiting for its new route's context status: applied, with those figures, when the read returns.
+struct PendingMove {
+    seq: u64,
+    apply: MoveApply,
+}
+
+/// What a pending route move writes once its figures are read.
+enum MoveApply {
+    /// A `thread/header/patch` request, handled as it would have been.
+    Request { req: CoreRequest, tx: Waiter },
+    /// The change an [`Inbox::UpdateHeaderAwaiting`] computed.
+    Change { change: mixdog_store::schema::record::HeaderChange, tx: Waiter },
+}
+
+/// Whether `msg` writes the thread's header: such a message waits behind a pending route move.
+fn writes_header(msg: &Inbox) -> bool {
+    match msg {
+        Inbox::UpdateHeader { .. } | Inbox::UpdateHeaderAwaiting { .. } => true,
+        Inbox::Request { req, .. } => req.method.as_str() == "thread/header/patch",
+        _ => false,
+    }
 }
 
 /// Where a test's injected unwind of the actor happens.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) enum UnwindAt {
     /// As the actor takes the message.
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     Now,
     /// As the actor takes the next `Ctl::Delete`, before it answers it.
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     Delete,
 }
 
@@ -274,7 +315,8 @@ pub(crate) enum JobDone {
     Encoded {
         id: u64,
         generation: u64,
-        result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>), CoreError>,
+        /// The encoding, the live items and notes, and the record as the log stores it when that differs.
+        result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>, Option<Record>), CoreError>,
     },
     PromptSession { session: Vec<String>, publish: bool },
     PromptPersisted(Vec<String>),
@@ -320,8 +362,12 @@ pub(crate) enum JobDone {
         facts: RowFacts,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// A run's row whose facts could never be read (the io lane cannot run the job): the run hears it was not applied.
+    CommitUnread { ack: oneshot::Sender<Result<(), RunError>>, error: CoreError },
     /// A starting turn's input row with its facts read.
     InputFacts(Box<InputStart>),
+    /// A starting turn whose input row's facts could never be read: the turn does not start, and its waiter hears why.
+    InputUnread { reply: Option<Effect>, error: CoreError },
     /// The failed turn's provenance read for a plain retry start.
     RetryProvenance(Box<RetryWait>),
     /// The Goal the runtime shows, read for the pending reminder the starting turn carries.
@@ -331,6 +377,13 @@ pub(crate) enum JobDone {
     /// `agentStatusState()` read on load or after a job of this thread changed; `listener`: the
     /// status listener's read (see `read_agent_status`).
     AgentStatus { agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool },
+    /// The context status the load's status pass read (`read_context_display`), `null` for none.
+    ContextStatus(Value),
+    /// The new route's context status a pending route move `seq` read ([`SessionActor::start_route_move`]); `None` when the read
+    /// failed or missed its deadline.
+    RouteStatus { seq: u64, status: Option<Value> },
+    /// The session's live workspace (`read_live_workspace`).
+    LiveWorkspace(u64, Option<Value>),
     /// The idle deadline found the thread quiet; `working`: its background work still runs.
     IdleChecked { working: bool },
     /// A turn operation's answer (`session/turn_ops.rs`) for the request that asked.
@@ -354,6 +407,12 @@ pub(crate) enum JobDone {
     Resumed(Box<ResumeDone>),
     /// The model context a manual compaction's commit reconciles with (`commitSessionCompaction`).
     CompactionRows(Box<CommitRows>),
+    /// The Goal the runtime shows, read for a pre-send compaction's reminder.
+    CompactionReminder(Box<compaction_reminder::ReminderRead>),
+    /// A durable compaction's prune starts (`pruneCompactedOffloads`): told when done.
+    PruneOffloads(oneshot::Sender<()>),
+    /// The prune's old tool-result sidecars, listed: the actor decides and deletes; told when done.
+    PruneListed(Vec<std::path::PathBuf>, oneshot::Sender<()>),
 }
 
 /// A manual compaction's result and the context read to reconcile it with.
@@ -455,6 +514,24 @@ impl Submissions {
             self.order.retain(|kept| kept != id);
         }
     }
+}
+
+/// The input row's `meta.transcript` as Node persists it (`persistedUserTranscriptMetadata`): its fields in that order, then
+/// what the core adds (`clientSubmissionId`); `completionVerb` is the turn's (`beginTurn`) and is not persisted.
+fn persisted_user_order(meta: &mut serde_json::Map<String, Value>) {
+    const ORDER: [&str; 18] = [
+        "messageId", "attemptId", "at", "modelId", "model", "provider", "agent", "sender", "device", "fromAgent", "hop", "botChain", "roomRow", "checkpointId",
+        "submissionIds", "consumedExecutionIds", "attachments", "routineTrigger",
+    ];
+    meta.shift_remove("completionVerb");
+    let mut ordered = serde_json::Map::new();
+    for key in ORDER {
+        if let Some(value) = meta.shift_remove(key) {
+            ordered.insert(key.into(), value);
+        }
+    }
+    ordered.append(meta);
+    *meta = ordered;
 }
 
 /// The trimmed `clientSubmissionId` of a start, if it names one.
@@ -573,7 +650,7 @@ pub(crate) struct SessionActor {
     /// A created thread whose `session` record has not settled yet: its failure ends the thread.
     uncreated: bool,
     /// A test's injected unwind waits for the next `Ctl::Delete` (`UnwindAt::Delete`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     unwind_at_delete: bool,
     deps: Arc<SessionDeps>,
     cell: Arc<ControlCell>,
@@ -598,6 +675,8 @@ pub(crate) struct SessionActor {
     room_approvals_resolved: Vec<String>,
     /// The running turn is that first turn and has not shown visible output yet.
     turn_prewarm_armed: bool,
+    /// The live-workspace reads started; only the latest one's answer is published.
+    live_workspace_reads: u64,
     /// `stats.turns`: the turns this thread closed with an end (`publishTurnClose`), which `pickDoneVerb` reads.
     turns_closed: usize,
     /// state.stats (usage totals), folded from each model call's usage event.
@@ -605,6 +684,16 @@ pub(crate) struct SessionActor {
     steer_marked: Vec<QueuedId>,
     /// The context display fields a running turn published, held for the turn's end ([`Self::on_context_section`]).
     held_display: Option<ThreadContext>,
+    /// What a route move read for the header it is about to write ([`Self::route_status_read`]), taken by the step that accepts the
+    /// move: the new route's status, or `None` when the read failed.
+    route_status: Option<Option<Value>>,
+    /// The route move whose new figures are being read off the actor ([`Self::start_route_move`]).
+    route_move: Option<PendingMove>,
+    /// The header writes that arrived while a route move was pending, in order: they follow it, as Node's route writes queue behind
+    /// the one in flight (`routeWrite`, routes-write.mjs:112,129).
+    route_queue: std::collections::VecDeque<Inbox>,
+    /// The count of route moves started, which names each pending one.
+    route_moves: u64,
     /// Which completions showed a live card (Node's per-session execution dedup).
     cards: super::cards::CardGate,
     /// Executions the session's listener took: their queued copy is `suppressDisplay`.
@@ -648,6 +737,12 @@ pub(crate) struct SessionActor {
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
+    /// Whether [`Self::pump`] is releasing acked entries now, and the replies they released: sent once the pump has
+    /// published its frames and the thread's view, so a caller that reads the thread as soon as it is answered (a reset,
+    /// then the home's view; a route move's model and figures) sees what its request did. Records written as one unit are
+    /// released in one pump, the answer with the records it follows.
+    releasing: bool,
+    replies_after_publish: Vec<(Waiter, Value)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -663,6 +758,8 @@ pub(crate) struct SessionActor {
     generation: u64,
     pending: bool,
     indeterminate: bool,
+    /// A closing thread asked the durability task to write the units kept from a failed write.
+    flush_sent: bool,
     published_storage: StorageState,
     ch: ActorChannels,
     jobs_tx: mpsc::UnboundedSender<JobDone>,
@@ -687,6 +784,8 @@ pub(crate) struct SessionActor {
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
     /// was named: the next turn names a new one (`mintTranscriptEpoch`, `turn-checkpoint.mjs`).
     transcript_rewritten: bool,
+    /// A compaction's prune a running turn stopped: it runs once that turn has ended (`offload_prune`).
+    prune_deferred: bool,
     /// The failed turn's provenance a retry row carries as `meta.provenance` (`retryProvenance`,
     /// `ask-session.mjs:199`, `ask-turn-execute.mjs:27-34`); taken by the next turn start like `retry_hidden`.
     /// `None`: not read yet (a plain `turn/start` carrying the retry flags reads it first);
@@ -908,15 +1007,20 @@ impl SessionActor {
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
+        #[cfg(any(test, feature = "test-support"))]
+        let (prompt_marks, record_marks) = (cell.prompt_marks.clone(), cell.record_marks.clone());
         Self {
             goal_watch,
             surface,
             feed_id: FeedId::from(id.as_str()),
+            #[cfg(any(test, feature = "test-support"))]
+            outbox: Outbox::numbered_on(deps.limits, record_marks),
+            #[cfg(not(any(test, feature = "test-support")))]
             outbox: Outbox::new(deps.limits),
             slot: None,
             seed: None,
             uncreated: false,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             unwind_at_delete: false,
             id,
             cell,
@@ -935,10 +1039,15 @@ impl SessionActor {
             room_questions_moved: false,
             room_approvals_resolved: Vec::new(),
             turn_prewarm_armed: false,
+            live_workspace_reads: 0,
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
             held_display: None,
+            route_status: None,
+            route_move: None,
+            route_queue: Default::default(),
+            route_moves: 0,
             cards: Default::default(),
             listened: Default::default(),
             suppressed: Default::default(),
@@ -958,8 +1067,13 @@ impl SessionActor {
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
             after_publish: Vec::new(),
+            releasing: false,
+            replies_after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_appends: prompt_history::AppendQueue::numbered_on(prompt_marks),
+            #[cfg(not(any(test, feature = "test-support")))]
             prompt_appends: Default::default(),
             delete_closed: None,
             delete_mark: None,
@@ -967,6 +1081,7 @@ impl SessionActor {
             generation: 0,
             pending: false,
             indeterminate: false,
+            flush_sent: false,
             published_storage: StorageState::Ok,
             ch,
             jobs_tx,
@@ -978,6 +1093,7 @@ impl SessionActor {
             compactions: 0,
             retry_hidden: false,
             transcript_rewritten: false,
+            prune_deferred: false,
             retry_provenance: None,
             retry_prior: None,
             runs_begun: 0,
@@ -1032,29 +1148,45 @@ impl SessionActor {
         // later (`session-status-scheduler.mjs` `register`), publishing the agent status it reads.
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
         // the marks that move agent status are the status listener's signals.
+        if let Some(agents) = self.agents_with_scope() {
+            self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
+        }
         self.read_agent_status(false);
-        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes().map(SettingsFollow::begin));
+        self.reconcile_offloads();
+        self.read_context_display();
+        self.read_live_workspace();
+        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes(&self.id).map(SettingsFollow::begin));
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
             let marking = self.delete_closed.is_none() && self.delete_mark.is_some();
             tokio::select! {
                 biased;
+                // First: a write announces before it answers, so a read sent after the answer sees the change counted.
+                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
                 go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.ok()),
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
-                Some(done) = self.jobs_rx.recv() => self.on_job(done),
+                Some(done) = self.jobs_rx.recv() => match done {
+                    JobDone::PruneListed(candidates, told) => self.prune_listed(candidates, told).await,
+                    done => self.on_job(done),
+                },
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
-                Some(msg) = self.ch.inbox_rx.recv() => match msg {
-                    Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
-                    msg => self.on_inbox(msg),
-                },
-                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
+                Some(msg) = self.ch.inbox_rx.recv() => self.take_inbox(msg).await,
                 else => break,
             }
+            // The header writes a finished route move held, in order, until one of them starts the next move.
+            while self.route_move.is_none()
+                && let Some(msg) = self.route_queue.pop_front()
+            {
+                self.take_inbox(msg).await;
+            }
             self.pump();
+            if let Some(follow) = &settings {
+                follow.shown();
+            }
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -1062,7 +1194,13 @@ impl SessionActor {
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
+                self.cell.unacked.store(self.outbox.unacked(), SeqCst);
                 self.cell.stepped.notify_waiters();
+            }
+            // A closing thread writes the units kept from a failed write now (Node's exit drain writes what is queued), once
+            // per failure: a write that fails again keeps them, and the thread with them.
+            if self.cell.closed.load(SeqCst) && !self.flush_sent && self.outbox.has_retained() {
+                self.flush_sent = self.ch.dur_tx.try_send(ToDurability::Flush { generation: self.generation }).is_ok();
             }
             // An unloaded thread stops once its accepted records are handed off; a deleted one
             // also waits for its turn to end and its mark.
@@ -1094,7 +1232,7 @@ impl SessionActor {
         mark: oneshot::Receiver<serde_json::Map<String, Value>>,
         marked: oneshot::Sender<Result<(), RunError>>,
     ) {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if self.unwind_at_delete {
             panic!("the test's injected unwind at a delete");
         }
@@ -1273,10 +1411,14 @@ impl SessionActor {
         directory.unload(&self.id, &self.cell, self.close_ingest());
     }
 
-    /// Today's `ingestSessionIntoMemory(session)` over the model context.
+    /// Today's `ingestSessionIntoMemory(session)` over the model context, each message through the sensitive projection:
+    /// the memory database is written to disk, so a sensitive value goes there as its marker. Node passes the loaded
+    /// session's own messages (`memory-ingest.mjs:18`) and so writes the value itself into the memory database; fixed on
+    /// both sides (`redactSensitiveMessages(session.id, messages)`).
     fn close_ingest(&self) -> futures::future::BoxFuture<'static, ()> {
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -1290,7 +1432,8 @@ impl SessionActor {
             let Ok(rows) = context.read().await else {
                 return;
             };
-            let messages = rows.into_iter().map(|(_, body)| body).collect();
+            let messages: Vec<Value> = rows.into_iter().map(|(_, body)| body).collect();
+            let messages = context.sensitive.redacted(&context.thread, &messages);
             memory.ingest(&context.thread, &cwd, messages).await;
         })
     }
@@ -1323,12 +1466,18 @@ impl SessionActor {
         let record = Arc::new(record);
         let shown = !matches!(display, Display::Suppressed);
         // The session's route moved (`provider`/`model` of the header): its state follows, as Node's route state does.
-        let route_moved = match &*record {
-            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => ["provider", "model"]
+        let moved = |keys: &[&str]| match &*record {
+            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => keys
                 .iter()
                 .any(|key| change.set.get(*key).is_some_and(|value| self.projected.header.get(*key) != Some(value)) || (change.unset.iter().any(|unset| unset.as_str() == *key) && self.projected.header.contains_key(*key))),
             _ => false,
         };
+        // A workspace transition moves the runtime's cwd (routeState's `cwd`); its workspace record the transition publishes.
+        let window_moved = moved(&WINDOW_KEYS);
+        // A pick held for the next turn is the runtime's route at once (the state's provider, model, effort and contextPercent).
+        let held_moved = moved(&["pendingRoute"]);
+        let route_moved = moved(&["provider", "model"]) || moved(&["cwd"]) || held_moved;
+        let window_before = (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned());
         let change = Change::Record {
             record: record.clone(),
             display,
@@ -1338,10 +1487,34 @@ impl SessionActor {
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
         self.submit_encode(entry, record, shown);
+        // A route move read its new figures before this step (`syncContextStats` before `publishRoute`, routes-write.mjs:133-142):
+        // they go out with it, ahead of the route, so no state shows the new model with the old figures.
+        let figures = match self.route_status.take().filter(|_| window_moved) {
+            Some(Some(status)) => Some(self.display_figures(&status)),
+            Some(None) => Some(self.unread_figures(&window_before)),
+            None => None,
+        };
+        if window_moved || held_moved {
+            // The context section's settled figures follow the header (the seated window and limits, the held pick's percent); the
+            // frame carries the whole section.
+            let context = figures.clone().unwrap_or_default();
+            self.accept_view_after(Some(entry), Change::Section(Section::Context(context)), Vec::new(), Vec::new());
+        }
         if route_moved {
             // The route's own values (`autoClear` is the provider's) are read under the new provider; the frame carries the whole route.
             let route = self.deps.compaction.route_config(&self.projected.header);
             self.accept_view_after(Some(entry), Change::Section(Section::Route(route)), Vec::new(), Vec::new());
+        }
+        if window_moved {
+            // A route change marks the status pass (`syncContextStats` of the next pulse) unless the move read it already; a seated
+            // route makes the session the agent status's scope.
+            if figures.is_none() {
+                self.read_context_display();
+            }
+            if let Some(agents) = self.agents_with_scope() {
+                self.accept_view_after(Some(entry), Change::Section(Section::Agents(agents)), Vec::new(), Vec::new());
+            }
+            self.read_agent_status(false);
         }
         entry
     }
@@ -1384,8 +1557,11 @@ impl SessionActor {
         let verb = self.run.as_ref().map(|slot| slot.verb);
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
         let at = self.deps.clock.now_ms();
-        let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
-            let result = deps.codec.encode(lane, &record).map(|encoded| {
+        // A full cpu lane is waited out: the record is a row of the thread, never dropped for a busy lane.
+        let encode = move |lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>| {
+            // The log holds the record as the sensitive projection stores it; the live rows show it as committed.
+            let stored = deps.sensitive.stored(&thread, &record);
+            let result = deps.codec.encode(lane, stored.as_ref().unwrap_or(&record)).map(|encoded| {
                 let Record::Item(row) = &*record else {
                     return (encoded, Vec::new(), Vec::new());
                 };
@@ -1420,19 +1596,15 @@ impl SessionActor {
                     .collect();
                 (encoded, shown, notes)
             });
+            result.map(|(encoded, shown, notes)| (encoded, shown, notes, stored))
+        };
+        mixdog_core_base::support::lane_job(self.deps.lanes.cpu, "record-encode", encode, move |result| {
             let _ = jobs.send(JobDone::Encoded {
                 id: entry,
                 generation,
-                result,
+                result: result.and_then(|encoded| encoded),
             });
         });
-        if let Err(full) = submitted {
-            let _ = self.jobs_tx.send(JobDone::Encoded {
-                id: entry,
-                generation,
-                result: Err(full.into()),
-            });
-        }
     }
 
     fn on_job(&mut self, done: JobDone) {
@@ -1446,7 +1618,7 @@ impl SessionActor {
                     return;
                 }
                 match result {
-                    Ok((encoded, shown, notes)) => {
+                    Ok((encoded, shown, notes, stored)) => {
                         if let Some(entry) = self.outbox.get_mut(id) {
                             if let Change::Record { display, .. } = &mut entry.change
                                 && !shown.is_empty()
@@ -1455,27 +1627,33 @@ impl SessionActor {
                             }
                             entry.notes.extend(notes);
                         }
-                        self.outbox.encoded(id, encoded);
+                        self.outbox.encoded(id, encoded, stored);
                     }
                     Err(error) => {
-                        if let Some(entry) = self.outbox.remove(id) {
+                        // The unit goes whole: none of a request's records is written without the rest.
+                        for entry in self.outbox.remove_unit(id) {
+                            let gone = entry.id;
                             self.fail_entry(entry, &error);
-                        }
-                        for dependent in self.outbox.remove_needing(id) {
-                            self.fail_entry(dependent, &error);
+                            for dependent in self.outbox.remove_needing(gone) {
+                                self.fail_entry(dependent, &error);
+                            }
                         }
                         self.rebuild_projected();
                     }
                 }
             }
+            // A list computed off the actor can land after a mark that its rows predate: it takes the marks here.
             JobDone::PromptSession { session, publish } => {
+                let session = self.redacted_session_prompts(&session);
                 self.accept_view(Change::PromptSession { session, publish }, Vec::new())
             }
             JobDone::PromptPersisted(persisted) => {
+                let persisted = self.redacted_prompts(&persisted);
                 self.accept_view(Change::PromptPersisted(persisted), Vec::new())
             }
             JobDone::PromptFlushed { list, unwritten } => {
                 if let Some(list) = list {
+                    let list = self.redacted_prompts(&list);
                     self.accept_view(Change::PromptPersisted(list), Vec::new());
                 }
                 let next = self.prompt_appends.flushed(unwritten);
@@ -1504,6 +1682,7 @@ impl SessionActor {
             // the search rows get a replacement under the new version, once what the turn
             // committed so far is durable.
             JobDone::SensitiveMarked => {
+                self.redact_prompts();
                 if self.run.is_some() {
                     let ack = self.ingest_when_durable();
                     self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
@@ -1532,12 +1711,24 @@ impl SessionActor {
             }
             JobDone::GoalSeen(None) => {}
             JobDone::CommitFacts { turn, item, facts, ack } => self.commit_with_facts(turn, item, facts, ack),
+            JobDone::CommitUnread { ack, error } => {
+                tracing::warn!(thread = %self.id, "a run's row was not committed: its facts could not be read ({error:?})");
+                let _ = ack.send(Err(RunError::NotApplied));
+            }
+            JobDone::InputUnread { reply, error } => {
+                tracing::warn!(thread = %self.id, "a turn did not start: its input row's facts could not be read ({error:?})");
+                self.starting = false;
+                self.submitter = None;
+                self.retry_provenance = None;
+                self.retry_prior = None;
+                self.refuse_start(reply, &error);
+            }
             JobDone::InputFacts(start) => {
                 // `snapshotPendingGoalReminder` reads the Goal at request preparation, after the
                 // earlier Goal calls of this thread.
                 let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
                 self.goal_call(Box::pin(async move {
-                    let goal = goals.goal_status(&thread).await.ok().flatten();
+                    let goal = goals.stored_goal(&thread).await.ok().flatten();
                     JobDone::ReminderGoal(start, goal)
                 }));
             }
@@ -1545,8 +1736,9 @@ impl SessionActor {
             JobDone::RetryProvenance(wait) => {
                 let RetryWait { input, body, op_ref, reply, prompt, wake, provenance, prior } = *wait;
                 self.starting = false;
-                // A delete closed the thread meanwhile: the turn never starts.
+                // A delete closed the thread meanwhile: the turn never starts, and its waiter hears so.
                 if self.deleting {
+                    self.refuse_start(reply, &CoreError::ThreadClosing { thread_id: self.id.clone() });
                     return;
                 }
                 self.retry_provenance = Some(provenance);
@@ -1561,11 +1753,22 @@ impl SessionActor {
             JobDone::QuotaFireChecked { generation, tx, retained, provenance } => self.quota_fire_checked(generation, tx, retained, provenance),
             JobDone::Resumed(done) => self.resumed(*done),
             JobDone::CompactionRows(done) => self.compaction_rows(*done),
+            JobDone::CompactionReminder(read) => self.compaction_reminder_read(*read),
+            JobDone::PruneOffloads(told) => self.prune_offloads(told),
+            JobDone::PruneListed(..) => unreachable!("the run loop awaits it"),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);
             }
             JobDone::AgentStatus { agents, listener } => self.agent_status(agents, listener),
+            JobDone::ContextStatus(status) => self.context_display(&status),
+            JobDone::RouteStatus { seq, status } => self.route_status_read(seq, status),
+            JobDone::LiveWorkspace(read, workspace) => {
+                if read == self.live_workspace_reads
+                    && !self.tombstoned && !self.cell.closed.load(SeqCst) && self.projected.sections.workspace != workspace {
+                    self.accept_view(Change::Section(Section::Workspace(workspace)), Vec::new());
+                }
+            }
             JobDone::IdleChecked { working } => self.idle_checked(working),
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
             JobDone::GoalEntryChecked { entry, seen } => self.goal_entry_checked(entry, seen),
@@ -1703,20 +1906,8 @@ impl SessionActor {
     /// (`markPendingGoalReminder`: one more revision, the next turn's tail carries it), then the
     /// next continuation carries the full rules again.
     fn mark_goal_reminder(&mut self, reason: &str) {
-        // `Math.max(0, Number(x) || 0)`.
-        let number = |value: Option<&Value>| value.and_then(Value::as_f64).filter(|n| !n.is_nan()).unwrap_or(0.0).max(0.0);
-        let header = &self.projected.header;
-        let pending = number(header.get("pendingGoalReminder").and_then(|pending| pending.get("revision")));
-        let revision = mixdog_js::json_number(pending.max(number(header.get("goalReminderRevision"))) + 1.0);
-        let reason = match mixdog_js::js_trim(reason) {
-            "" => "compaction",
-            reason => reason,
-        };
-        let mut set = serde_json::Map::new();
-        set.insert("goalReminderRevision".into(), revision.clone());
-        set.insert("pendingGoalReminder".into(), json!({ "version": 1, "type": "goal_state", "revision": revision, "reason": reason }));
-        set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        let change = super::goal_reminder::mark(&self.projected.header, reason, self.deps.clock.now_ms());
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
         self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
     }
@@ -1834,14 +2025,13 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        for (id, record, bytes) in self.outbox.handoff() {
+        for unit in self.outbox.handoff(self.ch.dur_tx.capacity()) {
             let msg = ToDurability::Append {
-                id,
                 generation: self.generation,
-                record,
-                bytes,
+                retain: unit.retain,
+                records: unit.records,
             };
-            // The window bounds unacked records below the channel's capacity.
+            // Never more than the channel holds is handed off, so a refusal is a durability task that is gone.
             if self.ch.dur_tx.try_send(msg).is_err() {
                 self.fail_all(CoreError::StorageIndeterminate {
                     scope: "thread".into(),
@@ -1850,9 +2040,11 @@ impl SessionActor {
             }
         }
         let mut notes = Vec::new();
+        self.releasing = true;
         while let Some((entry, ordinal)) = self.outbox.pop_ready() {
             self.release(entry, ordinal, &mut notes);
         }
+        self.releasing = false;
         let storage = self.storage();
         if storage != self.published_storage {
             self.published_storage = storage;
@@ -1865,6 +2057,9 @@ impl SessionActor {
             let _ = released.send(Ok(()));
         }
         self.publish_cell();
+        for (tx, value) in self.replies_after_publish.drain(..) {
+            let _ = tx.send(Ok(Reply::Value(value)));
+        }
     }
 
     fn storage(&self) -> StorageState {
@@ -2086,8 +2281,13 @@ impl SessionActor {
                 if let Some(op) = &op {
                     self.ops.applied(op, &value);
                 }
-                if let Some(tx) = tx {
-                    let _ = tx.send(Ok(Reply::Value(value)));
+                // A change released by the pump is answered once its view is published (`replies_after_publish`).
+                match tx {
+                    Some(tx) if self.releasing => self.replies_after_publish.push((tx, value)),
+                    Some(tx) => {
+                        let _ = tx.send(Ok(Reply::Value(value)));
+                    }
+                    None => {}
                 }
             }
             Effect::InputDurable => {
@@ -2118,6 +2318,10 @@ impl SessionActor {
     }
 
     fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(durable) = &entry.durable {
+            self.outbox.note_failed(durable, format!("{error:?}"));
+        }
         // A queued prompt whose record was not stored is removed and its id forgotten, and the sender hears a refusal
         // (`drain-enqueue.mjs:64`, a failed durable mirror), so a retry is a new submission.
         let mut refused = None;
@@ -2187,6 +2391,36 @@ impl SessionActor {
         }
         self.generation += 1;
         self.projected = self.acked.clone();
+    }
+
+    /// A rolled-back write kept the units `retained` for the next write (as Node's recorder keeps a failed batch's bytes):
+    /// their records stay queued, in order, and land with it; their requests hear the failure now, once. Everything else
+    /// unreleased fails as in [`Self::fail_all`]. Nothing of a kept unit is shown until it lands.
+    fn fail_all_but(&mut self, retained: Vec<u64>, error: CoreError) {
+        let retained: std::collections::HashSet<u64> = retained.into_iter().collect();
+        for entry in self.outbox.fail_all_but(&retained) {
+            self.fail_entry(entry, &error);
+        }
+        let ids: Vec<u64> = retained.iter().copied().collect();
+        for id in ids {
+            let Some(entry) = self.outbox.get_mut(id) else { continue };
+            let (told, kept): (Vec<Effect>, Vec<Effect>) =
+                std::mem::take(&mut entry.effects).into_iter().partition(|effect| matches!(effect, Effect::Reply { .. }));
+            entry.effects = kept;
+            for effect in told {
+                if let Effect::Reply { op, tx, .. } = effect {
+                    if let Some(op) = &op {
+                        self.ops.failed(op, &error);
+                    }
+                    if let Some(tx) = tx {
+                        let _ = tx.send(Err(error.clone()));
+                    }
+                }
+            }
+        }
+        self.generation += 1;
+        self.flush_sent = false;
+        self.rebuild_projected();
     }
 
     fn rebuild_projected(&mut self) {
@@ -2280,7 +2514,7 @@ impl SessionActor {
                     self.outbox.acked(id, ordinal);
                 }
             }
-            FromDurability::Failed { generation, error } => {
+            FromDurability::Failed { generation, error, retained } => {
                 if generation != self.generation {
                     return;
                 }
@@ -2297,10 +2531,15 @@ impl SessionActor {
                         }
                     }
                 };
-                self.fail_all(error);
+                if retained.is_empty() {
+                    self.fail_all(error);
+                } else {
+                    self.fail_all_but(retained, error);
+                }
             }
             FromDurability::Pending(pending) => self.pending = pending,
             FromDurability::Retried(result) => self.indeterminate = result.is_err(),
+            FromDurability::Redacted => {}
         }
     }
 
@@ -2628,6 +2867,7 @@ impl SessionActor {
         if self.deleting {
             self.delete_turn_ended();
         }
+        self.run_deferred_prune();
         // The queue moves on, and the thread may unload, once the settlement is back
         // (`JobDone::GoalSettled`).
     }
@@ -2641,6 +2881,7 @@ impl SessionActor {
             items: super::quota_lane::transcript_rows(self.acked.window.iter().map(|row| row.item.as_ref())),
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -2845,6 +3086,7 @@ impl SessionActor {
         let (tx, rx) = oneshot::channel();
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -2982,20 +3224,21 @@ impl SessionActor {
 
     // ───────────── producers ─────────────
 
-    /// A row's facts (`user_facts`) read the prompt-attachment store: an interactive-io lane job
-    /// whose answer comes back as `done(body, facts)`. False when the lane refused the job (the
-    /// job and what it carried are dropped).
-    fn with_facts(&self, body: Value, done: impl FnOnce(Value, RowFacts) -> JobDone + Send + 'static) -> bool {
+    /// A row's facts (`user_facts`) read the prompt-attachment store: an interactive-io lane job whose answer comes back
+    /// as `done(Ok((body, facts)))`. A full lane is waited out, never refused: the row (a reply, a turn's input) is not lost
+    /// to a busy lane; `done(Err)` names the lane when the job can never run.
+    fn with_facts(&self, body: Value, done: impl FnOnce(Result<(Value, RowFacts), CoreError>) -> JobDone + Send + 'static) {
         let (store, jobs) = (self.deps.attachments.clone(), self.jobs_tx.clone());
-        self.deps
-            .lanes
-            .io
-            .submit(&CancellationToken::new(), move |lane| {
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.io,
+            "row-facts",
+            move |lane| {
                 let mut body = body;
                 let facts = store.facts(lane, &mut body);
-                let _ = jobs.send(done(body, facts));
-            })
-            .is_ok()
+                (body, facts)
+            },
+            move |read| drop(jobs.send(done(read))),
+        );
     }
 
     /// A run's committed row, its facts read.
@@ -3062,7 +3305,17 @@ impl SessionActor {
     /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its
     /// Goal settlement (`publishTurnClose`).
     fn ui_busy(&self) -> bool {
-        self.run.is_some() || self.starting
+        self.run.is_some() || self.starting || self.ask_marked()
+    }
+
+    #[cfg(test)]
+    fn ask_marked(&self) -> bool {
+        self.cell.ask_marked.load(SeqCst)
+    }
+
+    #[cfg(not(test))]
+    fn ask_marked(&self) -> bool {
+        false
     }
 
     /// `shouldRunGoalContinuation(entry)` for a dequeued Goal entry: a closeout reads the
@@ -3196,6 +3449,8 @@ impl SessionActor {
     /// (notification-router.mjs: `{ action, seq, at }`); the route section follows the saved configuration.
     fn on_settings_changed(&mut self, announced: u64) {
         // Node's router counts every delivery (setupChangeSeq += 1): announcements that reached this thread together count one each.
+        // Node delivers them to a session's listener, which exists from its creation: a task's from `client.create`, the control's
+        // from the first control call (`ensureControlSession`, session-host-transport.ts:235), seated route or not - as this thread.
         for _ in 0..announced {
             self.setup_changes += 1;
             let change = json!({ "action": "settings_changed", "seq": self.setup_changes, "at": self.deps.clock.now_ms() });
@@ -3313,7 +3568,10 @@ impl SessionActor {
                 }
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
-                self.with_facts(body, move |body, facts| JobDone::CommitFacts { turn, item: ItemCommit { body, ..item }, facts, ack });
+                self.with_facts(body, move |read| match read {
+                    Ok((body, facts)) => JobDone::CommitFacts { turn, item: ItemCommit { body, ..item }, facts, ack },
+                    Err(error) => JobDone::CommitUnread { ack, error },
+                });
             }
             ProducerMsg::ProviderState { turn, state, ack } => {
                 if !self.active(&turn) {
@@ -3334,6 +3592,8 @@ impl SessionActor {
                     None => drop(ack.send(Ok(()))),
                 }
             }
+            ProducerMsg::GoalReminder { turn, preview, reply } => self.compaction_reminder_asked(turn, preview, reply),
+            ProducerMsg::GoalReminderAcknowledged { revision } => self.compaction_reminder_acknowledged(revision),
             ProducerMsg::Header { turn, change, ack } => {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
@@ -3642,7 +3902,7 @@ impl SessionActor {
         let jobs = self.jobs_tx.clone();
         let expiring = id.clone();
         let timer = tokio::spawn(async move {
-            tokio::time::sleep(TOAST_TTL).await;
+            mixdog_rt::time::sleep(TOAST_TTL).await;
             let _ = jobs.send(JobDone::ToastExpired(expiring));
         });
         self.toast_timers.insert(id, timer.abort_handle());
@@ -3906,6 +4166,14 @@ impl SessionActor {
                 durable,
             } => self.task_notification(&surface, task_id, status, text, origin, live, durable),
             Inbox::AgentActivity => self.agent_activity(),
+            Inbox::SensitiveCarried => {
+                self.redact_prompts();
+                // The log now (a queued batch rewrites it before it appends anyway); the search rows once what is
+                // queued is durable. A running turn's own listener does the same; the second pass finds nothing.
+                let _ = self.ch.dur_tx.try_send(ToDurability::Redact);
+                let ack = self.ingest_when_durable();
+                self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
+            }
             Inbox::ForkPlan { tx } => {
                 let plan = text(&self.log_id, "logId").map(|log_id| {
                     (
@@ -3942,10 +4210,15 @@ impl SessionActor {
             Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
             // Awaited by the run loop, which handles it before this match.
             Inbox::UpdateHeaderAwaiting { .. } => unreachable!("the run loop awaits it"),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
+            #[cfg(test)]
+            Inbox::AskEnded => {
+                self.cell.ask_marked.store(false, SeqCst);
+                self.run_deferred_prune();
+            }
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -3994,6 +4267,14 @@ impl SessionActor {
             let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
             return;
         };
+        // `updateSessionRoute`: a route move is written once its new figures are read ([`Self::start_route_move`]).
+        let unset: Vec<&str> = change.unset.iter().map(String::as_str).collect();
+        if self.run.is_none()
+            && let Some(next) = self.window_move_of(Some(&change.set), &unset)
+        {
+            self.start_route_move(MoveApply::Change { change, tx }, next);
+            return;
+        }
         self.write_header_change(change, tx);
     }
 
@@ -4132,7 +4413,11 @@ impl SessionActor {
         };
         match result {
             Ok(plan) => {
+                // The plan's records are one unit, written together. Rows stored as a conversation (an inheritance, a room
+                // post, an import) are kept for the next write when theirs fails, as Node's recorder keeps them.
+                self.outbox.begin_unit(req.method.as_str() == "thread/roomRows/commit");
                 self.apply_plan(plan, req.op.clone(), tx);
+                self.outbox.end_unit();
                 Ok(())
             }
             Err(error) => fail(error, tx, &mut self.ops),
@@ -4715,9 +5000,20 @@ impl SessionActor {
             records.push((Record::Item(row), Class::Normal, Display::None, Vec::new()));
         }
         let value = json!({ "added": records.len() });
-        let mut set = serde_json::Map::new();
+        // Header keys stored with the rows (an inheritance's `inheritedFromSessionId` and title: Node saves them with the
+        // carried messages in one save).
+        let mut set = match req.params.get("set") {
+            Some(Value::Object(set)) => set.clone(),
+            _ => serde_json::Map::new(),
+        };
         set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        // And the keys the same save drops (an inheritance's copy-in-progress marks: the heir stops inheriting with the
+        // write that gives it the rows).
+        let unset: Vec<String> = match req.params.get("unset") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(value) => serde_json::from_value(value.clone()).map_err(|_| invalid("unset", "a list of header keys"))?,
+        };
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset }) });
         records.push((meta, Class::Normal, Display::None, Vec::new()));
         // A row's prompt joins the prompt history as it is applied.
         Ok(Plan { kind: PlanKind::Records(records, Vec::new()), value, after: None, prompt: None })
@@ -4731,7 +5027,7 @@ impl SessionActor {
         self.accept_view(Change::Section(Section::SetupUiRequest(Some(request))), Vec::new());
         let jobs = self.jobs_tx.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(window).await;
+            mixdog_rt::time::sleep(window).await;
             let _ = jobs.send(JobDone::SetupUiExpired(id));
         });
     }
@@ -4757,6 +5053,14 @@ impl SessionActor {
         self.read_agent_status(true);
     }
 
+    /// The agents section's scope as the header now gives it, with the rows it holds: seated in the step that moves the
+    /// header (load, a route move), so no state shows the thread without its scope or with the old one. `None` when it holds it.
+    fn agents_with_scope(&self) -> Option<mixdog_app_protocol::v2::thread::ThreadAgents> {
+        let current = self.projected.sections.agents.clone().unwrap_or_default();
+        let scope = super::agent_registry::status_rows::agent_scope(&self.id, &self.projected.header);
+        (current.agent_scope.as_ref() != Some(&scope)).then(|| mixdog_app_protocol::v2::thread::ThreadAgents { agent_scope: Some(scope), ..current })
+    }
+
     /// Reads the thread's agent status off the actor. `listener`: the read is the status
     /// listener's (`onAgentStatusChange`), which also schedules the Goal continuation; the
     /// load's first status pass (`runtimePulse`) only publishes.
@@ -4764,11 +5068,154 @@ impl SessionActor {
         let (jobs, status, thread) = (self.jobs_tx.clone(), self.deps.agent_status.clone(), self.id.clone());
         tokio::spawn(async move {
             if !listener {
-                tokio::time::sleep(STATUS_SETTLE).await;
+                mixdog_rt::time::sleep(STATUS_SETTLE).await;
             }
             let agents = status.status(&thread).await;
             let _ = jobs.send(JobDone::AgentStatus { agents, listener });
         });
+    }
+
+    /// The load's status pass also runs `syncContextStats` (local-session-runtime.mjs createRuntimePulse): the context status of
+    /// the thread, read off the actor one settle beat later, fills the display fields.
+    fn read_context_display(&self) {
+        let (jobs, gauge, thread) = (self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
+        tokio::spawn(async move {
+            mixdog_rt::time::sleep(STATUS_SETTLE).await;
+            let status = gauge.context_status(Some(thread), None).await.unwrap_or(Value::Null);
+            let _ = jobs.send(JobDone::ContextStatus(status));
+        });
+    }
+
+    /// The workspace `routeState` publishes (`getLiveWorkspace`), read off the actor: at load and whenever the header's `cwd`,
+    /// `workspace` or `desktopSession` moved.
+    fn read_live_workspace(&mut self) {
+        self.live_workspace_reads += 1;
+        let (jobs, live, thread, read) = (self.jobs_tx.clone(), self.deps.live_workspace.clone(), self.id.clone(), self.live_workspace_reads);
+        tokio::spawn(async move {
+            let workspace = live.live(thread.as_str()).await;
+            let _ = jobs.send(JobDone::LiveWorkspace(read, workspace));
+        });
+    }
+
+    /// `syncContextDisplayFields(status)` (context-state.mjs:116-136): the window the status shows, the compaction boundary and
+    /// the auto-compact trigger (`compaction.triggerTokens || compaction.autoCompactTokenLimit || session.autoCompactTokenLimit`),
+    /// each only once known (> 0).
+    fn context_display(&mut self, status: &Value) {
+        if self.tombstoned || self.cell.closed.load(SeqCst) || !status.is_object() {
+            return;
+        }
+        let context = self.display_figures(status);
+        if context != ThreadContext::default() {
+            self.on_context_section(context);
+        }
+    }
+
+    /// The display fields `syncContextDisplayFields` takes from `status`, each only once known (> 0).
+    fn display_figures(&self, status: &Value) -> ThreadContext {
+        let positive = |value: Option<&Value>| value.and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map(|n| n as i64);
+        let compaction = status.get("compaction");
+        ThreadContext {
+            display_context_window: positive(status.get("contextWindow")),
+            compact_boundary_tokens: positive(compaction.and_then(|c| c.get("boundaryTokens"))),
+            auto_compact_token_limit: positive(compaction.and_then(|c| c.get("triggerTokens")))
+                .or_else(|| positive(compaction.and_then(|c| c.get("autoCompactTokenLimit"))))
+                .or_else(|| positive(self.projected.header.get("autoCompactTokenLimit"))),
+            ..Default::default()
+        }
+    }
+
+    /// The header a `thread/header/patch` leaves when it moves the session's route window (`updateSessionRoute`); `None` for any
+    /// other request, and while a turn runs (its display fields wait for the turn's end, [`Self::on_context_section`]).
+    fn window_move_header(&self, req: &CoreRequest) -> Option<Header> {
+        if req.method.as_str() != "thread/header/patch" || matches!(req.ctx.caller, Caller::Connection(_)) || self.run.is_some() {
+            return None;
+        }
+        let set = req.params.get("set").and_then(Value::as_object);
+        let unset: Vec<&str> = req.params.get("unset").and_then(Value::as_array).map(|keys| keys.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        self.window_move_of(set, &unset)
+    }
+
+    /// The header `set`/`unset` leave when they move the route window; `None` when they do not.
+    fn window_move_of(&self, set: Option<&serde_json::Map<String, Value>>, unset: &[&str]) -> Option<Header> {
+        let header = &self.projected.header;
+        let moves = WINDOW_KEYS.iter().any(|key| {
+            set.and_then(|set| set.get(*key)).is_some_and(|value| header.get(*key) != Some(value)) || (unset.contains(key) && header.contains_key(*key))
+        });
+        if !moves {
+            return None;
+        }
+        let mut next = header.clone();
+        for key in unset {
+            next.shift_remove(*key);
+        }
+        for (key, value) in set.into_iter().flatten() {
+            next.insert(key.clone(), value.clone());
+        }
+        Some(next)
+    }
+
+    /// A message from the inbox. While a route move is pending, a header write waits behind it; a `thread/header/patch` that moves
+    /// the route window becomes the next pending move.
+    async fn take_inbox(&mut self, msg: Inbox) {
+        if self.route_move.is_some() && writes_header(&msg) {
+            self.route_queue.push_back(msg);
+            return;
+        }
+        match msg {
+            Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
+            Inbox::Request { req, tx } => match self.window_move_header(&req) {
+                Some(header) => self.start_route_move(MoveApply::Request { req, tx }, header),
+                None => self.on_inbox(Inbox::Request { req, tx }),
+            },
+            msg => self.on_inbox(msg),
+        }
+    }
+
+    /// A route move as a pending step: the new route's context status is read off the actor for the header the move writes, and the
+    /// actor goes on serving (a cancel, a read, a turn: in Node the read is awaited by `setRoute` alone, routes-write.mjs:168, and a
+    /// turn started meanwhile runs on the route the runtime holds, set-route.mjs:272,300-311). When the read returns, the move is
+    /// accepted with its figures in one step ([`Self::accept_record_entry`]) and answered after it.
+    fn start_route_move(&mut self, apply: MoveApply, header: Header) {
+        self.route_moves += 1;
+        let (seq, jobs, gauge, thread) = (self.route_moves, self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
+        tokio::spawn(async move {
+            let status = match mixdog_rt::time::timeout(ROUTE_STATUS_DEADLINE,gauge.context_status_for(thread.clone(), header)).await {
+                Ok(Ok(status)) if status.is_object() => Some(status),
+                Ok(Ok(_)) => None,
+                Ok(Err(error)) => {
+                    tracing::warn!(thread = %thread, "the route move's context status failed: {error:?}");
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!(thread = %thread, "the route move's context status missed its {}s deadline", ROUTE_STATUS_DEADLINE.as_secs());
+                    None
+                }
+            };
+            let _ = jobs.send(JobDone::RouteStatus { seq, status });
+        });
+        self.route_move = Some(PendingMove { seq, apply });
+    }
+
+    /// The pending route move `seq` read its figures (`None`: the read failed): the move is written now, with them.
+    fn route_status_read(&mut self, seq: u64, status: Option<Value>) {
+        let Some(pending) = self.route_move.take_if(|pending| pending.seq == seq) else { return };
+        self.route_status = Some(status);
+        match pending.apply {
+            MoveApply::Request { req, tx } => self.on_inbox(Inbox::Request { req, tx }),
+            MoveApply::Change { change, tx } => self.write_header_change(change, tx),
+        }
+        self.route_status = None;
+    }
+
+    /// The display figures of a route move whose status read failed, as Node's `syncContextStats` leaves them when the runtime has no
+    /// status (context-state.mjs:137-142: no patch) and `publishRoute` publishes `routeState()`: the figures held for an unchanged
+    /// window, 0 for a moved one (context-state.mjs:100-113). Nothing is read again for it.
+    fn unread_figures(&self, before: &(Option<Value>, Option<Value>)) -> ThreadContext {
+        let header = &self.projected.header;
+        if (header.get("contextWindow").cloned(), header.get("rawContextWindow").cloned()) == *before {
+            return ThreadContext::default();
+        }
+        ThreadContext { display_context_window: Some(0), compact_boundary_tokens: Some(0), auto_compact_token_limit: Some(0), ..Default::default() }
     }
 
     /// `set({ ...agentStatusState() })` publishes the lists only when they changed. A thread
@@ -4777,6 +5224,11 @@ impl SessionActor {
     fn agent_status(&mut self, agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool) {
         if self.tombstoned || self.cell.closed.load(SeqCst) {
             return;
+        }
+        // The scope is the header's (seated with it); a read that could not see the thread's handle keeps it.
+        let mut agents = agents;
+        if agents.agent_scope.is_none() {
+            agents.agent_scope = Some(super::agent_registry::status_rows::agent_scope(&self.id, &self.projected.header));
         }
         if self.projected.sections.agents.clone().unwrap_or_default() != agents {
             self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
@@ -4916,6 +5368,7 @@ impl SessionActor {
             let retry_turn_id = options.retry_turn_id.clone().filter(|id| !id.is_empty());
             let context = ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -4977,15 +5430,21 @@ impl SessionActor {
         // meanwhile.
         self.starting = true;
         self.runs_begun += 1;
-        let read = self.with_facts(body, move |body, facts| {
-            JobDone::InputFacts(Box::new(InputStart { input, body, facts, op_ref, reply, prompt, wake, agent, routine }))
+        self.with_facts(body, move |read| match read {
+            Ok((body, facts)) => JobDone::InputFacts(Box::new(InputStart { input, body, facts, op_ref, reply, prompt, wake, agent, routine })),
+            Err(error) => JobDone::InputUnread { reply, error },
         });
-        if !read {
-            // The lane refused the read: the turn does not start (its waiter hears the drop).
-            self.starting = false;
-            self.submitter = None;
-            self.retry_provenance = None;
-            self.retry_prior = None;
+    }
+
+    /// A turn that does not start: its waiter hears why (never a dropped reply).
+    fn refuse_start(&mut self, reply: Option<Effect>, error: &CoreError) {
+        if let Some(Effect::Reply { op, tx, .. }) = reply {
+            if let Some(op) = &op {
+                self.ops.failed(op, error);
+            }
+            if let Some(tx) = tx {
+                let _ = tx.send(Err(error.clone()));
+            }
         }
     }
 
@@ -4993,8 +5452,9 @@ impl SessionActor {
     fn start_run_read(&mut self, start: InputStart, shown: Option<Goal>) {
         self.starting = false;
         let submitter = self.submitter.take();
-        // A delete closed the thread meanwhile: the turn never starts.
+        // A delete closed the thread meanwhile: the turn never starts, and its waiter hears so.
         if self.deleting {
+            self.refuse_start(start.reply, &CoreError::ThreadClosing { thread_id: self.id.clone() });
             return;
         }
         let InputStart { input, mut body, facts, op_ref, reply, prompt, wake, agent, routine } = start;
@@ -5062,6 +5522,7 @@ impl SessionActor {
             if !route_agent.is_empty() {
                 meta.entry("agent").or_insert_with(|| json!(route_agent));
             }
+            persisted_user_order(meta);
         }
         self.sync_turn_chain();
         // `mintTranscriptEpoch` (`transcript-durability.mjs`): a transcript lineage is named when the first turn
@@ -5219,6 +5680,7 @@ impl SessionActor {
             ready: input_rx.clone(),
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: input_iid.clone(),
@@ -5270,6 +5732,7 @@ impl SessionActor {
             port,
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: input_iid.clone(),
@@ -5361,8 +5824,9 @@ impl SessionActor {
         let prompts = self.deps.prompts.clone();
         let jobs = self.jobs_tx.clone();
         let cwd = self.cwd();
-        let _ = self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| {
-            let _ = jobs.send(JobDone::PromptPersisted(prompts.load(lane, &cwd)));
+        mixdog_core_base::support::lane_job(self.deps.lanes.io, "prompt-history-load", move |lane| prompts.load(lane, &cwd), move |loaded| match loaded {
+            Ok(list) => drop(jobs.send(JobDone::PromptPersisted(list))),
+            Err(error) => tracing::warn!("the persisted prompt history was not read: {error:?}"),
         });
     }
 
@@ -5384,7 +5848,7 @@ impl SessionActor {
                 self.cell.prompt_timers.fetch_add(1, SeqCst);
                 let jobs = self.jobs_tx.clone();
                 // The wait starts as it is armed, as Node's `setTimeout` does, not when the task first runs.
-                let due = tokio::time::sleep(delay);
+                let due = mixdog_rt::time::sleep(delay);
                 drop(tokio::spawn(async move {
                     due.await;
                     let _ = jobs.send(JobDone::PromptRetryDue(epoch));
@@ -5399,19 +5863,22 @@ impl SessionActor {
     /// (`JobDropped`) wrote nothing, so retrying it duplicates nothing.
     fn flush_prompts(&mut self, batch: Vec<String>) {
         let (prompts, jobs, cwd, lanes) = (self.deps.prompts.clone(), self.jobs_tx.clone(), self.cwd(), self.deps.lanes);
+        let (marks, thread) = (self.deps.sensitive.clone(), self.id.clone());
         drop(mixdog_rt::spawn("prompt-history-append", TaskClass::Work, async move {
             let kept = batch.clone();
-            let submitted = lanes.durability.submit(&CancellationToken::new(), move |lane| {
+            let submitted = lanes.durability.submit_wait(&CancellationToken::new(), move |lane| {
                 let mut list = None;
                 for (at, text) in batch.iter().enumerate() {
-                    let done = prompts.append(lane, &cwd, text);
+                    // A value the thread marked sensitive is stored as the marker, as in its log.
+                    let done = prompts.append(lane, &cwd, &marks.redact_text(&thread, text));
                     list = Some(done.list);
                     if !done.written {
                         return (list, batch[at..].to_vec());
                     }
                 }
                 (list, Vec::new())
-            });
+            })
+            .await;
             let (list, unwritten) = match submitted {
                 Ok(job) => job.await.unwrap_or((None, kept)),
                 Err(_) => (None, kept),
@@ -5420,19 +5887,61 @@ impl SessionActor {
         }));
     }
 
+    /// A mark: the cwd's persisted prompt history keeps the marked values as the marker, entries written before included.
+    /// The lists the thread holds go the same way, so the history a client is sent after the mark carries the marker only.
+    /// A prompt list with this thread's marks applied.
+    fn redacted_prompts(&self, list: &[String]) -> Vec<String> {
+        list.iter().map(|text| self.deps.sensitive.redact_text(&self.id, text)).collect()
+    }
+
+    /// The session's prompt list (newest first) with the marks applied; oldest first into `recompute`, so two entries the
+    /// marker made equal keep the newer one.
+    fn redacted_session_prompts(&self, list: &[String]) -> Vec<String> {
+        prompt_history::recompute(&self.redacted_prompts(list).into_iter().rev().collect::<Vec<_>>())
+    }
+
+    fn redact_prompts(&mut self) {
+        let (prompts, cwd, marks, thread) = (self.deps.prompts.clone(), self.cwd(), self.deps.sensitive.clone(), self.id.clone());
+        let session = self.redacted_session_prompts(&self.acked.prompt_session);
+        let persisted = self.redacted_prompts(&self.acked.prompt_persisted);
+        if session != self.acked.prompt_session {
+            self.accept_view(Change::PromptSession { session, publish: true }, Vec::new());
+        }
+        if persisted != self.acked.prompt_persisted {
+            self.accept_view(Change::PromptPersisted(persisted), Vec::new());
+        }
+        // The mark's rewrite of the persisted history waits out a full lane; it is not lost to one.
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.durability,
+            "prompt-history-redact",
+            move |lane| prompts.redact(lane, &cwd, &|text| marks.redact_text(&thread, text)),
+            |done| {
+                if let Err(error) = done {
+                    tracing::warn!("the persisted prompt history was not rewritten for a mark: {error:?}");
+                }
+            },
+        );
+    }
+
     /// The session part over the remaining lineage after a history mutation.
     fn recompute_prompts(&mut self, publish: bool) {
         let deps = self.deps.clone();
         let jobs = self.jobs_tx.clone();
         let thread = self.id.clone();
-        let _ = self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| {
-            let Ok(rows) = deps.store.user_rows(lane, &thread) else {
-                return;
-            };
-            let texts: Vec<String> = rows.iter().filter_map(|row| row.prompt_text().map(str::to_owned)).collect();
-            let session = prompt_history::recompute(&texts);
-            let _ = jobs.send(JobDone::PromptSession { session, publish });
-        });
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.io,
+            "prompt-history-recompute",
+            move |lane| {
+                let rows = deps.store.user_rows(lane, &thread).ok()?;
+                let texts: Vec<String> = rows.iter().filter_map(|row| row.prompt_text().map(str::to_owned)).collect();
+                Some(prompt_history::recompute(&texts))
+            },
+            move |read| match read {
+                Ok(Some(session)) => drop(jobs.send(JobDone::PromptSession { session, publish })),
+                Ok(None) => {}
+                Err(error) => tracing::warn!("the session's prompt history was not recomputed: {error:?}"),
+            },
+        );
     }
 }
 
@@ -5494,7 +6003,7 @@ fn goal_lane_status(goal: &Goal) -> &str {
 
 async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        Some(deadline) => mixdog_rt::time::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
 }
@@ -5504,13 +6013,21 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 pub(crate) struct SettingsFollow {
     changes: watch::Receiver<u64>,
     seen: u64,
+    shown: watch::Sender<u64>,
 }
 
 impl SettingsFollow {
     /// Follows `changes` from now: what the counter holds is behind the thread.
-    pub(crate) fn begin(mut changes: watch::Receiver<u64>) -> Self {
+    pub(crate) fn begin(feed: super::turn_ops::SettingsFeed) -> Self {
+        let super::turn_ops::SettingsFeed { mut changes, shown } = feed;
         let seen = *changes.borrow_and_update();
-        Self { changes, seen }
+        shown.send_replace(seen);
+        Self { changes, seen, shown }
+    }
+
+    /// Reports the announcements read so far as shown: the thread's state that counts them is published.
+    fn shown(&self) {
+        self.shown.send_if_modified(|shown| std::mem::replace(shown, self.seen) != self.seen);
     }
 
     /// The announcements since the last one read, however many the counter moved while the thread was busy; None once the configuration is gone.

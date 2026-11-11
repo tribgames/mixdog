@@ -141,7 +141,7 @@ impl OfficeFonts {
             }
             Ok(buffer)
         };
-        tokio::time::timeout(DOWNLOAD_TIMEOUT, fetch).await.map_err(|_| "The operation was aborted due to timeout".to_owned())?
+        mixdog_rt::time::timeout(DOWNLOAD_TIMEOUT, fetch).await.map_err(|_| "The operation was aborted due to timeout".to_owned())?
     }
 
     /// `verifyFontBuffer`.

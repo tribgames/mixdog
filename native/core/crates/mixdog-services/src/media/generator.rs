@@ -36,7 +36,7 @@ impl Pacer for TokioPacer {
     }
 
     async fn sleep(&self, ms: u64) {
-        tokio::time::sleep(Duration::from_millis(ms)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(ms)).await;
     }
 }
 

@@ -732,6 +732,33 @@ impl Bound for LateAgentStatus {
     }
 }
 
+/// `SessionDeps.live_workspace`: the session workspaces' live workspace, built after the directory the deps build. Bound with the workspaces.
+#[derive(Default)]
+pub struct LateLiveWorkspace(OnceLock<Arc<dyn mixdog_core_session::session::worktree::LiveWorkspace>>);
+
+impl LateLiveWorkspace {
+    pub fn bind(&self, live: Arc<dyn mixdog_core_session::session::worktree::LiveWorkspace>) -> Result<(), &'static str> {
+        self.0.set(live).map_err(|_| "live workspace")
+    }
+}
+
+#[async_trait]
+impl mixdog_core_session::session::worktree::LiveWorkspace for LateLiveWorkspace {
+    async fn live(&self, session: &str) -> Option<serde_json::Value> {
+        self.0.get().expect("live workspace bound (compose::verify_bound)").live(session).await
+    }
+}
+
+impl Bound for LateLiveWorkspace {
+    fn cell(&self) -> &'static str {
+        "live workspace"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 /// `SessionDeps.turn_admission`: the session workspaces' admission gate (`SessionWorkspaces`), built after the directory the deps build. Bound with the workspaces.
 #[derive(Default)]
 pub struct LateTurnAdmission(OnceLock<Arc<dyn mixdog_core_session::session::worktree::TurnAdmission>>);

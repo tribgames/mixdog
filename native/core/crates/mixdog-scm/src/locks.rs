@@ -167,10 +167,10 @@ mod tests {
             let cancel = cancel.clone();
             tokio::spawn(async move { locks.acquire(Path::new("/r/.git"), None, &cancel).await })
         };
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         assert!(!whole.is_finished(), "a whole-repository write waits for both");
         drop(a);
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         assert!(!whole.is_finished());
         drop(b);
         assert!(whole.await.unwrap().is_ok());
@@ -187,7 +187,7 @@ mod tests {
             let cancel = cancel.clone();
             tokio::spawn(async move { locks.acquire(Path::new("/r/.git"), None, &cancel).await })
         };
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         // Conflicts with nothing running, but the whole-repo write ahead of it does conflict.
         let later = {
             let locks = locks.clone();
@@ -198,7 +198,7 @@ mod tests {
                     .await
             })
         };
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         assert!(!later.is_finished());
         drop(first);
         let whole = whole.await.unwrap().unwrap();
@@ -212,7 +212,7 @@ mod tests {
         let locks = RepoLocks::new();
         let cancel = CancellationToken::new();
         let _held = locks.acquire(Path::new("/one/.git"), None, &cancel).await.unwrap();
-        let other = tokio::time::timeout(
+        let other = mixdog_rt::time::timeout(
             Duration::from_millis(200),
             locks.acquire(Path::new("/two/.git"), None, &cancel),
         )
@@ -232,7 +232,7 @@ mod tests {
             let token = waiter_cancel.clone();
             tokio::spawn(async move { locks.acquire(Path::new("/r/.git"), None, &token).await })
         };
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         waiter_cancel.cancel();
         assert_eq!(waiter.await.unwrap().err(), Some(ScmFailure::Cancelled));
         drop(held);

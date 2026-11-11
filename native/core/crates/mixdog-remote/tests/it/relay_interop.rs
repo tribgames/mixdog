@@ -172,7 +172,7 @@ async fn leg_pairs_and_serves_a_phone_through_the_real_relay() {
         if value["status"] == "approved" {
             break value;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(50)).await;
     };
     let sealed_box: mixdog_remote::e2ee::SealedBox = serde_json::from_value(approved["sealed"].clone()).unwrap();
     let material = mixdog_remote::e2ee::open_sealed_pairing(&sealed_box, &pair).expect("sealed to this phone only");

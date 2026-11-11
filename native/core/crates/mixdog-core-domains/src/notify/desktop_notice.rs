@@ -136,6 +136,12 @@ impl DesktopNotices {
     pub fn conversation_save_failed(&self) {
         self.raise("conversation-save", "conversation-save-failed", &[]);
     }
+
+    /// `offloadCopies`'s notice (`node-fix-prune-after-save.patch`): no tool-result file is pruned while the session
+    /// `name` cannot be read; told once per run, naming the first such session.
+    pub fn offload_prune_blocked(&self, name: &str) {
+        self.raise("offload-prune-blocked", "offload-prune-blocked", &[("name", name)]);
+    }
 }
 #[cfg(test)]
 mod tests {

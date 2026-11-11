@@ -173,7 +173,7 @@ mod tests {
     impl ChatRouteSetter for Refusing {
         async fn set_route(&self, thread: &ThreadId, _pick: Route, _options: FollowOptions) -> Result<(), PortError> {
             self.0.fetch_add(1, SeqCst);
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(20)).await;
             if thread.as_str() == "sess_home_writer" {
                 return Err(PortError::Failed { capability: "route".into(), message: "signed out".into() });
             }
@@ -203,7 +203,7 @@ mod tests {
     impl ChatRouteSetter for Flaky {
         async fn set_route(&self, thread: &ThreadId, _pick: Route, _options: FollowOptions) -> Result<(), PortError> {
             self.attempts.fetch_add(1, SeqCst);
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(20)).await;
             if thread.as_str() == "sess_home_writer" && !self.taking.load(SeqCst) {
                 return Err(PortError::Failed { capability: "route".into(), message: "host busy".into() });
             }

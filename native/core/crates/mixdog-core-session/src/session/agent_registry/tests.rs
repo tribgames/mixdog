@@ -1176,6 +1176,34 @@ async fn closing_a_deleted_session_counts_as_closed() {
     assert!(sessions.close_session("sess_deleted", "cli-agent-close", options).await);
 }
 
+/// The agent tool's `read` of a worker with no task reads the worker's own text: its sensitive values come back as the
+/// marker, as its report does (Node `execute.mjs` `readJob`).
+#[tokio::test]
+async fn a_workers_text_read_by_its_owner_has_its_sensitive_values_as_the_marker() {
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        Arc::new(SessionThreads::new(directory.clone())),
+        registry,
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "482913" } } });
+    assert!(srig.sensitive.remember("sess_worker", &[fill]));
+    assert_eq!(sessions.redact_text("sess_worker", "the code is 482913".into()), "the code is [redacted]");
+    assert_eq!(sessions.redact_text("sess_other", "the code is 482913".into()), "the code is 482913");
+}
+
 /// `lead-worker-index.mjs` `updateLeadWorkerCwd` against the real Node index
 /// (`fixtures/desktop/settings/lead-worker-cwd-twin.json`): every call answers what Node's did and
 /// leaves, for each Lead row of its scenario, the row text Node left (key order included).

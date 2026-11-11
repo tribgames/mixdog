@@ -173,7 +173,12 @@ pub fn read_stored_goal_snapshot<L: WriteLane>(
     at: f64,
     completed_ttl_ms: f64,
 ) -> Option<Goal> {
-    let root = goals_root(data_dir);
+    stored_goal_snapshot_under(lane, &goals_root(data_dir), session_id, at, completed_ttl_ms)
+}
+
+/// [`read_stored_goal_snapshot`] under the Goals' `root`.
+pub fn stored_goal_snapshot_under<L: WriteLane>(lane: &InLane<L>, root: &Path, session_id: &str, at: f64, completed_ttl_ms: f64) -> Option<Goal> {
+    let root = root.to_path_buf();
     let stored = read_stored_goal_file(lane, &root, session_id, at);
     let goal = public_goal(stored.as_ref(), at);
     if completed_goal_expired(goal.as_ref(), at, completed_ttl_ms) {

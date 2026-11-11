@@ -848,14 +848,14 @@
               ],
               "type": "string"
             },
-            "media_type": {
+            "mediaType": {
               "type": "string"
             }
           },
           "required": [
             "data",
             "kind",
-            "media_type"
+            "mediaType"
           ],
           "type": "object"
         },
@@ -870,7 +870,7 @@
               ],
               "type": "string"
             },
-            "media_type": {
+            "mediaType": {
               "type": [
                 "string",
                 "null"
@@ -1110,7 +1110,7 @@
               ],
               "type": "string"
             },
-            "os_code": {
+            "osCode": {
               "format": "int32",
               "type": [
                 "integer",
@@ -1281,7 +1281,7 @@
               ],
               "type": "string"
             },
-            "os_code": {
+            "osCode": {
               "format": "int32",
               "type": [
                 "integer",
@@ -1300,19 +1300,19 @@
       "oneOf": [
         {
           "properties": {
-            "allowed_domains": {
+            "allowedDomains": {
               "items": {
                 "type": "string"
               },
               "type": "array"
             },
-            "context_size": {
+            "contextSize": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "include_sources": {
+            "includeSources": {
               "type": "boolean"
             },
             "kind": {
@@ -1321,7 +1321,7 @@
               ],
               "type": "string"
             },
-            "max_uses": {
+            "maxUses": {
               "format": "uint32",
               "minimum": 0.0,
               "type": [
@@ -1329,10 +1329,10 @@
                 "null"
               ]
             },
-            "tool_type": {
+            "toolType": {
               "type": "string"
             },
-            "user_location": {
+            "userLocation": {
               "anyOf": [
                 {
                   "$ref": "#/definitions/ProxyLocation"
@@ -1344,10 +1344,10 @@
             }
           },
           "required": [
-            "allowed_domains",
-            "include_sources",
+            "allowedDomains",
+            "includeSources",
             "kind",
-            "tool_type"
+            "toolType"
           ],
           "type": "object"
         }
@@ -1366,14 +1366,14 @@
               ],
               "type": "string"
             },
-            "mime_type": {
+            "mimeType": {
               "type": "string"
             }
           },
           "required": [
             "data",
             "kind",
-            "mime_type"
+            "mimeType"
           ],
           "type": "object"
         },
@@ -2037,7 +2037,7 @@
                 "null"
               ]
             },
-            "mime_type": {
+            "mimeType": {
               "type": "string"
             },
             "source": {
@@ -2051,7 +2051,7 @@
             }
           },
           "required": [
-            "mime_type",
+            "mimeType",
             "source",
             "type"
           ],

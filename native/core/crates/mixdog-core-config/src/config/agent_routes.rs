@@ -435,7 +435,8 @@ pub fn mixy_display_name(lane: &InLane<InteractiveIo>, data_dir: &Path) -> Strin
     let manifest = mixdog_statefile::read_content(&file)
         .ok()
         .flatten()
-        .and_then(|bytes| serde_json::from_str::<Value>(&String::from_utf8_lossy(&bytes)).ok());
+        // A name a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
+        .and_then(|bytes| serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&String::from_utf8_lossy(&bytes))).ok());
     let name = manifest
         .as_ref()
         .and_then(|manifest| manifest.get("name"))

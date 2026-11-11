@@ -231,7 +231,7 @@ async fn supervise(
         status = child.wait() => status,
         () = shutdown.cancelled() => {
             // stdin is closed by the writer; a well-behaved server exits within the grace.
-            match tokio::time::timeout(grace, child.wait()).await {
+            match mixdog_rt::time::timeout(grace, child.wait()).await {
                 Ok(status) => status,
                 Err(_) => {
                     kill_tree(&mut child, containment.as_ref());
@@ -245,13 +245,13 @@ async fn supervise(
     }
     // Messages the child wrote before exiting are delivered before `Closed`.
     if let Some(reader) = reader {
-        let _ = tokio::time::timeout(grace, reader).await;
+        let _ = mixdog_rt::time::timeout(grace, reader).await;
     }
     // The tail is complete only once stderr was read to its end.
     // A descendant that keeps the pipe open ends the wait by abort, so the reader neither outlives
     // this task nor races the snapshot below.
     if let Some(mut stderr_reader) = stderr_reader
-        && tokio::time::timeout(grace, &mut stderr_reader).await.is_err()
+        && mixdog_rt::time::timeout(grace, &mut stderr_reader).await.is_err()
     {
         stderr_reader.abort();
         let _ = stderr_reader.await;

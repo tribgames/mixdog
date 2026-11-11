@@ -86,7 +86,7 @@ async fn secret_slots_follow_the_recorded_cases() {
         } else if let Some(ms) = case.get("timeoutMs").and_then(Value::as_u64) {
             let slots = SecretSlots::new(Duration::from_millis(ms));
             assert!(slots.provide("secret_0123456789ab", "gone"));
-            tokio::time::sleep(Duration::from_millis(ms * 4)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(ms * 4)).await;
             assert_eq!(json!(slots.has("secret_0123456789ab")), case["held"], "{name}");
         } else {
             let slots = SecretSlots::new(SECRET_INPUT_TIMEOUT);
