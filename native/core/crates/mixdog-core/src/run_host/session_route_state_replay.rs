@@ -101,24 +101,39 @@ async fn a_placeholder_row_keeps_the_saved_fast_setting() {
     assert_eq!(Exact::Array(got), *case.get("result"));
 }
 
-/// Lines 27, 49, 74: `resolveRouteEffortState` over a cold placeholder, a resolved row and Cursor's parameter variants.
-#[tokio::test]
-async fn the_effort_state_follows_the_rows_metadata() {
+/// `resolveRouteEffortState` over the case's route and row metadata, compared whole.
+async fn effort_state(line: f64) {
     let recording = recording();
     let dir = tempfile::tempdir().unwrap();
     let catalog = catalog(dir.path()).await;
     let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| catalog.fast_capable(provider, meta, effort, params);
-    for line in [27.0, 49.0, 74.0] {
-        let case = case(&recording, line);
-        let (route, meta) = (obj(case.get("input").get("route")), plain(case.get("input").get("meta")));
-        let (effective, fast_capable) = resolve_route_effort_state(&route, Some(&meta), &fast);
-        let got = Exact::Object(vec![
-            ("effectiveEffort".into(), Exact::plain(&effective)),
-            ("fastCapable".into(), Exact::Bool(fast_capable)),
-            ("metadataResolved".into(), Exact::Bool(model_meta_looks_resolved(Some(&meta)))),
-        ]);
-        assert_eq!(got, *case.get("result"), "line {line}");
-    }
+    let case = case(&recording, line);
+    let (route, meta) = (obj(case.get("input").get("route")), plain(case.get("input").get("meta")));
+    let (effective, fast_capable) = resolve_route_effort_state(&route, Some(&meta), &fast);
+    let got = Exact::Object(vec![
+        ("effectiveEffort".into(), Exact::plain(&effective)),
+        ("fastCapable".into(), Exact::Bool(fast_capable)),
+        ("metadataResolved".into(), Exact::Bool(model_meta_looks_resolved(Some(&meta)))),
+    ]);
+    assert_eq!(got, *case.get("result"), "line {line}");
+}
+
+/// Line 27: a cold placeholder row keeps the route's effort and Fast setting.
+#[tokio::test]
+async fn cold_metadata_preserves_effort_and_fast() {
+    effort_state(27.0).await;
+}
+
+/// Line 49: a resolved row's metadata decides the effort and Fast capability.
+#[tokio::test]
+async fn resolved_metadata_is_authoritative() {
+    effort_state(49.0).await;
+}
+
+/// Line 74: Cursor's parameter variants validate Fast.
+#[tokio::test]
+async fn cursor_parameter_variants_validate_fast() {
+    effort_state(74.0).await;
 }
 
 /// Line 104: the model's default share and the ten-point steps of `resolveRouteContextState`.
@@ -280,11 +295,22 @@ fn answer(recorded: &Exact) -> Value {
     }
 }
 
-/// Lines 306 and 372: the verdict `thread/inheritancePreflight` gives, the answer of the carry it predicts (compacted,
-/// refused after an empty compaction — twice, accepted whole; with `compact` asked: summarized, refused when the
-/// compactor throws or answers nothing, whole when `compact` is absent or false), and the heir's conversation after it.
+/// Line 306: the verdict `thread/inheritancePreflight` gives and the answer of the carry it predicts (compacted, refused
+/// after an empty compaction — twice, accepted whole), and the heir's conversation after it.
 #[tokio::test(start_paused = true)]
-async fn the_inheritance_carry_answers_what_node_recorded() {
+async fn inheritance_preflight_is_the_verdict_the_carry_reaches() {
+    inheritance_carry("306").await;
+}
+
+/// Line 372: with `compact` asked the carry is summarized, refused when the compactor throws or answers nothing, whole
+/// when `compact` is absent or false; the preflight verdict and the heir's conversation after each.
+#[tokio::test(start_paused = true)]
+async fn compact_true_compacts_a_conversation_that_fits() {
+    inheritance_carry("372").await;
+}
+
+/// The scenarios of the recorded line `line` (both lines share the conversation and the heir routes).
+async fn inheritance_carry(line: &str) {
     let recording = recording();
     let dir = tempfile::tempdir().unwrap();
     let (pre, asked) = (case(&recording, 306.0).get("result"), case(&recording, 372.0).get("result"));
@@ -313,6 +339,9 @@ async fn the_inheritance_carry_answers_what_node_recorded() {
         scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target")));
     }
     for (label, heir, window, compactor, calls, fit, answers, target) in scenarios {
+        if !label.starts_with(line) {
+            continue;
+        }
         let carry = Carry::open(&conversation, heir, window, compactor, dir.path()).await;
         assert_eq!(Exact::plain(&carry.preflight().await), Exact::plain(&fit), "{label}: the preflight");
         for (compact, want) in calls.into_iter().zip(answers) {

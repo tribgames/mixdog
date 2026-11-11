@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
   "entry": "Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file's inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction).",
   "exclusions": [
     "no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it"
@@ -27,20 +27,21 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+      "sha256": "2e2a95456d03c0523f4eeb39d178d501e9e904447b0e1201e25bd7bd5990a285"
     }
   ],
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
-      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
-      "commitFilesMissingFromTree": 199,
-      "exact": false,
-      "filesDifferingFromCommit": 238
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
