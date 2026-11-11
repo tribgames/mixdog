@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { SCRIPTED_SHELL, spawn, takeFrames } from './scripted-pty.mjs';
+import { FRAME_MAX, SCRIPTED_SHELL, spawn, takeFrames } from './scripted-pty.mjs';
 
 const CONTROLS = String.fromCharCode(...Array.from({ length: 0x20 }, (_, i) => i), 0x7f);
 const BIG = '0123456789abcdef'.repeat(200 * 64);
@@ -20,8 +20,20 @@ test('each frame is one data event, whole, whatever its bytes or length or how t
   assert.equal(pending.toString(), '9:cut', 'a frame cut off is never delivered short');
 });
 
-test('a header that is not a byte count is an error', () => {
-  assert.throws(() => takeFrames(Buffer.from('x1:a')), /not a byte count/);
+test('a header that is not a byte count, has a sign or claims more than the cap is an error', () => {
+  for (const header of ['x1:a', '+1:a', '-1:a']) assert.throws(() => takeFrames(Buffer.from(header)), /not a byte count/, header);
+  assert.throws(() => takeFrames(Buffer.from(`${FRAME_MAX + 1}:`)), /more than the 1048576/);
+  assert.equal(takeFrames(frame('x'.repeat(FRAME_MAX))).frames[0].length, FRAME_MAX);
+});
+
+test("the frames decode as one stream, as node-pty's socket does: split characters whole, a dangling lead byte one U+FFFD at the end", async () => {
+  const pty = spawn('', [], { cwd: process.cwd(), env: process.env });
+  const events = [];
+  const exited = new Promise((resolve) => pty.onExit(resolve));
+  pty.onData((text) => events.push(text));
+  pty.write('@bytes 61c3|a9|f09f|9880\n@bytes c3\n@exit 0\n');
+  assert.deepEqual(await exited, { exitCode: 0, signal: undefined });
+  assert.deepEqual(events, ['a', 'é', '😀', '\uFFFD']);
 });
 
 test("the script is the core's framed_profile, byte for byte", () => {
@@ -31,7 +43,7 @@ test("the script is the core's framed_profile, byte for byte", () => {
   assert.equal(script, literal.replaceAll('\\\\', '\\'));
 });
 
-test('the scripted shell writes each chunk as one frame: RS and every control byte, an empty chunk, 200 KiB', async () => {
+test('the scripted shell writes each chunk as one frame: RS and every control byte, 200 KiB; an empty chunk is no data event', async () => {
   const pty = spawn('', [], { cwd: process.cwd(), env: process.env });
   const events = [];
   const exited = new Promise((resolve) => pty.onExit(resolve));
@@ -39,5 +51,5 @@ test('the scripted shell writes each chunk as one frame: RS and every control by
   const hex = [...CONTROLS].map((c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`).join('');
   pty.write(`@chunks ${hex}|\n@chunks \n@fill ${BIG.length}\nplain\n@exit 4\n`);
   assert.deepEqual(await exited, { exitCode: 4, signal: undefined });
-  assert.deepEqual(events, [CONTROLS, '', '', BIG, 'plain\r\n']);
+  assert.deepEqual(events, [CONTROLS, BIG, 'plain\r\n']);
 });

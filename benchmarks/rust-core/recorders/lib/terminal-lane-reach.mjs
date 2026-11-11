@@ -7,7 +7,9 @@
 export const LANE_REACH_CREDENTIALS = { p1: 'aaaaaaa1', p2: 'aaaaaaa2', p3: 'aaaaaaa3' };
 /** The tab the desktop opens, the tab the second phone opens (and disposes while it runs), the tab whose shell ends by itself, the tab
  *  that runs a command between shell-integration markers, the tab whose first line spans two chunks, and the tab whose chunks hold
- *  every control byte, nothing, and 200 KiB. */
+ *  every control byte, nothing, and 200 KiB, the tab whose first output splits characters across chunks, and the tab whose only output
+ *  is a lone lead byte at its end. The last two are fresh tabs so that their first output goes out at once (terminal-data-buffer.ts:53-58,
+ *  no earlier delivery on the id) whenever the last message of another step went: the U+FFFD and the exit line are two messages. */
 export const LANE_REACH_TABS = {
   desktop: 'term_lane_desk',
   phone: 'term_lane_ph',
@@ -15,6 +17,8 @@ export const LANE_REACH_TABS = {
   command: 'term_lane_cmd',
   split: 'term_lane_split',
   bytes: 'term_lane_bytes',
+  chars: 'term_lane_chars',
+  tail: 'term_lane_tail',
 };
 /** Every control character (U+0000-U+001F, among them RS, and U+007F), in order, and the same in the `chunks` escapes (`\xHH`). */
 export const CONTROLS = String.fromCharCode(...Array.from({ length: 0x20 }, (_, code) => code), 0x7f);
@@ -23,6 +27,11 @@ export const CONTROLS_ESCAPED = [...CONTROLS].map((c) => `\\x${c.charCodeAt(0).t
 export const FILL_BYTES = 200 * 1024;
 export const fill = (bytes) => `@fill ${bytes}\n`;
 export const filled = (bytes) => '0123456789abcdef'.repeat(Math.ceil(bytes / 16)).slice(0, bytes);
+/** A line whose chunks split a two-byte and a four-byte character each across two chunks (`lane-\xC3`, `\xA9-`, `\xF0\x9F`, `\x98\x80\r\n`),
+ *  what it reads as, and a line that leaves a lone lead byte (`\xC3`) for the shell's end. */
+export const SPLIT_CHARS = '@bytes 6c616e652dc3|a92d|f09f|98800d0a\n';
+export const SPLIT_CHARS_TEXT = 'lane-é-😀\r\n';
+export const DANGLING_LEAD = '@bytes c3\n';
 /** A line typed into a tab, and what the scripted shell writes back for it. */
 export const typed = (text) => `${text}\n`;
 export const echoed = (text) => `${text}\r\n`;

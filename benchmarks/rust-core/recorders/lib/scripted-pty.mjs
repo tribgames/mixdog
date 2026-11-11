@@ -2,26 +2,28 @@
 // terminal manager's `spawn` gets, in place of a ConPTY shell, the framed scripted shell mixdog-spawn's replay mode runs over pipes
 // (native/mixdog-spawn/src/scripted.rs `framed_profile`, the same program and script): each line it reads is written back as chunks, each
 // one frame (its length in bytes in decimal, `:`, its UTF-8 bytes) flushed on its own; `@chunks <a>|<b>|…` writes the chunks given,
-// `@fill <n>` one chunk of n bytes, any other line is one chunk ended `\r\n` (in every chunk `\n`, `\e`, `\a` as `\r\n`, ESC, BEL, then
+// `@fill <n>` one chunk of n bytes, `@bytes <hex>|<hex>|…` each part's bytes as they are (a chunk may end inside a character), any other line is one chunk ended `\r\n` (in every chunk `\n`, `\e`, `\a` as `\r\n`, ESC, BEL, then
 // `\xHH` as that character), and `@exit <code>` exits with that code. This hands the terminal manager exactly one data event per frame,
 // whole, whatever the pipe joined or split and whatever bytes or length the frame has (as the core's `scripted::Frames` hands its reader
 // one frame per output), so how output is cut into data events is the script's, not timing's. A console adds sequences and cuts of its own; pipes carry exactly what the program
 // wrote. The terminal manager's own code (shell plan, marker scanner, replay buffer, exit line) runs unchanged on what this delivers.
 // Loaded through scripted-pty-hooks.mjs.
 import { spawn as start } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 
-/** The longest frame header (scripted.rs `HEADER_MAX`): a byte count in decimal and its `:`. */
-const HEADER_MAX = 11;
+/** The most bytes a frame may claim (scripted.rs `FRAME_MAX`), and the longest header: that count in decimal and its `:`. */
+export const FRAME_MAX = 1024 * 1024;
+const HEADER_MAX = String(FRAME_MAX).length + 1;
 /** The program and script of native/mixdog-spawn/src/scripted.rs `framed_profile` on Windows, byte for byte. */
 const SCRIPT =
-  "$in = [Console]::In; $out = [Console]::OpenStandardOutput(); $utf8 = [Text.Encoding]::UTF8; $nl = [string][char]13 + [char]10; $esc = [string][char]27; $bel = [string][char]7; while ($null -ne ($l = $in.ReadLine())) { if ($l -match '^@exit (\\d+)$') { exit [int]$Matches[1] }; if ($l -match '^@fill (\\d+)$') { $n = [int]$Matches[1]; $chunks = @(('0123456789abcdef' * ($n / 16 + 1)).Substring(0, $n)) } elseif ($l -match '^@chunks (.*)$') { $chunks = $Matches[1].Split('|') } else { $chunks = @($l + '\\n') }; foreach ($c in $chunks) { $t = [regex]::Replace($c.Replace('\\n', $nl).Replace('\\e', $esc).Replace('\\a', $bel), '\\\\x([0-9a-f]{2})', { [string][char][Convert]::ToInt32($args[0].Groups[1].Value, 16) }); $b = $utf8.GetBytes($t); $h = [Text.Encoding]::ASCII.GetBytes([string]$b.Length + ':'); $out.Write($h, 0, $h.Length); $out.Write($b, 0, $b.Length); $out.Flush() } }";
+  "$in = [Console]::In; $out = [Console]::OpenStandardOutput(); $utf8 = [Text.Encoding]::UTF8; $nl = [string][char]13 + [char]10; $esc = [string][char]27; $bel = [string][char]7; while ($null -ne ($l = $in.ReadLine())) { if ($l -match '^@exit (\\d+)$') { exit [int]$Matches[1] }; if ($l -match '^@bytes (.*)$') { foreach ($x in $Matches[1].Split('|')) { $b = [byte[]]::new([int]($x.Length / 2)); for ($i = 0; $i -lt $b.Length; $i++) { $b[$i] = [Convert]::ToByte($x.Substring(2 * $i, 2), 16) }; $h = [Text.Encoding]::ASCII.GetBytes([string]$b.Length + ':'); $out.Write($h, 0, $h.Length); $out.Write($b, 0, $b.Length); $out.Flush() }; continue }; if ($l -match '^@fill (\\d+)$') { $n = [int]$Matches[1]; $chunks = @(('0123456789abcdef' * ($n / 16 + 1)).Substring(0, $n)) } elseif ($l -match '^@chunks (.*)$') { $chunks = $Matches[1].Split('|') } else { $chunks = @($l + '\\n') }; foreach ($c in $chunks) { $t = [regex]::Replace($c.Replace('\\n', $nl).Replace('\\e', $esc).Replace('\\a', $bel), '\\\\x([0-9a-f]{2})', { [string][char][Convert]::ToInt32($args[0].Groups[1].Value, 16) }); $b = $utf8.GetBytes($t); $h = [Text.Encoding]::ASCII.GetBytes([string]$b.Length + ':'); $out.Write($h, 0, $h.Length); $out.Write($b, 0, $b.Length); $out.Flush() } }";
 export const SCRIPTED_SHELL = {
   path: 'powershell.exe',
   args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(SCRIPT, 'utf16le').toString('base64')],
 };
 
-/** The whole frames at the start of `pending` (a Buffer), each its bytes, and what follows them; a header that is not a byte count and
- *  `:` throws (scripted.rs `Frames::next_frame`). */
+/** The whole frames at the start of `pending` (a Buffer), each its bytes, and what follows them; a header that is not a byte count (digits
+ *  only, no sign) and `:`, or one that claims more than FRAME_MAX bytes, throws (scripted.rs `Frames::next_frame`). */
 export function takeFrames(pending) {
   const frames = [];
   let at = 0;
@@ -33,6 +35,7 @@ export function takeFrames(pending) {
     }
     const digits = pending.subarray(at, at + colon).toString('latin1');
     if (!/^\d+$/.test(digits)) throw new Error(`the scripted shell's output has a frame header that is not a byte count: ${JSON.stringify(digits)}`);
+    if (Number(digits) > FRAME_MAX) throw new Error(`the scripted shell's output has a frame of ${digits} bytes, more than the ${FRAME_MAX} a frame may hold`);
     const end = at + colon + 1 + Number(digits);
     if (end > pending.length) break;
     frames.push(pending.subarray(at + colon + 1, end));
@@ -42,25 +45,29 @@ export function takeFrames(pending) {
 }
 
 /** node-pty's `spawn(file, args, options)`: the shell the manager planned is not started; the scripted one is, in `options.cwd` with
- *  `options.env`. Each chunk on its stdout is one data event of the pty (UTF-8, as node-pty decodes it); its end, once its output is
- *  read, the pty's exit. */
+ *  `options.env`. Each frame on its stdout is one data event of the pty; its end, once its output is read, the pty's exit. The frames'
+ *  bytes are decoded as node-pty decodes the console's output: one stream through one UTF-8 StringDecoder for the life of the shell
+ *  (node-pty windowsPtyAgent.js `this._outSocket.setEncoding('utf8')`), so a character split across frames comes out whole with the
+ *  later one, and at the end what the decoder still holds goes out as a last data event (`decoder.end()`, one U+FFFD for an incomplete
+ *  character), as a Readable with an encoding pushes it at its end before `end` and `close`. */
 export function spawn(_file, _args, options = {}) {
   const child = start(SCRIPTED_SHELL.path, SCRIPTED_SHELL.args, { cwd: options.cwd, env: options.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const data = new Set();
   const exits = new Set();
+  const decoder = new StringDecoder('utf8');
   let pending = Buffer.alloc(0);
-  const deliver = (frame) => {
-    const text = frame.toString('utf8');
-    data.forEach((listener) => listener(text));
-  };
+  // A Readable with an encoding emits no data event for a write that decodes to nothing (an empty frame, the first part of a split
+  // character): node:internal/streams/readable `readableAddChunk` adds a chunk only when its length is above 0.
+  const deliver = (text) => text && data.forEach((listener) => listener(text));
   child.stdout.on('data', (bytes) => {
     const { frames, rest } = takeFrames(Buffer.concat([pending, bytes]));
     pending = rest;
-    frames.forEach(deliver);
+    for (const frame of frames) deliver(decoder.write(frame));
   });
   // A frame cut off by the end of the output is the stand-in's error, never a short chunk.
   child.stdout.on('end', () => {
     if (pending.length) throw new Error(`the scripted shell ${child.pid}'s output ended inside a frame (${pending.length} bytes of it read)`);
+    deliver(decoder.end());
   });
   // The script writes nothing to stderr; a failure of PowerShell itself would show there.
   child.stderr.setEncoding('utf8');
