@@ -543,15 +543,18 @@ impl OutputFilter for TabFilter {
         self.text.as_bytes().to_vec()
     }
 
-    fn admitted(&mut self) {
+    fn admitted(&mut self) -> bool {
         let mut state = self.tab.lock();
         let text = std::mem::take(&mut self.text);
         state.buffer.append(&text);
         Tab::emitted(&mut state, text.len());
+        let mut changed = false;
         for marker in self.markers.drain(..) {
             let change = state.activity.marker(marker);
+            changed |= change.is_some();
             self.tab.publish_after_output(&mut state, change);
         }
+        changed
     }
 }
 
@@ -2061,6 +2064,48 @@ mod lock_order {
         let taken = log[..end].iter().rev().find(|seen| matches!(seen, Seen::Taken(_)));
         assert_eq!(taken, Some(&Seen::Taken(total - line)), "the tab's end goes once the output before the exit is taken: {log:?}");
         assert_eq!(log.get(end + 1), Some(&Seen::Taken(total)), "the exit line is taken after the tab's end: {log:?}");
+    }
+
+    /// Three reads enter the feed before the pump takes any (a loaded machine: run 9 of the terminal replay, term_ph2_i2's screen clear and
+    /// prompt sent as one frame before its `idle`): the screen clear, the prompt's marker with the prompt, and more output. Node took each
+    /// read on its own (its text, then its markers), so the pump takes the read before the marker's, then the marker's read, publishes
+    /// its change, and only then takes the output after it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_pump_takes_a_markers_read_apart_from_the_reads_around_it() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("term_reads_{}", std::process::id()));
+        let logged = Logged::new();
+        let tab = relay_tab(Arc::clone(&logged) as Arc<dyn TerminalEvents>, manager.clone(), handle.as_str());
+        manager
+            .spawn_with(
+                piped(&handle, "$null = [Console]::In.ReadLine()", "read a"),
+                SpawnOptions { filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+            )
+            .await
+            .unwrap();
+        let feed = manager.feed_of(&handle).unwrap();
+        let mut producer = TabFilter::new(Arc::clone(&tab));
+        let mut read = |bytes: &[u8]| {
+            let text = producer.filter(bytes);
+            feed.admit(OutputStream::Stdout, &text, || producer.admitted());
+            text.len() as u64
+        };
+        let clear = read(b"\x1b[2J\x1b[H");
+        let prompt = read(b"\x1b]697;P\x07PS> ");
+        let after = read(b"x");
+        pump(&manager, &tab, &logged);
+        let log = logged.until("the pump took every read", |log| log.contains(&Seen::Taken(clear + prompt + after)));
+        assert_eq!(
+            log,
+            vec![
+                Seen::Taken(clear),
+                Seen::Taken(clear + prompt),
+                Seen::Change(Some(ActivityState::Idle)),
+                Seen::Taken(clear + prompt + after)
+            ],
+            "each read is taken on its own, the marker's change right after its read"
+        );
+        let _ = manager.kill(&handle);
     }
 
     /// A chunk the paused producer holds at the feed's gate has not been read (Node's paused PTY read nothing): its marker is not applied,
