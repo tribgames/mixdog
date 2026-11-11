@@ -1,8 +1,9 @@
 //! Replay of `native/core/fixtures/schedule-rename-timers-cases` (`record-schedule-rename-timers-cases.mjs`, Node
 //! b6f10295a): what the scheduler fires next, and when, after each outcome of a rename (the new name taken, a run of the
-//! schedule in flight, the row moved and the reload failing, the rename applied and its answer lost). The core's scheduler
-//! runs as the channel runtime runs it (`channels/runtime.rs` `rename_schedule`: `rename_locked` with the store's rename and
-//! a reload that re-arms the stored rows), on tokio's paused clock, moved only to the instants the recording lists. The row
+//! schedule in flight, the row moved and the reload failing, the row moved and its answer lost, then the worker re-reading the
+//! table). The core's scheduler runs as the channel runtime runs it (`channels/runtime.rs` `rename_schedule`: `rename_locked`
+//! with the store's rename and a reload that re-arms the stored rows), on tokio's paused clock, moved only by `advance` to
+//! the instants the recording lists. The row
 //! store is the in-memory one, as the recorder's was an in-memory table: a store whose calls cross a lane would let the
 //! paused clock run ahead while a fire waits for it.
 
@@ -48,7 +49,7 @@ impl PausedClock {
     /// Moves the paused clock to `instant` (every timer due on the way fires at its own instant).
     async fn advance_to(&self, instant: &str) {
         let wait = (at(instant) - self.now()).to_std().unwrap_or_default();
-        tokio::time::sleep(wait).await;
+        tokio::time::advance(wait).await;
     }
 }
 
@@ -112,8 +113,13 @@ fn rows(value: &Value) -> Vec<Schedule> {
 }
 
 fn error_of(error: &ScheduleError) -> Value {
-    let (code, name) = error.code_fields().expect("a coded refusal");
-    json!({"code": code, "message": error.to_string(), "details": name.map(|name| json!({"name": name}))})
+    let (code, name) = error.code_fields().unzip();
+    json!({"code": code, "message": error.to_string(), "details": name.flatten().map(|name| json!({"name": name}))})
+}
+
+/// The names with a cron job or a one-shot timer armed (`cronJobs` and `oneShotTimers` of Node's scheduler).
+fn armed(sched: &Scheduler) -> Value {
+    json!(sched.armed_names())
 }
 
 fn status(sched: &Scheduler) -> Value {
@@ -165,7 +171,12 @@ async fn replay(recorded: &Value) -> Value {
                     for instant in &rename_advances {
                         clock.advance_to(instant).await;
                     }
-                    ScheduleRecords::rename(&*store, "other", &renamed, false).await
+                    let moved = ScheduleRecords::rename(&*store, "other", &renamed, false).await?;
+                    // The row moved and the answer was lost: the scheduler sees a failed rename, the table has the new name.
+                    if outcome == "applied" {
+                        return Err(ScheduleError::Store("timeout".to_owned()));
+                    }
+                    Ok(moved)
                 }
             },
             || {
@@ -185,7 +196,16 @@ async fn replay(recorded: &Value) -> Value {
         "error": refused.err().map_or(Value::Null, |error| error_of(&error)),
         "renameRan": rename_ran.load(Ordering::SeqCst),
         "status": status(&sched),
+        "armed": armed(&sched),
     });
+    if outcome == "applied" {
+        // What the client does after an unanswered rename: the worker re-reads the table.
+        sched.reload_config(store.list().await.unwrap(), true);
+        let step = at_steps.next_if(|step| step.get("reloadedFromStore").is_some()).expect("the recording's reload step after the failed rename");
+        let observed = json!({"reloadedFromStore": true, "status": status(&sched), "armed": armed(&sched)});
+        assert_eq!(*step, observed, "the scheduler after the worker re-read the table");
+        replayed.push(observed);
+    }
     if runner.hold.is_some() {
         release.send_replace(true);
         runner.finished(1, &format!("{outcome}: the held run to finish")).await;
@@ -216,6 +236,7 @@ async fn replay(recorded: &Value) -> Value {
         "refused": refused,
         "runs": *runner.runs.lock().unwrap(),
         "statusAtEnd": status(&sched),
+        "armedAtEnd": armed(&sched),
     });
     sched.stop();
     observed

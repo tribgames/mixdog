@@ -10,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 15403,
+      "bytes": 16791,
       "path": "golden.json",
-      "sha256": "1228fddc32b609b0b4a3448d8a5acf0947d2b386c7204fcf03c40ebfcaaddf2a"
+      "sha256": "03e6ad3a1f32341522533095d9aba70c1cdd8671dbb2414b76e4fd3c17b0eeac"
     }
   ],
   "inputs": [
@@ -48,12 +48,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-schedule-rename-timers-cases.mjs",
-  "recorderSha256": "69e17f72d9307365c98eb8d7c9d7baaa8c5c73b0111c83356aa93b87c6fd3f53",
+  "recorderSha256": "67dbcf9901b442e201e5a09261530f6e5305e13d49fec5870ceaa9ac8a739123",
   "replay": {
-    "compare": "per case, whole: the refusal (code, message, details), whether the rename ran, the status after the refusal and at the end, each run with its instant, in order",
+    "compare": "per case, whole: the refusal (code, message, details), whether the rename ran, the status and the armed timers (names with a cron job or a one-shot timer) after the refusal, after the reload from the table (applied case) and at the end, each run with its instant, in order",
     "entry": "mixdog-services/src/scheduler/engine.rs Scheduler: start, rename_locked with the store's rename and the runtime's reload (reload_config of the stored rows), the one-shot and cron timers on tokio's paused clock, status; the runner records each run with the clock. Replayed by mixdog-services/src/scheduler/rename_timers_replay_tests.rs."
   },
   "set": "schedule-rename-timers-cases",
-  "totalBytes": 15403,
+  "totalBytes": 16791,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

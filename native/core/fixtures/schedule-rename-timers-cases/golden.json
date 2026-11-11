@@ -120,6 +120,10 @@
               "lastFailed": null,
               "nextFire": "2025-01-01T09:00:00.000Z"
             }
+          ],
+          "armed": [
+            "keep",
+            "other"
           ]
         },
         "runs": [
@@ -151,6 +155,9 @@
             "lastFailed": null,
             "nextFire": "2025-01-02T09:00:00.000Z"
           }
+        ],
+        "armedAtEnd": [
+          "keep"
         ]
       }
     },
@@ -258,6 +265,9 @@
               "lastFailed": null,
               "nextFire": "2025-01-01T09:00:00.000Z"
             }
+          ],
+          "armed": [
+            "keep"
           ]
         },
         "runs": [
@@ -289,6 +299,9 @@
             "lastFailed": null,
             "nextFire": "2025-01-02T09:00:00.000Z"
           }
+        ],
+        "armedAtEnd": [
+          "keep"
         ]
       }
     },
@@ -390,6 +403,9 @@
               "lastFailed": null,
               "nextFire": "2025-01-01T09:00:00.000Z"
             }
+          ],
+          "armed": [
+            "keep"
           ]
         },
         "runs": [
@@ -408,11 +424,14 @@
             "lastFailed": null,
             "nextFire": "2025-01-02T09:00:00.000Z"
           }
+        ],
+        "armedAtEnd": [
+          "keep"
         ]
       }
     },
     {
-      "case": "after a rename: the rename applied and its answer was lost (SCHEDULE_RENAME_UNCERTAIN in Node, opOutcomeUnknown in K1)",
+      "case": "after a rename: the row moved and the answer was lost, then the worker re-read the table (SCHEDULE_RENAME_UNCERTAIN in Node, opOutcomeUnknown in K1)",
       "observed": {
         "outcome": "applied",
         "start": "2025-01-01T08:00:00.000Z",
@@ -470,6 +489,33 @@
             ]
           },
           {
+            "reloadedFromStore": true,
+            "status": [
+              {
+                "name": "keep",
+                "time": "0 9 * * *",
+                "running": false,
+                "lastFired": null,
+                "lastSuccess": null,
+                "lastFailed": null,
+                "nextFire": "2025-01-01T09:00:00.000Z"
+              },
+              {
+                "name": "renamed",
+                "time": "2025-01-01T08:00:10.000Z",
+                "running": false,
+                "lastFired": null,
+                "lastSuccess": null,
+                "lastFailed": null,
+                "nextFire": "2025-01-01T08:00:10.000Z"
+              }
+            ],
+            "armed": [
+              "keep",
+              "renamed"
+            ]
+          },
+          {
             "advanceTo": "2025-01-01T08:00:15.000Z"
           },
           {
@@ -496,9 +542,22 @@
         ],
         "refused": {
           "at": "2025-01-01T08:00:15.000Z",
-          "error": null,
+          "error": {
+            "code": null,
+            "message": "timeout",
+            "details": null
+          },
           "renameRan": true,
           "status": [
+            {
+              "name": "other",
+              "time": "2025-01-01T08:00:10.000Z",
+              "running": false,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T08:00:10.000Z"
+            },
             {
               "name": "keep",
               "time": "0 9 * * *",
@@ -507,16 +566,11 @@
               "lastSuccess": null,
               "lastFailed": null,
               "nextFire": "2025-01-01T09:00:00.000Z"
-            },
-            {
-              "name": "renamed",
-              "time": "2025-01-01T08:00:10.000Z",
-              "running": false,
-              "lastFired": null,
-              "lastSuccess": null,
-              "lastFailed": null,
-              "nextFire": "2025-01-01T08:00:10.000Z"
             }
+          ],
+          "armed": [
+            "keep",
+            "other"
           ]
         },
         "runs": [
@@ -548,6 +602,9 @@
             "lastFailed": null,
             "nextFire": "2025-01-01T08:00:10.000Z"
           }
+        ],
+        "armedAtEnd": [
+          "keep"
         ]
       }
     }

@@ -135,6 +135,14 @@ impl Scheduler {
         }
     }
 
+    /// The names with a cron job or a one-shot timer armed, sorted.
+    #[cfg(test)]
+    pub(super) fn armed_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.inner.state.lock().unwrap().tasks.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     pub fn find_schedule(&self, name: &str) -> Option<Schedule> {
         self.inner.find(name)
     }
