@@ -15,6 +15,7 @@ import {
 } from './session-record.mjs';
 import { storedSessionRecordAsync } from './stored-session.mjs';
 import { scanEpoch } from './session-scan-checkpoint.mjs';
+import { createWorkerRequestClient } from '../../../../shared/worker-requests.mjs';
 import {
   MESSAGE_FACTS_VERSION,
   messageFacts,
@@ -274,6 +275,9 @@ export function _openSummaryScanWindow() {
  * and reading it that way is faster than reading it as facts.
  */
 const RESUMABLE_MIN_BYTES = 32 * 1024 * 1024;
+/** The same, for the storage refresh: a log that changes is read again at every
+ *  refresh, so a smaller one is worth reading as facts too. */
+export const REFRESH_FACTS_MIN_BYTES = 2 * 1024 * 1024;
 let resumableMinBytes = RESUMABLE_MIN_BYTES;
 
 /** Tests: the size of log the resumable scan reads as facts. */
@@ -281,15 +285,58 @@ export function _setResumableMinBytesForTest(bytes) {
   resumableMinBytes = bytes ?? RESUMABLE_MIN_BYTES;
 }
 
-export async function _scanStoredSessionSummaryRowsAsync({ resumable = false } = {}) {
-  const factsOptions = {
-    facts: { project: messageFacts, version: MESSAGE_FACTS_VERSION },
-    checkpoints: sessionScanCheckpointDir(),
-  };
+const factsOptions = () => ({
+  facts: { project: messageFacts, version: MESSAGE_FACTS_VERSION },
+  checkpoints: sessionScanCheckpointDir(),
+});
+
+/** A log read as the facts its row is made of (the facts worker's request). */
+export function readStoredRecordAsFacts(storageId) {
+  return storedSessionRecordAsync(storeRecordDir(), storageId, true, factsOptions());
+}
+
+// The facts of a large log are assembled and parsed off the main thread: the
+// storage refresh is awaited there, and a line of hundreds of megabytes held
+// its event loop for as long as it took. One worker per data dir, retired when
+// idle; a worker that fails reads the log here, as before.
+const FACTS_WORKER_IDLE_MS = 60_000;
+const _factsWorkers = new Map(); // data dir → request
+function factsWorkerFor(dataDir) {
+  let request = _factsWorkers.get(dataDir);
+  if (!request) {
+    request = createWorkerRequestClient(new URL('./summary-facts-worker.mjs', import.meta.url), {
+      idleExitMs: FACTS_WORKER_IDLE_MS,
+      workerData: { dataDir },
+      label: 'summary-facts-worker',
+    });
+    _factsWorkers.set(dataDir, request);
+  }
+  return request;
+}
+
+async function readFactsOffThread(dir, storageId, options) {
+  try {
+    const record = await factsWorkerFor(getPluginData())({ storageId });
+    return record.unreadable ? { session: STORED_SESSION_UNREADABLE, logLegacy: undefined } : record;
+  } catch {
+    return storedSessionRecordAsync(dir, storageId, true, options);
+  }
+}
+
+/**
+ * \offload\: a log read as facts is read by the facts worker (the storage
+ * refresh's: it is awaited on the main thread); the rebuild worker, which is
+ * one, reads in place.
+ */
+export async function _scanStoredSessionSummaryRowsAsync({
+  resumable = false,
+  minBytes = resumableMinBytes,
+  offload = false,
+} = {}) {
   const readOptionsOf = async (dir, storageId) => {
     if (!resumable) return undefined;
     const log = await stat(sessionRecordFiles(dir, storageId).logPath).catch(() => null);
-    return log && log.size >= resumableMinBytes ? factsOptions : undefined;
+    return log && log.size >= minBytes ? factsOptions() : undefined;
   };
   // The scan only reads: an absent directory is answered below.
   const dir = storeRecordDir();
@@ -357,7 +404,11 @@ export async function _scanStoredSessionSummaryRowsAsync({ resumable = false } =
     let record;
     for (let attempt = 0; ; attempt++) {
       const epoch = await scanEpoch(checkpoints, logPath);
-      record = await storedSessionRecordAsync(dir, storageId, true, await readOptionsOf(dir, storageId));
+      const options = await readOptionsOf(dir, storageId);
+      record =
+        options && offload
+          ? await readFactsOffThread(dir, storageId, options)
+          : await storedSessionRecordAsync(dir, storageId, true, options);
       if (epoch === (await scanEpoch(checkpoints, logPath)) || attempt >= 3) break;
     }
     const { session, logLegacy, facts } = record;
