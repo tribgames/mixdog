@@ -1,0 +1,594 @@
+{
+  "set": "provider-devin-wire-session",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "token-prefix-exactly-once",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:28",
+      "input": {},
+      "result": {
+        "plain": "devin-session-token$abc",
+        "prefixed": "devin-session-token$abc",
+        "empty": ""
+      }
+    },
+    {
+      "id": "request-metadata-identities",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:34",
+      "input": {},
+      "result": {
+        "cli": {
+          "apiKey": "k",
+          "userJwt": "j",
+          "ideName": "devin-cli",
+          "ideType": "chisel",
+          "ideVersion": "3000.11.3",
+          "extensionName": "chisel",
+          "extensionVersion": "3000.11.3",
+          "locale": "en",
+          "os": "windows"
+        },
+        "legacy": {
+          "apiKey": "raw",
+          "ideName": "windsurf",
+          "ideVersion": "3.2.23",
+          "extensionName": "windsurf",
+          "extensionVersion": "1.48.2",
+          "locale": "en"
+        },
+        "discovery": {
+          "apiKey": "k",
+          "ideName": "chisel",
+          "ideVersion": "0.0.0-dev",
+          "extensionName": "chisel",
+          "extensionVersion": "0.0.0-dev",
+          "locale": "en",
+          "os": "windows",
+          "supportedModelDisplays": [
+            3,
+            4,
+            6,
+            7,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "id": "get-user-jwt-prefixed-token-validated-host",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:67",
+      "input": {
+        "sessionToken": "tok"
+      },
+      "result": {
+        "result": {
+          "jwt": "the-jwt",
+          "apiKey": "devin-session-token$tok",
+          "apiHost": "https://acme.windsurf.example/api"
+        },
+        "calls": [
+          {
+            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$tok",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            },
+            "headers": [
+              [
+                "content-type",
+                "application/proto"
+              ],
+              [
+                "connect-protocol-version",
+                "1"
+              ],
+              [
+                "accept",
+                "*/*"
+              ]
+            ],
+            "redirect": "error",
+            "bodyHex": "0a580a09646576696e2d636c691209333030302e31312e331a17646576696e2d73657373696f6e2d746f6b656e24746f6b2202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+          }
+        ],
+        "defaultBaseUrl": "https://server.codeium.com"
+      }
+    },
+    {
+      "id": "rejected-prefixed-token-retried-raw-once",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:87",
+      "input": {
+        "sessionToken": "raw-key"
+      },
+      "result": {
+        "retried": {
+          "result": {
+            "jwt": "legacy-jwt",
+            "apiKey": "raw-key"
+          }
+        },
+        "retryCalls": [
+          {
+            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$raw-key",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            },
+            "headers": [
+              [
+                "content-type",
+                "application/proto"
+              ],
+              [
+                "connect-protocol-version",
+                "1"
+              ],
+              [
+                "accept",
+                "*/*"
+              ]
+            ],
+            "redirect": "error",
+            "bodyHex": "0a5c0a09646576696e2d636c691209333030302e31312e331a1b646576696e2d73657373696f6e2d746f6b656e247261772d6b65792202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+          },
+          {
+            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "raw-key",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            },
+            "headers": [
+              [
+                "content-type",
+                "application/proto"
+              ],
+              [
+                "connect-protocol-version",
+                "1"
+              ],
+              [
+                "accept",
+                "*/*"
+              ]
+            ],
+            "redirect": "error",
+            "bodyHex": "0a480a09646576696e2d636c691209333030302e31312e331a077261772d6b65792202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+          }
+        ],
+        "forbidden": {
+          "error": {
+            "name": "DevinWireError",
+            "message": "Devin GetUserJwt unauthenticated (HTTP 403)",
+            "code": "unauthenticated",
+            "status": 403,
+            "retryable": false,
+            "connectCode": "unauthenticated"
+          }
+        },
+        "forbiddenCalls": [
+          {
+            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$raw-key",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            },
+            "headers": [
+              [
+                "content-type",
+                "application/proto"
+              ],
+              [
+                "connect-protocol-version",
+                "1"
+              ],
+              [
+                "accept",
+                "*/*"
+              ]
+            ],
+            "redirect": "error",
+            "bodyHex": "0a5c0a09646576696e2d636c691209333030302e31312e331a1b646576696e2d73657373696f6e2d746f6b656e247261772d6b65792202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+          }
+        ],
+        "prefixed": {
+          "error": {
+            "name": "DevinWireError",
+            "message": "Devin GetUserJwt unauthenticated (HTTP 401)",
+            "code": "unauthenticated",
+            "status": 401,
+            "retryable": false,
+            "connectCode": "unauthenticated"
+          }
+        },
+        "prefixedCalls": [
+          {
+            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$x",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            },
+            "headers": [
+              [
+                "content-type",
+                "application/proto"
+              ],
+              [
+                "connect-protocol-version",
+                "1"
+              ],
+              [
+                "accept",
+                "*/*"
+              ]
+            ],
+            "redirect": "error",
+            "bodyHex": "0a560a09646576696e2d636c691209333030302e31312e331a15646576696e2d73657373696f6e2d746f6b656e24782202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "failure-never-echoes-session-token",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:126",
+      "input": {
+        "secret": "S3ssionSecretValue42"
+      },
+      "result": {
+        "error": {
+          "name": "DevinWireError",
+          "message": "Devin GetUserJwt unauthenticated (HTTP 401): token [redacted] rejected (raw [redacted])",
+          "code": "unauthenticated",
+          "status": 401,
+          "retryable": false,
+          "connectCode": "unauthenticated",
+          "detail": "token [redacted] rejected (raw [redacted])"
+        },
+        "detail": "token [redacted] rejected (raw [redacted])",
+        "secretInAnyOf": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      }
+    },
+    {
+      "id": "empty-jwt-missing-token-unsafe-host",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:142",
+      "input": {},
+      "result": {
+        "emptyJwt": {
+          "error": {
+            "name": "DevinWireError",
+            "message": "Devin GetUserJwt returned no user JWT",
+            "code": "protocol",
+            "status": 0,
+            "retryable": false
+          }
+        },
+        "missingToken": {
+          "error": {
+            "name": "DevinWireError",
+            "message": "Devin session token is missing",
+            "code": "unauthenticated",
+            "status": 401,
+            "retryable": false
+          }
+        },
+        "unsafeHost": {
+          "error": {
+            "name": "DevinWireError",
+            "message": "Devin returned an unsafe API host: https is required",
+            "code": "protocol",
+            "status": 0,
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "id": "api-host-validation",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:142",
+      "input": {
+        "accepted": [
+          "https://server.codeium.com/",
+          "https://eu.windsurf.example:8443/x/",
+          "https://8.8.8.8"
+        ],
+        "unsafe": [
+          "http://server.codeium.com",
+          "ftp://server.codeium.com",
+          "https://user:pw@server.codeium.com",
+          "https://server.codeium.com/?a=1",
+          "https://server.codeium.com/#x",
+          "https://localhost",
+          "https://api.localhost",
+          "https://printer.local",
+          "https://intranet",
+          "https://127.0.0.1",
+          "https://10.1.2.3",
+          "https://172.20.0.1",
+          "https://192.168.1.1",
+          "https://169.254.169.254",
+          "https://100.64.0.1",
+          "https://0.0.0.0",
+          "https://[::1]",
+          "https://[fd00::1]",
+          "https://[fe80::1]",
+          "https://[::ffff:127.0.0.1]",
+          "https://2130706433",
+          "not a url"
+        ]
+      },
+      "result": {
+        "accepted": [
+          {
+            "host": "https://server.codeium.com/",
+            "validated": "https://server.codeium.com"
+          },
+          {
+            "host": "https://eu.windsurf.example:8443/x/",
+            "validated": "https://eu.windsurf.example:8443/x"
+          },
+          {
+            "host": "https://8.8.8.8",
+            "validated": "https://8.8.8.8"
+          }
+        ],
+        "unsafe": [
+          {
+            "host": "http://server.codeium.com",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: https is required",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "ftp://server.codeium.com",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: https is required",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://user:pw@server.codeium.com",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: embedded credentials",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://server.codeium.com/?a=1",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: query or fragment",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://server.codeium.com/#x",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: query or fragment",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://localhost",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: single-label host",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://api.localhost",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: local host name",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://printer.local",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: local host name",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://intranet",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: single-label host",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://127.0.0.1",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://10.1.2.3",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://172.20.0.1",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://192.168.1.1",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://169.254.169.254",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://100.64.0.1",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://0.0.0.0",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://[::1]",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://[fd00::1]",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://[fe80::1]",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://[::ffff:127.0.0.1]",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "https://2130706433",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          },
+          {
+            "host": "not a url",
+            "error": {
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: not a URL",
+              "code": "protocol",
+              "status": 0,
+              "retryable": false
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
