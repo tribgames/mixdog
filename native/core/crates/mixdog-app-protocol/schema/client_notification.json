@@ -1063,6 +1063,18 @@
       ],
       "type": "object"
     },
+    "RemoteConnectionTimelineParams": {
+      "description": "Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase, state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an attached relay connection is heard. No response.",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
     "RequestId": {
       "anyOf": [
         {
@@ -1155,10 +1167,14 @@
           ]
         },
         "sessionIds": {
+          "description": "Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`): its last set stays. A UI's notification without it changes nothing.",
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "visualizeSessionIds": {
           "items": {
@@ -1170,9 +1186,6 @@
           ]
         }
       },
-      "required": [
-        "sessionIds"
-      ],
       "type": "object"
     },
     "UiTerminalRunClaimedParams": {
@@ -1532,6 +1545,25 @@
         },
         "params": {
           "$ref": "#/definitions/UiScreenSessionsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A paired phone's account of a slow reconnect, for the core's log.",
+      "properties": {
+        "method": {
+          "enum": [
+            "remote/connectionTimeline"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RemoteConnectionTimelineParams"
         }
       },
       "required": [
