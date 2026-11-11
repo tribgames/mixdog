@@ -268,8 +268,11 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
   // a line streams) and no `transcriptSpilled`: transcript-store.mjs publishes it with the first row pushed or swapped in, as the
   // unspilled `{ epoch: 0, rows: 0 }` here, since the core never spills.
   // The one-field sections the store always holds, null while unset: `promptRestore` and `agentScope` (initial-state.mjs), `workspace`,
-  // `goal`, `quotaResume` and `todo` (context-state.mjs `baseRouteState`, republished whole by every pass).
+  // `goal`, `quotaResume` and `todo` (context-state.mjs `baseRouteState`, republished whole by every pass), and the session's own route,
+  // `sessionProvider` / `sessionModel` (`runtime.sessionProvider ?? null`), null before the thread has a session.
   const out: Obj = {
+    sessionProvider: null,
+    sessionModel: null,
     promptRestore: null,
     workspace: null,
     goal: null,

@@ -311,7 +311,9 @@ impl AgentStatus for AgentToolStatus {
         let Some(handle) = self.directory.handle(thread) else { return ThreadAgents { agent_workers: Vec::new(), agent_jobs: Vec::new(), agent_scope: None } };
         // `clientHostPid: rt.session?.clientHostPid || process.pid`.
         let pid = positive_int(handle.cell.header.load().get("clientHostPid")).unwrap_or_else(|| u64::from(std::process::id()));
-        let scope = Scope { caller_session_id: Some(thread.as_str().to_owned()), host_pid: Some(pid) };
+        // `callerSessionId: rt.session?.id || null`: a thread with no session yet (no model on its header) reads the terminal's scope.
+        let session = mixdog_core_ports::ports::route::header_names_session(&handle.cell.header.load()).then(|| thread.as_str().to_owned());
+        let scope = Scope { caller_session_id: session.clone(), host_pid: Some(pid) };
         let now = self.clock.now_ms();
         self.registry.refresh_tags_from_sessions(false, &scope).await;
         let mut workers = Vec::new();
@@ -349,8 +351,12 @@ impl AgentStatus for AgentToolStatus {
                 now,
             })));
         }
-        // statusFor: a session's agents are scoped to that owner session.
-        ThreadAgents { agent_workers: workers, agent_jobs: jobs, agent_scope: Some(json!({ "sessionId": thread.as_str() })) }
+        // statusFor: a session's agents are scoped to that owner session, else to the hosting process.
+        let agent_scope = match session {
+            Some(session) => json!({ "sessionId": session }),
+            None => json!({ "clientHostPid": pid }),
+        };
+        ThreadAgents { agent_workers: workers, agent_jobs: jobs, agent_scope: Some(agent_scope) }
     }
 }
 
