@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 8082,
+      "bytes": 19030,
       "path": "golden.json",
-      "sha256": "7d38ba15ecd2721559631222c97cdd98499b3b23142ac25b6f2601f4d0c51956"
+      "sha256": "f9ca9868300d9bedff332b724820f90f1edc9d2ae46fa148624d4b0ebc842bc6"
     }
   ],
   "inputs": [
@@ -33,7 +33,8 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "timer handles": "only the armed delay and the cleared flag are kept"
+    "timer handles": "only the armed delay and the cleared flag are kept",
+    "trace": "each scenario has an ordered `trace`: {step} = an action of the recorder (clock step, abort, release of a gate it holds), {event} = what the product did (product call, timer armed/cleared) or what settled (warmup settled/rejected, recall call settled/rejected), in the order they happened"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -53,11 +54,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs",
-  "recorderSha256": "25ad86696cbb2a03663a92426c8c15fbfd8b7feb90138d251108f3e604ba1280",
-  "replay": "the `memory/recall` request a client makes (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240), whose embedding step is the provider's private query_vector (memory/embed/provider.rs:137; is_ready :85, warmup :91). A replay sends a recall while the embedder is cold/ready/failing/cancelled and compares per scenario the returned state class (dense used, lexical fallback after the bounded wait, failure kept lexical, cancellation error), the error name/code/message, the ordered embedder calls (embed with {priority:true, inputType:\"query\"}) and the timers armed (delay, cleared, fired). Rust awaits the warmup without a bound today (gap item 2 of gaps-memory-channels: the 3 s MIXDOG_RECALL_COLD_EMBED_WAIT_MS bound is work for the Rust side; its Node recording is case 47 here); the other scenarios map to the same function today",
+  "recorderSha256": "0a3485d1bfa97f8ee2ad0787a9b61daee274f7de8c97d2470abef4934b137f63",
+  "replay": "the `memory/recall` request a client makes (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240), whose embedding step is the provider's private query_vector (memory/embed/provider.rs:137; is_ready :85, warmup :91). A replay sends a recall while the embedder is cold/ready/failing/cancelled and compares per scenario the returned state class (dense used, lexical fallback after the bounded wait, failure kept lexical, cancellation error), the error name/code/message, the ordered embedder calls (embed with {priority:true, inputType:\"query\"}) and the ordered `trace` of each scenario (recorder steps: clock firing a timer, abort, release of a gate; product events: calls, timers armed/cleared; settles). Rust awaits the warmup without a bound today (gap item 2 of gaps-memory-channels: the 3 s MIXDOG_RECALL_COLD_EMBED_WAIT_MS bound is work for the Rust side; its Node recording is case 47 here); the other scenarios map to the same function today",
   "set": "memory-recall-readiness",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 8082,
+  "totalBytes": 19030,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

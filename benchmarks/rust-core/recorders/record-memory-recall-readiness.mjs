@@ -20,39 +20,50 @@ const realSetTimeout = globalThis.setTimeout;
 const within = (label, promise, ms) => new Promise((resolve, reject) => { const timer = realSetTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for ${label}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
 const realClearTimeout = globalThis.clearTimeout;
 
+let current = null;
+const step = (text) => current.push({ step: text });
 async function scenario(label, query, config) {
   const log = [];
+  // One ordered trace per scenario: every clock step and abort the recorder performs (`step`), every release of a gate it holds,
+  // and what the product did and what settled, in the order they happened.
+  const trace = [];
+  current = trace;
+  const note = (entry) => { log.push(entry); trace.push({ event: 'product call', call: entry }); };
   // Virtual timers: the product's wait timer is recorded (delay, cleared) and never armed for real; a scenario fires it by hand.
   const timers = [];
   let timerArmed = null;
   const armedSignal = new Promise((resolve) => { timerArmed = resolve; });
-  globalThis.setTimeout = (fn, delay) => { const handle = { fn }; timers.push({ armed: delay, handle, fired: false }); timerArmed(); return handle; };
-  globalThis.clearTimeout = (handle) => { const t = timers.find((x) => x.handle === handle); if (t) t.cleared = true; else realClearTimeout(handle); };
-  const fireTimer = async (index) => { await within('the wait timer to be armed', armedSignal, 30_000); timers[index].fired = true; timers[index].handle.fn(); };
+  globalThis.setTimeout = (fn, delay) => { const handle = { fn }; trace.push({ event: 'timer armed', timer: timers.length, delay }); timers.push({ armed: delay, handle, fired: false }); timerArmed(); return handle; };
+  globalThis.clearTimeout = (handle) => { const t = timers.find((x) => x.handle === handle); if (t) { t.cleared = true; trace.push({ event: 'timer cleared', timer: timers.indexOf(t) }); } else realClearTimeout(handle); };
+  const fireTimer = async (index) => { await within('the wait timer to be armed', armedSignal, 30_000); step(`clock: fire timer ${index} (delay ${timers[index].armed})`); timers[index].fired = true; timers[index].handle.fn(); };
   let outcome;
   try {
     outcome = await config.drive({
       call: (extraOptions) => embedRecallQuery(query, {
-        isReady: () => { log.push('isReady'); return config.ready; },
-        canWarmup: () => { log.push('canWarmup'); return config.canWarmup; },
-        warmup: (...a) => { log.push('warmup'); return config.warmup(...a); },
-        embed: async (text, options) => { log.push(['embed', text, exact(options)]); return vector; },
-        onWarmupError: (error) => { log.push(['onWarmupError', exact(error)]); config.onWarmupErrorSeen?.(); },
+        isReady: () => { note('isReady'); return config.ready; },
+        canWarmup: () => { note('canWarmup'); return config.canWarmup; },
+        warmup: (...a) => { note('warmup'); return Promise.resolve(config.warmup(...a)).then((v) => { trace.push({ event: 'warmup settled' }); return v; }, (e) => { trace.push({ event: 'warmup rejected', error: exact(e) }); throw e; }); },
+        embed: async (text, options) => { note(['embed', text, exact(options)]); return vector; },
+        onWarmupError: (error) => { note(['onWarmupError', exact(error)]); config.onWarmupErrorSeen?.(); },
         ...extraOptions,
       }),
       log,
       fireTimer,
+      step,
     });
   } finally {
     globalThis.setTimeout = realSetTimeout;
     globalThis.clearTimeout = realClearTimeout;
   }
-  return { label, query, ...outcome, calls: log, timers: timers.map(({ armed, cleared, fired }) => ({ armed, cleared: cleared === true, fired })) };
+  return { label, query, ...outcome, trace, calls: log, timers: timers.map(({ armed, cleared, fired }) => ({ armed, cleared: cleared === true, fired })) };
 }
-const settled = (promise, reference = null) => promise.then(
-  (value) => ({ result: exact(value), ...(value.error ? { errorIsTheInjectedObject: reference ? value.error === reference : null } : {}) }),
-  (error) => ({ rejected: exact(error), rejectedWithTheInjectedReason: reference ? error === reference : null }),
-);
+const settled = (promise, reference = null) => {
+  const trace = current;
+  return promise.then(
+    (value) => { trace.push({ event: 'recall call settled', result: exact(value) }); return { result: exact(value), ...(value.error ? { errorIsTheInjectedObject: reference ? value.error === reference : null } : {}) }; },
+    (error) => { trace.push({ event: 'recall call rejected', error: exact(error) }); return { rejected: exact(error), rejectedWithTheInjectedReason: reference ? error === reference : null }; },
+  );
+};
 
 const cases = [];
 cases.push(await scenario('ready recall embeds immediately as a query', 'memory query', { ready: true, canWarmup: false, warmup: async () => { throw new Error('must not warm'); }, drive: async ({ call }) => settled(call({})) }));
@@ -64,19 +75,19 @@ cases.push(await scenario('cold recall waits for warmup and keeps dense retrieva
 {
   const controller = new AbortController();
   const reason = new Error('cancelled');
-  cases.push(await scenario('cold recall aborts without waiting for the timeout', 'cancel query', { ready: false, canWarmup: true, warmup: () => new Promise(() => {}), drive: async ({ call }) => { const pending = call({ signal: controller.signal, waitMs: 5_000 }); controller.abort(reason); return settled(pending, reason); } }));
+  cases.push(await scenario('cold recall aborts without waiting for the timeout', 'cancel query', { ready: false, canWarmup: true, warmup: () => new Promise(() => {}), drive: async ({ call, step }) => { const pending = call({ signal: controller.signal, waitMs: 5_000 }); step('abort the signal (reason: the injected error)'); controller.abort(reason); return settled(pending, reason); } }));
 }
 // Case 47: the bounded wait. The timer the product armed is fired by hand (virtual), warmup is still pending: the answer is the lexical
 // fallback {vector: null, state: 'timeout'}, no embed call; the warmup then settles in the background.
 {
   const warmupGate = deferred();
-  cases.push(await scenario('cold recall falls back after the bounded wait while warmup continues', 'bounded wait', { ready: false, canWarmup: true, warmup: () => warmupGate.promise, drive: async ({ call, fireTimer }) => { const pending = settled(call({ waitMs: 5 })); await fireTimer(0); const out = await pending; warmupGate.resolve(); return out; } }));
+  cases.push(await scenario('cold recall falls back after the bounded wait while warmup continues', 'bounded wait', { ready: false, canWarmup: true, warmup: () => warmupGate.promise, drive: async ({ call, fireTimer, step }) => { const pending = settled(call({ waitMs: 5 })); await fireTimer(0); const out = await pending; step('settle: the warmup gate resolves'); warmupGate.resolve(); return out; } }));
 }
 {
   const warmupGate = deferred();
   const seen = deferred();
   const failure = new Error('load failed late');
-  cases.push(await scenario('cold recall times out, then the warmup fails in the background', 'late failure', { ready: false, canWarmup: true, warmup: () => warmupGate.promise, onWarmupErrorSeen: () => seen.resolve(), drive: async ({ call, fireTimer }) => { const pending = settled(call({ waitMs: 5 })); await fireTimer(0); const out = await pending; warmupGate.reject(failure); await within('the late warmup failure to be reported', seen.promise, 30_000); return out; } }));
+  cases.push(await scenario('cold recall times out, then the warmup fails in the background', 'late failure', { ready: false, canWarmup: true, warmup: () => warmupGate.promise, onWarmupErrorSeen: () => seen.resolve(), drive: async ({ call, fireTimer, step }) => { const pending = settled(call({ waitMs: 5 })); await fireTimer(0); const out = await pending; step('settle: the warmup gate rejects'); warmupGate.reject(failure); await within('the late warmup failure to be reported', seen.promise, 30_000); return out; } }));
 }
 // Further shapes.
 cases.push(await scenario('empty query', '   ', { ready: true, canWarmup: true, warmup: async () => {}, drive: async ({ call }) => settled(call({})) }));
@@ -85,19 +96,17 @@ cases.push(await scenario('cold recall that cannot warm up', 'cannot warm', { re
 {
   const controller = new AbortController();
   const reason = new Error('already cancelled');
-  controller.abort(reason);
-  cases.push(await scenario('signal already aborted before the call', 'aborted early', { ready: true, canWarmup: true, warmup: async () => {}, drive: async ({ call }) => settled(call({ signal: controller.signal }), reason) }));
+  cases.push(await scenario('signal already aborted before the call', 'aborted early', { ready: true, canWarmup: true, warmup: async () => {}, drive: async ({ call, step }) => { step('abort the signal before the call (reason: the injected error)'); controller.abort(reason); return settled(call({ signal: controller.signal }), reason); } }));
 }
 {
   const controller = new AbortController();
-  controller.abort();
-  cases.push(await scenario('signal aborted without a reason', 'aborted bare', { ready: false, canWarmup: true, warmup: async () => {}, drive: async ({ call }) => settled(call({ signal: controller.signal })) }));
+  cases.push(await scenario('signal aborted without a reason', 'aborted bare', { ready: false, canWarmup: true, warmup: async () => {}, drive: async ({ call, step }) => { step('abort the signal before the call (no reason)'); controller.abort(); return settled(call({ signal: controller.signal })); } }));
 }
 cases.push(await scenario('zero wait with an already-resolved warmup', 'zero wait', { ready: false, canWarmup: true, warmup: async () => {}, drive: async ({ call }) => settled(call({ waitMs: 0 })) }));
 {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
-  cases.push(await scenario('warmup completes after a deferred release, before the wait', 'deferred warmup', { ready: false, canWarmup: true, warmup: () => gate, drive: async ({ call }) => { const pending = settled(call({ waitMs: 60_000 })); release(); return pending; } }));
+  cases.push(await scenario('warmup completes after a deferred release, before the wait', 'deferred warmup', { ready: false, canWarmup: true, warmup: () => gate, drive: async ({ call, step }) => { const pending = settled(call({ waitMs: 60_000 })); step('settle: the warmup gate is released'); release(); return pending; } }));
 }
 cases.push(await scenario('query is trimmed before embedding', '  padded query  ', { ready: true, canWarmup: false, warmup: async () => {}, drive: async ({ call }) => settled(call({})) }));
 
@@ -119,9 +128,9 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'embedRecallQuery (recall-embedding-readiness.mjs) with scripted isReady / canWarmup / warmup / embed / onWarmupError and an AbortSignal; setTimeout/clearTimeout are wrapped only to record the armed delay and whether it was cleared', notRun: 'the 3 s default cold wait that expires (case 47: branch gaps-memory-channels) and the real embedder' },
-    replay: 'the `memory/recall` request a client makes (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240), whose embedding step is the provider\'s private query_vector (memory/embed/provider.rs:137; is_ready :85, warmup :91). A replay sends a recall while the embedder is cold/ready/failing/cancelled and compares per scenario the returned state class (dense used, lexical fallback after the bounded wait, failure kept lexical, cancellation error), the error name/code/message, the ordered embedder calls (embed with {priority:true, inputType:"query"}) and the timers armed (delay, cleared, fired). Rust awaits the warmup without a bound today (gap item 2 of gaps-memory-channels: the 3 s MIXDOG_RECALL_COLD_EMBED_WAIT_MS bound is work for the Rust side; its Node recording is case 47 here); the other scenarios map to the same function today',
+    replay: 'the `memory/recall` request a client makes (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240), whose embedding step is the provider\'s private query_vector (memory/embed/provider.rs:137; is_ready :85, warmup :91). A replay sends a recall while the embedder is cold/ready/failing/cancelled and compares per scenario the returned state class (dense used, lexical fallback after the bounded wait, failure kept lexical, cancellation error), the error name/code/message, the ordered embedder calls (embed with {priority:true, inputType:"query"}) and the ordered `trace` of each scenario (recorder steps: clock firing a timer, abort, release of a gate; product events: calls, timers armed/cleared; settles). Rust awaits the warmup without a bound today (gap item 2 of gaps-memory-channels: the 3 s MIXDOG_RECALL_COLD_EMBED_WAIT_MS bound is work for the Rust side; its Node recording is case 47 here); the other scenarios map to the same function today',
     exclusions: 'none: case 47 (timeout fallback) is recorded here with virtual timers (the wait timer is recorded and fired by hand; no real time passes)',
-    normalised: { 'timer handles': 'only the armed delay and the cleared flag are kept' },
+    normalised: { 'timer handles': 'only the armed delay and the cleared flag are kept', trace: 'each scenario has an ordered `trace`: {step} = an action of the recorder (clock step, abort, release of a gate it holds), {event} = what the product did (product call, timer armed/cleared) or what settled (warmup settled/rejected, recall call settled/rejected), in the order they happened' },
   },
 });
 process.exit(0);
