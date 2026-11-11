@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 11: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 12: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 11;
+PRAGMA user_version = 12;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -362,11 +362,13 @@ CREATE TABLE offload_refs (
 CREATE INDEX offload_refs_session ON offload_refs(session);
 -- The sessions whose set is known: from their header (`ordinal` NULL), or from a scan of
 -- their transcript at `ordinal` (their `projected_ordinal` then; a session projected past it
--- is unknown again). A listed session without a row is unknown: no prune runs until it is
--- scanned.
+-- is unknown again), under the reference rules `rules` (`offload_sources::RULES`; a set of
+-- other rules is unknown). A listed session without a row is unknown: no prune runs until it
+-- is scanned.
 CREATE TABLE offload_known (
     session TEXT PRIMARY KEY,
-    ordinal INTEGER
+    ordinal INTEGER,
+    rules INTEGER NOT NULL
 ) WITHOUT ROWID;
 -- A copy of a conversation being made into `session` from `source` by the process of boot
 -- `boot` (`offloadInheriting`): only the boot that owns the data dir now is still making it.

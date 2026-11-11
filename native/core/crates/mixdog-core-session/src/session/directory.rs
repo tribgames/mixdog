@@ -1365,7 +1365,8 @@ impl DirInner {
         // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
         // rows names what they name: it holds none, and its transcript is scanned.
         if spec.base.is_none() && !mixdog_store::offload_sources::holds_set(&header) {
-            header.insert(mixdog_store::offload_sources::SOURCES.into(), Value::Array(Vec::new()));
+            let held = mixdog_store::offload_sources::sources(&header);
+            mixdog_store::offload_sources::set_sources(&mut header, held);
         }
         let log_id = uuid::Uuid::new_v4().simple().to_string()[..24].to_owned();
         let op = match &spec.op {
