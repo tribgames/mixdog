@@ -1,5 +1,5 @@
 {
-  "cases": 7,
+  "cases": 10,
   "command": "node benchmarks/rust-core/recorders/record-turn-durability.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "exact": true,
   "exclusions": [
@@ -16,9 +16,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 451639,
+      "bytes": 808325,
       "path": "golden.json",
-      "sha256": "1d38135563663c15abb63d946a1a009f83693a34860bc0c7585ffbbdc3b8780c"
+      "sha256": "a8a4ef837e1828c010a2db1abb4175ba310d7a3825f03958361d7917bea658a1"
     }
   ],
   "inputs": [
@@ -32,7 +32,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/turn-durability-child.mjs",
-      "sha256": "8cdc07ea7f1c749eca83e2ee2d15fe0c1335a3a22f989cbcd999ec87e86be37c"
+      "sha256": "acb263b273cb1613ec2715288f52b9bf7ec399f0144f8e083a8070c10ae4073c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -54,7 +54,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-durability.mjs",
-  "recorderSha256": "0e238a06a49408a294e0e8c1133294660a136929ae032ccbe57feab4a445eca1",
+  "recorderSha256": "2dfbce4a4750ab4b463e6a8c112e62f82d8fbe7480c42b317f060abac2d9a5b5",
   "set": "turn-durability",
-  "totalBytes": 451639
+  "totalBytes": 808325
 }

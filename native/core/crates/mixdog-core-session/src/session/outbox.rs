@@ -58,6 +58,12 @@ pub(crate) enum Effect {
         tx: Option<oneshot::Sender<Result<Reply, CoreError>>>,
         value: Value,
     },
+    /// The reply to a change Node keeps in memory when its save fails (a heir's creation and carried conversation, an
+    /// internal row or header change): it is answered once released, durable or held, and failed only by a rollback.
+    Kept {
+        tx: Option<oneshot::Sender<Result<Reply, CoreError>>>,
+        value: Value,
+    },
     /// The run's input rows are durable.
     InputDurable,
     ItemAck(oneshot::Sender<Result<(), RunError>>),
@@ -363,6 +369,11 @@ impl Outbox {
         let (gone, kept): (Vec<_>, Vec<_>) = self.entries.drain(..).partition(|entry| entry.needs == Some(id));
         self.entries = kept.into();
         gone
+    }
+
+    /// The records not yet stored, in accept order.
+    pub fn unsaved_records(&self) -> impl Iterator<Item = &Arc<Record>> {
+        self.entries.iter().filter_map(|entry| entry.durable.as_ref()).filter(|durable| !matches!(durable.stage, Stage::Acked(_))).map(|durable| &durable.record)
     }
 
     /// The unreleased changes in accept order (a held entry's is released).

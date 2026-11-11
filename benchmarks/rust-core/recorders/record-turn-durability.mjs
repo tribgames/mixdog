@@ -39,6 +39,9 @@ const CASES = [
   { name: 'crash-answer-streamed', crash: true, note: 'the answer streamed and was checkpointed as streamed text; killed before the finished message and its seal (one write) are written' },
   { name: 'crash-sealed-unsaved', crash: true, note: 'the terminal save failed (the sealed turn is in the checkpoint), then killed' },
   { name: 'crash-saved-uncleared', crash: true, note: 'killed after the terminal save landed, before the checkpoint is removed' },
+  { name: 'save-failure-tool-rounds', crash: false, note: 'every save fails from the first request on while the turn runs two tool rounds and answers; the next turn is refused, then runs once the saves land' },
+  { name: 'fork-held', crash: false, note: "a turn held by a failed save, then forked (the desktop's inheritSession) while the saves fail and after they recover" },
+  { name: 'resume-held', crash: true, note: 'a turn held by a failed save, shown to a client resuming it in the owning process, then killed and reopened' },
 ];
 const only = args.get('only');
 const selected = only ? CASES.filter((c) => c.name === only) : CASES;
@@ -78,6 +81,7 @@ async function record(spec) {
   const work = join(sandbox, 'work');
   mkdirSync(work, { recursive: true });
   writeFileSync(join(work, 'x.txt'), 'FILE-SENTINEL\n');
+  writeFileSync(join(work, 'y.txt'), 'FILE-SENTINEL\n');
   const out = join(sandbox, 'steps.jsonl');
   writeFileSync(out, '');
   const run = await runChild(env, [tree, spec.name, 'run', out, work]);
@@ -89,7 +93,7 @@ async function record(spec) {
   }
   // The session id is the child's counter-made id: the same in every run.
   const steps = readFileSync(out, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-  if (spec.crash && steps[0]?.step !== 'killed') throw new Error(`${spec.name}: the run did not reach its kill point\n${run.stderr}`);
+  if (spec.crash && !steps.some((s) => s.step === 'killed')) throw new Error(`${spec.name}: the run did not reach its kill point\n${run.stderr}`);
   return { name: spec.name, note: spec.note, crash: spec.crash, steps };
 }
 

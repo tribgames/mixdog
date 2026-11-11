@@ -1416,6 +1416,7 @@ impl DirInner {
                     value: json!({}),
                     seed: spec.seed,
                     settings: spec.settings,
+                    kept: spec.method.as_str() == "thread/fork",
                 },
             );
             shard.insert(id.clone(), Slot_::Loaded(handle.clone()));

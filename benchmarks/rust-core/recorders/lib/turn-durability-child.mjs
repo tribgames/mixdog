@@ -103,6 +103,9 @@ const { getSessionProgressSnapshot } = await imp(`${S}session/manager/runtime-li
 const { readDurableSessionRecord } = await imp(`${S}session/store/transcript-durability.mjs`);
 const { projectStoredTranscript } = await imp(`${S}session/store-transcript-projection.mjs`);
 const sessionLogIo = (await imp(`${S}session/store/session-log-writer.mjs`))._sessionLogIoForTest();
+const { getSession } = await imp(`${S}session/manager/session-crud.mjs`);
+const { saveSession } = await imp(`${S}session/store.mjs`);
+const { createInheritance } = await imp('src/session-runtime/lifecycle/inheritance.mjs');
 const { pickDoneVerb } = await imp('src/tui/session/labels.mjs');
 // The turn's identity as the desktop's turn start stamps it (`beginTurn`, `tui/session/turn.mjs`): the done verb of the
 // session's `index`th turn, the turn's start and a fresh attempt id.
@@ -199,6 +202,102 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
     await settleTurnCheckpointWrites(id);
     step({ step: 'second turn after the disk recovered', result: second?.content ?? null, sends, ...(await observe(id)) });
     return;
+  }
+  if (caseName === 'save-failure-tool-rounds') {
+    // The saves fail from the first request on while the turn keeps working: two tool rounds, each with streamed text, then the
+    // answer. Nothing bounds what the session holds meanwhile (`_unsettled` keeps the session itself, `turn-durability.mjs:15`;
+    // each save supersedes the one before, `store.mjs:281`): the next turn is refused, then everything lands with the next save.
+    // Another file of the same text: a second read of `x.txt` is answered by the loop's cross-turn dedup, not by the tool.
+    const READ2 = { id: 'call_read2', name: 'read', arguments: { path: 'y.txt' } };
+    onSend = async (n, opts) => {
+      if (n === 1) {
+        fault(true);
+        scoped(() => opts.onTextDelta?.('reading'));
+        return { content: 'reading', toolCalls: [READ], stopReason: 'tool_use', usage: USAGE };
+      }
+      if (n === 2) {
+        scoped(() => opts.onTextDelta?.('reading again'));
+        return { content: 'reading again', toolCalls: [READ2], stopReason: 'tool_use', usage: USAGE };
+      }
+      return answer(opts, 'answer');
+    };
+    await askSession(id, 'first task', null, null, null, null, client(0));
+    await settleTurnCheckpointWrites(id);
+    step({ step: 'first turn answered after two tool rounds, every save failed', sends, ...(await observe(id)) });
+    onSend = async (_n, opts) => answer(opts, 'answer');
+    const refused = await askSession(id, 'second task', null, null, null, null, client(1)).then(
+      () => ({ refused: false }),
+      (error) => ({ refused: true, code: error.code ?? null, name: error.name ?? null, message: error.message })
+    );
+    step({ step: 'second turn while the save still fails', ...refused, sends, ...(await observe(id)) });
+    fault(false);
+    await askSession(id, 'second task', null, null, null, null, client(1));
+    await awaitPreviousTurnDurable(id);
+    await settleTurnCheckpointWrites(id);
+    step({ step: 'second turn after the disk recovered', sends, ...(await observe(id)) });
+    return;
+  }
+  if (caseName === 'fork-held') {
+    // A turn held by a failed save, then the desktop's fork (`inheritSession`: a created heir, then `inheritFrom` of the
+    // source, read through the session manager), once while the saves still fail and once after they recover.
+    onSend = async (_n, opts) => {
+      fault(true);
+      return answer(opts, 'answer');
+    };
+    await askSession(id, 'first task', null, null, null, null, client(0));
+    await settleTurnCheckpointWrites(id);
+    step({ step: 'first turn answered, its save failed', sends, ...(await observe(id)) });
+    const fork = async (n) => {
+      const heirId = `sess_1_1800000000000_1800000000000_${crypto.createHash('sha256').update(`${caseName}-heir-${n}`).digest('hex').slice(0, 32)}`;
+      let heir = null;
+      const outcome = await (async () => {
+        heir = createSession({
+          id: heirId,
+          provider: 'durability-stub',
+          model: 'stub-model',
+          cwd: workdir,
+          skipSkills: true,
+          schemaAllowedTools: modelToolSchemaAllowlist('headless'),
+          workflow: { id: 'headless', delegatesAgents: false },
+        });
+        const deps = {
+          getSession: () => heir,
+          getRoute: () => null,
+          mgr: { getSession },
+          createCurrentSession: null,
+          invalidateContextStatusCache: () => {},
+          getReservedSessionId: () => null,
+        };
+        const result = await createInheritance(deps, { compactConversation: null, saveSession }).inheritFrom(id, { compact: false });
+        return { forked: true, messages: result.messages };
+      })().then(
+        (value) => value,
+        (error) => ({ forked: false, code: error.code ?? null, message: error.message })
+      );
+      const live = heir ? await projectStoredTranscript(heirId, heir, { includeMessages: true, itemLimit: 100 }) : null;
+      return {
+        ...outcome,
+        heir: { live: live ? { items: live.items ?? null } : null, ...(await observe(heirId)) },
+        source: await observe(id),
+      };
+    };
+    step({ step: 'fork while the save still fails', ...(await fork(1)) });
+    fault(false);
+    step({ step: 'fork after the disk recovered', ...(await fork(2)) });
+    return;
+  }
+  if (caseName === 'resume-held') {
+    // A turn held by a failed save (as `crash-sealed-unsaved`); a second client resumes the session in the owning process (it
+    // is shown the live session, `loadSession` preferring the in-memory copy), then the process dies and the session reopens.
+    onSend = async (_n, opts) => {
+      fault(true);
+      return answer(opts, 'answer');
+    };
+    await askSession(id, 'do the task', null, null, null, null, client(0));
+    await settleTurnCheckpointWrites(id);
+    const live = await projectStoredTranscript(id, getSession(id), { includeMessages: true, itemLimit: 100 });
+    step({ step: 'resumed while held', live: { items: live.items ?? null }, ...(await observe(id)) });
+    await settleThenKill();
   }
   if (caseName === 'crash-before-output') {
     onSend = async () => settleThenKill();
