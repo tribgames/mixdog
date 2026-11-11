@@ -17,10 +17,6 @@
 //! - Case 0 (`auditChunkEntries` / `collectChunkRoots`, test line 38) and case 3 (`readRawRowsInWindow` binding a
 //!   non-string `projectScope`, test line 101): the manifest's exclusions name them as having no Rust counterpart a
 //!   client reaches (a maintenance diagnostic; a JS typing artefact the core's typed scope cannot take).
-//! - The further shape "same without compactHandoff": its text holds the root twice (`… #1\n… #1`) because the stand-in
-//!   answers the session page that excludes the in-flight turn's ids (`id <> ALL($2)`, params `["s", [1], 19]`) with
-//!   the excluded root again; a database answering that statement does not return row 1. Reported for a decision on
-//!   the recording.
 
 use mixdog_testkit::Exact;
 
@@ -57,9 +53,14 @@ fn existing_good_chunks_are_usable_without_an_ai_call_or_a_verification_record()
     let name = "existing good chunks are usable without an AI call or a verification record (test line 55)";
     let c = case(&g, 1, name);
     let root = c.get("root");
-    same(&format!("{name}: review"), c.get("review"), &assess(root));
-    same(&format!("{name}: summary unchanged"), c.get("summaryUnchanged"), &Exact::Bool(true));
-    same(&format!("{name}: chunk_quality after"), c.get("chunkQualityAfter"), root.try_get("chunk_quality").unwrap_or(&Exact::Undefined));
+    // The root the assessment is given, read again after it: its summary and record as the core left them.
+    let summary = root.get("summary").as_str().to_owned();
+    let quality = root.try_get("chunk_quality").map(|q| q.to_plain().expect("JSON record"));
+    let members: Vec<Row> = root.get("members").as_array().iter().map(member).collect();
+    let review = object(vec![("result", assessment_value(&assess_chunk_quality(&summary, quality.as_ref(), &members)))]);
+    same(&format!("{name}: review"), c.get("review"), &review);
+    same(&format!("{name}: summary unchanged"), c.get("summaryUnchanged"), &Exact::Bool(summary == root.get("summary").as_str()));
+    same(&format!("{name}: chunk_quality after"), c.get("chunkQualityAfter"), &quality.map_or(Exact::Undefined, |q| Exact::plain(&q)));
 }
 
 #[test]
@@ -106,8 +107,7 @@ mod pg {
         let g = golden(SET);
         let name = "further shapes (beyond the test file)";
         let sessions = case(&g, 5, name).get("sessions").as_array();
-        assert_eq!(sessions[0].get("label").as_str(), "same without compactHandoff", "the parked shape (module header)");
-        for s in &sessions[1..] {
+        for s in sessions {
             session(&format!("{name}: {}", s.get("label").as_str()), s, now_ms(&g)).await;
         }
     }
