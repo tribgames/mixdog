@@ -214,7 +214,12 @@ fn the_builtin_tools_are_nodes_definitions() {
         Box::new(EditTool::new()),
         Box::new(ApplyPatchTool::new()),
         Box::new(crate::git::GitTool::new()),
-        Box::new(crate::github::GithubTool::new()),
+        Box::new(crate::github::GithubTool::new(
+            mixdog_scm::engine::Scm::new(Arc::new(mixdog_core_api::domain::mock::MockProcessManager::default()), mixdog_rt::testing::tokens().maintenance_io, cache_dir.path().join("scm"))
+                .github
+                .clone(),
+            None,
+        )),
     ];
     for tool in &tools {
         let spec = tool.spec();

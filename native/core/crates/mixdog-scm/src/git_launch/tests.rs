@@ -79,7 +79,7 @@ fn every_layout_resolves_as_nodes_does() {
     for case in cases {
         let folder = Folder::new();
         folder.fill(&strings(&case["files"]), case["config"].as_str());
-        let layout = resolve_layout(&folder.insert(case["path"].as_str().unwrap()));
+        let layout = resolve_layout("win32", &folder.insert(case["path"].as_str().unwrap()));
         resolved += usize::from(layout.is_some());
         assert_eq!(layout_json(&folder, &layout), case["launch"], "{}", case["id"]);
     }
@@ -99,7 +99,7 @@ fn every_launch_environment_is_nodes() {
         let mut files = strings(&definition["files"]);
         files.extend(strings(&case["dirs"]));
         folder.fill(&files, definition["config"].as_str());
-        let layout = resolve_layout(&folder.insert(definition["path"].as_str().unwrap())).expect("the layout resolves");
+        let layout = resolve_layout("win32", &folder.insert(definition["path"].as_str().unwrap())).expect("the layout resolves");
         let system32 = format!("{system_root}\\System32");
         let system32 = if case["lowerSystem32"] == true { system32.to_lowercase() } else { system32 };
         let base: Vec<(String, String)> = case["base"]

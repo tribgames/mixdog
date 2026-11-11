@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-mod archive;
+pub(crate) mod archive;
 mod bashism;
 mod benign;
 pub mod codepage;
