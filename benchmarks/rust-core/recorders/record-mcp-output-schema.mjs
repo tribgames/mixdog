@@ -695,8 +695,9 @@ function chainCase(n) {
 }
 // Near Ajv's stack limit a chain's answer depends on how far V8 has optimized Ajv's code, so each of these lengths is
 // recorded in FRESH_RUNS processes that run nothing before it (`--chain`), and every distinct outcome is kept: 2110 and
-// 2111 at the edge of validation, 2360, 2440 and 2560 below, inside and above the lengths where compiling varies.
-const FRESH_LENGTHS = [2110, 2111, 2360, 2440, 2560];
+// 2111 at the edge of validation, 2200, 2440 and 2560 below, inside and above the lengths where compiling varies. 2200
+// rather than closer: a chain of 2360 compiles in nearly every fresh process but overflowed in one of about seventy.
+const FRESH_LENGTHS = [2110, 2111, 2200, 2440, 2560];
 const FRESH_RUNS = 16;
 function recordFresh(n) {
   const outcomes = new Map();
@@ -784,11 +785,11 @@ try {
             'name the per-run listener as http://127.0.0.1:<port>; the replay moves it to a listener of its own',
         ],
         bounds: [
-          "Ajv's stack: near its limit Node's answer depends on how far V8 has optimized Ajv's code. freshProcesses records chains " +
-            `of ${FRESH_LENGTHS.join(', ')} references, each in ${FRESH_RUNS} processes that ran nothing before it, with every distinct ` +
-            'outcome. The core (mixdog-mcp ajv_stack.rs) answers -32602 "Failed to validate structured content: Maximum call stack size ' +
-            'exceeded" for a validation path of more than 2111 references (VALIDATION_LIMIT) or a compile chain of more than 2460 ' +
-            '(COMPILE_LIMIT); where the fresh processes answered differently it gives one of their answers.',
+          "Ajv's stack: near its limit Node's own answer depends on its JIT state (freshProcesses: the chain of 2440, run in " +
+            `${FRESH_RUNS} fresh processes, compiles in some and overflows in others), so the core's limits are a deterministic choice ` +
+            'inside that range: the fresh-process ones, a compile chain of more than 2460 references (mixdog-mcp ajv_stack.rs ' +
+            'COMPILE_LIMIT) or a validation path of more than 2111 (VALIDATION_LIMIT) answers -32602 "Failed to validate structured ' +
+            'content: Maximum call stack size exceeded".',
           'pattern backtracking: V8 has no bound (the recorded repetitions holding a lookaround take Node about a second on 24 ' +
             'characters that fail, each more character doubling it). The core matches with fancy-regex bounded at 10,000,000,000 ' +
             'backtracking steps (mixdog-mcp output_schema.rs BACKTRACK_LIMIT; about 32 such characters, which Node answers in some ' +
