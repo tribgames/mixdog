@@ -81,6 +81,8 @@ impl Maps {
             out.order.insert(at as i64, id.clone());
             out.by_id.insert(id, (at as i64, map));
         }
+        #[cfg(test)]
+        work::note(|c| c.maps_rebuilt += out.len());
         out
     }
 
@@ -122,9 +124,35 @@ impl Maps {
         }
     }
 
+    /// The loaded maps that differ from the held ones when they list the same sessions in the same order (one pass);
+    /// otherwise the loaded maps back.
+    pub(super) fn differing(&self, loaded: Vec<(String, Row)>) -> Result<Vec<(String, Row)>, Vec<(String, Row)>> {
+        if self.len() != loaded.len() {
+            return Err(loaded);
+        }
+        let mut held = self.order.values();
+        let mut differ = Vec::new();
+        for (at, (id, map)) in loaded.iter().enumerate() {
+            #[cfg(test)]
+            work::note(|c| c.maps_compared += 1);
+            if held.next() != Some(id) {
+                return Err(loaded);
+            }
+            if self.get(id) != Some(map) {
+                differ.push(at);
+            }
+        }
+        Ok(loaded.into_iter().enumerate().filter(|(at, _)| differ.binary_search(at).is_ok()).map(|(_, entry)| entry).collect())
+    }
+
     /// The same sessions in the same order with the same maps.
     pub(super) fn same_as(&self, other: &Maps) -> bool {
-        self.len() == other.len() && self.iter().zip(other.iter()).all(|(a, b)| a == b)
+        self.len() == other.len()
+            && self.iter().zip(other.iter()).all(|(a, b)| {
+                #[cfg(test)]
+                work::note(|c| c.maps_compared += 1);
+                a == b
+            })
     }
 
     /// The same sessions in the same order.
@@ -312,6 +340,8 @@ struct ScopeView {
     active: BTreeSet<i64>,
     /// The tags whose rows changed since the scope's rows were last bound.
     rebind: BTreeSet<String>,
+    /// The scope's rows of each tag, so a bind finds the rows of the tags that changed without a walk of the rest.
+    by_tag: HashMap<String, BTreeSet<i64>>,
     /// The tag generation right after the scope's rows were last bound.
     bound: Option<u64>,
 }
@@ -325,6 +355,7 @@ impl ScopeView {
             settling: BTreeSet::new(),
             active: BTreeSet::new(),
             rebind: BTreeSet::new(),
+            by_tag: HashMap::new(),
             bound: None,
         }
     }
@@ -341,6 +372,7 @@ impl ScopeView {
             self.active.insert(key);
         }
         self.rebind.insert(listed.tag.clone());
+        self.by_tag.entry(listed.tag.clone()).or_default().insert(key);
         Arc::make_mut(&mut self.rows.0).insert(key, listed);
     }
 
@@ -354,6 +386,12 @@ impl ScopeView {
             self.settling.remove(&(from, key));
         }
         self.active.remove(&key);
+        if let Some(keys) = self.by_tag.get_mut(&listed.tag) {
+            keys.remove(&key);
+            if keys.is_empty() {
+                self.by_tag.remove(&listed.tag);
+            }
+        }
         self.rebind.insert(listed.tag);
     }
 }
@@ -716,11 +754,18 @@ impl State {
         let view = self.scope_view(&mut views, scope);
         let all = view.bound != Some(generation);
         let rebind = std::mem::take(&mut view.rebind);
-        view.rows
-            .listed()
-            .filter(|listed| all || rebind.contains(&listed.tag))
-            .map(|listed| listed.row.clone())
-            .collect()
+        let visit = |listed: &Listed| {
+            #[cfg(test)]
+            work::note(|c| c.rows_visited += 1);
+            listed.row.clone()
+        };
+        if all {
+            return view.rows.listed().map(visit).collect();
+        }
+        // The rows of different tags are different rows: sorting the keys gives index order.
+        let mut keys: Vec<i64> = rebind.iter().filter_map(|tag| view.by_tag.get(tag)).flatten().copied().collect();
+        keys.sort_unstable();
+        keys.iter().filter_map(|key| view.rows.0.get(key)).map(visit).collect()
     }
 
     /// The scope's rows were bound: the tags stand as they did after it.

@@ -34,6 +34,8 @@ pub mod status_rows;
 mod views;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_marks_tests;
 
 pub use self::sessions::AgentOwnerTeardown;
 pub use self::sessions::AgentSessions;
@@ -52,6 +54,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering as AtomicOrdering;
 
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::host::Registry;
@@ -121,6 +125,9 @@ pub struct AgentRegistry {
     reap: Arc<dyn ReapWindow>,
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
+    /// Held while the index is loaded; `loads_started` counts the loads begun.
+    loading: tokio::sync::Mutex<()>,
+    loads_started: AtomicU64,
 }
 
 #[derive(Default)]
@@ -316,7 +323,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()) }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), loading: tokio::sync::Mutex::new(()), loads_started: AtomicU64::new(0) }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -331,13 +338,53 @@ impl AgentRegistry {
         |provider| self.reap.terminal_reap_ms(provider)
     }
 
-    /// Reloads the index; this process's writes it does not show yet stay applied.
+    /// Reloads the index; this process's writes it does not show yet stay applied. A caller that arrives while a load is
+    /// under way waits for the next one and shares it with the others that wait (it reads the store after the caller
+    /// arrived), so the threads one status signal wakes load the index once or twice, not once each.
     async fn reload(&self) {
+        let arrived = self.loads_started.load(AtomicOrdering::SeqCst);
+        let _turn = self.loading.lock().await;
+        if self.loads_started.load(AtomicOrdering::SeqCst) > arrived {
+            return;
+        }
+        self.loads_started.fetch_add(1, AtomicOrdering::SeqCst);
+        self.load().await;
+    }
+
+    async fn load(&self) {
         let (Ok(maps), Ok(sessions)) = (self.store.worker_maps().await, self.store.agent_sessions().await) else {
             return;
         };
+        #[cfg(test)]
+        work::note(|c| c.reloads += 1);
         let mut guard = self.lock();
         let st = &mut *guard;
+        // The same sessions in the same order (the usual load): one pass over the maps finds those that differ. A session
+        // this process wrote that the store does not show yet stays as written; one it shows now is no longer pending.
+        let maps = match st.maps.differing(maps) {
+            Ok(differ) => {
+                let mut held = HashSet::new();
+                for (id, map) in differ {
+                    if st.pending.contains_key(&id) {
+                        held.insert(id);
+                        continue;
+                    }
+                    st.maps.set(&id, Some(map));
+                    st.views.get_mut().touched(&id);
+                }
+                st.pending.retain(|id, _| held.contains(id));
+                None
+            }
+            Err(maps) => Some(maps),
+        };
+        if let Some(maps) = maps {
+            Self::rebuild(st, maps);
+        }
+        Self::load_sessions(st, sessions);
+    }
+
+    /// The maps of a load whose sessions or order differ from the held ones, with the pending writes applied on top.
+    fn rebuild(st: &mut State, maps: Vec<(String, Row)>) {
         // The index as loaded, with this process's writes it does not show yet applied on top.
         let mut next = Maps::from_vec(maps);
         let pending: Vec<(String, Option<Row>)> = st.pending.drain().collect();
@@ -351,8 +398,15 @@ impl AgentRegistry {
         if !st.maps.same_as(&next) {
             if st.maps.same_order(&next) {
                 // The same sessions in the same order: only the maps that differ are read again.
-                let differ: Vec<(String, Row)> =
-                    next.iter().filter(|(id, map)| st.maps.get(id) != Some(*map)).map(|(id, map)| (id.clone(), map.clone())).collect();
+                let differ: Vec<(String, Row)> = next
+                    .iter()
+                    .filter(|(id, map)| {
+                        #[cfg(test)]
+                        work::note(|c| c.maps_compared += 1);
+                        st.maps.get(id) != Some(*map)
+                    })
+                    .map(|(id, map)| (id.clone(), map.clone()))
+                    .collect();
                 for (id, map) in differ {
                     st.maps.set(&id, Some(map));
                     st.views.get_mut().touched(&id);
@@ -362,7 +416,16 @@ impl AgentRegistry {
                 st.changed();
             }
         }
-        if st.sessions != sessions {
+    }
+
+    fn load_sessions(st: &mut State, sessions: Vec<Row>) {
+        let same_sessions = st.sessions.len() == sessions.len()
+            && st.sessions.iter().zip(&sessions).all(|(a, b)| {
+                #[cfg(test)]
+                work::note(|c| c.sessions_compared += 1);
+                a == b
+            });
+        if !same_sessions {
             let before = std::mem::take(&mut st.session_at);
             let old = std::mem::replace(&mut st.sessions, sessions);
             st.session_at = sessions_by_id(&st.sessions);
@@ -1183,16 +1246,15 @@ pub struct StoreWorkers {
     index: SqliteStore,
     threads: Arc<dyn ThreadState>,
     writes: mpsc::UnboundedSender<WriteOp>,
+    /// Each write numbered as it is queued, reported once its patch was applied or failed.
+    marks: Arc<mixdog_rt::WriteMarks>,
     io: InteractiveIo,
     /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
     signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
 }
 
-/// What the writer task is asked: one session's map, or to say when everything before it was applied.
-enum WriteOp {
-    Write(String, Option<Row>),
-    Barrier(tokio::sync::oneshot::Sender<()>),
-}
+/// What the writer task is asked: one session's map, with its number in [`StoreWorkers::marks`].
+struct WriteOp(String, Option<Row>, u64);
 
 /// Whether `path` names a directory.
 #[allow(clippy::disallowed_methods, reason = "runs on the interactive-io lane job (lane proof argument)")]
@@ -1205,19 +1267,14 @@ impl StoreWorkers {
     pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo) -> Self {
         let (writes, mut rx) = mpsc::unbounded_channel::<WriteOp>();
         let patcher = threads.clone();
+        let marks = Arc::new(mixdog_rt::WriteMarks::new("the agent index"));
+        let reported = marks.clone();
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
-            while let Some(op) = rx.recv().await {
-                let (session, worker) = match op {
-                    WriteOp::Write(session, worker) => (session, worker),
-                    WriteOp::Barrier(done) => {
-                        let _ = done.send(());
-                        continue;
-                    }
-                };
+            while let Some(WriteOp(session, worker, mark)) = rx.recv().await {
                 let thread = ThreadId::from(session.as_str());
                 // A failed patch leaves the registry's own copy in force; it is retried by the
                 // next write of the session.
-                let _ = match worker {
+                let patched = match worker {
                     Some(map) => {
                         let mut set = Map::new();
                         set.insert("worker".into(), Value::Object(map));
@@ -1225,9 +1282,13 @@ impl StoreWorkers {
                     }
                     None => patcher.patch_header(&thread, Map::new(), vec!["worker".into()]).await,
                 };
+                match patched {
+                    Ok(()) => reported.written(mark),
+                    Err(error) => reported.failed(mark, format!("the worker row of {session}: {error:?}")),
+                }
             }
         }));
-        Self { index, threads, writes, io, signals: std::sync::OnceLock::new() }
+        Self { index, threads, writes, marks, io, signals: std::sync::OnceLock::new() }
     }
 }
 
@@ -1258,7 +1319,10 @@ impl WorkerStore for StoreWorkers {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
-        let _ = self.writes.send(WriteOp::Write(session.to_owned(), worker));
+        let mark = self.marks.accept();
+        if self.writes.send(WriteOp(session.to_owned(), worker, mark)).is_err() {
+            self.marks.withdrawn(mark);
+        }
         // Node's registry announces a row change where it makes it, not when the file settles.
         if let Some(signals) = self.signals.get() {
             signals.worker_rows(session);
@@ -1267,13 +1331,10 @@ impl WorkerStore for StoreWorkers {
 }
 
 impl StoreWorkers {
-    /// Resolves once every write made before the call is applied to the headers: the exit path awaits
-    /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`).
-    pub async fn settled(&self) {
-        let (done, applied) = tokio::sync::oneshot::channel();
-        if self.writes.send(WriteOp::Barrier(done)).is_ok() {
-            let _ = applied.await;
-        }
+    /// The writes' numbers: a barrier takes `accepted()` when it arrives and waits for `reached` of it, every write made
+    /// before it applied to the headers (after `AgentRegistry::flush_active_worker_rows`, Node's `store.flushSync()`).
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.marks
     }
 
     /// Binds the status signals; a second bind is refused.

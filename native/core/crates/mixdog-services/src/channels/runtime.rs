@@ -406,6 +406,7 @@ impl ChannelLifecycle for ChannelRuntime {
             .scheduler
             .rename_locked(
                 name,
+                &def.name,
                 || self.schedules.rename(name, &def, timing_changed),
                 || async { self.reload_runtime().await },
             )

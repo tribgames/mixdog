@@ -34,13 +34,11 @@ mod stop;
 mod resumed_tools_tests;
 #[cfg(test)]
 mod room_questions_tests;
-#[cfg(test)]
-pub(crate) mod fixture_fs;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
 pub mod delete;
 pub mod purge;
 pub mod sub_agent_retention;
-#[cfg(test)]
-mod sub_agent_retention_tests;
 #[cfg(test)]
 mod thread_list_overlay_tests;
 pub mod heartbeat_catalog;
@@ -83,6 +81,8 @@ mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
 #[cfg(test)]
+mod durability_settled_tests;
+#[cfg(test)]
 mod mcp_failure_tests;
 #[cfg(test)]
 mod route_config_tests;
@@ -115,14 +115,10 @@ mod reads;
 mod routine_turn;
 pub mod room_member;
 pub mod room_approval;
-#[cfg(test)]
-mod k1_grants_replay;
 pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
-#[cfg(test)]
-mod quota_lane_tests;
 mod usage_books;
 mod usage_metadata;
 pub mod goal_recovery_host;
@@ -141,6 +137,7 @@ pub mod notices;
 mod seams;
 mod state;
 pub mod store;
+mod mark_journal;
 mod surface;
 pub mod terminal_host;
 mod turn_gate;
@@ -174,14 +171,26 @@ mod agent_control_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;
 #[cfg(test)]
-mod tests;
+mod sensitive_record_tests;
+#[cfg(test)]
+mod sensitive_carry_tests;
 #[cfg(test)]
 mod goal_lane_tests;
+#[cfg(test)]
+mod goal_snapshot_replay_tests;
+#[cfg(test)]
+mod client_chain_replay_tests;
+#[cfg(test)]
+mod idle_state_replay_tests;
 #[cfg(test)]
 mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
+#[cfg(test)]
+mod offload_prune_order_tests;
 #[cfg(test)]
 mod steer_tests;
 #[cfg(test)]
@@ -192,6 +201,8 @@ mod recorded_145_tests;
 mod phone_chat_tests;
 #[cfg(test)]
 mod new_task_tests;
+#[cfg(test)]
+mod store_burst_tests;
 
 use std::sync::Arc;
 
@@ -202,6 +213,8 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
+#[cfg(any(test, feature = "test-support"))]
+pub use self::directory::DurabilitySettling;
 pub use self::model_switch::record_model_switch;
 pub use self::handle::SessionHandle;
 pub use self::prompt_history::FilePromptHistory;
@@ -350,6 +363,11 @@ pub struct SessionDeps {
     /// The agent tool's status for a session, published as its `agents` section when a job of
     /// the session is added or finishes (`agent_activity.rs`).
     pub agent_status: Arc<dyn agent_activity::AgentStatus>,
+    /// The context gauge (`thread/contextStatus`) the load's status pass reads for the display fields
+    /// (`syncContextStats` → `syncContextDisplayFields`).
+    pub context_status: Arc<dyn thread_context::ContextStatusHost>,
+    /// The session's live workspace (`getLiveWorkspace`), published by the load's pass and after its `cwd`/`workspace` move.
+    pub live_workspace: Arc<dyn worktree::LiveWorkspace>,
     /// The code-graph prewarm this session's events schedule and wake (`prewarm_signals.rs`).
     pub code_graph_prewarm: Arc<dyn prewarm_signals::CodeGraphPrewarmSignals>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).

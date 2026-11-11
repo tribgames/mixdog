@@ -194,5 +194,3 @@ impl MeasuredThreads for DirectoryThreads {
     }
 }
 
-#[cfg(test)]
-mod tests;

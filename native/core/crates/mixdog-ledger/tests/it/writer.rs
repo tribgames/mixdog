@@ -398,6 +398,58 @@ async fn a_full_queue_answers_busy_with_its_name() {
     }
 }
 
+/// The replay's barrier on the ledger: a record queued before it holds it until committed; a record queued after it, held
+/// at the write lock, does not.
+#[tokio::test]
+async fn the_barrier_waits_for_the_writes_before_it_and_not_the_later_ones() {
+    let rig = rig();
+    let marks = rig.writer.marks();
+    let lock = hold_writes(&rig.path);
+    let before = rig
+        .writer
+        .record_queued(record("m1", TS, "catalog", Some(0.1)));
+    let mark = marks.accepted();
+    let mut settled = Box::pin(marks.reached(mark));
+    assert!(
+        futures_now(settled.as_mut()).is_none(),
+        "the record from before the barrier is not committed"
+    );
+    lock.execute_batch("COMMIT").unwrap();
+    before.await.unwrap();
+    assert_eq!(settled.await, Ok(()));
+
+    let mark = marks.accepted();
+    let lock = hold_writes(&rig.path);
+    let later = rig
+        .writer
+        .record_queued(record("m2", TS + 1, "catalog", Some(0.1)));
+    assert_eq!(
+        futures_now(marks.reached(mark)),
+        Some(Ok(())),
+        "a record queued after the barrier does not hold it"
+    );
+    assert_eq!((marks.committed(), marks.accepted()), (mark, mark + 1));
+    lock.execute_batch("COMMIT").unwrap();
+    later.await.unwrap();
+}
+
+/// A record that failed before the barrier is its error, naming the ledger.
+#[tokio::test]
+async fn a_failed_record_before_the_barrier_is_its_error() {
+    let rig = rig();
+    let mut bad = record("bad", TS, "catalog", Some(0.1));
+    bad.day = "not-a-day".into();
+    let bad = rig.writer.record_queued(bad);
+    let marks = rig.writer.marks();
+    let answer = marks.reached(marks.accepted()).await;
+    assert!(bad.await.is_err());
+    let error = answer.expect_err("the failed record is the barrier's error");
+    assert!(
+        error.starts_with("the usage ledger: write 1, accepted before the barrier, failed: "),
+        "{error}"
+    );
+}
+
 /// The future's output if it is ready at its first poll (an enqueue that failed is).
 fn futures_now<T>(future: impl Future<Output = T>) -> Option<T> {
     let mut future = std::pin::pin!(future);
