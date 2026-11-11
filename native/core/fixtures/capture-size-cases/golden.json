@@ -68,8 +68,12 @@
         "invalidGeometry": {
           "width": 0,
           "height": 100,
-          "name": "Error",
-          "message": "capture_geometry_invalid: positive integer dimensions are required"
+          "thrown": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "capture_geometry_invalid: positive integer dimensions are required",
+            "props": {}
+          }
         }
       }
     },
