@@ -1,5 +1,5 @@
 // Scripted LSP server for the lone-surrogate wire recording: Content-Length framed JSON-RPC on stdio. It offers rename,
-// workspace symbols and one command, and answers every request with the params it received, as its JSON parser read them
+// workspace symbols, code actions and one command, and answers every request with the params it received, as its JSON parser read them
 // (`received`), so the recording shows what reached the server.
 let buffer = Buffer.alloc(0);
 const send = (message) => {
@@ -11,7 +11,7 @@ function handle({ id, method, params }) {
     return send({
       id,
       result: {
-        capabilities: { textDocumentSync: 1, renameProvider: true, workspaceSymbolProvider: true, executeCommandProvider: { commands: ['stub.run'] } },
+        capabilities: { textDocumentSync: 1, renameProvider: true, workspaceSymbolProvider: true, codeActionProvider: true, executeCommandProvider: { commands: ['stub.run'] } },
         serverInfo: { name: 'echo-stub', version: '0.0.0' },
       },
     });

@@ -59,10 +59,17 @@ export async function startServer() {
   return { log, close: () => within(new Promise((resolve) => server.close(resolve)), 'the local server closing') };
 }
 
+/** The project and the language server: the echo stub, as `rust-analyzer` in the returned folder (put first on PATH, the products
+ *  resolve it like any server). */
 export function buildWorld() {
   rmSync(ROOT, { recursive: true, force: true });
   mkdirSync(PROJECT, { recursive: true });
   writeFileSync(join(PROJECT, 'a.rs'), 'fn main() {}\n');
+  const stubBin = join(ROOT, 'stub-bin');
+  mkdirSync(stubBin);
+  const stubScript = fileURLToPath(new URL('./lib/lsp-echo-stub.mjs', import.meta.url));
+  writeFileSync(join(stubBin, 'rust-analyzer.cmd'), `@"${process.execPath}" "${stubScript}" %*\r\n`);
+  return stubBin;
 }
 
 if (REPLAY) {
@@ -78,9 +85,9 @@ rmSync(STATE, { recursive: true, force: true });
 for (const dir of ['home', 'data', 'userData', 'profile']) mkdirSync(join(STATE, dir), { recursive: true });
 for (const key of ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = join(STATE, 'profile');
 Object.assign(process.env, { MIXDOG_HOME: join(STATE, 'home'), MIXDOG_DATA_DIR: join(STATE, 'data'), MIXDOG_SKIP_USER_DATA_BACKUP: '1' });
-buildWorld();
+const stubBin = buildWorld();
 
-const at = (path) => importFrom(tree, path);
+const at =(path) => importFrom(tree, path);
 const mcpClient = await at('src/runtime/agent/orchestrator/mcp/client.mjs');
 const { createMixdogSessionRuntime } = await at('src/mixdog-session-runtime.mjs');
 const { probeMcpServerAuth } = await at('src/runtime/agent/orchestrator/mcp/oauth-probe.mjs');
@@ -88,11 +95,6 @@ const admin = await at('src/session-runtime/services/provider-admin.mjs');
 const { createHuggingFaceCatalog } = await at('src/runtime/local-provider/hugging-face.mjs');
 const { createDesktopOperations } = await at('apps/desktop/src/main/desktop-operations.ts');
 
-// The language server: the echo stub, found on PATH as `rust-analyzer` (the product resolves it like any server).
-const stubBin = join(ROOT, 'stub-bin');
-mkdirSync(stubBin);
-const stubScript = fileURLToPath(new URL('./lib/lsp-echo-stub.mjs', import.meta.url));
-writeFileSync(join(stubBin, 'rust-analyzer.cmd'), `@"${process.execPath}" "${stubScript}" %*\r\n`);
 const hostPath = process.env.PATH;
 process.env.PATH = stubBin;
 const operations = createDesktopOperations({
@@ -192,7 +194,11 @@ writeSetManifest(stage, {
     exclusions: [],
     // The MCP cases' config read after the call: Node keeps the header value with its lone unit; the core holds it as U+FFFD (the
     // accepted echo difference, decisions.md "frame-lone-surrogate"). Its status, error text included, is compared unchanged.
-    normalisations: [{ cases: CASES.filter((entry) => entry.after).map((entry) => entry.name), field: 'node.config.value.config.headers.*', how: 'each lone surrogate read as U+FFFD before comparing' }],
+    // A language-server request carrying free text: the server echoes what it read, the unit from Node and U+FFFD from the core.
+    normalisations: [
+      { cases: CASES.filter((entry) => entry.after).map((entry) => entry.name), field: 'node.config.value.config.headers.*', how: 'each lone surrogate read as U+FFFD before comparing' },
+      { cases: CASES.filter((entry) => entry.lone).map((entry) => entry.name), field: 'node.value.result.received', how: 'each lone surrogate read as U+FFFD before comparing' },
+    ],
     // Cases the core refuses by decision: the field is not free text (mixdog-app-protocol free_text.rs, tests/it/free_text_fields.json).
     // Node's answer and what reached the local server are recorded (golden.json cases[].node, cases[].requests).
     refusedByRule: {
