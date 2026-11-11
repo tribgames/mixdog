@@ -108,7 +108,21 @@
           "files": [
             {
               "path": "core-memory.json",
+              "bytes": 473,
               "text": "{\"version\":1,\"revision\":1,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":\"<uuid-3>\",\"summary\":\"common rule\",\"projectId\":null,\"agentId\":null,\"updatedAt\":10},{\"id\":1,\"indexRevision\":\"<uuid-1>\",\"summary\":\"alpha rule\",\"projectId\":\"alpha\",\"agentId\":null,\"updatedAt\":20},{\"id\":1,\"indexRevision\":\"<uuid-2>\",\"summary\":\"other rule\",\"projectId\":\"beta\",\"agentId\":null,\"updatedAt\":30}]}\n"
+            },
+            {
+              "path": "project/",
+              "directory": true
+            },
+            {
+              "path": "project/.mixdog/",
+              "directory": true
+            },
+            {
+              "path": "project/.mixdog/project.id",
+              "bytes": 6,
+              "text": "alpha\n"
             }
           ]
         },
@@ -228,7 +242,21 @@
           "files": [
             {
               "path": "core-memory.json",
+              "bytes": 473,
               "text": "{\"version\":1,\"revision\":2,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":\"<uuid-6>\",\"summary\":\"common rule\",\"projectId\":null,\"agentId\":null,\"updatedAt\":10},{\"id\":1,\"indexRevision\":\"<uuid-4>\",\"summary\":\"alpha rule\",\"projectId\":\"alpha\",\"agentId\":null,\"updatedAt\":20},{\"id\":1,\"indexRevision\":\"<uuid-5>\",\"summary\":\"other rule\",\"projectId\":\"beta\",\"agentId\":null,\"updatedAt\":30}]}\n"
+            },
+            {
+              "path": "project/",
+              "directory": true
+            },
+            {
+              "path": "project/.mixdog/",
+              "directory": true
+            },
+            {
+              "path": "project/.mixdog/project.id",
+              "bytes": 6,
+              "text": "alpha\n"
             }
           ]
         }
@@ -258,6 +286,7 @@
           "files": [
             {
               "path": "core-memory.json",
+              "bytes": 159,
               "text": "{\"version\":1,\"revision\":2,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":null,\"summary\":\"newer\",\"projectId\":null,\"agentId\":null,\"updatedAt\":0}]}\n"
             }
           ]
@@ -283,6 +312,7 @@
           "files": [
             {
               "path": "core-memory.json",
+              "bytes": 159,
               "text": "{\"version\":1,\"revision\":2,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":null,\"summary\":\"newer\",\"projectId\":null,\"agentId\":null,\"updatedAt\":0}]}\n"
             }
           ]
@@ -326,6 +356,7 @@
           "files": [
             {
               "path": "core-memory.json",
+              "bytes": 159,
               "text": "{\"version\":1,\"revision\":2,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":null,\"summary\":\"newer\",\"projectId\":null,\"agentId\":null,\"updatedAt\":0}]}\n"
             }
           ]
@@ -361,6 +392,7 @@
           "files": [
             {
               "path": "core-memory.json",
+              "bytes": 263,
               "text": "{\"version\":1,\"revision\":3,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":null,\"summary\":\"newest\",\"projectId\":\"alpha\",\"agentId\":\"bot\",\"updatedAt\":0},{\"id\":2,\"indexRevision\":null,\"summary\":\"spaced out\",\"projectId\":null,\"agentId\":null,\"updatedAt\":0}]}\n"
             }
           ]
@@ -383,6 +415,7 @@
           "files": [
             {
               "path": "core-memory.json",
+              "bytes": 163,
               "text": "{\"version\":1,\"revision\":4,\"updatedAt\":1800000000000,\"curated\":[{\"id\":9,\"indexRevision\":null,\"summary\":\"unguarded\",\"projectId\":null,\"agentId\":null,\"updatedAt\":0}]}\n"
             }
           ]
@@ -404,6 +437,49 @@
               }
             ]
           }
+        }
+      ]
+    },
+    {
+      "name": "session core context reads the file without starting memory runtime (test line 91)",
+      "env": {
+        "MIXDOG_DATA_DIR": "D:\\mixdog-build\\tmp\\w32\\mixdog-core-memory-A3r7ni\\r2",
+        "MIXDOG_FEATURE_MEMORY": "1",
+        "MIXDOG_BOOT_CORE_MEMORY": "1"
+      },
+      "written": {
+        "result": {
+          "revision": 1,
+          "written": true
+        }
+      },
+      "filesBefore": [
+        {
+          "path": "core-memory.json",
+          "bytes": 169,
+          "text": "{\"version\":1,\"revision\":1,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":null,\"summary\":\"instant context\",\"projectId\":null,\"agentId\":null,\"updatedAt\":0}]}\n"
+        }
+      ],
+      "context": {
+        "result": "- instant context"
+      },
+      "memoryStarts": 0,
+      "hookCalls": [
+        {
+          "hook": "bootProfile",
+          "args": [
+            "core-memory:done",
+            {
+              "ms": "<ms>"
+            }
+          ]
+        }
+      ],
+      "filesAfter": [
+        {
+          "path": "core-memory.json",
+          "bytes": 169,
+          "text": "{\"version\":1,\"revision\":1,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":null,\"summary\":\"instant context\",\"projectId\":null,\"agentId\":null,\"updatedAt\":0}]}\n"
         }
       ]
     }

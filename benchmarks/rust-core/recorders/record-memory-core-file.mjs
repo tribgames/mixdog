@@ -5,8 +5,8 @@
 // (core-memory-file.mjs) over a real data directory. The database is the test file's scripted `db.query` / `db.transaction`
 // (it answers the core_entries and the generated-entries selects with fixed rows); every statement is recorded (text,
 // params, in order), and after each step every file in the data directory (path, bytes). Case 91 (session core context
-// reads the file without starting the memory runtime) is covered by mem/core/context_tests.rs
-// `the_block_matches_what_node_injects` and not recorded again. Virtual clock: Date.now()/new Date() fixed.
+// reads the file without starting the memory runtime) is recorded through the real `createCwdPlugins(...).loadCoreMemoryContext` with the
+// start hook `getMemoryModule` counting its calls (`memoryStarts`: 0 is the proof). Virtual clock: Date.now()/new Date() fixed.
 //
 //   node benchmarks/rust-core/recorders/record-memory-core-file.mjs --tree <dir>
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -18,6 +18,7 @@ const ctx = begin();
 const CLOCK_MS = 1_800_000_000_000;
 freezeClock(CLOCK_MS);
 const { readCoreMemoryFile, readSessionCoreMemoryPayload, refreshCoreMemoryFile, writeCoreMemoryFileSnapshot } = await importFrom(ctx.tree, 'src/runtime/memory/lib/core-memory-file.mjs');
+const { createCwdPlugins } = await importFrom(ctx.tree, 'src/session-runtime/cwd-plugins.mjs');
 
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-core-memory-')));
 let n = 0;
@@ -27,8 +28,8 @@ const files = (dir) => {
   const walk = (d) => {
     for (const name of readdirSync(d).sort()) {
       const full = join(d, name);
-      if (statSync(full).isDirectory()) walk(full);
-      else out.push({ path: relative(dir, full).split(sep).join('/'), text: readFileSync(full, 'utf8') });
+      if (statSync(full).isDirectory()) { out.push({ path: `${relative(dir, full).split(sep).join('/')}/`, directory: true }); walk(full); }
+      else out.push({ path: relative(dir, full).split(sep).join('/'), bytes: statSync(full).size, text: readFileSync(full, 'utf8') });
     }
   };
   walk(dir);
@@ -48,11 +49,11 @@ const cases = [];
   db.transaction = (run) => run({ query: async (sql, params) => { statements.push({ sql, params: exact(params ?? null), inTransaction: true }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: [] }; } });
   const steps = [];
   const migrated = await capture(() => refreshCoreMemoryFile(db, root));
-  steps.push({ label: 'refreshCoreMemoryFile(db, dataDir)', ...migrated, statements: statements.splice(0), files: files(root).filter((f) => f.path === 'core-memory.json') });
+  steps.push({ label: 'refreshCoreMemoryFile(db, dataDir)', ...migrated, statements: statements.splice(0), files: files(root) });
   steps.push({ label: 'readSessionCoreMemoryPayload(dataDir, project cwd with project.id alpha)', ...(await capture(() => readSessionCoreMemoryPayload(root, project))) });
   steps.push({ label: 'readSessionCoreMemoryPayload(dataDir, a cwd without project.id)', ...(await capture(() => readSessionCoreMemoryPayload(root, join(root, 'no-project')))) });
   steps.push({ label: 'readCoreMemoryFile(dataDir)', ...(await capture(() => readCoreMemoryFile(root))), generatedIsUndefined: readCoreMemoryFile(root).generated === undefined });
-  steps.push({ label: 'refreshCoreMemoryFile again (same rows)', ...(await capture(() => refreshCoreMemoryFile(db, root))), statements: statements.splice(0), files: files(root).filter((f) => f.path === 'core-memory.json') });
+  steps.push({ label: 'refreshCoreMemoryFile again (same rows)', ...(await capture(() => refreshCoreMemoryFile(db, root))), statements: statements.splice(0), files: files(root) });
   cases.push({ name: 'refresh migrates PG rows and session reads common plus project scope from file (test line 18)', projectId: 'alpha', coreRows, generatedRows, steps });
 }
 {
@@ -68,6 +69,32 @@ const cases = [];
   steps.push({ label: 'readCoreMemoryFile(dataDir)', ...(await capture(() => readCoreMemoryFile(root))) });
   cases.push({ name: 'atomic revision guard rejects an older snapshot (test line 57; later steps are further shapes)', steps });
 }
+{
+  // Case 91: the session core context reads the file without starting the memory runtime. The proof of zero starts is the call
+  // count of the start hook (getMemoryModule), recorded with the context string and the whole data root before and after.
+  const root = tempRoot();
+  const env = { MIXDOG_DATA_DIR: root, MIXDOG_FEATURE_MEMORY: '1', MIXDOG_BOOT_CORE_MEMORY: '1' };
+  const prior = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, env);
+  try {
+    const written = await capture(() => writeCoreMemoryFileSnapshot(root, { curated: [{ id: 1, summary: 'instant context', project_id: null }], generated: [{ summary: 'automatic lesson must stay searchable only', project_id: null }] }));
+    const before = files(root);
+    const hookCalls = [];
+    const plugins = createCwdPlugins({
+      getCurrentCwd: () => root,
+      getConfig: () => ({}),
+      bootProfile: (label, detail) => { hookCalls.push({ hook: 'bootProfile', args: exact([label, detail && typeof detail === 'object' ? Object.fromEntries(Object.entries(detail).map(([k, v]) => [k, k === 'ms' ? '<ms>' : v])) : detail]) }); },
+      getMemoryModule: async (...args) => { hookCalls.push({ hook: 'getMemoryModule', args: exact(args) }); throw new Error('must not start'); },
+      cfgMod: { getPluginData: (...args) => { hookCalls.push({ hook: 'getPluginData', args: exact(args) }); return root; } },
+      STANDALONE_DATA_DIR: root,
+      clean: (value) => String(value ?? '').trim(),
+    });
+    const context = await capture(() => plugins.loadCoreMemoryContext());
+    cases.push({ name: 'session core context reads the file without starting memory runtime (test line 91)', env, written, filesBefore: before, context, memoryStarts: hookCalls.filter((c) => c.hook === 'getMemoryModule').length, hookCalls, filesAfter: files(root) });
+  } finally {
+    for (const [k, v] of Object.entries(prior)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
 rmSync(base, { recursive: true, force: true });
 
 finish(ctx, {
@@ -75,10 +102,10 @@ finish(ctx, {
   set: 'memory-core-file',
   golden: { domain: 'memory-core-file', source: 'scripts/core-memory-file-test.mjs', clock: { dateNowMs: CLOCK_MS, reason: 'updatedAt the file stamps' }, cases },
   extra: {
-    entry: { runs: 'refreshCoreMemoryFile, writeCoreMemoryFileSnapshot, readCoreMemoryFile, readSessionCoreMemoryPayload (core-memory-file.mjs) over a real temp data directory, with the real atomic-file writer and project-id resolver', notRun: 'PostgreSQL (the test file\'s scripted db answers the two selects with fixed rows); case 91 (createCwdPlugins.loadCoreMemoryContext without the memory runtime): covered by mem/core/context_tests.rs the_block_matches_what_node_injects' },
+    entry: { runs: 'refreshCoreMemoryFile, writeCoreMemoryFileSnapshot, readCoreMemoryFile, readSessionCoreMemoryPayload (core-memory-file.mjs) over a real temp data directory, with the real atomic-file writer and project-id resolver', notRun: 'PostgreSQL (the test file\'s scripted db answers the two selects with fixed rows); the memory runtime start of case 91 is a scripted hook that throws and counts (memoryStarts)' },
     replay: 'mixdog-services memory: mem/core/snapshot.rs refresh / write (revision guard) / read and session_payload, over the same rows and a temp data dir; compares each result, the statements and the exact bytes of core-memory.json after each step',
-    exclusions: 'case 91 is covered (mem/core/context_tests.rs) and not recorded again',
-    normalised: { 'temp data dir': 'paths in the golden are relative to the data dir', clock: 'Date.now() fixed at clock.dateNowMs' },
+    exclusions: 'none; every file and directory under the data root (path, size, bytes) is recorded after each step',
+    normalised: { 'bootProfile ms': 'the elapsed milliseconds a boot-profile call carries (wall clock) are written <ms>',  'temp data dir': 'paths in the golden are relative to the data dir', clock: 'Date.now() fixed at clock.dateNowMs' },
   },
 });
 process.exit(0);
