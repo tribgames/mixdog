@@ -7,8 +7,7 @@
 //! is compared whole. A rewrite Node made while its pool stayed up (cases 1 and 4) is made through the core's store write
 //! (`thread/header/patch`: the record's title, the session's `worker` row) and the same pool lists again; a restart is a new
 //! registry and pool over the same data dir. Node's header cache, its stamps, read counts, fs-call counts and link list have
-//! no counterpart in the core (MANIFEST `replay.missingOnO1`). The two listings in which Node lists an index row that has no
-//! session record are not replayed (MANIFEST `replay.notReplayed`).
+//! no counterpart in the core (MANIFEST `replay.missingOnO1`).
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -228,10 +227,8 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     let daemon = Daemon::up(&data, now, &live).await;
     same(&daemon.list().await, want.get("initial").get("listed"), "case 0 initial");
     same(&daemon.list().await, want.get("initial").get("listedAgain"), "case 0 initial again");
-    // Round 5 removes `sessions/churn-22.json` and keeps its index row (MANIFEST `replay.notReplayed`).
-    let rounds = want.get("rounds").as_array();
-    assert_eq!(plain(rounds[5].get("round")), json!(5), "case 0 round 5 is the declared one");
-    for round in &rounds[..5] {
+    // Round 5 removes `sessions/churn-22.json` and keeps its index row, which Node lists with a null header.
+    for round in want.get("rounds").as_array() {
         store = changed(&store, &files(round.get("storeChanged")));
         let data = migrated(&store);
         let daemon = Daemon::up(&data, now, &live).await;
@@ -308,7 +305,14 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
             same(&daemon.list().await, result.get(key), &format!("case 5 after the {label} cache, {key}"));
         }
     }
-    // `changedWhileDown` removes `sessions/persist-08.json` and keeps its index row (MANIFEST `replay.notReplayed`).
+    // The store changed while no daemon ran (`persist-08`'s record removed, its index row kept), then listed by a fresh
+    // reader and by two daemons in turn.
+    let down = want.get("phases").get("changedWhileDown");
+    let data = migrated(&changed(&store, &files(down.get("storeChanged"))));
+    same(&Daemon::up(&data, now, &live).await.list().await, down.get("changed"), "case 5 changed while down, fresh read");
+    for key in ["restartedRows", "nextRestartRows"] {
+        same(&Daemon::up(&data, now, &live).await.list().await, down.get(key), &format!("case 5 changed while down, {key}"));
+    }
 
     // Case 6: two data dirs, each listed by its own daemon.
     let want = observed(&golden, 6, "switching data directories before a scheduled persist still persists the new directory");
