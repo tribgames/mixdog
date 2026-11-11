@@ -195,7 +195,7 @@
             "id": 2,
             "dense_rank": 2,
             "dense_sim": {
-              "$number": "NaN"
+              "$exact": "NaN"
             }
           },
           {
@@ -250,7 +250,7 @@
             "id": 2,
             "dense_rank": 2,
             "dense_sim": {
-              "$number": "NaN"
+              "$exact": "NaN"
             }
           },
           "laneRanks": {
@@ -507,7 +507,7 @@
             "id": 2,
             "dense_rank": 2,
             "dense_sim": {
-              "$number": "NaN"
+              "$exact": "NaN"
             }
           },
           "laneRanks": {
@@ -747,7 +747,7 @@
         {
           "name": "row undefined",
           "row": {
-            "$undefined": true
+            "$exact": "undefined"
           },
           "laneRanks": {
             "result": {
