@@ -289,6 +289,8 @@ pub enum CallMark {
     ToolCall,
     /// A call waits for the person's answer (`approveToolRequest`: the spinner's `tool-approval` mode).
     ToolApproval,
+    /// A call passed its gate without an ask: the step's held publication goes out (see `Actor::step_hold`).
+    Authorized,
     /// The tool batch is over and the turn goes back to the model (`onToolPhaseCompleted`: `requesting`).
     ToolPhaseCompleted,
 }

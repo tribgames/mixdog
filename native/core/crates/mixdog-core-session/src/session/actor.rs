@@ -590,6 +590,8 @@ pub(crate) struct SessionActor {
     seq: u64,
     /// Node's frame publication of this session's state, announced as `thread/frame` (`phone_frame.rs`).
     frames: super::phone_frame::Frames,
+    /// A tool step's publication, held until its first call's gate answered (`phone_frame.rs` `StepHold`).
+    step_hold: Option<super::phone_frame::StepHold>,
     lineage: Lineage,
     log_id: String,
     acked_end: u64,
@@ -938,6 +940,7 @@ impl SessionActor {
             epoch,
             seq: 0,
             frames: Default::default(),
+            step_hold: None,
             lineage,
             log_id,
             acked_end,
@@ -2140,10 +2143,12 @@ impl SessionActor {
             }
             Effect::PublishApproval(request) => {
                 self.deps.server_requests.publish(request);
-                // `set({ toolApproval })` flushes immediately (`draft-store.mjs:69-71`).
-                let mark = super::phone_frame::Mark { immediate: true, ..Default::default() };
-                let flushed = self.frames.mark(mark, tokio::time::Instant::now());
-                self.publish_frame(flushed);
+                if !self.release_step_hold(true) {
+                    // `set({ toolApproval })` flushes immediately (`draft-store.mjs:69-71`).
+                    let mark = super::phone_frame::Mark { immediate: true, ..Default::default() };
+                    let flushed = self.frames.mark(mark, tokio::time::Instant::now());
+                    self.publish_frame(flushed);
+                }
             }
             Effect::Resolved(aid, resolution) => {
                 self.book.resolved(aid, &resolution);
@@ -2268,6 +2273,10 @@ impl SessionActor {
     }
 
     fn publish(&mut self, notes: Vec<Note>) {
+        if let Some(hold) = self.step_hold.as_mut() {
+            hold.notes.extend(notes);
+            return;
+        }
         let now = tokio::time::Instant::now();
         let mut flushed = None;
         for note in &notes {
@@ -2277,6 +2286,24 @@ impl SessionActor {
         }
         self.publish_notes(notes);
         self.publish_frame(flushed);
+    }
+
+    /// The held tool step goes out (`phone_frame.rs` `StepHold`); `approval`: a call's approval was raised first, so its
+    /// request is published alone in its own frame, with the spinner's `tool-approval` (`approveToolRequest`, turn.mjs:295)
+    /// on the runtime as last published, and the step's changes follow for the next frame. `false` when nothing was held.
+    fn release_step_hold(&mut self, approval: bool) -> bool {
+        let Some(hold) = self.step_hold.take() else { return false };
+        if approval {
+            let mut runtime = hold.runtime;
+            if let Some(Value::Object(spinner)) = runtime.spinner.as_mut() {
+                spinner.insert("mode".to_owned(), json!("tool-approval"));
+            }
+            self.publish_notes(vec![Note::new("thread/runtime/updated", &ThreadSectionParams { thread_id: self.id.clone(), value: runtime })]);
+            let flushed = self.frames.mark(super::phone_frame::Mark { now: true, ..Default::default() }, tokio::time::Instant::now());
+            self.publish_frame(flushed);
+        }
+        self.publish(hold.notes);
+        true
     }
 
     /// `thread/frame`: one of Node's publications of the session's state (`phone_frame.rs`).
@@ -2555,6 +2582,7 @@ impl SessionActor {
         let Some(mut slot) = self.run.take_if(|run| run.turn == turn) else {
             return;
         };
+        self.release_step_hold(false);
         self.cell.publish_run(None);
         // A stop that handed the prompt back (`reclaimInFlightPrompt`): it leaves the prompt history, another device's
         // composer is told, and the cancelled turn shows no end.
@@ -3805,6 +3833,10 @@ impl SessionActor {
 
     /// A run's live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
     fn run_shown(&mut self, turn: TurnId, shown: RunShown) {
+        // A transcript row of the turn's own (a notice, thinking, a compaction) ends a held step: no gate follows it.
+        if matches!(shown, RunShown::Notice { .. } | RunShown::Reasoning(_) | RunShown::Compact(_) | RunShown::Pass(_)) {
+            self.release_step_hold(false);
+        }
         match shown {
             RunShown::Notice { text, tone } => {
                 let text = super::live_rows::polish_notice_text(&text);
@@ -3818,6 +3850,10 @@ impl SessionActor {
             RunShown::Usage(report) => {
                 if let Some(run) = self.run.as_mut() {
                     run.live.usage(report.usage.output_tokens);
+                }
+                // A step that called tools: held until its first call's gate answered (`phone_frame.rs` `StepHold`).
+                if report.delta_tool_calls > 0 && self.step_hold.is_none() {
+                    self.step_hold = Some(super::phone_frame::StepHold { notes: Vec::new(), runtime: self.acked.runtime(self.storage()) });
                 }
                 let now = self.deps.clock.now_ms();
                 let usage = super::live_rows::usage_delta(self.id.as_str(), &report, now);
@@ -3862,9 +3898,19 @@ impl SessionActor {
                     self.patch_spinner([("mode", json!("tool-use"))]);
                 }
                 // `approveToolRequest`: `if (getState().spinner) set({ spinner: { ...spinner, mode: 'tool-approval' } })`.
-                super::run::CallMark::ToolApproval => self.patch_spinner([("mode", json!("tool-approval"))]),
+                // A held step's approval shows its mode in its own frame, ahead of the step's `tool-use`, which then stands
+                // (recorded: state 6 of the approval cases is `tool-use` while the request is still shown).
+                super::run::CallMark::ToolApproval => {
+                    if self.step_hold.is_none() {
+                        self.patch_spinner([("mode", json!("tool-approval"))]);
+                    }
+                }
+                super::run::CallMark::Authorized => {
+                    self.release_step_hold(false);
+                }
                 // `onToolPhaseCompleted`: back to `requesting`, unless it already is.
                 super::run::CallMark::ToolPhaseCompleted => {
+                    self.release_step_hold(false);
                     let mode = self.spinner().and_then(|spinner| spinner.get("mode")).and_then(Value::as_str);
                     if mode.is_some_and(|mode| mode != "requesting") {
                         self.patch_spinner([("mode", json!("requesting"))]);

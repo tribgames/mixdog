@@ -170,6 +170,9 @@ pub enum Stage {
     ApprovalWait {
         waiting: bool,
     },
+    /// A call passed its gate without asking anyone (a user-prompt tool, whose own question is its ask, never says so): no
+    /// approval of it will come before it runs.
+    Authorized,
 }
 
 #[derive(Clone, PartialEq, Debug)]

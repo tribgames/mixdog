@@ -375,6 +375,66 @@ async fn the_spinner_follows_a_tool_batch() {
     assert_eq!(modes, ["requesting", "responding", "tool-use", "tool-approval", "requesting"]);
 }
 
+/// A tool step's approval is published in its own frame before the step's usage and `tool-use`, which follow it (recorded:
+/// `running-approval-pending` states 5 and 6: `toolApproval` with `tool-approval` and no tokens, then the tokens and `tool-use`).
+#[tokio::test(start_paused = true)]
+async fn a_tool_steps_approval_goes_out_before_the_step() {
+    use super::run::CallMark;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port.call_mark(CallMark::Streaming).await.expect("shown");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, ..Default::default() };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "m".into(),
+                    requested_model: "m".into(),
+                    delta_tool_calls: 1,
+                    request_ms: 0,
+                    delta_prompt: 10,
+                    send_tools: Vec::new(),
+                    reasoning_tokens: None,
+                    reasoning_tokens_complete: false,
+                    outgoing: Vec::new(),
+                    sent_at_ms: 0,
+                })
+                .await
+                .expect("usage");
+            run.port.call_mark(CallMark::ToolCall).await.expect("shown");
+            run.port.call_mark(CallMark::ToolApproval).await.expect("shown");
+            let _ = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some("shell".into()),
+                    action_kind: None,
+                    reason: Some("shell needs a look".into()),
+                    payload: json!({ "name": "shell" }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "use a tool", "op-1").await;
+    let shown = |frames: &[(u64, String, Value)]| frames.iter().any(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["spinner"]["mode"] == "tool-approval");
+    eventually_on!(&[&handle.cell.stepped], || shown(&rig.feeds.frames(handle.id.as_str())).then_some(())).await;
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let at = frames.iter().position(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["spinner"]["mode"] == "tool-approval").expect("the approval's mode");
+    assert_eq!(frames[at].2["value"]["spinner"]["inputTokens"], json!(0), "the approval's frame shows none of the step's usage");
+    assert_eq!(frames[at + 1].1, "thread/frame", "the approval is published in its own frame");
+    let after: Vec<&Value> = frames[at + 1..].iter().filter(|(_, method, _)| method == "thread/runtime/updated").map(|(_, _, params)| &params["value"]["spinner"]).collect();
+    let last = after.last().expect("the step's changes follow the approval");
+    assert_eq!((&last["mode"], &last["inputTokens"]), (&json!("tool-use"), &json!(10)), "the step's tool-use and tokens stand after it");
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_implicit_approval_session_asks_nobody() {
     let rig = Rig::new();
