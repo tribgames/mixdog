@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16007,
+      "bytes": 16099,
       "path": "golden.json",
-      "sha256": "30c63a5347ecf732daf7476fab330e687f61b0541532bcbfce2f50aa12c89fa4"
+      "sha256": "1136c49d96784877b3cd8324262c358d17cb90d54eb83b41ecb148e92979cbaa"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -29,7 +33,7 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "undefined arguments": "written as {\"absent\":true}"
+    "values": "every value is stored through exact (lib/exact.mjs): an explicit undefined, NaN, -0, Date, Error are tagged; an omitted argument is absent"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-session-ingest-projection.mjs",
-  "recorderSha256": "0188dbf3695843f5e4bb35bb542ecde6c6740026b90ff83ef51ec76da60e3699",
-  "replay": "mixdog-services memory: svc/memory/ingest_shape.rs all_text_content + the projection and exclusion (and mixdog-agent compact/ingest.rs for the compact source list); compares projected rows, stripped content and exclusion flags exactly",
+  "recorderSha256": "a739c3c46470ea55157a971861c52cfa856bba736a02d94b8137ee392a30c1a2",
+  "replay": "mixdog-services memory/ingest_shape.rs (pub): normalize_ingest_role (:22), all_text_content (:52), session_message_content_for_ingest (:146; envelope stripping is private, reached through it); the whole path is SessionIngest::ingest_session (memory/ingest/mod.rs:133). A replay compares each recorded input's projected role/content/exclusion exactly",
   "set": "memory-session-ingest-projection",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 16007,
-  "uuidsNormalised": "none"
+  "totalBytes": 16099,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
