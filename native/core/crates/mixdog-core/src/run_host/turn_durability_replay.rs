@@ -89,6 +89,7 @@ impl ProviderAdapter for Stub {
         &self.keepalive
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        lock(&REQUESTS).push(user_texts(&request));
         lock(&self.requests).push(request);
         let n = self.sends.fetch_add(1, Ordering::SeqCst) + 1;
         SENDS.store(n, Ordering::SeqCst);
@@ -293,7 +294,7 @@ async fn resumed(directory: &SessionDirectory, handle: &mixdog_core_session::ses
     assert_eq!(snapshot["thread"], subscribe.result["thread"], "the response and the snapshot name the same thread");
     let messages = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": id, "start": 0 }), op: None, ctx: CallContext::internal("test") };
     let Reply::Value(messages) = directory.request(messages).await.expect("thread/modelMessages/list") else { panic!("a value") };
-    json!({ "items": snapshot["items"], "state": snapshot["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await })
+    json!({ "items": snapshot["items"], "state": snapshot["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await, "checkpoint": checkpoint_of(&id) })
 }
 
 async fn start_with(directory: &SessionDirectory, params: Value) -> Arc<mixdog_core_session::session::SessionHandle> {
@@ -316,7 +317,15 @@ async fn observe(directory: &SessionDirectory, handle: &mixdog_core_session::ses
     let Reply::Value(read) = handle.request(read).await.expect("thread/read") else { panic!("thread/read answers a value") };
     let messages = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": ThreadHandle::id(handle).as_str(), "start": 0 }), op: None, ctx: CallContext::internal("test") };
     let Reply::Value(messages) = directory.request(messages).await.expect("thread/modelMessages/list") else { panic!("a value") };
-    json!({ "items": read["items"], "state": read["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await })
+    json!({ "items": read["items"], "state": read["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await, "checkpoint": checkpoint_of(ThreadHandle::id(handle).as_str()) })
+}
+
+/// Node's `result` (what `askSession` returned, the answer): what a client is given as the turn's answer, the item its
+/// last end row names (`finalAssistantId`).
+fn turn_result(view: &Value) -> Value {
+    let items = view["items"].as_array().unwrap();
+    let end = items.iter().rev().find(|item| item["type"] == "turnEnd").expect("the turn's end row");
+    items.iter().find(|item| item["id"] == end["finalAssistantId"]).map_or(Value::Null, |item| item["text"].clone())
 }
 
 /// Waits until `probe` holds, woken by each step of the thread's actor.
@@ -365,6 +374,52 @@ const SECRET: &str = "731905";
 static SECRET_DRAFTED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 /// Where the stream's later events go (`crash-sensitive`).
 static MORE: Mutex<Option<tokio::sync::mpsc::UnboundedSender<StreamEvent>>> = Mutex::new(None);
+
+/// The queue cases: a request is on the wire (the first, then the one that took the queued prompts).
+static ON_WIRE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// The queue cases: the first request answers once the prompts are queued.
+static RELEASE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// The text of each user message of every request this process sent, in order (Node's `requests`): what the model was given.
+static REQUESTS: Mutex<Vec<Vec<String>>> = Mutex::new(Vec::new());
+
+fn user_texts(request: &ModelRequest) -> Vec<String> {
+    use mixdog_core_api::domain::provider::Content;
+    use mixdog_core_api::domain::provider::ContentPart;
+    use mixdog_core_api::domain::provider::Role;
+    request
+        .messages
+        .iter()
+        .filter(|message| message.role == Role::User)
+        .map(|message| match &message.content {
+            Content::Text(text) => text.clone(),
+            Content::Parts(parts) => parts.iter().filter_map(|part| if let ContentPart::Text(text, _) = part { Some(text.as_str()) } else { None }).collect(),
+        })
+        .collect()
+}
+
+/// A desktop submit (`turn/start` with its `clientSubmissionId`).
+async fn submit(handle: &mixdog_core_session::session::SessionHandle, prompt: &str, submission: &str) {
+    let op = format!("op-{submission}");
+    let params = json!({ "threadId": ThreadHandle::id(handle).as_str(), "opId": op, "input": { "prompt": prompt, "options": { "clientSubmissionId": submission } } });
+    handle.request(request("turn/start", params, &op)).await.unwrap_or_else(|error| panic!("{submission}: {error:?}"));
+}
+
+/// The queued rows a client is shown (the snapshot's `state.queued`).
+fn queued_of(view: &Value) -> Vec<Value> {
+    view["state"]["queued"].as_array().cloned().unwrap_or_default()
+}
+
+/// [`observe`] with the requests sent so far (the queue cases).
+async fn queue_observe(directory: &SessionDirectory, handle: &mixdog_core_session::session::SessionHandle) -> Value {
+    let mut view = observe(directory, handle).await;
+    view["requests"] = json!(lock(&REQUESTS).clone());
+    view
+}
+
+/// A step of the owning process, compared by the parent once the child is dead.
+fn write_step(dir: &Path, label: &str, view: Value) {
+    std::fs::write(dir.join(format!("step-{label}.json")), view.to_string()).unwrap();
+}
 
 /// Whether any file under `data` holds the value.
 fn secret_on_disk(data: &Path) -> bool {
@@ -514,6 +569,10 @@ fn kill_self() -> ! {
 async fn crash_child() {
     let (Ok(case), Ok(dir)) = (std::env::var("TD_CASE"), std::env::var("TD_DIR")) else { return };
     let dir = std::path::PathBuf::from(dir);
+    // `a_child_past_its_deadline_is_killed_and_named`: a child that never ends by itself.
+    if case == "deadline-probe" {
+        std::future::pending::<()>().await;
+    }
     CASE.set((case.clone(), dir.clone())).unwrap();
     install_hook();
     let on_send: OnSend = match case.as_str() {
@@ -542,7 +601,28 @@ async fn crash_child() {
             })
         }),
         "crash-answer-streamed" | "crash-saved-uncleared" | "crash-sealed-unsaved" | "resume-held" => Arc::new(|_| Box::pin(async { answer("answer") })),
-        "crash-before-write" => Arc::new(|_| Box::pin(async { panic!("crash-before-write: the process dies before the first request") })),
+        // The first request waits for the queued prompts, then answers; the request that took them hangs (`while-take`, the
+        // process dies on it) or answers.
+        "crash-queued-before-take" | "crash-queued-while-take" | "crash-queued-after-take" => {
+            let hangs = case == "crash-queued-while-take";
+            Arc::new(move |n| {
+                Box::pin(async move {
+                    if n == 1 {
+                        ON_WIRE.notify_one();
+                        tokio::time::timeout(Duration::from_secs(30), RELEASE.notified()).await.expect("the prompts are queued");
+                        return answer("answer");
+                    }
+                    if hangs {
+                        ON_WIRE.notify_one();
+                        return Play { events: VecDeque::new(), hang: true, more: None };
+                    }
+                    answer("answer to the queued")
+                })
+            })
+        }
+        // The request can go out before the turn's first write lands (the write is on the io lane): it waits there until the
+        // hook kills the process at that write.
+        "crash-before-write" => Arc::new(|_| Box::pin(std::future::pending())),
         "crash-sensitive" => Arc::new(|_| {
             Box::pin(async {
                 let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -559,6 +639,37 @@ async fn crash_child() {
     let directory = stack(&rig, store, stub(on_send), &workspace, RUN_AT);
     let handle = start(&directory, &workspace).await;
     std::fs::write(dir.join("id"), ThreadHandle::id(&*handle).as_str()).unwrap();
+    if case.starts_with("crash-queued-") {
+        // Node's desktop submits (`clientSubmissionId`): the turn, then two prompts queued while its request is on the wire.
+        submit(&handle, "do the task", "sub-0").await;
+        tokio::time::timeout(Duration::from_secs(30), ON_WIRE.notified()).await.expect("the first request is on the wire");
+        for (submission, prompt) in [("sub-1", "first queued"), ("sub-2", "second queued")] {
+            submit(&handle, prompt, submission).await;
+        }
+        until(&handle, "the queued prompts are shown", async || queued_of(&observe(&directory, &handle).await).len() == 2).await;
+        write_step(&dir, "queued", queue_observe(&directory, &handle).await);
+        if case == "crash-queued-before-take" {
+            kill("queued");
+        }
+        RELEASE.notify_one();
+        if case == "crash-queued-while-take" {
+            tokio::time::timeout(Duration::from_secs(30), ON_WIRE.notified()).await.expect("the request that took them is on the wire");
+            // Node's view after its mirror's drop settled (`flushTuiSteeringPersist`): the queue's dequeue is durable.
+            until(&handle, "the taken prompts leave the queue", async || queued_of(&observe(&directory, &handle).await).is_empty()).await;
+            write_step(&dir, "taken", queue_observe(&directory, &handle).await);
+            kill("taken");
+        }
+        until(&handle, "the turn that took them settles", async || {
+            let view = observe(&directory, &handle).await;
+            !handle.turn_busy() && !busy(&view) && queued_of(&view).is_empty() && SENDS.load(Ordering::SeqCst) == 2
+        })
+        .await;
+        // Killed once the run's draft is gone (Node's checkpoint cleared): the third kill point of a draft's life, after the
+        // draft written (`crash-mid-stream`) and the end record durable (`crash-saved-uncleared`).
+        until(&handle, "the turn's draft goes", async || !has_draft_file(&dir.join("data"))).await;
+        write_step(&dir, "answered", queue_observe(&directory, &handle).await);
+        kill("answered");
+    }
     ask(&handle, "do the task", "op-1").await.expect("turn/start");
     // The value is in the draft; it is marked sensitive (a browser fill, as the recording's), then the stream goes on.
     if case == "crash-sensitive" {
@@ -584,6 +695,7 @@ async fn real_store(data: &Path) -> Arc<dyn mixdog_core_session::session::Thread
     use mixdog_store::sqlite::SqliteStore;
 
     std::fs::create_dir_all(data).unwrap();
+    *lock(&DATA_DIR) = Some(data.to_path_buf());
     let tokens = mixdog_rt::testing::tokens();
     let root = data.to_path_buf();
     let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root))
@@ -606,6 +718,57 @@ async fn reopen(dir: &Path) -> Value {
     // Node's recovery removes the checkpoint (`clearTurnCheckpoint`): the draft goes once the recovered end is saved.
     until(&handle, "the recovered run's draft goes", async || !has_draft_file(&dir.join("data"))).await;
     observe(&directory, &handle).await
+}
+
+/// The queue cases' next process: the session as opened (Node's read and the restore of its mirror), then as a client's
+/// `thread/resume` drained what it restored (Node's resume, `session-api/lifecycle/resume.mjs:72`).
+async fn reopen_queued(dir: &Path) -> (Value, Value) {
+    let id = ThreadId::from(std::fs::read_to_string(dir.join("id")).unwrap());
+    let rig = Rig::new();
+    let store = real_store(&dir.join("data")).await;
+    let after: OnSend = Arc::new(|_| Box::pin(async { answer("answer after restart") }));
+    let directory = stack(&rig, store, stub(after), &dir.join("work"), REOPEN_AT);
+    let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
+    until(&handle, "the recovery at open", async || handle.recovered()).await;
+    until(&handle, "the recovered run's draft goes", async || !has_draft_file(&dir.join("data"))).await;
+    lock(&REQUESTS).clear();
+    let reopened = queue_observe(&directory, &handle).await;
+    let resume = request("thread/resume", json!({ "threadId": id.as_str(), "window": { "lastItems": 100 } }), "op-resume");
+    handle.request(resume).await.expect("thread/resume");
+    let queued = queued_of(&reopened).len();
+    until(&handle, "the restored queue drains", async || {
+        let view = observe(&directory, &handle).await;
+        !handle.turn_busy() && !busy(&view) && queued_of(&view).is_empty() && (queued == 0 || !lock(&REQUESTS).is_empty())
+    })
+    .await;
+    (reopened, queue_observe(&directory, &handle).await)
+}
+
+/// The data dir of the store last opened in this process: where [`checkpoint_of`] looks.
+static DATA_DIR: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+
+/// Node's `checkpoint` as Rust keeps it: thread `id`'s run drafts under the data dir (`null` for none), `sealed` when one holds
+/// the turn's final reply (the checkpoint's seal).
+fn checkpoint_of(id: &str) -> Value {
+    fn drafts(dir: &Path, id: &str, out: &mut Vec<Value>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                drafts(&path, id, out);
+            } else if path.to_string_lossy().contains(id) && path.file_name().and_then(|n| n.to_str()).and_then(mixdog_store::draft_file::rid_of).is_some() {
+                let text = std::fs::read_to_string(&path).unwrap();
+                out.extend(text.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()));
+                out.push(Value::Null);
+            }
+        }
+    }
+    let data = lock(&DATA_DIR).clone().expect("a store is open");
+    let mut bodies = Vec::new();
+    drafts(&data, id, &mut bodies);
+    if bodies.is_empty() {
+        return Value::Null;
+    }
+    json!({ "sealed": bodies.iter().any(|body| body.get("sealed").is_some()) })
 }
 
 /// Whether a run's draft file is under `data`.
@@ -796,14 +959,51 @@ fn node_step(step: &Value) -> Value {
     let mut seen = Vec::new();
     let rows = named(&json!(node_rows(&step["view"]["items"])), &mut seen);
     let disk = named(&json!(node_disk(&step["disk"]["messages"])), &mut seen);
-    json!({ "rows": rows, "disk": disk, "usage": step["disk"]["usage"], "busy": !step["stage"].is_null() })
+    let mut out = json!({ "rows": rows, "disk": disk, "usage": step["disk"]["usage"], "busy": !step["stage"].is_null() });
+    if let Some(result) = step.get("result") {
+        out["result"] = result.clone();
+    }
+    // The checkpoint's seal; its `turnMessages` (the turn's messages it copies) are compared as the rows and the disk.
+    if let Some(checkpoint) = step.get("checkpoint") {
+        out["checkpoint"] = if checkpoint.is_null() { Value::Null } else { json!({ "sealed": checkpoint["sealed"] }) };
+    }
+    // The queue cases: the queue the user is shown (the desktop's projection of it) and what each request gave the model.
+    if let Some(queued) = step.get("queued").and_then(Value::as_array) {
+        out["queued"] = json!(queued.iter().map(|row| queued_row(row, &row["id"])).collect::<Vec<_>>());
+        out["requests"] = step["requests"].clone();
+    }
+    out
+}
+
+/// `view` with the turn's answer, for a step that records Node's `result`.
+fn with_result(mut view: Value, step: &Value) -> Value {
+    if step.get("result").is_some() {
+        view["result"] = turn_result(&view);
+    }
+    view
+}
+
+/// A queued row as compared: Node's id is the submission's, which Rust's row carries as `clientSubmissionId` (its own `id`
+/// being the queue entry's).
+fn queued_row(row: &Value, submission: &Value) -> Value {
+    json!({ "id": submission, "text": row["text"], "mode": row["mode"], "priority": row["priority"] })
 }
 
 fn rust_step(view: &Value) -> Value {
     let mut seen = Vec::new();
     let rows = named(&json!(rust_rows(&view["items"])), &mut seen);
     let disk = named(&json!(rust_disk(&view["disk"])), &mut seen);
-    json!({ "rows": rows, "disk": disk, "usage": view["usage"], "busy": busy(view) })
+    let mut out = json!({ "rows": rows, "disk": disk, "usage": view["usage"], "busy": busy(view) });
+    for key in ["result", "checkpoint"] {
+        if let Some(value) = view.get(key) {
+            out[key] = value.clone();
+        }
+    }
+    if let Some(requests) = view.get("requests") {
+        out["queued"] = json!(queued_of(view).iter().map(|row| queued_row(row, &row["clientSubmissionId"])).collect::<Vec<_>>());
+        out["requests"] = requests.clone();
+    }
+    out
 }
 
 fn same(case: &str, step: &Value, got: Value) {
@@ -900,7 +1100,7 @@ async fn held_save(name: &str) {
     ask(&handle, "first task", "op-1").await.expect("turn/start");
     // Settled, not only shown as ended: the next turn is otherwise queued behind its settlement.
     until(&handle, "the first turn settles", async || !handle.turn_busy() && settled(&observe(&directory, &handle).await, rows_of(&steps[0]))).await;
-    same(name, &steps[0], rust_step(&observe(&directory, &handle).await));
+    same(name, &steps[0], rust_step(&with_result(observe(&directory, &handle).await, &steps[0])));
 
     let refused = ask(&handle, "second task", "op-2").await.expect_err("refused while the first turn is not saved");
     let mixdog_core_api::CoreError::DomainError { code, message, .. } = &refused else { panic!("{refused:?}") };
@@ -916,7 +1116,7 @@ async fn held_save(name: &str) {
     ask(&handle, "second task", "op-3").await.expect("turn/start");
     until(&handle, "the second turn ends", async || settled(&observe(&directory, &handle).await, rows_of(&steps[2]))).await;
     assert_eq!(provider.sends.load(Ordering::SeqCst), steps[2]["sends"].as_u64().unwrap() as usize);
-    same(name, &steps[2], rust_step(&observe(&directory, &handle).await));
+    same(name, &steps[2], rust_step(&with_result(observe(&directory, &handle).await, &steps[2])));
     no_diffs();
     if name != "save-failure" {
         return;
@@ -990,40 +1190,90 @@ async fn a_held_turn_forks_as_node_forks_it() {
     no_diffs();
 }
 
+/// A crash child running case `name` in `dir` (this test binary, `crash_child` alone).
+fn spawn_child(name: &str, dir: &Path) -> tokio::process::Child {
+    let child = format!("{}::crash_child", module_path!().trim_start_matches("mixdog_core::"));
+    // Its output goes to a file in `dir`, not the runner's pipe: a process it started and the kill left behind would hold the
+    // pipe open and the runner would wait on it.
+    let log = std::fs::File::create(dir.join("child.log")).expect("the child's log");
+    tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &child, "--nocapture", "--test-threads=1"])
+        .env("TD_CASE", name)
+        .env("TD_DIR", dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone().expect("the child's log"))
+        .stderr(log)
+        .kill_on_drop(true)
+        .spawn()
+        .expect("the child runs")
+}
+
+/// The child's exit within `deadline`; past it the child is killed and the error names the case.
+async fn wait_child(name: &str, process: &mut tokio::process::Child, deadline: Duration) -> Result<std::process::ExitStatus, String> {
+    match tokio::time::timeout(deadline, process.wait()).await {
+        Ok(status) => Ok(status.expect("the child's status")),
+        Err(_) => {
+            process.kill().await.expect("the expired child is killed");
+            Err(format!("{name}: the crash child did not end within {} s", deadline.as_secs()))
+        }
+    }
+}
+
+/// A child that never reaches its kill point is killed at the parent's deadline, and the failure names its case.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_past_its_deadline_is_killed_and_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut process = spawn_child("deadline-probe", dir.path());
+    let expired = wait_child("deadline-probe", &mut process, Duration::from_secs(5)).await.expect_err("the probe never ends by itself");
+    assert_eq!(expired, "deadline-probe: the crash child did not end within 5 s");
+    assert!(process.try_wait().expect("the child's status").is_some(), "the child is dead");
+}
+
 /// Each crash point: the child process runs the turn until the store's crash hook kills it, then the thread is opened (the
 /// recovery at open) and read, and opened and read again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn crashes_replay_as_node_recovers() {
-    let child = format!("{}::crash_child", module_path!().trim_start_matches("mixdog_core::"));
+    crash_replays(|name| !name.starts_with("crash-queued-")).await;
+}
+
+/// The queue cases: prompts queued while a turn's request is on the wire, killed before the turn takes them, while the request
+/// that took them is on the wire, and after it answered (the draft file removed).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "the desktop queue's delivery shape (Node's TUI steers each prompt, the core merges them) awaits the decision in D:\\mixdog-build\\tmp\\w12\\blocker-d.md"]
+async fn queued_prompts_replay_as_node_keeps_them_across_a_kill() {
+    crash_replays(|name| name.starts_with("crash-queued-")).await;
+}
+
+async fn crash_replays(wanted: fn(&str) -> bool) {
     let only = std::env::var("TD_ONLY").ok();
     for case in cases().into_iter().filter(|case| case["crash"] == true) {
         let name = case["name"].as_str().unwrap().to_owned();
-        if only.as_ref().is_some_and(|only| *only != name) {
+        if !wanted(&name) || only.as_ref().is_some_and(|only| *only != name) {
             continue;
         }
         let steps = case["steps"].as_array().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let mut process = tokio::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", &child, "--nocapture", "--test-threads=1"])
-            .env("TD_CASE", &name)
-            .env("TD_DIR", dir.path())
-            .kill_on_drop(true)
-            .spawn()
-            .expect("the child runs");
+        let mut process = spawn_child(&name, dir.path());
         // The child's own 60 s bound starts only once its turn runs: this one covers its start too.
-        let status = match tokio::time::timeout(Duration::from_secs(120), process.wait()).await {
-            Ok(status) => status.expect("the child's status"),
-            Err(_) => {
-                let _ = process.kill().await;
-                panic!("{name}: the crash child did not end within 120 s");
-            }
-        };
+        let status = wait_child(&name, &mut process, Duration::from_secs(120)).await.unwrap_or_else(|expired| panic!("{expired}"));
         assert!(!status.success(), "{name}: the child ended normally");
         // Written just before the kill: the child died at its point, not elsewhere.
-        assert!(dir.path().join("sends").exists(), "{name}: the child was not killed at its point ({status})");
+        assert!(
+            dir.path().join("sends").exists(),
+            "{name}: the child was not killed at its point ({status}); its output:\n{}",
+            std::fs::read_to_string(dir.path().join("child.log")).unwrap_or_default()
+        );
         let killed = steps.iter().position(|step| step["step"] == "killed").unwrap();
         // Steps before the kill are what a client was shown in the owning process (`resume-held`: the live session it resumed).
+        // The queue cases: each step the owning process wrote before it died.
+        let queued = name.starts_with("crash-queued-");
         for step in &steps[..killed] {
+            if queued {
+                let file = dir.path().join(format!("step-{}.json", step["step"].as_str().unwrap()));
+                let seen: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap_or_else(|_| panic!("{name}: no {}", file.display()))).unwrap();
+                same(&name, step, rust_step(&seen));
+                continue;
+            }
             let resumed: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("resumed.json")).unwrap()).unwrap();
             let mut shown = step.clone();
             shown["view"]["items"] = step["live"]["items"].clone();
@@ -1036,6 +1286,12 @@ async fn crashes_replay_as_node_recovers() {
         let at_kill: bool = std::fs::read_to_string(dir.path().join("secret")).unwrap().parse().unwrap();
         if let Some(want) = secret(&steps[killed]) {
             assert_eq!(at_kill, want, "{name}: a file holds the value at the kill");
+        }
+        if queued {
+            let (reopened, drained) = reopen_queued(dir.path()).await;
+            same(&name, &steps[killed + 1], rust_step(&reopened));
+            same(&name, &steps[killed + 2], rust_step(&drained));
+            continue;
         }
         for step in &steps[killed + 1..killed + 3] {
             same(&name, step, rust_step(&reopen(dir.path()).await));
