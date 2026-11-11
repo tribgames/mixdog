@@ -50,13 +50,8 @@ const oauthProvider = () => {
 const prebuiltBody = Object.freeze({ model: 'gpt-5.6-sol', instructions: 'fixture', input: [], tools: [], stream: true });
 // transportTiming.*Ms are performance.now() durations (the real clock, not the virtual one): written as a marker, keys kept.
 const maskTiming = (r) => (r && typeof r === 'object' && r.transportTiming ? { ...r, transportTiming: Object.fromEntries(Object.entries(r.transportTiming).map(([k, v]) => [k, /Ms$/.test(k) && typeof v === 'number' ? '<ms, real clock>' : v])) } : r);
-const attempt = async (promise) => {
-  try {
-    return { result: maskTiming(await promise) };
-  } catch (error) {
-    return { error };
-  }
-};
+// Every send's own retry sleeps run on the virtual clock (no sleep function is injected): the clock moves to each armed retry sleep, a recorded step, until the send ends.
+const attempt = (promise) => rec.clock.followRetries(promise.then((result) => ({ result: maskTiming(result) }), (error) => ({ error })));
 
 const world = await rec.wsWorld();
 const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
@@ -75,21 +70,25 @@ function serve(net, { wsPlans = [dropAlways], refusals = [], http = [] }) {
       if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
     },
   });
-  net.reply = (record, n) => {
+  let answered = 0;
+  net.reply = (record) => {
+    // The provider's incidental background catalog refresh (GET .../models) races the WS events inside the product: it is answered with 404 and recorded in `requests`, but it is neither an
+    // event of the ordered trace nor counted in the scripted HTTP answers (`n` counts the sends' own HTTP requests only).
+    if (record.method === 'GET' && /\/models(\?|$)/.test(record.path)) return { status: 404, contentType: 'application/json', body: '{}' };
+    const n = ++answered;
     world.note({ event: 'http-request', n, method: record.method, path: record.path, headers: record.headers, body: record.body });
     const answer = (typeof http === 'function' ? http(record, n) : http[Math.min(n - 1, http.length - 1)]) ?? { status: 404, contentType: 'application/json', body: '{}' };
     world.note({ event: 'http-response', n, status: answer.status ?? 200, headers: answer.headers ?? [], body: answer.body });
     return answer;
   };
 }
-const sleeper = (delays) => async (ms) => { delays.push(ms); world.note({ event: 'sleep-requested', ms }); };
-// The HTTP fallback's own retry sleep is its `_sleepFn` argument (the product passes none in production): the wrapper hands it the recording sleeper, like the WS wrapper.
-const httpViaSleeper = (delays) => (args) => sendViaHttpSse({ ...args, _sleepFn: sleeper(delays) });
-const wsViaSleeper = (delays) => (args) => sendViaWebSocket({ ...args, _sleepFn: sleeper(delays), _sendSpanTraceFn: () => {}, _agentTraceFn: () => {} });
+// The provider's default senders are used (no `_sendViaWebSocketFn` / `_sendViaHttpSseFn` / `_sleepFn` seam): both transports go through the loopback WebSocket / HTTP endpoint.
+const httpViaSleeper = () => undefined;
+const wsViaSleeper = () => undefined;
 const finish = async (out, delays) => {
   for (const conn of world.conns) conn.close(1000, 'recorder-end');
   await world.until((trace) => trace.filter((e) => e.event === 'closed').length >= trace.filter((e) => e.event === 'open').length, 'all sockets closed');
-  return { ...out, delaysMs: delays, events: world.trace.map((e) => ({ ...e })) };
+  return { ...out, events: world.trace.map((e) => ({ ...e })) };
 };
 
 for (const type of ['response.reasoning_text.delta', 'response.reasoning_summary_text.delta', 'response.reasoning.summary.delta']) {
@@ -99,7 +98,6 @@ for (const type of ['response.reasoning_text.delta', 'response.reasoning_summary
     const out = await attempt(sendViaWebSocket({
       auth: { access_token: 'fixture-token' }, body: prebuiltBody, useModel: prebuiltBody.model, poolKey: 'oauth-reasoning-retry', cacheKey: 'oauth-reasoning-retry', forceFresh: true,
       onStreamDelta: (kind) => world.note({ event: 'progress', kind }), onTextDelta: (delta) => world.note({ event: 'text', chunk: delta }),
-      _sleepFn: sleeper(delays), _sendSpanTraceFn: () => {}, _agentTraceFn: () => {},
     }));
     return finish(out, delays);
   }));
@@ -146,21 +144,29 @@ for (const authRetry of [false, true]) {
     }));
   }
 }
-// The two cancelled cases stay on the seams: the abort comes from the caller, not from the wire.
+// The two cancelled cases over the socket: every WS connection is dropped (1006) (after an upgrade refusal 401 in the auth-recovery variant), the HTTP fallback request is accepted and held open by
+// the endpoint, and the caller aborts when that request has arrived (the endpoint's reply callback fires the caller's AbortController). The sticky second send follows with no abort.
 for (const authRetry of [false, true]) {
-  await rec.run(`http-cancelled-after-ws-fallback${authRetry ? '-and-auth-recovery' : ''}`, `${SRC}:163`, { authRetry, httpErrorFields: { name: 'AbortError' }, expectedClassification: 'permanent' }, () => withEnv(async () => {
+  await rec.run(`http-cancelled-after-ws-fallback${authRetry ? '-and-auth-recovery' : ''}`, `${SRC}:163`, { authRetry, connections: [authRetry ? 'upgrade refused 401 first, then every connection dropped (1006)' : 'every connection dropped (1006)'], http: ['send 1: the endpoint holds the response open; the caller aborts when the request has arrived', 'send 2: completed http-ok'], expectedClassification: 'permanent' }, ({ net }) => withEnv(async () => {
+    const controller = new AbortController();
+    const abortReason = Object.assign(new Error('caller cancelled'), { name: 'AbortError' });
+    let phase = 'cancel';
+    serve(net, { refusals: authRetry ? [{ status: 401, headers: [['content-type', 'application/json']], body: '{"error":{"message":"expired auth"}}' }] : [], http: () => {
+      if (phase === 'ok') return { status: 200, body: sse(completed('resp_http_ok', 'http-ok')) };
+      controller.abort(abortReason);
+      return { status: 200, chunks: [], hold: true };
+    } });
     const provider = oauthProvider();
-    const wsError = Object.assign(new Error('WS disconnected'), { wsCloseCode: 1006, code: 'ECONNRESET', retryClassifier: 'ws_1006', wsRetriesExhausted: true });
-    const httpError = Object.assign(new Error('current HTTP failure'), { name: 'AbortError' });
-    let wsCalls = 0;
-    let httpCalls = 0;
-    const opts = {
-      sessionId: `oauth-current-http-${authRetry}-cancelled`, _prebuiltBody: prebuiltBody,
-      _sendViaWebSocketFn: async () => { wsCalls += 1; if (authRetry && wsCalls === 1) throw Object.assign(new Error('expired auth'), { httpStatus: 401 }); throw wsError; },
-      _sendViaHttpSseFn: async () => { httpCalls += 1; throw httpError; },
-    };
-    const failed = await attempt(provider.send([], prebuiltBody.model, [], opts));
-    return { ...failed, classification: classifyError(failed.error), wsCalls, httpCalls };
+    const sessionId = `oauth-current-http-${authRetry}-cancelled`;
+    world.note({ event: 'send-start', n: 1 });
+    const failed = await attempt(provider.send([], prebuiltBody.model, [], { sessionId, _prebuiltBody: prebuiltBody, signal: controller.signal }));
+    world.note({ event: 'send-result', n: 1, ok: !failed.error });
+    await net.records.find((r) => r.hold !== false && r.path.includes('responses') && r.whenClientClosed)?.whenClientClosed;
+    phase = 'ok';
+    world.note({ event: 'send-start', n: 2 });
+    const next = await attempt(provider.send([], prebuiltBody.model, [], { sessionId, _prebuiltBody: prebuiltBody }));
+    world.note({ event: 'send-result', n: 2, ok: !next.error });
+    return finish({ failed, classification: failed.error ? classifyError(failed.error) : undefined, rejectedWithTheCallerReason: failed.error === abortReason, next }, []);
   }));
 }
 await rec.run('handshake-404-falls-back-to-http-once', `${SRC}:211`, { connections: 'upgrade refused 404', http: 'completed http-ok' }, ({ net }) => withEnv(async () => {
