@@ -167,7 +167,9 @@ impl OpWatch for Watch {
         self.0.push(Some(scope), one("connect", op_of(op)));
         if self.0.scripted_57() && matches!(op, Op::Only(_, true)) {
             self.0.entered.notify_one();
-            self.0.released.notified().await;
+            tokio::time::timeout(Duration::from_secs(30), self.0.released.notified())
+                .await
+                .expect("the test to release the held connect within 30 s");
         }
     }
     fn connected(&self, scope: &str, op: &Op) {
@@ -297,7 +299,15 @@ async fn line_17_named_mcp_reconnect_reaches_peers_as_a_scoped_change() {
     assert_eq!(statuses(&results), *result.get("results"), "line 17: the statuses");
     // The core's surface is the process's one: the peers' own invalidations are not compared (manifest).
     let recorded: Vec<Value> = result.get("events").to_plain().expect("plain").as_array().unwrap().iter().filter(|event| event["runtime"] == "writer" || event.get("invalidatePreSessionToolSurface").is_none()).cloned().collect();
-    assert_eq!(by_runtime(&w.seen.events()), by_runtime(&recorded), "line 17: each runtime's events");
+    let expected = by_runtime(&recorded);
+    let seen = by_runtime(&w.seen.events());
+    // Groups taken in the recorded group order: which runtime connects first is not compared (manifest).
+    let seen: Vec<(String, Vec<Value>)> = expected
+        .iter()
+        .map(|(label, _)| seen.iter().find(|(got, _)| got == label).cloned().unwrap_or((label.clone(), Vec::new())))
+        .chain(seen.iter().filter(|(got, _)| !expected.iter().any(|(label, _)| label == got)).cloned())
+        .collect();
+    assert_eq!(seen, expected, "line 17: each runtime's events");
 }
 
 /// Line 39: enable, disable and a named reconnect run their connects and never start a sign-in.
