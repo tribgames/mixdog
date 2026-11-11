@@ -10,76 +10,76 @@
         "repo": "owner/project",
         "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "actionsInContract": [
-          "issue.close",
-          "issue.comment",
+          "repo.list",
+          "repo.view",
+          "repo.create",
+          "repo.clone",
+          "repo.fork",
+          "issue.list",
+          "issue.view",
           "issue.comments",
           "issue.create",
           "issue.edit",
-          "issue.list",
+          "issue.close",
           "issue.reopen",
-          "issue.view",
-          "notification.list",
-          "notification.read",
-          "pr.checkout",
-          "pr.comment",
-          "pr.comments",
-          "pr.create",
+          "issue.comment",
           "pr.list",
+          "pr.view",
+          "pr.create",
+          "pr.checkout",
           "pr.merge",
           "pr.review",
-          "pr.view",
-          "release.create",
-          "release.edit",
-          "release.list",
-          "release.view",
-          "repo.clone",
-          "repo.create",
-          "repo.fork",
-          "repo.list",
-          "repo.view",
-          "run.cancel",
+          "pr.comment",
+          "pr.comments",
+          "workflow.list",
+          "workflow.run",
           "run.list",
+          "run.view",
           "run.logs",
           "run.rerun",
-          "run.view",
-          "workflow.list",
-          "workflow.run"
+          "run.cancel",
+          "release.list",
+          "release.view",
+          "release.create",
+          "release.edit",
+          "notification.list",
+          "notification.read"
         ],
         "actionsInExamples": [
-          "issue.close",
-          "issue.comment",
+          "repo.list",
+          "repo.view",
+          "repo.create",
+          "repo.fork",
+          "issue.list",
+          "issue.view",
           "issue.comments",
           "issue.create",
           "issue.edit",
-          "issue.list",
+          "issue.close",
           "issue.reopen",
-          "issue.view",
-          "notification.list",
-          "notification.read",
-          "pr.checkout",
-          "pr.comment",
-          "pr.comments",
-          "pr.create",
+          "issue.comment",
           "pr.list",
+          "pr.view",
+          "pr.create",
+          "pr.checkout",
           "pr.merge",
           "pr.review",
-          "pr.view",
-          "release.create",
-          "release.edit",
-          "release.list",
-          "release.view",
-          "repo.clone",
-          "repo.create",
-          "repo.fork",
-          "repo.list",
-          "repo.view",
-          "run.cancel",
+          "pr.comment",
+          "pr.comments",
+          "workflow.list",
+          "workflow.run",
           "run.list",
+          "run.view",
           "run.logs",
           "run.rerun",
-          "run.view",
-          "workflow.list",
-          "workflow.run"
+          "run.cancel",
+          "release.list",
+          "release.view",
+          "release.create",
+          "release.edit",
+          "notification.list",
+          "notification.read",
+          "repo.clone"
         ],
         "perAction": [
           {
@@ -97,21 +97,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": true,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -122,10 +118,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -142,21 +136,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -169,10 +159,8 @@
                 "merged": true
               }
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -190,17 +178,9 @@
                   "--description",
                   ""
                 ],
-                "input": null,
-                "mutation": true,
-                "list": null,
                 "json": false,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "hostname",
-                  "json",
-                  "mutation"
-                ]
+                "mutation": true,
+                "hostname": "github.com"
               }
             ],
             "result": {
@@ -209,10 +189,8 @@
               "hostname": "github.com",
               "data": "done"
             },
-            "method": null,
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -232,20 +210,14 @@
                   "-"
                 ],
                 "input": "{}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -258,10 +230,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -278,21 +248,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": true,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -303,10 +269,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -324,21 +288,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -351,10 +311,8 @@
                 "merged": true
               }
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -372,21 +330,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": true,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -397,10 +351,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -422,20 +374,14 @@
                   "-"
                 ],
                 "input": "{\"body\":\"설명\",\"title\":\"새 이슈\"}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -448,10 +394,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -478,20 +422,14 @@
                   "-"
                 ],
                 "input": "{\"labels\":[\"bug\"],\"assignees\":[\"owner\"]}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -504,10 +442,8 @@
                 "merged": true
               }
             },
-            "method": "PATCH",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -528,20 +464,14 @@
                   "-"
                 ],
                 "input": "{\"state\":\"closed\"}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -554,10 +484,8 @@
                 "merged": true
               }
             },
-            "method": "PATCH",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -578,20 +506,14 @@
                   "-"
                 ],
                 "input": "{\"state\":\"open\"}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -604,10 +526,8 @@
                 "merged": true
               }
             },
-            "method": "PATCH",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -629,20 +549,14 @@
                   "-"
                 ],
                 "input": "{\"body\":\"댓글\"}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -655,10 +569,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -675,21 +587,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": true,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -700,10 +608,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -721,21 +627,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -748,10 +650,8 @@
                 "merged": true
               }
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -775,20 +675,14 @@
                   "-"
                 ],
                 "input": "{\"title\":\"PR\",\"base\":\"main\",\"head\":\"topic\",\"draft\":true}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -801,10 +695,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -821,17 +713,9 @@
                   "--repo",
                   "owner/project"
                 ],
-                "input": null,
-                "mutation": true,
-                "list": null,
                 "json": false,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "hostname",
-                  "json",
-                  "mutation"
-                ]
+                "mutation": true,
+                "hostname": "github.com"
               }
             ],
             "result": {
@@ -840,10 +724,8 @@
               "hostname": "github.com",
               "data": "done"
             },
-            "method": null,
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -865,20 +747,14 @@
                   "-"
                 ],
                 "input": "{\"merge_method\":\"merge\",\"sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -891,10 +767,8 @@
                 "merged": true
               }
             },
-            "method": "PUT",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -918,20 +792,14 @@
                   "-"
                 ],
                 "input": "{\"event\":\"REQUEST_CHANGES\",\"body\":\"수정 요청\",\"commit_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -944,10 +812,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -969,20 +835,14 @@
                   "-"
                 ],
                 "input": "{\"body\":\"설명\"}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -995,10 +855,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -1016,21 +874,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": true,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -1041,10 +895,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1061,21 +913,15 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
+                "list": true,
                 "collection": "workflows",
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -1086,10 +932,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1114,20 +958,14 @@
                   "-"
                 ],
                 "input": "{\"ref\":\"main\",\"inputs\":{\"version\":\"1\"}}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -1140,10 +978,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -1160,21 +996,15 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
+                "list": true,
                 "collection": "workflow_runs",
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -1185,10 +1015,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1206,21 +1034,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -1233,10 +1057,8 @@
                 "merged": true
               }
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1255,17 +1077,9 @@
                   "owner/project",
                   "--log-failed"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": null,
                 "json": false,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "hostname",
-                  "json",
-                  "mutation"
-                ]
+                "mutation": false,
+                "hostname": "github.com"
               }
             ],
             "result": {
@@ -1274,10 +1088,8 @@
               "hostname": "github.com",
               "data": "done"
             },
-            "method": null,
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1296,21 +1108,17 @@
                   "--method",
                   "POST"
                 ],
-                "input": null,
-                "mutation": true,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -1323,10 +1131,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -1344,21 +1150,17 @@
                   "--method",
                   "POST"
                 ],
-                "input": null,
-                "mutation": true,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -1371,10 +1173,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -1391,21 +1191,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": true,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -1416,10 +1212,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1437,21 +1231,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -1464,10 +1254,8 @@
                 "merged": true
               }
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1490,20 +1278,14 @@
                   "-"
                 ],
                 "input": "{\"tag_name\":\"v1.0\",\"name\":\"Version 1\",\"draft\":true}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -1516,10 +1298,8 @@
                 "merged": true
               }
             },
-            "method": "POST",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -1541,20 +1321,14 @@
                   "-"
                 ],
                 "input": "{\"draft\":false}",
-                "mutation": true,
-                "list": false,
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -1567,10 +1341,8 @@
                 "merged": true
               }
             },
-            "method": "PATCH",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -1587,21 +1359,17 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": true,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": false
               }
             ],
             "result": {
@@ -1612,10 +1380,8 @@
               "page": 1,
               "hasMore": false
             },
-            "method": "GET",
             "mutatesByContract": false,
-            "mutationToolByClassifier": false,
-            "commandCount": 1
+            "mutationToolByClassifier": false
           },
           {
             "input": {
@@ -1633,21 +1399,17 @@
                   "--method",
                   "PATCH"
                 ],
-                "input": null,
-                "mutation": true,
-                "list": false,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "list": false,
+                "collection": {
+                  "$exact": "undefined"
+                },
+                "page": 1,
+                "limit": 30,
+                "mutation": true
               }
             ],
             "result": {
@@ -1660,10 +1422,8 @@
                 "merged": true
               }
             },
-            "method": "PATCH",
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           },
           {
             "input": {
@@ -1679,17 +1439,9 @@
                   "owner/project",
                   "<tmp>\\github-XXXXXX\\new-repo"
                 ],
-                "input": null,
-                "mutation": true,
-                "list": null,
                 "json": false,
-                "collection": null,
-                "keys": [
-                  "args",
-                  "hostname",
-                  "json",
-                  "mutation"
-                ]
+                "mutation": true,
+                "hostname": "github.com"
               }
             ],
             "result": {
@@ -1698,10 +1450,8 @@
               "hostname": "github.com",
               "data": "done"
             },
-            "method": null,
             "mutatesByContract": true,
-            "mutationToolByClassifier": true,
-            "commandCount": 1
+            "mutationToolByClassifier": true
           }
         ]
       }
@@ -1717,9 +1467,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "A supported GitHub action is required.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1729,9 +1480,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "repo must be an explicit owner/name, not a URL or command.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1741,9 +1493,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "repo must be an explicit owner/name, not a URL or command.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1753,9 +1506,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "repo must be an explicit owner/name, not a URL or command.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1765,9 +1519,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "hostname must be a GitHub or GitHub Enterprise DNS name.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1779,9 +1534,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "Unsupported field for GitHub issue.create.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1791,9 +1547,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "number is required for issue.close.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1804,9 +1561,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "number must be a positive integer no greater than 9007199254740991.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1817,9 +1575,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "limit must be a positive integer no greater than 100.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1834,9 +1593,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "labels must be a non-empty string of at most 100 characters.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1848,9 +1608,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "Invalid ref.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1865,9 +1626,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "workflow input must be a string of at most 10000 characters.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1878,9 +1640,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "sha is required for pr.merge.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1894,9 +1657,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "body must be a non-empty string of at most 60000 characters.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1906,9 +1670,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "repo is required for repo.create.",
-              "code": null
+              "props": {}
             }
           },
           {
@@ -1919,9 +1684,10 @@
             },
             "commands": [],
             "error": {
+              "$exact": "error",
               "name": "TypeError",
               "message": "Clone destination must be an explicit absolute new directory.",
-              "code": null
+              "props": {}
             }
           }
         ],
@@ -1945,22 +1711,15 @@
             "-"
           ],
           "input": "{\"body\":\"`whoami`; $(Remove-Item x)\\n한글 & 제목\",\"title\":\"--help\"}",
-          "mutation": true,
-          "list": false,
           "json": true,
-          "collection": null,
-          "keys": [
-            "args",
-            "collection",
-            "input",
-            "json",
-            "limit",
-            "list",
-            "mutation",
-            "page"
-          ]
+          "list": false,
+          "collection": {
+            "$exact": "undefined"
+          },
+          "page": 1,
+          "limit": 30,
+          "mutation": true
         },
-        "argsIncludeBody": false,
         "inputParsed": {
           "body": "`whoami`; $(Remove-Item x)\n한글 & 제목",
           "title": "--help"
@@ -1989,21 +1748,15 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
+                "list": true,
                 "collection": "workflow_runs",
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "page": 2,
+                "limit": 3,
+                "mutation": false
               }
             ],
             "result": {
@@ -2037,21 +1790,15 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
+                "list": true,
                 "collection": "workflow_runs",
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "page": 2,
+                "limit": 3,
+                "mutation": false
               }
             ],
             "result": {
@@ -2085,21 +1832,15 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
+                "list": true,
                 "collection": "workflow_runs",
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "page": 2,
+                "limit": 3,
+                "mutation": false
               }
             ],
             "result": {
@@ -2133,21 +1874,15 @@
                   "--method",
                   "GET"
                 ],
-                "input": null,
-                "mutation": false,
-                "list": true,
+                "input": {
+                  "$exact": "undefined"
+                },
                 "json": true,
+                "list": true,
                 "collection": "workflow_runs",
-                "keys": [
-                  "args",
-                  "collection",
-                  "input",
-                  "json",
-                  "limit",
-                  "list",
-                  "mutation",
-                  "page"
-                ]
+                "page": 2,
+                "limit": 3,
+                "mutation": false
               }
             ],
             "result": {
@@ -2166,9 +1901,10 @@
         ],
         "unfilteredArgs1": "repos/owner/project/actions/runs?per_page=30&page=1",
         "unsupportedStateField": {
+          "$exact": "error",
           "name": "TypeError",
           "message": "Unsupported field for GitHub run.list.",
-          "code": null
+          "props": {}
         }
       }
     },
@@ -2189,17 +1925,9 @@
                 "--json",
                 "nameWithOwner"
               ],
-              "input": null,
-              "mutation": false,
-              "list": null,
+              "hostname": "github.com",
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "hostname",
-                "json",
-                "mutation"
-              ]
+              "mutation": false
             },
             {
               "args": [
@@ -2213,20 +1941,14 @@
                 "-"
               ],
               "input": "{\"title\":\"Bound\"}",
-              "mutation": true,
-              "list": false,
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": true
             }
           ],
           "result": {
@@ -2260,21 +1982,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": true,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": true,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 3,
+              "limit": 2,
+              "mutation": false
             }
           ],
           "result": {
@@ -2296,9 +2014,10 @@
         ],
         "first": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
             "message": "connection lost",
-            "code": null
+            "props": {}
           }
         },
         "second": {
@@ -2321,16 +2040,18 @@
         "destination": "<tmp>\\github-protected-XXXXXX",
         "existing": {
           "rejected": {
+            "$exact": "error",
             "name": "TypeError",
             "message": "Clone destination already exists. Choose a new directory; existing files are never removed.",
-            "code": null
+            "props": {}
           }
         },
         "cancelled": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
             "message": "GitHub request cancelled before dispatch.",
-            "code": null
+            "props": {}
           }
         },
         "calls": 0
@@ -2359,26 +2080,21 @@
                 "-"
               ],
               "input": "{\"merge_method\":\"merge\",\"sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
-              "mutation": true,
-              "list": false,
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": true
             }
           ],
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "Head changed",
-            "code": null
+            "props": {}
           }
         },
         "unreadable": {
@@ -2400,26 +2116,21 @@
                 "-"
               ],
               "input": "{\"title\":\"X\"}",
-              "mutation": true,
-              "list": false,
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": true
             }
           ],
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "The write completed, but its response was unreadable. Inspect remote state; do not replay the write.",
-            "code": null
+            "props": {}
           }
         }
       }
@@ -2446,6 +2157,9 @@
           "rest": {
             "action": "run.logs",
             "repo": "owner/project",
+            "data": {
+              "$exact": "undefined"
+            },
             "raw": "unavailable (no session archive)",
             "shown": "lines 1-1 of 1",
             "omitted": "lines before 1 are in raw; failed:true refetches only failed jobs"
@@ -2583,21 +2297,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 672,
@@ -2729,21 +2439,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 145,
@@ -2765,21 +2471,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": true,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": true,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 2,
+              "mutation": false
             }
           ],
           "textBytes": 591,
@@ -2888,20 +2590,14 @@
                 "-"
               ],
               "input": "{\"merge_method\":\"merge\",\"sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
-              "mutation": true,
-              "list": false,
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": true
             }
           ],
           "textBytes": 135,
@@ -2920,7 +2616,9 @@
         "calls": [
           {
             "action": "issue.list",
-            "collection": null,
+            "collection": {
+              "$exact": "undefined"
+            },
             "items": [
               {
                 "user": {
@@ -2980,7 +2678,9 @@
           },
           {
             "action": "issue.list",
-            "collection": null,
+            "collection": {
+              "$exact": "undefined"
+            },
             "items": [
               {
                 "number": 2,
@@ -2999,13 +2699,17 @@
             ],
             "extra": {},
             "text": "{\"action\":\"issue.list\",\"repo\":\"owner/project\",\"data\":[{\"number\":2,\"title\":\"T\",\"state\":\"closed\",\"author\":\"alice\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": null,
+            "rawFile": {
+              "$exact": "undefined"
+            },
             "rawFileEqualsItems": null,
             "hasRaw": false
           },
           {
             "action": "pr.list",
-            "collection": null,
+            "collection": {
+              "$exact": "undefined"
+            },
             "items": [
               {
                 "user": {
@@ -3223,7 +2927,9 @@
           },
           {
             "action": "repo.list",
-            "collection": null,
+            "collection": {
+              "$exact": "undefined"
+            },
             "items": [
               {
                 "full_name": "o/r",
@@ -3236,7 +2942,9 @@
             ],
             "extra": {},
             "text": "{\"action\":\"repo.list\",\"repo\":\"owner/project\",\"data\":[{\"name\":\"o/r\",\"description\":\"d\",\"visibility\":\"private\",\"language\":\"JS\",\"updated\":\"2026-09-01\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": null,
+            "rawFile": {
+              "$exact": "undefined"
+            },
             "rawFileEqualsItems": null,
             "hasRaw": false
           },
@@ -3264,13 +2972,17 @@
             ],
             "extra": {},
             "text": "{\"action\":\"run.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":8,\"name\":\"Fix\",\"workflow\":\"CI\",\"status\":\"completed\",\"conclusion\":\"failure\",\"branch\":\"main\",\"event\":\"push\",\"actor\":\"alice\",\"updated\":\"2026-10-03\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": null,
+            "rawFile": {
+              "$exact": "undefined"
+            },
             "rawFileEqualsItems": null,
             "hasRaw": false
           },
           {
             "action": "release.list",
-            "collection": null,
+            "collection": {
+              "$exact": "undefined"
+            },
             "items": [
               {
                 "id": 5,
@@ -3290,13 +3002,17 @@
             ],
             "extra": {},
             "text": "{\"action\":\"release.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":5,\"tag\":\"v1\",\"name\":\"One\",\"prerelease\":true,\"author\":\"alice\",\"published\":\"2026-10-04\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": null,
+            "rawFile": {
+              "$exact": "undefined"
+            },
             "rawFileEqualsItems": null,
             "hasRaw": false
           },
           {
             "action": "notification.list",
-            "collection": null,
+            "collection": {
+              "$exact": "undefined"
+            },
             "items": [
               {
                 "id": "9",
@@ -3316,7 +3032,9 @@
             ],
             "extra": {},
             "text": "{\"action\":\"notification.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":\"9\",\"unread\":true,\"reason\":\"mention\",\"type\":\"PullRequest\",\"title\":\"P\",\"number\":12,\"repo\":\"o/r\",\"updated\":\"2026-10-05\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": null,
+            "rawFile": {
+              "$exact": "undefined"
+            },
             "rawFileEqualsItems": null,
             "hasRaw": false
           },
@@ -3334,7 +3052,9 @@
             ],
             "extra": {},
             "text": "{\"action\":\"workflow.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":3,\"name\":\"CI\",\"path\":\".github/workflows/ci.yml\",\"state\":\"active\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": null,
+            "rawFile": {
+              "$exact": "undefined"
+            },
             "rawFileEqualsItems": null,
             "hasRaw": false
           }
@@ -3355,21 +3075,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 507,
@@ -3484,21 +3200,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 2294,
@@ -3673,21 +3385,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 576,
@@ -3775,21 +3483,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 275,
@@ -3841,21 +3545,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 111,
@@ -3881,21 +3581,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": true,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": true,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 138,
@@ -3916,21 +3612,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": true,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": true,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 464,
@@ -3973,21 +3665,17 @@
                 "--method",
                 "GET"
               ],
-              "input": null,
-              "mutation": false,
-              "list": false,
+              "input": {
+                "$exact": "undefined"
+              },
               "json": true,
-              "collection": null,
-              "keys": [
-                "args",
-                "collection",
-                "input",
-                "json",
-                "limit",
-                "list",
-                "mutation",
-                "page"
-              ]
+              "list": false,
+              "collection": {
+                "$exact": "undefined"
+              },
+              "page": 1,
+              "limit": 30,
+              "mutation": false
             }
           ],
           "textBytes": 10200,
@@ -4004,16 +3692,18 @@
       "observed": {
         "reviewWithoutEvent": {
           "threw": {
+            "$exact": "error",
             "name": "TypeError",
             "message": "event is required for pr.review.",
-            "code": null
+            "props": {}
           }
         },
         "mergeBranchName": {
           "threw": {
+            "$exact": "error",
             "name": "TypeError",
             "message": "sha must be a full commit hash.",
-            "code": null
+            "props": {}
           }
         },
         "approve": {
@@ -4029,20 +3719,14 @@
               "-"
             ],
             "input": "{\"event\":\"APPROVE\",\"body\":\"\",\"commit_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
-            "mutation": true,
-            "list": false,
             "json": true,
-            "collection": null,
-            "keys": [
-              "args",
-              "collection",
-              "input",
-              "json",
-              "limit",
-              "list",
-              "mutation",
-              "page"
-            ]
+            "list": false,
+            "collection": {
+              "$exact": "undefined"
+            },
+            "page": 1,
+            "limit": 30,
+            "mutation": true
           },
           "commitId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
@@ -4064,9 +3748,15 @@
           },
           {
             "rejected": {
+              "$exact": "error",
               "name": "Error",
               "message": "EEXIST: file already exists, mkdir '<tmp>\\github-clone-race-XXXXXX\\clone'",
-              "code": "EEXIST"
+              "code": "EEXIST",
+              "props": {
+                "errno": -4075,
+                "syscall": "mkdir",
+                "path": "<tmp>\\github-clone-race-XXXXXX\\clone"
+              }
             }
           }
         ]
