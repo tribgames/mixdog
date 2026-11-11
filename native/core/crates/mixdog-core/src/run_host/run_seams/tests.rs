@@ -54,12 +54,16 @@ fn header(value: Value) -> Header {
     value.as_object().unwrap().clone()
 }
 
-const COMPACT_TWIN: &str = include_str!("../../../../../fixtures/desktop/settings/run-compact-twin.json");
+// Read at run time: an `include_str!` put the 0.8 MB recording into every test build of the crate.
+#[allow(clippy::disallowed_methods)] // test fixture loading
+static COMPACT_TWIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/settings/run-compact-twin.json")).unwrap()
+});
 /// Entries per test: each recorded entry builds its own config, agent store and directory, so the replay is split into chunks nextest runs in parallel.
 const COMPACT_CHUNK: usize = 30;
 
 async fn compaction_chunk(chunk: usize) {
-    let twin: Value = serde_json::from_str(COMPACT_TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&COMPACT_TWIN).unwrap();
     let mut differ = Vec::new();
     let mut ran = 0;
     for (index, entry) in twin["entries"].as_array().unwrap().iter().enumerate().skip(chunk * COMPACT_CHUNK).take(COMPACT_CHUNK) {
@@ -133,7 +137,7 @@ mixdog_rt::replay_chunks!(COMPACT_TESTS, #[tokio::test] async compaction_chunk; 
 /// Every recorded entry belongs to one chunk test and every chunk test has recorded entries.
 #[test]
 fn every_recorded_compaction_entry_has_its_chunk_test() {
-    let twin: Value = serde_json::from_str(COMPACT_TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&COMPACT_TWIN).unwrap();
     mixdog_rt::testing::assert_chunks_registered(COMPACT_TESTS, twin["entries"].as_array().unwrap().len(), COMPACT_CHUNK);
 }
 

@@ -5,8 +5,11 @@
 //! no `#[allow]`. Every function panics with the path in the message when the operation fails,
 //! because a fixture that cannot be written or read is a failed test, not a value to handle.
 
+pub mod exact;
 mod fs;
 mod process;
+
+pub use exact::Exact;
 
 pub use fs::canonical;
 pub use fs::create_dir;

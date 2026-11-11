@@ -194,7 +194,7 @@ impl HttpSend for Offline {
     }
 }
 
-async fn empty_pricing() -> Arc<CatalogPricing> {
+pub(crate) async fn empty_pricing() -> Arc<CatalogPricing> {
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let metadata = ModelsDevSource::new(Arc::new(Offline), std::path::PathBuf::from("unused"), io);
@@ -203,7 +203,7 @@ async fn empty_pricing() -> Arc<CatalogPricing> {
 
 /// The usage rows the accounting wrote, in the shape Node's ledger takes them.
 #[derive(Default)]
-struct Rows(Mutex<Vec<Value>>);
+pub(crate) struct Rows(pub(crate) Mutex<Vec<Value>>);
 
 #[async_trait]
 impl UsageSink for Rows {

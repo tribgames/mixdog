@@ -79,7 +79,11 @@ mod tests {
 
     use super::*;
 
-    const TWIN: &str = include_str!("../../../../fixtures/quota-usable/quota-usable-twin.json");
+    // Read at run time: an `include_str!` put the 1.3 MB recording into every test build of the crate.
+    #[allow(clippy::disallowed_methods)] // test fixture loading
+    static TWIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/quota-usable/quota-usable-twin.json")).unwrap()
+    });
 
     /// Answers the one streamed request it is given and keeps what it was asked.
     struct Pc {
@@ -151,7 +155,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_exchange_and_the_disconnected_pc_read_as_nodes_model_proxy_channel_does() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["proxy"].as_array().unwrap();
         assert!(cases.len() > 70);
         let mut skipped = BTreeSet::new();

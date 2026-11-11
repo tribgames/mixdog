@@ -442,6 +442,8 @@ fn sdk_order(sdk: Sdk, defaults: &[String], headers: Vec<(String, String)>) -> V
             _ => own.push((name, value)),
         }
     }
+    // The client's `defaultHeaders` stand in the order the client was given them, wherever the codec wrote them.
+    client.sort_by_key(|(name, _)| defaults.iter().position(|d| d == name));
     build_headers([base, auth, client, body, own])
 }
 
