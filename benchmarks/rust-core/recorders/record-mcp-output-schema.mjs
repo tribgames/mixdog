@@ -13,10 +13,12 @@
 //
 // Output: native/core/fixtures/mcp-output-schema/golden.json (+ MANIFEST.json). With --only, that case is printed and
 // nothing is written.
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
 const sandbox = mkdtempSync(join(tmpdir(), 'mcp-output-schema-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
@@ -33,8 +35,10 @@ const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-mcp-output-schema.mjs';
 const args = parseArgs();
 const tree = resolveTree(args);
-const identity = exactProductIdentity(tree, NODE_COMMIT);
 const only = args.get('only') ?? null;
+// --chain <n>: only a chain of n references, recorded in this process and printed (the band runs, below).
+const chainOnly = args.has('chain') ? Number(args.get('chain')) : null;
+const identity = chainOnly === null ? exactProductIdentity(tree, NODE_COMMIT) : null;
 const client = await importFrom(tree, 'src/runtime/agent/orchestrator/mcp/client.mjs');
 // What the SDK's `Client.callTool` (the one that checks the output schema) settled with, for each call `executeMcpTool`
 // makes: the result as the server sent it once validated (`isError`, `structuredContent`), or the error it threw (code,
@@ -671,9 +675,12 @@ const CASES = [
       ['ifThenElse', 0], ['ifThenElse', 1], ['ifThenElse', 2], ['ifAlone', 0], ['not', 0], ['not', 1],
     ],
   },
-  // Not between about 2500 and 6900 references: there Node's answer depends on how far V8 has optimized Ajv's code by
-  // then (two runs answered a chain of 3000 differently).
-  ...[100, 1000, 10000].map((n) => ({
+  // Run here, after the cases above; the lengths where a chain's answer depends on how far V8 has optimized Ajv's code
+  // are recorded in fresh processes (`FRESH_LENGTHS`).
+  ...[100, 1000, 10000].map(chainCase),
+];
+function chainCase(n) {
+  return {
     name: `a chain of ${n} references`,
     tools: [{ name: 'chain', inputSchema: input, outputSchema: chain(n) }],
     results: {
@@ -684,9 +691,31 @@ const CASES = [
       ],
     },
     calls: [['chain', 0], ['chain', 1], ['chain', 2]],
-  })),
-];
-const cases = CASES.filter((scenario) => !only || scenario.name === only);
+  };
+}
+// Near Ajv's stack limit a chain's answer depends on how far V8 has optimized Ajv's code, so each of these lengths is
+// recorded in FRESH_RUNS processes that run nothing before it (`--chain`), and every distinct outcome is kept: 2110 and
+// 2111 at the edge of validation, 2360, 2440 and 2560 below, inside and above the lengths where compiling varies.
+const FRESH_LENGTHS = [2110, 2111, 2360, 2440, 2560];
+const FRESH_RUNS = 16;
+function recordFresh(n) {
+  const outcomes = new Map();
+  for (let run = 0; run < FRESH_RUNS; run += 1) {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', tree, '--chain', String(n)], {
+      encoding: 'utf8',
+      maxBuffer: 1 << 28,
+      timeout: 120_000,
+    });
+    if (child.status !== 0) throw new Error(`a chain of ${n} in a fresh process ended ${child.status} ${child.error ?? ''}: ${child.stderr}`);
+    const entry = JSON.parse(child.stdout);
+    const outcome = { connect: entry.connect, outputs: entry.outputs };
+    outcomes.set(orderedStringify(outcome), outcome);
+  }
+  const { name, tools, results } = chainCase(n);
+  const keys = [...outcomes.keys()].sort();
+  return { name: `${name} in fresh processes`, n, runs: FRESH_RUNS, tools, results, outcomes: keys.map((key) => outcomes.get(key)) };
+}
+const cases = chainOnly !== null ? [chainCase(chainOnly)] : CASES.filter((scenario) => !only || scenario.name === only);
 if (!cases.length) throw new Error(`--only ${CASES.map((c) => c.name).join(' | ')}, got ${only}`);
 
 async function record(scenario, index) {
@@ -737,11 +766,12 @@ let code = 0;
 try {
   const recorded = [];
   for (const [index, scenario] of cases.entries()) recorded.push(await record(scenario, index));
-  if (only) process.stdout.write(orderedStringify(recorded[0]));
+  if (only || chainOnly !== null) process.stdout.write(orderedStringify(recorded[0]));
   else {
+    const freshProcesses = FRESH_LENGTHS.map(recordFresh);
     const finalDir = join(FIXTURES_ROOT, 'mcp-output-schema');
     const stage = stageSet(finalDir);
-    writeJson(join(stage, 'golden.json'), { domain: 'mcp-output-schema', recorder, cases: recorded });
+    writeJson(join(stage, 'golden.json'), { domain: 'mcp-output-schema', recorder, cases: recorded, freshProcesses });
     writeSetManifest(stage, {
       set: 'mcp-output-schema',
       recorder,
@@ -753,14 +783,12 @@ try {
           'cases["a reference to a remote address is never fetched"]: tools[remote].outputSchema.properties.v.$ref, connect and remote ' +
             'name the per-run listener as http://127.0.0.1:<port>; the replay moves it to a listener of its own',
         ],
-        exclusions: [
-          'a chain of between about 2500 and 6900 references: Node b6f10295a compiles a chain of 1000 and overflows on 10000, and in ' +
-            "between its answer depends on how far V8 has optimized Ajv's code (a fresh process overflows from about 2500-2750, a warmed " +
-            'one from about 6900; two recordings answered a chain of 3000 differently), so no chain in that band is recorded. The core ' +
-            'cuts at 5000 (mixdog-mcp ajv_stack.rs STACK_LIMIT): a compile chain, or a validation path, of more than 5000 references ' +
-            "answers -32602 \"Failed to validate structured content: Maximum call stack size exceeded\", and one of 5000 or fewer validates.",
-        ],
         bounds: [
+          "Ajv's stack: near its limit Node's answer depends on how far V8 has optimized Ajv's code. freshProcesses records chains " +
+            `of ${FRESH_LENGTHS.join(', ')} references, each in ${FRESH_RUNS} processes that ran nothing before it, with every distinct ` +
+            'outcome. The core (mixdog-mcp ajv_stack.rs) answers -32602 "Failed to validate structured content: Maximum call stack size ' +
+            'exceeded" for a validation path of more than 2111 references (VALIDATION_LIMIT) or a compile chain of more than 2460 ' +
+            '(COMPILE_LIMIT); where the fresh processes answered differently it gives one of their answers.',
           'pattern backtracking: V8 has no bound (the recorded repetitions holding a lookaround take Node about a second on 24 ' +
             'characters that fail, each more character doubling it). The core matches with fancy-regex bounded at 10,000,000,000 ' +
             'backtracking steps (mixdog-mcp output_schema.rs BACKTRACK_LIMIT; about 32 such characters, which Node answers in some ' +

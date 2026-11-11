@@ -5,26 +5,31 @@
 //! call per subschema it applies. Two ways reach V8's limit, and Node then answers the call with the SDK's
 //! `Failed to validate structured content: Maximum call stack size exceeded`:
 //! - compiling a chain of references too long, for every structured result, whether or not it reaches the chain
-//!   ([`compile_overflows`]). Where depends on V8's frames, which shrink once Ajv's code is optimized: a fresh process
-//!   overflows from about 2500–2750 references, a warmed one from about 6900, and in between the answer is not
-//!   reproducible (two recordings answered a chain of 3000 differently). Node b6f10295a compiles a chain of 1000 and
-//!   overflows on 10000;
-//! - validating through a reference cycle that consumes nothing of the value (`a` → `b` → `a`, or `allOf: [{"$ref":
-//!   "#"}]`): Ajv's generated code calls itself without end, but only once its evaluation, which skips what its
-//!   short-circuits skip, reaches the cycle ([`validation_overflows`]).
+//!   ([`compile_overflows`]);
+//! - validating through a path of references too long, or through a reference cycle that consumes nothing of the value
+//!   (`a` → `b` → `a`, or `allOf: [{"$ref": "#"}]`): Ajv's generated code calls itself without end, but only once its
+//!   evaluation, which skips what its short-circuits skip, reaches the cycle ([`validation_overflows`]).
 //!
-//! The core's bound is [`STACK_LIMIT`]: a compile chain, or a validation path, of more references than that answers as
-//! Node's overflow. The compile walk is iterative; the validation walk follows Ajv's order recursively, on a thread of
-//! its own, and visits each (subschema, value, mode) once.
+//! Where V8 runs out depends on its frames, which shrink once Ajv's code is optimized. In a Node process that has run
+//! nothing before (`fixtures/mcp-output-schema`, `freshProcesses`, each length run in sixteen fresh processes): a chain of
+//! 2110 references validates and one of 2111 overflows, every time; a chain of 2360 compiles every time, one of 2440
+//! compiles in some processes and overflows in others, and one of 2560 overflows every time. The recording's other
+//! cases, run one after another in one process, compile and validate a chain of 1000 and overflow on one of 10000.
+//!
+//! The core's bounds are [`COMPILE_LIMIT`] and [`VALIDATION_LIMIT`]: a compile chain, or a validation path, of more
+//! references than its bound answers as a fresh Node process's overflow. The compile walk is iterative; the validation
+//! walk follows Ajv's order recursively, on a thread of its own, and visits each (subschema, value, mode) once.
 
 use std::collections::HashMap;
 
 use serde_json::Value;
 
-/// The most references a compile chain, or a validation path, may hold: between the 1000 Node always compiles and the
-/// 10000 it always overflows on (`fixtures/mcp-output-schema`, "a chain of … references"), inside the band where Node's
-/// own answer depends on V8's optimization (about 2500–6900).
-pub(crate) const STACK_LIMIT: usize = 5000;
+/// The most references a compile chain may hold: a chain of 2360 (2361 references with the one that enters it) compiles in
+/// a fresh Node process and one of 2560 overflows; between them a fresh process answers either, and the bound is inside.
+pub(crate) const COMPILE_LIMIT: usize = 2460;
+/// The most references a validation path may hold: a fresh Node process validates a chain of 2110 (2111 references with
+/// the one that enters it) and overflows on 2111.
+pub(crate) const VALIDATION_LIMIT: usize = 2111;
 /// V8's `RangeError` text.
 pub(crate) const STACK_OVERFLOW: &str = "Maximum call stack size exceeded";
 
@@ -141,7 +146,7 @@ fn key(value: &Value) -> usize {
     std::ptr::from_ref(value) as usize
 }
 
-/// Whether compiling the schema overflows Ajv's stack: a chain of more than [`STACK_LIMIT`] references not compiled
+/// Whether compiling the schema overflows Ajv's stack: a chain of more than [`COMPILE_LIMIT`] references not compiled
 /// before (a reference back into the chain is a recursive function Ajv calls, not a compile).
 pub(crate) fn compile_overflows(docs: &Documents<'_>) -> bool {
     // Iterative depth-first walk; `heights` holds, per finished subschema, the most references below it.
@@ -175,13 +180,13 @@ pub(crate) fn compile_overflows(docs: &Documents<'_>) -> bool {
                 Some(Seen::Open) => {}
                 Some(Seen::Done(height)) => {
                     top.height = top.height.max(height + weight);
-                    if refs_on_stack + top.height > STACK_LIMIT {
+                    if refs_on_stack + top.height > COMPILE_LIMIT {
                         return true;
                     }
                 }
                 None => {
                     refs_on_stack += weight;
-                    if refs_on_stack > STACK_LIMIT {
+                    if refs_on_stack > COMPILE_LIMIT {
                         return true;
                     }
                     seen.insert(key(place.node), Seen::Open);
@@ -368,7 +373,7 @@ impl<'s, K: Keywords> Walk<'_, 's, K> {
             // The same subschema, the same value, the same mode: Ajv's code calls itself without end.
             Some(Seen::Open) => return Err(Overflow),
             Some(&Seen::Done(valid, height)) => {
-                if self.refs + weight + height > STACK_LIMIT {
+                if self.refs + weight + height > VALIDATION_LIMIT {
                     return Err(Overflow);
                 }
                 self.height = self.height.max(height + weight);
@@ -378,7 +383,7 @@ impl<'s, K: Keywords> Walk<'_, 's, K> {
         }
         self.refs += weight;
         self.levels += 1;
-        if self.refs > STACK_LIMIT || self.levels > LEVEL_LIMIT {
+        if self.refs > VALIDATION_LIMIT || self.levels > LEVEL_LIMIT {
             return Err(Overflow);
         }
         self.seen.insert(at, Seen::Open);
@@ -656,7 +661,7 @@ fn has_type_name(name: &str, kind: Kind) -> bool {
 
 /// Whether validating `value` overflows Ajv's stack: the validation Ajv's code runs (see [`Walk`]) reaches a subschema
 /// it is already applying to the same value in the same mode (a cycle that consumes nothing, which Ajv's code follows
-/// without end), or follows more than [`STACK_LIMIT`] references on one path. Recursive: run it on a thread whose stack
+/// without end), or follows more than [`VALIDATION_LIMIT`] references on one path. Recursive: run it on a thread whose stack
 /// holds [`LEVEL_LIMIT`] levels ([`WALK_STACK`]).
 pub(crate) fn validation_overflows(docs: &Documents<'_>, value: &Value, keywords: &impl Keywords) -> bool {
     let mut walk = Walk { docs, keywords, seen: HashMap::new(), refs: 0, levels: 0, height: 0 };
