@@ -184,7 +184,8 @@ pub fn parse_tool_selection(value: Option<&Value>) -> Vec<String> {
     parts.into_iter().map(|p| js_trim(p).to_owned()).filter(|s| !s.is_empty()).collect()
 }
 
-fn expand_selection_names(names: &[String]) -> Vec<String> {
+/// `expandSelectionNames`: aliases expanded, each name once.
+pub(super) fn expand_selection_names(names: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     for raw in names {
         let key = js_trim(raw);

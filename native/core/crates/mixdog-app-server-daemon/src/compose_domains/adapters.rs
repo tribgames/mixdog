@@ -164,6 +164,17 @@ impl DomainCalls for LateDomains {
     }
 }
 
+/// The `mcpStatus` a native `load_tool` reads (`knowledge-tools.mjs` `{ mcpStatus }`): the MCP
+/// service's status of the thread's scope; a status that cannot be read names no server.
+pub struct ServiceMcpStatus(pub Arc<LateDomains>);
+
+#[async_trait]
+impl mixdog_core::run_host::session_catalog::McpServerStatus for ServiceMcpStatus {
+    async fn status(&self, thread: &mixdog_core_api::ids::ThreadId) -> Value {
+        self.0.call("mcp/mcpStatus", serde_json::json!({ "threadId": thread.as_str() })).await.unwrap_or(Value::Null)
+    }
+}
+
 /// `rt.setAutoUpdate(enabled)` of the setup tool: the config actor stores the switch, the update
 /// service answers `getUpdateSettings()`. The update service is built after the owners are
 /// handed out (the MCP stage needs them first), so it is bound into the cell later.

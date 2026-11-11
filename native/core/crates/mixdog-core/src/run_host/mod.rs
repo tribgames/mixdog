@@ -90,6 +90,7 @@ pub mod explorer_host;
 pub mod explorer_env;
 pub mod tidy_write_host;
 pub mod session_catalog;
+mod deferred_select;
 pub mod prompt_rebuild;
 pub mod surface_host;
 pub mod tool_availability;

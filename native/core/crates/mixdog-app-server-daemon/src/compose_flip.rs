@@ -2241,7 +2241,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         ).with_mcp(path.turn_settings.clone())))
         .map_err(|_| ComposeError::AlreadyBound("tool dispatcher"))?;
     late_catalog
-        .bind(Arc::new(mixdog_core::run_host::session_catalog::SessionCatalog::new(directory.clone(), Arc::new(LateThreads(late.clone())), exclusions.clone(), hub_surface_host.clone(), clock_agent.clone()).with_refresh(path.turn_settings.clone())))
+        .bind(Arc::new({
+            let threads = Arc::new(LateThreads(late.clone()));
+            mixdog_core::run_host::session_catalog::SessionCatalog::new(directory.clone(), threads.clone(), threads, exclusions.clone(), hub_surface_host.clone(), clock_agent.clone())
+                .with_refresh(path.turn_settings.clone())
+                .with_status(Arc::new(crate::compose_domains::ServiceMcpStatus(pre.late.clone())))
+        }))
         .map_err(|_| ComposeError::AlreadyBound("session catalog"))?;
     late_skills
         .bind(Arc::new(mixdog_mcp::skill_port::CatalogSkillPort::new(
