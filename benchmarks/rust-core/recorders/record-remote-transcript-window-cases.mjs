@@ -7,6 +7,7 @@
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-remote-transcript-window-cases.mjs --tree <export of b6f10295a with node_modules>
+import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('remote-transcript-window-cases', import.meta.url);
@@ -31,7 +32,7 @@ function phone() {
       const text = JSON.stringify(wire);
       const decoded = decoder.decode(JSON.parse(text));
       const heldSnapshot = structuredClone(decoded.snapshot);
-      if (!decoded.ok) throw new Error('the phone decoder refused a frame');
+      if (!decoded.ok) throw new RecorderError('the phone decoder refused a frame');
       held = heldSnapshot;
       wires.push({ bytes: Buffer.byteLength(text), wireText: text });
       return { snapshot: held, bytes: Buffer.byteLength(text) };

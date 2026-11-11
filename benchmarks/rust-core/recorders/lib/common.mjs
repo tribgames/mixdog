@@ -7,6 +7,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { RecorderError } from './recorder-error.mjs';
 
 // A git call that has not answered in this long has hung (execFileSync kills it and throws).
 export const GIT_TIMEOUT_MS = 120_000;
@@ -424,7 +425,7 @@ export const OPERATION_TIMEOUT_MS = 120_000;
 export async function within(label, promise, ms = OPERATION_TIMEOUT_MS) {
   let timer;
   const deadline = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label}: no answer within ${ms} ms`)), ms);
+    timer = setTimeout(() => reject(new RecorderError(`${label}: no answer within ${ms} ms`)), ms);
   });
   try {
     return await Promise.race([promise, deadline]);

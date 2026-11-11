@@ -22,11 +22,11 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "830ff3b6082865118e97f6172b93db038ff887de5f0e197150a7df390acf6954"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.mjs",
-      "sha256": "cc3a9194258417b5cc80b9b5f2851344a4c2593e3c84001b00ff00b59fee1098"
+      "sha256": "d67f772518aa34b4ffe0f468d2d268dbff09a1ea4d59e3b405853ebd3fb63b71"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -47,6 +47,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "c36e8ec88173d0ee3099fe2134ad03cc777070a2addd6ab2c21b4d64ef32cc7c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
@@ -151,7 +155,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-git-launch-cases.mjs",
-  "recorderSha256": "2682ecdabc99995edc394b7e35da6f0c3310c97cc6bd8ca5d7cc1fc4306526d0",
+  "recorderSha256": "a4f185f8cf55907720d51cb9e6f60d0c07a1a39b61c5d0bb24467bd7d648e524",
   "replay": {
     "compare": "mixdog-scm git_launch.rs: rebuild each case's tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole",
     "entry": "Drive these public items on o1: mixdog-scm/src/git_launch.rs:119 resolve_layout; mixdog-scm/src/git_launch.rs:207 launch_environment; mixdog-scm/src/git_launch.rs:267 launch_for; mixdog-scm/src/git_launch.rs:287 git_command; mixdog-scm/src/git_launch.rs:295 forget_missing; mixdog-scm/src/git.rs:90 start_git.",

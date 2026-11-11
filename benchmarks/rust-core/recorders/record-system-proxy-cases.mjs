@@ -7,6 +7,7 @@
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-system-proxy-cases.mjs --tree <export of b6f10295a with node_modules>
+import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('system-proxy-cases', import.meta.url);
@@ -14,7 +15,7 @@ const daemonProxy = await set.load('src/runtime/shared/llm/system-proxy.mjs');
 const { answerSystemProxyRequest, createSystemProxyLease, SYSTEM_PROXY_REQUEST_EVENT } = await set.load('apps/desktop/src/main/system-proxy.ts');
 const { adoptSystemProxy, systemProxyRoute } = daemonProxy;
 /** Waits for the event that ends a step; a step that never happens fails the recording, naming the step. */
-const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
+const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new RecorderError(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
 await set.run('the desktop and the runtime agree on the lookup event', () => ({ desktopEvent: SYSTEM_PROXY_REQUEST_EVENT, daemonEvent: daemonProxy.SYSTEM_PROXY_REQUEST_EVENT }));
 await set.run('the window answers a lookup with Chromium’s answer for its origin, and failures by name only', async () => {
   const settled = [];

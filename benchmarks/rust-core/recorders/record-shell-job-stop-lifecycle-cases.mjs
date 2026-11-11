@@ -14,13 +14,14 @@
 //        --spawn-binary C:\Users\tempe\.mixdog\data\scratch\rust-core\k1\mixdog-spawn-o1-debug.exe
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
 import { realDeadline, realTimers, virtualTimers } from './lib/virtual-timers.mjs';
 
 const flag = process.argv.indexOf('--spawn-binary');
 const binaryAt = flag >= 0 ? process.argv[flag + 1] : 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\k1\\mixdog-spawn-o1-debug.exe';
-if (!binaryAt || !existsSync(binaryAt)) throw new Error('--spawn-binary <existing mixdog-spawn executable> is required');
+if (!binaryAt || !existsSync(binaryAt)) throw new RecorderError('--spawn-binary <existing mixdog-spawn executable> is required');
 const scriptedUuids = scriptUuids();
 // The real wall clock plus the virtual elapsed time: the job records are files stamped by the real clock, and the pane reads their age.
 const set = openSet('shell-job-stop-lifecycle-cases', import.meta.url, { clock: false, classes: { ExecResult: (value) => ({ ...value }) } });

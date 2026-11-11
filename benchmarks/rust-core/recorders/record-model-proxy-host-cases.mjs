@@ -8,6 +8,7 @@
 //
 //   node --import <tree>/apps/desktop/scripts/test-env.mjs --import <tree>/apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a with node_modules>
+import { RecorderError } from './lib/recorder-error.mjs';
 import { FIXED_NOW, openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
 import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
@@ -76,7 +77,7 @@ function pcModules(available, keys = {}) {
   const inits = [];
   return {
     keyReads, probeAuth: () => 'present', inits, live,
-    loadConfig: (options) => { if (JSON.stringify(options) !== '{"secrets":"presence"}') throw new Error(`loadConfig options ${JSON.stringify(options)}`); return { providers: structuredClone(available) }; },
+    loadConfig: (options) => { if (JSON.stringify(options) !== '{"secrets":"presence"}') throw new RecorderError(`loadConfig options ${JSON.stringify(options)}`); return { providers: structuredClone(available) }; },
     initProviders: async (config) => {
       inits.push(structuredClone(config));
       live.clear();

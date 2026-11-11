@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { RecorderError } from './recorder-error.mjs';
 
 const CSC = join(process.env.SystemRoot ?? 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
 export const standinSource = new URL('./git-standin.cs', import.meta.url);
@@ -16,7 +17,7 @@ export function buildStandin() {
   if (built) return built;
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-git-standin-'));
   built = join(dir, 'standin.exe');
-  execFileSync(CSC, ['/nologo', '/target:exe', `/out:${built}`, fileURLToPath(standinSource)], { stdio: 'pipe' });
+  try { execFileSync(CSC, ['/nologo', '/target:exe', `/out:${built}`, fileURLToPath(standinSource)], { stdio: 'pipe' }); } catch (e) { built = null; throw new RecorderError(`the git stand-in did not compile: ${e.message}`); }
   return built;
 }
 

@@ -28,11 +28,11 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "830ff3b6082865118e97f6172b93db038ff887de5f0e197150a7df390acf6954"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -47,6 +47,10 @@
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "c36e8ec88173d0ee3099fe2134ad03cc777070a2addd6ab2c21b4d64ef32cc7c"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
       "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     },
@@ -56,7 +60,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "227390fd2d1f96b579ec2ce564d8884be0fc714379b484f3e77d93743f997538"
+      "sha256": "99cc7ebf0dff68ce4087ef3cadf8540d04f69c975720081066421c7b1de08420"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -105,7 +109,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
-  "recorderSha256": "eb7300f492567f2324fd3055c6a74e29026919d7fb723fd4c75eeb3aa14a2f9b",
+  "recorderSha256": "c4e43a0944fe86b48c0b0a91b9be5a762abba17da447824ed1ca7c38ed06e1dc",
   "replay": {
     "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
     "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs; thread/shellJobs/updated (mixdog-core-session/src/session/actor.rs:2053; the ShellJobs section, mixdog-core-session/src/session/exec_events.rs:79).",

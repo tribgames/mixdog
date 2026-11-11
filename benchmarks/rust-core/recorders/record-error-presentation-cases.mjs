@@ -9,6 +9,7 @@
 //   TZ=UTC node benchmarks/rust-core/recorders/record-error-presentation-cases.mjs --tree <export of b6f10295a with node_modules>
 // (the recorder sets TZ=UTC itself: the "resets at HH:MM" wording is local time; Date.now is the shared fixed clock)
 process.env.TZ = 'UTC';
+import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet, FIXED_NOW } from './lib/case-set.mjs';
 
 const set = openSet('error-presentation-cases', import.meta.url);
@@ -29,7 +30,7 @@ const build = (spec) => {
     case 'Q': return anthropicQuotaError(spec.status, new Map(spec.headers), spec.body);
     case 'D': return { message: spec.message, errorKind: spec.errorKind };
     case 'S': return spec.text;
-    default: throw new Error(`bad spec ${spec.t}`);
+    default: throw new RecorderError(`bad spec ${spec.t}`);
   }
 };
 const safe = (fn) => { try { return fn(); } catch (e) { return { threw: e }; } };

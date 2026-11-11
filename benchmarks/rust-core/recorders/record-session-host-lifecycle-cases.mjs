@@ -9,6 +9,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('session-host-lifecycle-cases', import.meta.url);
@@ -18,7 +19,7 @@ const { applySessionSidebarChange, readSessionSidebarState, registerSessionSideb
 const { applySubAgentRetention } = await set.load('src/runtime/agent/orchestrator/session/store/sweep/sub-agent-retention.mjs');
 const roots = [];
 /** Waits for the event that ends a step; a step that never happens fails the recording, naming the step. */
-const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
+const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new RecorderError(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
 
 async function fixture(close, sessions = []) {
   const root = await mkdtemp(join(tmpdir(), 'session-host-lifecycle-'));
