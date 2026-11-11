@@ -57,12 +57,12 @@
                 "midstreamClassifier": "reset"
               }
             },
-            "waitMs": 186
+            "waitMs": 191
           }
         ],
         "spanEvents": [],
         "sleeps": [
-          186
+          191
         ],
         "firstAttemptErrorIsTheError": true,
         "firstAttemptClassifier": "reset"
@@ -405,7 +405,7 @@
                 "wsRetriesExhausted": true
               }
             },
-            "waitMs": 191
+            "waitMs": 220
           }
         ],
         "spanEvents": [
@@ -415,7 +415,7 @@
           ]
         ],
         "sleeps": [
-          191
+          220
         ]
       },
       "calls": [
@@ -587,12 +587,12 @@
                 "midstreamClassifier": "ws_1006"
               }
             },
-            "waitMs": 220
+            "waitMs": 185
           }
         ],
         "spanEvents": [],
         "sleeps": [
-          220
+          185
         ]
       },
       "calls": [
@@ -1353,7 +1353,7 @@
             "max": 5,
             "classifier": "response_failed_retryable",
             "reason": "other",
-            "wait_ms": 387,
+            "wait_ms": 390,
             "http_status": null,
             "code": null,
             "ws_close_code": null,
@@ -1365,7 +1365,7 @@
               "max": 5,
               "classifier": "response_failed_retryable",
               "reason": "other",
-              "wait_ms": 387,
+              "wait_ms": 390,
               "http_status": null,
               "code": null,
               "ws_close_code": null
@@ -1381,7 +1381,7 @@
             "max": 5,
             "classifier": "response_failed_retryable",
             "reason": "other",
-            "wait_ms": 779,
+            "wait_ms": 870,
             "http_status": null,
             "code": null,
             "ws_close_code": null,
@@ -1393,7 +1393,7 @@
               "max": 5,
               "classifier": "response_failed_retryable",
               "reason": "other",
-              "wait_ms": 779,
+              "wait_ms": 870,
               "http_status": null,
               "code": null,
               "ws_close_code": null
@@ -1420,11 +1420,11 @@
               "reasonClass": "other",
               "attempt": 2,
               "max": 5,
-              "waitMs": 387,
-              "retryAt": 1794225600387,
+              "waitMs": 390,
+              "retryAt": 1794225600390,
               "reason": "Connection interrupted",
               "classifier": "response_failed_retryable",
-              "message": "Connection interrupted · retry 2/5 in 387ms"
+              "message": "Connection interrupted · retry 2/5 in 390ms"
             }
           ],
           [
@@ -1433,11 +1433,11 @@
               "reasonClass": "other",
               "attempt": 3,
               "max": 5,
-              "waitMs": 779,
-              "retryAt": 1794225600779,
+              "waitMs": 870,
+              "retryAt": 1794225600870,
               "reason": "Connection interrupted",
               "classifier": "response_failed_retryable",
-              "message": "Connection interrupted · retry 3/5 in 779ms"
+              "message": "Connection interrupted · retry 3/5 in 870ms"
             }
           ]
         ],
@@ -3082,6 +3082,1596 @@
               },
               "auth": null,
               "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-http-401-on-upgrade-surfaces-immediately",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:86",
+      "input": {
+        "refusals": [
+          401
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "xAI WS handshake 401: unauthorized",
+          "props": {
+            "providerError": {
+              "message": "unauthorized"
+            },
+            "status": 401,
+            "httpStatus": 401,
+            "headers": {
+              "content-type": "application/json",
+              "content-length": "36",
+              "connection": "close"
+            },
+            "httpBody": "{\"error\":{\"message\":\"unauthorized\"}}",
+            "attempts": 1,
+            "retryClassifier": null,
+            "wsFailurePhase": "handshake",
+            "transportTiming": {
+              "transport": "websocket",
+              "outcome": "error",
+              "admissionQueueWaitMs": "<ms, real clock>",
+              "providerConcurrentRequests": 1,
+              "providerQueuedRequests": 0,
+              "poolOwnerWaitMs": "<ms, real clock>",
+              "socketAcquireMs": "<ms, real clock>",
+              "poolAcquireMs": "<ms, real clock>",
+              "requestBuildSerializationMs": "<ms, real clock>",
+              "preResponseCreatedMs": "<ms, real clock>",
+              "providerFirstEventMs": "<ms, real clock>",
+              "retryBackoffMs": "<ms, real clock>",
+              "handshakeRetries": 0,
+              "acquireAttempts": 1,
+              "acquireMode": "failed"
+            }
+          }
+        },
+        "sleeps": [],
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "2b94d07a22339d69c88f1e7d29672eb6"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "FVZKu/WbTdHtP9oPq0w0pQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-refused",
+            "status": 401,
+            "statusText": "Unauthorized",
+            "headers": [
+              [
+                "content-type",
+                "application/json"
+              ]
+            ],
+            "bodyChunks": [
+              "{\"error\":{\"message\":\"unauthorized\"}}"
+            ]
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-401",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-abnormal-close-before-output-retries-on-a-new-socket",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:124",
+      "input": {
+        "connections": [
+          "frames: none, then the server drops the connection (1006)",
+          "completed"
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "xai-responses",
+            "items": [
+              {
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "serviceTier": {
+            "$exact": "undefined"
+          },
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "new"
+          }
+        },
+        "sleeps": [
+          200
+        ],
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "fa5cef1426129f0019f23db6aef1519f"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "uMuETdZEMkgf1A7+uSELvQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: qDkNtL4ZhqCYaF1wtPWRsXVN7Gw="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "terminate",
+            "by": "server"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 200,
+              "retryAt": 1794225600200,
+              "reason": "Connection interrupted",
+              "classifier": "ws_1006",
+              "message": "Connection interrupted · retry 1/5 in 200ms"
+            }
+          },
+          {
+            "event": "sleep-requested",
+            "ms": 200
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "4f24bae00a511f0890344c79530e140f"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "0E+xuwwnoeljveyvhGXXRA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: vJ1u1QFz/rTUm4iDAkmA0ncaFEg="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_retry\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_retry\",\"model\":\"gpt-fixture\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-1006",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-cut-while-tool-input-streams-surfaces",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:142",
+      "input": {
+        "connections": [
+          "created + function_call item added, then the drop (1006)"
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
+          "props": {
+            "wsCloseCode": 1006,
+            "wsCloseReason": "",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": true,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": true,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "partialToolCall": true,
+            "wsFailurePhase": "stream",
+            "partialToolCallStarted": true
+          }
+        },
+        "sleeps": [],
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "169270d6ab6489d0cbf2f2a3a88e55ae"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "cjqb9L6LvFfDffZkbHtvhw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 004EguE3eZ/g/lya8SzGU/hTXbg="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_cut\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"read\"}}"
+          },
+          {
+            "event": "terminate",
+            "by": "server"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-cut",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-rate-limited-response-failed-waits-advised-time",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:153",
+      "input": {
+        "connections": [
+          "response.failed rate_limit_exceeded \"try again in 1.5s\"",
+          "completed"
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "xai-responses",
+            "items": [
+              {
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "serviceTier": {
+            "$exact": "undefined"
+          },
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "new"
+          }
+        },
+        "sleeps": [
+          1500
+        ],
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "30e79a81dad8db6ca8206547703a9dc0"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "dcNfjVOrzu00kSkjsKi/vg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: zf3lvoBsfdNjBWc0st1K8FCp1S0="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.failed\",\"response\":{\"id\":\"resp_rl\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"Rate limit reached. Please try again in 1.5s.\"}}}"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "rate_limited",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 1500,
+              "retryAt": 1794225601500,
+              "reason": "Rate limited by the provider",
+              "classifier": "response_failed_rate_limited",
+              "message": "Rate limited by the provider · retry 1/5 in 2s"
+            }
+          },
+          {
+            "event": "sleep-requested",
+            "ms": 1500
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "9665f0084f0d10d73db876eda77a5074"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "s3EZujatVQENnbOeyf4ggA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: zEQrGSVEWvYIeZwt+y8U2v3iaaA="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_after\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_after\",\"model\":\"gpt-fixture\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-rl",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-relayed-text-then-drop-surfaces-without-replay",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:374",
+      "input": {
+        "connections": [
+          "created + text delta, then the drop (1006)"
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
+          "props": {
+            "wsCloseCode": 1006,
+            "wsCloseReason": "",
+            "partialContent": "half",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 4,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "liveTextEmitted": true,
+            "emittedText": true,
+            "unsafeToRetry": true,
+            "wsFailurePhase": "stream"
+          }
+        },
+        "sleeps": [],
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "33372a417438b61ae98f1cba4ad2ac19"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "kPQsycBipXJp48fzX+dx8g=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: DWIQmUi3Y8b3iZrfqBvM9klWO8s="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_t\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"half\"}"
+          },
+          {
+            "event": "terminate",
+            "by": "server"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "text",
+            "chunk": "half"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-text",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-server-1009-on-retry-surfaces-itself",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:431",
+      "input": {
+        "connections": [
+          "drop (1006)",
+          "close 1009 message too big"
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1009, reason=too big)",
+          "props": {
+            "wsCloseCode": 1009,
+            "wsCloseReason": "too big",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "wsFailurePhase": "stream"
+          }
+        },
+        "sleeps": [
+          204
+        ],
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "41bb24799b5d44229c6c8f61124d95ef"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "T+jfUfv9IhGXcgIc03Fvuw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: k5wuLk/QswGOrfTNunMDEZ/USyo="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "terminate",
+            "by": "server"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 204,
+              "retryAt": 1794225600204,
+              "reason": "Connection interrupted",
+              "classifier": "ws_1006",
+              "message": "Connection interrupted · retry 1/5 in 204ms"
+            }
+          },
+          {
+            "event": "sleep-requested",
+            "ms": 204
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": null
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "df10d8211c9e498a8cca0614e121d0a9"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "gsQ1rOZWVrDVxJA2bTVSpw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: V/gLIWAvaJ9iZMh46uaAsKoi+C4="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": null
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1009,
+            "reason": "too big"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1009,
+            "reason": "too big"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-1009",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
             }
           ]
         }

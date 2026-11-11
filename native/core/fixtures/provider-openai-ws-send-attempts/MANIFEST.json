@@ -10,6 +10,7 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. Every failure is a scripted Error (own properties are the inputs); `attempts.state` and the error objects are read after each call.",
   "exclusions": [
+    "result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -17,9 +18,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 94248,
+      "bytes": 140514,
       "path": "cases.json",
-      "sha256": "6503992dc3ba075a42f9031297470a213d34c7082a95d78f71f332e025385088"
+      "sha256": "b5aaabee0f5a611ecaec7be1d179e649d7d60d24e31d9419da5cb13eb7918dea"
     }
   ],
   "inputs": [
@@ -67,9 +68,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs",
-  "recorderSha256": "f01bdcb343ab6846aa061f3ec1a1b6eeef6660d06f49403a533b6fe444de26d5",
+  "recorderSha256": "7d1d9f64e941f4c1aead5003fdcb147b11dd4edd940318d911f6963b778974ed",
   "replay": "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
   "set": "provider-openai-ws-send-attempts",
-  "totalBytes": 94248,
+  "totalBytes": 140514,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
