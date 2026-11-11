@@ -861,7 +861,7 @@
     },
     {
       "id": "messages-engine-never-follows-redirect-off-origin",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:187",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:169",
       "input": {},
       "result": {
         "error": {
@@ -1592,7 +1592,7 @@
     },
     {
       "id": "session-pinned-before-per-model-table-keeps-chat",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:222",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:202",
       "input": {
         "wireRoute": {
           "provider": "openrouter",
@@ -1737,7 +1737,7 @@
     },
     {
       "id": "per-model-override-picks-wire",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:229",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:209",
       "input": {
         "modelWires": {
           "anthropic/claude-opus-4.8": "chat"
@@ -1875,7 +1875,7 @@
     },
     {
       "id": "responses-error-type-decides-classification",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:245",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:224",
       "input": {},
       "result": {
         "auth": {
@@ -2320,7 +2320,7 @@
     },
     {
       "id": "canonical-error-type-outranks-native-code-http",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:268",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:239",
       "input": {},
       "result": {
         "out": [
@@ -3299,7 +3299,7 @@
     },
     {
       "id": "reasoning-control-on-messages-route",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:295",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:266",
       "input": {},
       "result": {
         "sends": [
@@ -3959,7 +3959,7 @@
     },
     {
       "id": "error-type-normalization-vocabulary",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:318",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:287",
       "input": {},
       "result": {
         "mapped": {

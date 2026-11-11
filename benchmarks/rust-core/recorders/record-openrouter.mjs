@@ -83,7 +83,7 @@ await rec.run('401-on-messages-rereads-key', `${SRC}:166`, { rotated: 'or-rotate
     delete process.env.OPENROUTER_API_KEY;
   }
 });
-await rec.run('messages-engine-never-follows-redirect-off-origin', `${SRC}:187`, {}, async ({ net }) => {
+await rec.run('messages-engine-never-follows-redirect-off-origin', `${SRC}:169`, {}, async ({ net }) => {
   net.reply = () => ({ status: 307, headers: { Location: 'https://evil.example/steal' }, body: '' });
   const out = await attempt(provider().send(prompt, 'anthropic/claude-sonnet-5', [tool], {}));
   return { ...out, causeMessage: String(out.error?.cause?.message || out.error?.message) };
@@ -98,17 +98,17 @@ await rec.run('gpt-responses-reasoning-auto-stays-chat', `${SRC}:200`, {}, async
   await p.send(prompt, 'openrouter/auto', [tool], { effort: 'medium' });
   return out;
 });
-await rec.run('session-pinned-before-per-model-table-keeps-chat', `${SRC}:222`, { wireRoute: { provider: 'openrouter', model: 'anthropic/claude-opus-4.8', wire: 'chat', source: 'legacy' } }, async ({ net }) => {
+await rec.run('session-pinned-before-per-model-table-keeps-chat', `${SRC}:202`, { wireRoute: { provider: 'openrouter', model: 'anthropic/claude-opus-4.8', wire: 'chat', source: 'legacy' } }, async ({ net }) => {
   net.reply = respond;
   await provider().send(prompt, 'anthropic/claude-opus-4.8', [tool], { wireRoute: { provider: 'openrouter', model: 'anthropic/claude-opus-4.8', wire: 'chat', source: 'legacy' } });
   return {};
 });
-await rec.run('per-model-override-picks-wire', `${SRC}:229`, { modelWires: { 'anthropic/claude-opus-4.8': 'chat' } }, async ({ net }) => {
+await rec.run('per-model-override-picks-wire', `${SRC}:209`, { modelWires: { 'anthropic/claude-opus-4.8': 'chat' } }, async ({ net }) => {
   net.reply = respond;
   await provider({ modelWires: { 'anthropic/claude-opus-4.8': 'chat' } }).send(prompt, 'anthropic/claude-opus-4.8', [tool], {});
   return {};
 });
-await rec.run('responses-error-type-decides-classification', `${SRC}:245`, {}, async ({ net }) => {
+await rec.run('responses-error-type-decides-classification', `${SRC}:224`, {}, async ({ net }) => {
   net.reply = FAILED.auth;
   const auth = await attempt(provider().send(prompt, 'openai/gpt-6.1-sol', [tool], {}));
   const authRequests = net.records.splice(0).length;
@@ -116,7 +116,7 @@ await rec.run('responses-error-type-decides-classification', `${SRC}:245`, {}, a
   const overflow = await attempt(provider().send(prompt, 'openai/gpt-6.1-sol', [tool], {}));
   return { auth, authKind: providerErrorKind(auth.error), authRequests, overflow, overflowKind: providerErrorKind(overflow.error), overflowIsContextOverflow: isContextOverflowError(overflow.error), overflowRequests: net.records.length };
 });
-await rec.run('canonical-error-type-outranks-native-code-http', `${SRC}:268`, {}, async ({ net }) => {
+await rec.run('canonical-error-type-outranks-native-code-http', `${SRC}:239`, {}, async ({ net }) => {
   const out = [];
   for (const [model, error] of [
     ['openrouter/auto', { code: 'invalid_prompt', message: 'too long', metadata: { error_type: 'context_length_exceeded' } }],
@@ -130,7 +130,7 @@ await rec.run('canonical-error-type-outranks-native-code-http', `${SRC}:268`, {}
   const direct = Object.assign(new Error('too long'), { status: 400, code: 'invalid_prompt', error: { code: 'invalid_prompt', error_type: 'context_length_exceeded' } });
   return { out, direct: { kind: providerErrorKind(direct), isContextOverflow: isContextOverflowError(direct) } };
 });
-await rec.run('reasoning-control-on-messages-route', `${SRC}:295`, {}, async ({ net }) => {
+await rec.run('reasoning-control-on-messages-route', `${SRC}:266`, {}, async ({ net }) => {
   const model = 'anthropic/claude-opus-4.8';
   net.reply = respond;
   const sends = [];
@@ -149,7 +149,7 @@ await rec.run('reasoning-control-on-messages-route', `${SRC}:295`, {}, async ({ 
   }
   return { sends };
 });
-await rec.run('error-type-normalization-vocabulary', `${SRC}:318`, {}, () => {
+await rec.run('error-type-normalization-vocabulary', `${SRC}:287`, {}, () => {
   const plain = { code: 'server_error' };
   const kind = (err) => providerErrorKind(err).kind;
   return {

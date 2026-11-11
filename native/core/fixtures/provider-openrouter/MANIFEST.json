@@ -19,7 +19,7 @@
     {
       "bytes": 132363,
       "path": "cases.json",
-      "sha256": "e153df9b870e7ce290d1a5d5ee93907caf9f0278534b3128f9f031b2ae718e07"
+      "sha256": "1962950d295c08488229207ce95561b70f2ab094cd066ea20672e379fea93d7d"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openrouter.mjs",
-  "recorderSha256": "05d4a0f995b837295f68aa0813662ddcbc11348931a8fcf13a542432421b8712",
+  "recorderSha256": "e94ec9e66dd32c047c1d3bcc3d007e08791ffdeee2d1cf5f1ce1580c3d438b48",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Messages / Responses routes are not built (K1 G1): work for the Rust side.",
   "replayExclusions": {
     "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
