@@ -2,15 +2,19 @@
 // (restore.mjs `restoreTranscriptItems`, agent-room.mjs `roomRowItem`) produced for the same conversation. `mergeToolRows(rowOf(item))`
 // must equal them field for field, so the renderer, TUI and phone need no change.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Obj } from '../src/obj.ts';
 import { mergeToolRows, rowOf } from '../src/rows.ts';
-// The Stop comparison's renaming and the installed Node recordings of the phone's Stop cases (apps/desktop).
-import { canonical, runOwnPaths } from '../../../apps/desktop/src/renderer/remote-protocol-chat-abort-compare.mjs';
-import { verifiedRecordings } from '../../../apps/desktop/src/renderer/remote-protocol-chat-abort-fixture.mjs';
-
-const { recordings } = verifiedRecordings() as { recordings: { cases: { name: string; node: { items: unknown[] } }[] }[] };
+// The installed Node history recordings of the phone's chat cases (apps/desktop), verified by their manifest elsewhere.
+const historyDir = new URL('../../../apps/desktop/src/renderer/remote-protocol-chat-history.node/', import.meta.url);
+const nodeRecording = (name: string): { history: { snapshot?: { items: Obj[] } }[] } => {
+  for (const file of readdirSync(historyDir).filter((f) => /^\d+\.json$/.test(f))) {
+    const recording = JSON.parse(readFileSync(new URL(file, historyDir), 'utf8'));
+    if (recording.name === name) return recording;
+  }
+  throw new Error(`no Node history recording of ${name}`);
+};
 
 const golden = JSON.parse(readFileSync(new URL('rows-golden.json', import.meta.url), 'utf8')) as { cases: { name: string; items: Obj[]; rows: Obj[] }[] };
 const project = (items: Obj[]): Obj[] => mergeToolRows(items.map(rowOf).filter((row): row is Obj => row !== null));
@@ -43,12 +47,10 @@ test('a live card completes at its result\'s time (aggregate-result.mjs complete
 });
 
 test('a live card the Stop ended is Node\'s recorded card, whole (aggregate-result.mjs:80-91); one that finished is not cancelled', () => {
-  // Node's card of the call the Stop ended (`running-approval-pending` in the installed Node recordings of the phone's Stop cases),
-  // against the row of the item the core holds for it. Values that differ between Node's own recordings (its ids and times) are
-  // compared by consistent renaming at the paths where they differ, as the Stop comparison does; everything else exactly.
-  const nodeRows = recordings.map((r) => (r.cases.find((c) => c.name === 'running-approval-pending')!.node.items as Obj[]).find((row) => row.kind === 'tool')!);
-  const runOwn = runOwnPaths(nodeRows.map((row) => ({ row })));
-  const node = nodeRows[0]!;
+  // Node's card of the call the Stop ended (the last state of `running-approval-pending` in the installed Node history recordings),
+  // against the row of the item the core holds for it, exactly.
+  const states = nodeRecording('running-approval-pending').history.filter((h) => h.snapshot);
+  const node = states.at(-1)!.snapshot!.items.find((row) => row.kind === 'tool')!;
   const member = (node.toolMembers as Obj[])[0]!;
   const call = (status: string): Obj => ({
     type: 'toolCall',
@@ -60,7 +62,7 @@ test('a live card the Stop ended is Node\'s recorded card, whole (aggregate-resu
     meta: { status, at: member.startedAt },
   });
   const [stopped] = project([call('interrupted')]);
-  assert.deepEqual(canonical({ row: JSON.parse(JSON.stringify(stopped)) }, runOwn), canonical({ row: node }, runOwn));
+  assert.deepEqual(JSON.parse(JSON.stringify(stopped)), node);
   const [failed] = project([call('failed')]);
   assert.deepEqual([failed?.result, failed?.text, failed?.isError], ['1 Failed', '1 Failed', true]);
 });
