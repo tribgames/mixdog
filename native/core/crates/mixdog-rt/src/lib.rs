@@ -65,6 +65,7 @@ pub use tokens::CpuInteractive;
 pub use tokens::DurabilityIo;
 pub use tokens::InLane;
 pub use tokens::InteractiveIo;
+pub use tokens::JudgeThread;
 pub use tokens::LaneToken;
 pub use tokens::LaneTokens;
 pub use tokens::MaintenanceIo;

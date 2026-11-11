@@ -2499,6 +2499,56 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     assert_eq!(second.updates.iter().collect::<Vec<_>>(), [(&2, &"high".to_owned())]);
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
 }
+
+/// Never answers.
+struct SilentJudge;
+#[async_trait]
+impl mixdog_agent::step_effort::StepEffortJudge for SilentJudge {
+    async fn judge(&self, _input: mixdog_agent::step_effort::StepInput) -> Option<mixdog_agent::step_effort::StepResult> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_only() {
+    use mixdog_agent::effort::EffortMode;
+    use mixdog_agent::effort::EffortRoute;
+    use mixdog_agent::effort::EffortSnapshot;
+    use mixdog_agent::effort::EffortWiring;
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
+    let seed = EffortSnapshot {
+        provider: "openai".into(),
+        model: "gpt-6-1".into(),
+        mode: EffortMode::Responses,
+        initial_effort: "low".into(),
+        effort: "low".into(),
+    };
+    let mut cfg = config();
+    cfg.effort = Some(EffortWiring {
+        route: EffortRoute {
+            provider: "openai".into(),
+            model: "gpt-6.1".into(),
+            mode: Some(EffortMode::Responses),
+            allowed: ["low", "high"].map(String::from).to_vec(),
+            seed: Some(seed),
+            wire: Arc::new(|e| Some(e.to_owned())),
+        },
+        adapter: adapter.clone(),
+    });
+    cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: "do it".into(), base: "low".into() });
+    let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
+    run.set_step_judge(Arc::new(SilentJudge));
+    let began = tokio::time::Instant::now();
+    // The paused clock jumps to the next timer when the run is idle: the grace, or this bound.
+    let output = tokio::time::timeout(Duration::from_secs(3600), run.run()).await.expect("the request is not held by the judge").expect("run");
+    assert_eq!(began.elapsed(), mixdog_agent::step_effort::STEP_EFFORT_GRACE);
+    assert_eq!(h.provider.requests().len(), 2);
+    assert!(output.transcript[2].effort.is_none(), "an unanswered step stays at the effort in force");
+}
 struct Artifacts(Mutex<Vec<String>>);
 #[async_trait]
 impl mixdog_agent::offload::ArtifactStore for Artifacts {
