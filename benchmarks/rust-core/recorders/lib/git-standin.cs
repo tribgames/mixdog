@@ -67,11 +67,15 @@ static class StandIn {
       foreach (string a in args) quoted.Add(Quote(a));
       psi.Arguments = string.Join(" ", quoted.ToArray());
       using (var child = Process.Start(psi)) {
-        string o = child.StandardOutput.ReadToEnd();
-        string e = child.StandardError.ReadToEnd();
-        child.WaitForExit();
-        Console.Out.Write(o);
-        Console.Error.Write(e);
+        var outTask = child.StandardOutput.ReadToEndAsync();
+        var errTask = child.StandardError.ReadToEndAsync();
+        if (!child.WaitForExit(30000)) {
+          try { child.Kill(); } catch (Exception) { }
+          Console.Error.Write("git stand-in: the wrapped child " + target + " gave no answer within 30000 ms");
+          return 124;
+        }
+        Console.Out.Write(outTask.Result);
+        Console.Error.Write(errTask.Result);
         return child.ExitCode;
       }
     }

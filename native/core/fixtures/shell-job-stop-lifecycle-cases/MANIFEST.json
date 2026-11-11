@@ -20,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 12804,
+      "bytes": 418,
       "path": "golden.json",
-      "sha256": "cead0df59d9b705da08f5e8bb0a42337d80a425f2eca1d7dad219f1861498450"
+      "sha256": "2da5640f2e053129668e11624d43f090f7ed24db50e77aa248a22e0314503cb8"
     }
   ],
   "inputs": [
@@ -56,35 +56,12 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "f01774e9437804ec261de5fe208d19c472fd1193c4df8b9f202030aaae558676"
+      "sha256": "227390fd2d1f96b579ec2ce564d8884be0fc714379b484f3e77d93743f997538"
     }
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "paths": [
-      "$.cases[0].observed.jobId",
-      "$.cases[0].observed.steps[3].started.stdoutPath",
-      "$.cases[0].observed.steps[3].started.stderrPath",
-      "$.cases[0].observed.steps[3].started.jobId",
-      "$.cases[0].observed.steps[3].running.jobs[0].taskId",
-      "$.cases[0].observed.steps[3].running.jobs[0].cwd",
-      "$.cases[0].observed.steps[3].running.jobs[0].startedAt",
-      "$.cases[0].observed.steps[5].settled.finished[0].taskId",
-      "$.cases[0].observed.steps[5].settled.finished[0].cwd",
-      "$.cases[0].observed.steps[5].settled.finished[0].startedAt",
-      "$.cases[0].observed.steps[5].settled.finished[0].finishedAt",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].taskId",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].cwd",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].startedAt",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].finishedAt",
-      "$.cases[0].observed.paneRows[2].jobs[0].taskId",
-      "$.cases[0].observed.paneRows[2].jobs[0].cwd",
-      "$.cases[0].observed.paneRows[2].jobs[0].startedAt",
-      "$.cases[0].observed.paneRows[5].finished[0].taskId",
-      "$.cases[0].observed.paneRows[5].finished[0].cwd",
-      "$.cases[0].observed.paneRows[5].finished[0].startedAt",
-      "$.cases[0].observed.paneRows[5].finished[0].finishedAt"
-    ],
+    "paths": [],
     "reason": "the isolated test environment root is written <fixtureRoot>; the wall clock is real (the job records are files with real mtimes) plus the virtual elapsed time: job ids job_<ms of the wall clock>_N are written job_<ms>_N and ISO times <iso>, the virtual offsets are in steps[].atMs"
   },
   "product": {
@@ -105,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
-  "recorderSha256": "584e9a40422fc518e0dab3302edc00a71d7f801bd287da8372d6df03618b215b",
+  "recorderSha256": "423ed71621fb44b382ae78dcdc63339f038f31f9501fa3f81c806a7b1abe41c1",
   "replay": {
     "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
     "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs; thread/shellJobs/updated (mixdog-core-session/src/session/actor.rs:2053; the ShellJobs section, mixdog-core-session/src/session/exec_events.rs:79).",
@@ -131,6 +108,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "shell-job-stop-lifecycle-cases",
-  "totalBytes": 12804,
+  "totalBytes": 418,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
