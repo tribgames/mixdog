@@ -11,7 +11,9 @@
     "ends": "term_lane_end",
     "command": "term_lane_cmd",
     "split": "term_lane_split",
-    "bytes": "term_lane_bytes"
+    "bytes": "term_lane_bytes",
+    "chars": "term_lane_chars",
+    "tail": "term_lane_tail"
   },
   "worlds": [
     {
@@ -165,6 +167,46 @@
               "event": "termData",
               "payload": {
                 "id": "term_lane_bytes",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "lane-"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "é-😀\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "�"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
                 "data": "\r\n[process exited with code 0]\r\n"
               },
               "droppable": true
@@ -358,6 +400,46 @@
               "droppable": true
             },
             {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "lane-"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "é-😀\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "�"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
               "event": "termSizeOwner",
               "payload": {
                 "id": "term_lane_desk",
@@ -517,6 +599,46 @@
               "event": "termData",
               "payload": {
                 "id": "term_lane_bytes",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "lane-"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "é-😀\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "�"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
                 "data": "\r\n[process exited with code 0]\r\n"
               },
               "droppable": true
@@ -724,6 +846,46 @@
               "droppable": true
             },
             {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "lane-"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "é-😀\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "�"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
               "event": "termSizeOwner",
               "payload": {
                 "id": "term_lane_desk",
@@ -912,6 +1074,46 @@
               "droppable": true
             },
             {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "lane-"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "é-😀\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "�"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
               "event": "termSizeOwner",
               "payload": {
                 "id": "term_lane_desk",
@@ -1071,6 +1273,46 @@
               "event": "termData",
               "payload": {
                 "id": "term_lane_bytes",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "lane-"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "é-😀\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_chars",
+                "data": "\r\n[process exited with code 0]\r\n"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
+                "data": "�"
+              },
+              "droppable": true
+            },
+            {
+              "event": "termData",
+              "payload": {
+                "id": "term_lane_tail",
                 "data": "\r\n[process exited with code 0]\r\n"
               },
               "droppable": true

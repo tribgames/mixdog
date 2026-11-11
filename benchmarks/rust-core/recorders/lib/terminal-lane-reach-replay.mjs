@@ -18,8 +18,11 @@ import { assertNoPowerShellProfile, isolatedProfile } from './shell-isolation.mj
 import {
   CONTROLS,
   CONTROLS_ESCAPED,
+  DANGLING_LEAD,
   FILL_BYTES,
   LANE_REACH_CREDENTIALS,
+  SPLIT_CHARS,
+  SPLIT_CHARS_TEXT,
   LANE_REACH_TABS,
   MARK_DONE,
   MARK_START,
@@ -308,6 +311,20 @@ export async function replayLaneReach({ exe, golden }) {
         desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.bytes, data: typed('@exit 0') });
         await reached(LANE_REACH_TABS.bytes, EXITED);
         await ask('terminal/dispose', { tabId: LANE_REACH_TABS.bytes });
+        for (const name of Object.keys(all)) await barrier(name);
+
+        await ask('terminal/ensure', { tabId: LANE_REACH_TABS.chars, options: { cwd } });
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.chars, data: SPLIT_CHARS });
+        await reached(LANE_REACH_TABS.chars, SPLIT_CHARS_TEXT);
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.chars, data: typed('@exit 0') });
+        await reached(LANE_REACH_TABS.chars, EXITED);
+        await ask('terminal/dispose', { tabId: LANE_REACH_TABS.chars });
+        for (const name of Object.keys(all)) await barrier(name);
+
+        await ask('terminal/ensure', { tabId: LANE_REACH_TABS.tail, options: { cwd } });
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.tail, data: DANGLING_LEAD + typed('@exit 0') });
+        await reached(LANE_REACH_TABS.tail, EXITED);
+        await ask('terminal/dispose', { tabId: LANE_REACH_TABS.tail });
         for (const name of Object.keys(all)) await barrier(name);
 
         all.p2.router.fire('termResize', [LANE_REACH_TABS.desktop, 100, 30, true]);

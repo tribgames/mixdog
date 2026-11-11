@@ -5,12 +5,12 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1261034,
+      "bytes": 1267870,
       "path": "golden.json",
-      "sha256": "b0273f2143e007a39d20fe03e26552101405ee417e3d811a6a4e00f2852d89b1"
+      "sha256": "a095b688e77064dbed591ffa88099fe58c04680eb47ac67389a89eb0e13e4a12"
     }
   ],
-  "framing": "How output is cut into termData messages is fixed by the script, not by timing, on both sides. The cut into data events is the script's: the scripted shell writes each chunk as one frame (its byte count, `:`, its bytes) flushed on its own, and the stand-in hands the terminal manager exactly one data event per whole frame whatever the pipe joined or split and whatever bytes or length the frame has (lib/scripted-pty.mjs `takeFrames`; the core's reader takes one whole frame per output, mixdog-spawn scripted::Frames and manager.rs `frame_loop`); a frame cut off by the end of the output is an error on both sides. An empty chunk is a data event Node's relay buffer takes nothing of (terminal-data-buffer.ts:44), and the 200 KiB chunk is below the buffer's 256 Ki-character high watermark (:31, every frame acknowledged as sent), so it goes as one message (:67, :75). The cut into messages is then Node's relay buffer (terminal-data-buffer.ts, `{ delayMs: 16, leadingEdge: true }`, every frame acknowledged as sent, remote-relay-push-lanes.ts:80-89), on the real clock, and these inputs leave it no choice: a data event on a tab with nothing pending is sent at once when 16 ms have passed since that tab's last frame or the tab has had none (:53-60), and otherwise held until 16 ms after the last frame, joined only with data of the same tab arriving meanwhile (:44-50, :63-87). Every step waits until its output reached every phone reading before the next is written, so at most one step's output is ever pending; a step writing one chunk is one message whether sent at once or held (the chunk of two lines on term_lane_cmd is one message); the two chunks on term_lane_split are that tab's first output, so the first is sent at once on arrival and the second, coming after that frame, is a message of its own whether it arrives within 16 ms (held, alone) or later (sent at once). Not recorded here, and timing in Node: two chunks after a tab's first frame arriving within one 16 ms window (joined) or across it (two messages); that rule is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
+  "framing": "How output is cut into termData messages is fixed by the script, not by timing, on both sides. The cut into data events is the script's: the scripted shell writes each chunk as one frame (its byte count, `:`, its bytes) flushed on its own, and the stand-in hands the terminal manager exactly one data event per whole frame whatever the pipe joined or split and whatever bytes or length the frame has (lib/scripted-pty.mjs `takeFrames`; the core's reader takes one whole frame per output, mixdog-spawn scripted::Frames and manager.rs `frame_loop`); a frame cut off by the end of the output, or a header with a sign or over 1 MiB, is an error on both sides. The frames' bytes are decoded as one UTF-8 stream for the life of the shell, as node-pty decodes its socket (windowsPtyAgent.js `_outSocket.setEncoding('utf8')`, a StringDecoder; the core's tab `Utf8Decoder`): a character split across frames comes out with the later frame, a write that decodes to nothing is no data event (Readable `readableAddChunk`), and a lead byte left at the end is one U+FFFD before the exit (`decoder.end()`; the core's `Utf8Decoder::finish`). An empty chunk is thus no data event (and Node's relay buffer takes nothing of an empty one, terminal-data-buffer.ts:44), and the 200 KiB chunk is below the buffer's 256 Ki-character high watermark (:31, every frame acknowledged as sent), so it goes as one message (:67, :75). The cut into messages is then Node's relay buffer (terminal-data-buffer.ts, `{ delayMs: 16, leadingEdge: true }`, every frame acknowledged as sent, remote-relay-push-lanes.ts:80-89), on the real clock, and these inputs leave it no choice: a data event on a tab with nothing pending is sent at once when 16 ms have passed since that tab's last frame or the tab has had none (:53-60), and otherwise held until 16 ms after the last frame, joined only with data of the same tab arriving meanwhile (:44-50, :63-87). Every step waits until its output reached every phone reading before the next is written, so at most one step's output is ever pending; a step writing one chunk is one message whether sent at once or held (the chunk of two lines on term_lane_cmd is one message); the two chunks on term_lane_split are that tab's first output, so the first is sent at once on arrival and the second, coming after that frame, is a message of its own whether it arrives within 16 ms (held, alone) or later (sent at once). Not recorded here, and timing in Node: two chunks after a tab's first frame arriving within one 16 ms window (joined) or across it (two messages); that rule is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -34,7 +34,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-pty.mjs",
-      "sha256": "dd93f4531c4d4488bdde91880cb5453339aad68fb2094c7ed63de9fd89aea335"
+      "sha256": "61aa19f8cb05d8ac85d06c8bf3349d70b732245b7c4784f8dce091d6eeaae9e7"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/shell-isolation.mjs",
@@ -42,7 +42,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/terminal-lane-reach.mjs",
-      "sha256": "66a0d8062257d20013718cd02e515cb9c0b55a03eb9b801fa0e629f2ee514d9e"
+      "sha256": "dc9d28499310835f3f6ee2d0c8eaca583b944417b0e535cda04390327a23df7a"
     }
   ],
   "leftProcesses": "0 process(es) of the recording were still running when it ended; any are ended with its job.",
@@ -73,10 +73,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs",
-  "recorderSha256": "7584fbfb3779e27e41a2b4d69680b5a9cdce540d68438ec142a38b019e81c46d",
+  "recorderSha256": "fc4e5461ebf7f88070d5718fd8a5bb5122aeb04c7957ed0570c505e588d574db",
   "replay": "apps/desktop/src/renderer/remote-protocol-terminal-lanes.slow.test.mjs (benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs): mixdogd built with `--features \"terminal-lease-clock replay-controls\"` and started with MIXDOG_TERMINAL_SCRIPTED_SHELL=1 (mixdog-spawn `scripted-shell`: every tab runs crate::scripted::framed_profile over pipes, read one whole frame per output through scripted::Frames), dialling a scripted relay; the desktop over `terminal/ensure`, `terminal/input`, `terminal/dispose`, `remoteAccess/revokeClient`; each phone the page's own terminal adapter (remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over the protocol client through the relay. Each phone's termData, termActivity and termSizeOwner events (what the adapter hands the page), in the one order the page got them, are compared whole with Node's; each termData's envelope `droppable` is that of the relay frame that carried its `process/outputDelta` on the terminal lane feed.",
   "set": "terminal-lane-reach",
   "slowPhone": "Node's desktop sends every termData to the relay marked `droppable` (remote-relay-push-lanes.ts:85, remote-relay-delivery.ts:131-140) and keeps nothing per phone: a phone that cannot take it is the relay's to skip, with a resync hint, never closed (apps/relay/lib/relay-legs.mjs:304-319 deliverToPhone, relay-transport.mjs:717-733 sendToPhone and admitFrame :308-313; a frame not droppable over a leg's budget cuts the leg). The desktop's memory for it is the relay socket's send buffer, shared by every phone, which one slow phone does not fill: the relay never pauses the desktop's socket for one consumer (relay-legs.mjs:512-516). Recorded: each termData's `droppable`.",
-  "totalBytes": 1261034,
+  "totalBytes": 1267870,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
