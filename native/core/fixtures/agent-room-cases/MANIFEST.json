@@ -1,0 +1,152 @@
+{
+  "cases": 50,
+  "command": "node benchmarks/rust-core/recorders/record-agent-room-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no real member sessions or model: runRoomExchange gets scripted speak and decide functions (their scripts are in each case)",
+    "runs": "agent-room.mjs (parseRoomAsk, roomMentionOf, normalizeRoomRow/Config, roomRowItem/Message/Targets/rowsOfItems, rowsSinceCursor, roomTurnPrompt, roomMessageBudget, isPassReply, withoutPassMarker, roomUserWaiting, roomUsageLimit, roomMember* and runRoomExchange), agent-room-supervisor.mjs (parseRoomDecision, roomSupervisorPrompt, roomSupervisorRows), createRoomSupervisorCompletion with scripted config/route/provider, createAgentRoomDelivery over the real attachment store, restoreTranscriptItems",
+    "standIns": {
+      "AbortSignal": "an AbortSignal is stored as { aborted, reason } (reason through exact)"
+    }
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 246259,
+      "path": "golden.json",
+      "sha256": "0a7722ed9b5af595f6ccab29fddbcd8a650d61e1d159f05abbac0cbc1fa9bf88"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[31].observed.log[0]",
+      "$.cases[31].observed.log[1]"
+    ],
+    "reason": "the temp data dir is written <data>; the ms= figure of the supervisor completion log line is the elapsed time, written ms=<n>"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-room-cases.mjs",
+  "recorderSha256": "cbabf12f5445ca17acdffbf4b013ee7d6a90fe6a8fc4c386456c1de2cb4bd823",
+  "replay": {
+    "compare": "mixdog-core-rooms (config, exchange, live, calls): parse_room_ask, mention, row/prompt builders, run_room_exchange (feed spec.plan / spec.choose; compare result, spoken, every turn handed to speak and every step shown to decide), supervisor parser/prompt, completion request, delivery append",
+    "entry": "Drive these public items on o1: mixdog-core-rooms/src/rooms/config.rs:157 parse_room_ask; mixdog-core-rooms/src/rooms/config.rs:206 room_mention_of; mixdog-core-rooms/src/rooms/row_message.rs:228 room_row_message; mixdog-core-rooms/src/rooms/turn_prompt.rs:296 room_turn_prompt; mixdog-core-rooms/src/rooms/exchange.rs:302 run_room_exchange; mixdog-core-rooms/src/rooms/supervisor.rs:115 supervisor_prompt; mixdog-core-rooms/src/rooms/supervisor.rs:100 supervisor_rows; mixdog-core-rooms/src/rooms/supervisor.rs:300 parse_room_decision; mixdog-core-rooms/src/rooms/turn_post.rs:137 post_speech; mixdog-agent/src/one_shot.rs:141 CallShape::room_supervisor (the supervisor completion call shape (room-supervisor-completion.mjs): no request kind, route effort or low, no 529 retry, no prompt cache; used by mixdog-core-rooms/src/rooms/maintainer.rs:56; `pub mod one_shot`, mixdog-agent/src/lib.rs:30); mixdog-core/src/run_host/room_files.rs:116 SessionFiles::take_in (impl RoomFiles for SessionFiles (room_files.rs:115; the trait is `pub trait RoomFiles` in mixdog-core-rooms/src/rooms/live.rs, `pub mod live`; `pub struct SessionFiles` :24, `pub mod room_files` run_host/mod.rs:156): the intake of a room speech row, its artifactsFrom taken in or rejected).",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "normalised": {
+      "randomness": "the budget cases give roomMessageBudget the recorded random values or the recorded seeded generator",
+      "supervisorElapsed": "the ms= figure of the completion log line is <n>"
+    },
+    "note": "exchange cases hold the scripted behaviour as data (plan.byId/byTurn/default, mention, choose list or rule, supersededAfterStep, stopWhenSpoken); a decision {throws} makes decide fail with that message; an array element null is a decision that returned null, a missing element is undefined",
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 157,
+        "name": "parse_room_ask",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/config.rs"
+      },
+      {
+        "line": 206,
+        "name": "room_mention_of",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/config.rs"
+      },
+      {
+        "line": 228,
+        "name": "room_row_message",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/row_message.rs"
+      },
+      {
+        "line": 296,
+        "name": "room_turn_prompt",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/turn_prompt.rs"
+      },
+      {
+        "line": 302,
+        "name": "run_room_exchange",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/exchange.rs"
+      },
+      {
+        "line": 115,
+        "name": "supervisor_prompt",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/supervisor.rs"
+      },
+      {
+        "line": 100,
+        "name": "supervisor_rows",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/supervisor.rs"
+      },
+      {
+        "line": 300,
+        "name": "parse_room_decision",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/supervisor.rs"
+      },
+      {
+        "line": 137,
+        "name": "post_speech",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/turn_post.rs"
+      },
+      {
+        "line": 141,
+        "methods": "the supervisor completion call shape (room-supervisor-completion.mjs): no request kind, route effort or low, no 529 retry, no prompt cache; used by mixdog-core-rooms/src/rooms/maintainer.rs:56; `pub mod one_shot`, mixdog-agent/src/lib.rs:30",
+        "name": "CallShape::room_supervisor",
+        "path": "native/core/crates/mixdog-agent/src/one_shot.rs"
+      },
+      {
+        "line": 116,
+        "methods": "impl RoomFiles for SessionFiles (room_files.rs:115; the trait is `pub trait RoomFiles` in mixdog-core-rooms/src/rooms/live.rs, `pub mod live`; `pub struct SessionFiles` :24, `pub mod room_files` run_host/mod.rs:156): the intake of a room speech row, its artifactsFrom taken in or rejected",
+        "name": "SessionFiles::take_in",
+        "path": "native/core/crates/mixdog-core/src/run_host/room_files.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "agent-room-cases",
+  "totalBytes": 246259,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

@@ -37,18 +37,23 @@ pub type OnProgress = Arc<dyn Fn(&str, i64, i64) + Send + Sync>;
 /// `{os}-{arch}` in the manifest's naming, best first. Windows on ARM runs x64 programs under
 /// its emulation, so a win32-arm64 host also takes the win32-x64 asset.
 pub fn platform_key_candidates() -> Vec<String> {
-    let os = match std::env::consts::OS {
+    platform_key_candidates_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// [`platform_key_candidates`] of a host whose `std::env::consts` are `os` and `arch`.
+pub fn platform_key_candidates_for(os: &str, arch: &str) -> Vec<String> {
+    let os = match os {
         "windows" => "win32",
         "macos" => "darwin",
         other => other,
     };
-    let arch = match std::env::consts::ARCH {
+    let arch = match arch {
         "x86_64" => "x64",
         "aarch64" => "arm64",
         other => other,
     };
     let native = format!("{os}-{arch}");
-    if os == "win32" && arch == "arm64" { vec![native, "win32-x64".into()] } else { vec![native] }
+    if os =="win32" && arch == "arm64" { vec![native, "win32-x64".into()] } else { vec![native] }
 }
 
 pub fn read_engines_manifest() -> Value {
