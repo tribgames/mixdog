@@ -5189,7 +5189,7 @@
             "contextWindow": 128000,
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
-            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
@@ -5269,6 +5269,9 @@
             "remoteSessionId": null
           }
         }
+      },
+      "unsettled": {
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project"
       },
       "repository": {
         "head": "main",
@@ -6056,7 +6059,7 @@
             "contextWindow": 128000,
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
-            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
@@ -6136,6 +6139,9 @@
             "remoteSessionId": null
           }
         }
+      },
+      "unsettled": {
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2"
       },
       "repository": {
         "head": "main",
@@ -6250,7 +6256,7 @@
             "contextWindow": 128000,
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
-            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
@@ -6330,6 +6336,9 @@
             "remoteSessionId": null
           }
         }
+      },
+      "unsettled": {
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project"
       },
       "repository": {
         "head": "main",
@@ -6448,7 +6457,7 @@
             "contextWindow": 128000,
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
-            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh",
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
@@ -6528,6 +6537,9 @@
             "remoteSessionId": null
           }
         }
+      },
+      "unsettled": {
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh"
       },
       "repository": {
         "head": "main",
@@ -7139,7 +7151,7 @@
             "contextWindow": 128000,
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
-            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
@@ -7219,6 +7231,9 @@
             "remoteSessionId": null
           }
         }
+      },
+      "unsettled": {
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project"
       },
       "repository": {
         "head": "main",
@@ -8580,7 +8595,7 @@
             "contextWindow": 128000,
             "rawContextWindow": 128000,
             "effectiveContextWindowPercent": 100,
-            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
@@ -8660,6 +8675,9 @@
             "remoteSessionId": null
           }
         }
+      },
+      "unsettled": {
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2"
       },
       "repository": {
         "head": "main",
