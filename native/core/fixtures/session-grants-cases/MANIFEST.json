@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,6 +67,7 @@
   "replay": {
     "compare": "mixdog-tools policy/session_grants.rs (and gate.rs/grants.rs): replay each log step in order on a store and a registry with the recorded clock (start 1_000_000 ms) and compare every step's output and the grants/audit views",
     "entry": "Drive these public items on o1: mixdog-tools/src/policy/gate.rs:237 decide; mixdog-tools/src/policy/session_grants.rs:49 grant; mixdog-tools/src/policy/session_grants.rs:68 has; mixdog-tools/src/policy/grants.rs:158 set_mode; mixdog-tools/src/policy/grants.rs:321 GrantStore.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "recordHumanDecision: no public function (the audit write is private, policy/pipeline.rs:587)"
     ],
