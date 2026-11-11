@@ -205,6 +205,10 @@ pub struct RoomCalls<R: CallRunner> {
     /// scheduler was asked, as Node's recorder records `scheduler.route`).
     #[cfg(any(test, feature = "test-support"))]
     routed: std::sync::OnceLock<Arc<dyn Fn(&str, &Request) + Send + Sync>>,
+    /// Called by [`RoomCalls::quiet`] right before it takes the intakes' lock: a test's handshake with the observer, so what
+    /// it holds back there is held after any read the observation made before it.
+    #[cfg(test)]
+    before_intakes: std::sync::OnceLock<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// Per room, the user messages still on their way to `route` (`intakes`, `agent-room-scheduler.ts:120-138`).
@@ -281,6 +285,8 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
             ended: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             routed: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            before_intakes: std::sync::OnceLock::new(),
         })
     }
 
@@ -301,6 +307,10 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
     /// One observation of the room: both locks held together, so a sender that routes (state) and only then drops its intake
     /// is seen either still on its way or already running, never as neither.
     fn quiet(&self, room_id: &str) -> bool {
+        #[cfg(test)]
+        if let Some(hook) = self.before_intakes.get() {
+            hook();
+        }
         let intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.state();
         !intakes.contains_key(room_id) && !state.running.contains_key(room_id) && state.relays.get(room_id).is_none_or(Vec::is_empty)
