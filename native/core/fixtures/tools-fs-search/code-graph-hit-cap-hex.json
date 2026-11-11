@@ -1,0 +1,47 @@
+{
+  "name": "code-graph-hit-cap-hex",
+  "env": {
+    "REFERENCE_HIT_CAP": " 0x2 "
+  },
+  "files": {
+    "package.json": "{}\n",
+    "src/many.ts": "export function target(n: number): number {\n  return n;\n}\n\nexport const v0 = target(0);\nexport const v1 = target(1);\nexport const v2 = target(2);\nexport const v3 = target(3);\nexport const v4 = target(4);\nexport const v5 = target(5);\n",
+    "src/use.ts": "import { target } from './many';\n\nexport const u = target(9);\n"
+  },
+  "warmup": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "warmupNone"
+        ]
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "references",
+        "symbols": [
+          "target"
+        ]
+      },
+      "text": "# declaration\n# best declaration candidate\nsrc/many.ts:1-3:17 (typescript, export function, matches=7)\nsignature: function target(n: number): number\n\n# references\nsrc/many.ts:5:19\tcall\towner=v0\texport const v0 = target(0);\nsrc/many.ts:6:19\tcall\towner=v1\texport const v1 = target(1);\nsrc/many.ts:7:19\tcall\towner=v2\texport const v2 = target(2);\nsrc/many.ts:8:19\tcall\towner=v3\texport const v3 = target(3);\nsrc/many.ts:9:19\tcall\towner=v4\texport const v4 = target(4);\nsrc/many.ts:10:19\tcall\towner=v5\texport const v5 = target(5);",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "callers",
+        "symbols": [
+          "target"
+        ],
+        "file": "src/use.ts"
+      },
+      "text": "# call sites\nsrc/use.ts:3:18\tcall\tcaller=u\texport const u = target(9);",
+      "isError": false
+    }
+  ]
+}

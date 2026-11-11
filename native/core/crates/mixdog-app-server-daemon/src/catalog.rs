@@ -17,6 +17,10 @@ use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::transport::http::HttpSend;
 use mixdog_ai::transport::link::ReqwestLink;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+use mixdog_core_domains::domains::ai_admin::model_warmup::WarmupGates;
+use mixdog_core_domains::domains::ai_admin::model_warmup::WarmupMarks;
+
+use crate::setup_host::TracedMarks;
 use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::TaskClass;
@@ -70,16 +74,37 @@ pub async fn build_catalog(
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let initial = read_snapshot(tokens, data_dir.join("catalogs").join("snapshot.json")).await;
     let service = Arc::new(CatalogService::composed(initial, sources, http, data_dir.to_path_buf(), io).await);
-    let warmup = CatalogWarmup::new(service.clone());
-    arm_first_warm(&warmup, &|name| std::env::var(name).ok());
+    // Armed by the boot (`WarmupSchedulers::schedule_model_catalog_warmup`, `boot/session.mjs:124`).
+    let warmup = CatalogWarmup::new(Arc::new(MetadataRefresh(service.clone())));
     Ok(CatalogHost { service, warmup })
 }
 
-/// Arms the first warm-up. Its refresh is the metadata tables' only (`warmCatalogsInBackground`): the providers' listings
-/// are the readiness' startup refresh and its 24 h timer, so nothing waits on this one.
-fn arm_first_warm(warmup: &Arc<CatalogWarmup>, env: &dyn Fn(&str) -> Option<String>) {
-    if let Some(delay) = first_warm_delay(env) {
-        warmup.arm(delay);
+/// Arms the first warm-up (`scheduleModelCatalogWarmup()`); switched off, the skip is marked. Its refresh is the metadata
+/// tables' only (`warmCatalogsInBackground`): the providers' listings are the readiness' startup refresh and its 24 h
+/// timer, so nothing waits on this one.
+pub(crate) fn arm_first_warm(warmup: &Arc<CatalogWarmup>, env: &dyn Fn(&str) -> Option<String>) {
+    match first_warm_delay(env) {
+        Some(delay) => warmup.arm(delay),
+        None => warmup.marks().profile("model-catalog:warm-skipped", Some(serde_json::json!({ "reason": "disabled" }))),
+    }
+}
+
+/// `warmCatalogsInBackground()`: the warm-up's refresh.
+#[async_trait::async_trait]
+pub trait CatalogRefresh: Send + Sync {
+    async fn warm(&self) -> Result<(), String>;
+}
+
+/// The catalog service's metadata tables, then the audit of the cached routes' prices. A table that fails to load keeps
+/// its last rows and retries on its own schedule, so the refresh itself does not fail.
+pub struct MetadataRefresh(pub Arc<CatalogService>);
+
+#[async_trait::async_trait]
+impl CatalogRefresh for MetadataRefresh {
+    async fn warm(&self) -> Result<(), String> {
+        self.0.refresh_metadata().await;
+        self.0.audit_cached_pricing();
+        Ok(())
     }
 }
 
@@ -100,8 +125,8 @@ fn first_warm_delay(env: &dyn Fn(&str) -> Option<String>) -> Option<Duration> {
     Some(Duration::from_millis(ms as u64))
 }
 
-/// `timer-arm.mjs` `busyReason()`: why a background job must wait for an idle runtime, or none.
-pub type BusyProbe = Arc<dyn Fn() -> Option<&'static str> + Send + Sync>;
+/// `timers.modelCatalogWarmupTimer`.
+const SLOT: &str = "modelCatalogWarmupTimer";
 
 #[derive(Default)]
 struct WarmState {
@@ -116,56 +141,87 @@ struct WarmState {
 /// after it finishes (a failed refresh waits for the regular cycle too). A warm-up refreshes the LiteLLM and models.dev
 /// tables and then audits the cached routes' prices (`warmCatalogsInBackground`); the providers' listings are not its.
 pub struct CatalogWarmup {
-    service: Arc<CatalogService>,
-    busy: OnceLock<BusyProbe>,
+    refresh: Arc<dyn CatalogRefresh>,
+    /// The runtime's gates, which only exist once the session directory does; until then nothing is busy or closing.
+    gates: OnceLock<Arc<dyn WarmupGates>>,
     state: Mutex<WarmState>,
 }
 
 impl CatalogWarmup {
-    fn new(service: Arc<CatalogService>) -> Arc<Self> {
-        Arc::new(Self { service, busy: OnceLock::new(), state: Mutex::new(WarmState::default()) })
+    pub(crate) fn new(refresh: Arc<dyn CatalogRefresh>) -> Arc<Self> {
+        Arc::new(Self { refresh, gates: OnceLock::new(), state: Mutex::new(WarmState::default()) })
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, WarmState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Binds the runtime's busy probe, which only exists once the session directory does; until then nothing is busy.
-    pub fn bind_busy(&self, busy: BusyProbe) {
-        if self.busy.set(busy).is_err() {
-            panic!("the catalog warm-up's busy probe is bound once");
+    /// Binds the runtime's gates (busy probe, close, marks).
+    pub fn bind_gates(&self, gates: Arc<dyn WarmupGates>) {
+        if self.gates.set(gates).is_err() {
+            panic!("the catalog warm-up's gates are bound once");
         }
     }
 
+    /// The bound gates' marks; a debug trace before they are bound.
+    fn marks(&self) -> &dyn WarmupMarks {
+        match self.gates.get() {
+            Some(gates) => gates.as_ref(),
+            None => &TracedMarks,
+        }
+    }
+
+    fn closing(&self) -> bool {
+        self.state().closed || self.gates.get().is_some_and(|gates| gates.closing())
+    }
+
     /// `arm`: one pending timer, none once the runtime is closing.
-    fn arm(self: &Arc<Self>, delay: Duration) {
+    pub(crate) fn arm(self: &Arc<Self>, delay: Duration) {
+        if self.closing() {
+            return;
+        }
         let mut state = self.state();
-        if state.closed || state.timer.is_some() {
+        if state.timer.is_some() {
             return;
         }
         let this = self.clone();
         state.timer = Some(mixdog_rt::ticker().register(Instant::now() + delay, move || this.on_timer()));
+        drop(state);
+        self.marks().armed(SLOT, delay);
+    }
+
+    /// `timers.modelCatalogWarmupTimer` is set.
+    pub fn pending(&self) -> bool {
+        self.state().timer.is_some()
     }
 
     fn on_timer(self: &Arc<Self>) {
+        self.marks().running(SLOT, true);
+        self.state().timer = None;
+        if self.closing() {
+            self.marks().running(SLOT, false);
+            return;
+        }
         {
             let mut state = self.state();
-            state.timer = None;
-            if state.closed {
-                return;
-            }
             // The check and the park are one step, so a wake cannot fall between them.
-            if let Some(reason) = self.busy.get().and_then(|busy| busy()) {
-                tracing::debug!(event = "model-catalog:warm-deferred", reason, "boot profile");
+            if let Some(reason) = self.gates.get().and_then(|gates| gates.busy()) {
                 state.parked = true;
+                drop(state);
+                self.marks().profile("model-catalog:warm-deferred", Some(serde_json::json!({ "reason": reason })));
+                self.marks().running(SLOT, false);
                 return;
             }
         }
         let this = self.clone();
         mixdog_rt::spawn("catalog.refresh", TaskClass::Work, async move {
-            this.service.refresh_metadata().await;
-            this.service.audit_cached_pricing();
+            // A failed refresh waits for the regular cycle too.
+            match this.refresh.warm().await {
+                Ok(()) => this.marks().profile("model-catalog:warm-ready", None),
+                Err(error) => this.marks().profile("model-catalog:warm-failed", Some(serde_json::json!({ "error": error }))),
+            }
             this.arm(REFRESH_AFTER);
+            this.marks().running(SLOT, false);
         });
     }
 
@@ -285,12 +341,32 @@ mod tests {
         }
     }
 
-    async fn warmup_over(http: Arc<Counting>) -> (tempfile::TempDir, Arc<CatalogWarmup>) {
+    async fn warmup_over(http: Arc<Counting>) -> (tempfile::TempDir, Arc<CatalogService>, Arc<CatalogWarmup>) {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
         let service = Arc::new(CatalogService::composed(CatalogSnapshot::default(), Vec::new(), http, dir.path().to_path_buf(), io).await);
-        (dir, CatalogWarmup::new(service))
+        let warmup = CatalogWarmup::new(Arc::new(MetadataRefresh(service.clone())));
+        (dir, service, warmup)
+    }
+
+    /// A runtime that is never closing, busy as `busy` says.
+    struct Busy(Arc<Mutex<Option<&'static str>>>);
+
+    impl WarmupMarks for Busy {
+        fn profile(&self, _: &str, _: Option<Value>) {}
+    }
+
+    impl WarmupGates for Busy {
+        fn busy(&self) -> Option<&'static str> {
+            *self.0.lock().unwrap()
+        }
+        fn closing(&self) -> bool {
+            false
+        }
+        fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+            Box::pin(std::future::pending())
+        }
     }
 
     async fn settle() {
@@ -302,10 +378,9 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_busy_runtime_parks_the_catalog_warm_up_until_it_is_woken() {
         let http = Arc::new(Counting::default());
-        let (_dir, warmup) = warmup_over(http.clone()).await;
+        let (_dir, _service, warmup) = warmup_over(http.clone()).await;
         let busy = Arc::new(Mutex::new(Some("turn-active")));
-        let probe = busy.clone();
-        warmup.bind_busy(Arc::new(move || *probe.lock().unwrap()));
+        warmup.bind_gates(Arc::new(Busy(busy.clone())));
         warmup.arm(Duration::ZERO);
         settle().await;
         mixdog_rt::time::sleep(Duration::from_secs(60)).await;
@@ -335,9 +410,9 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn the_catalog_warm_up_asks_no_provider() {
         let http = Arc::new(Counting::default());
-        let (_dir, warmup) = warmup_over(http.clone()).await;
+        let (_dir, service, warmup) = warmup_over(http.clone()).await;
         let asked = Arc::new(AtomicUsize::new(0));
-        warmup.service.set_sources(vec![mixdog_ai::catalog::ModelSource::new("p".into(), Arc::new(CountedListing(asked.clone())))]);
+        service.set_sources(vec![mixdog_ai::catalog::ModelSource::new("p".into(), Arc::new(CountedListing(asked.clone())))]);
         warmup.arm(Duration::ZERO);
         settle().await;
         assert_eq!(http.0.load(Ordering::SeqCst), 2, "the warm-up ran: one fetch per price table");
@@ -349,8 +424,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_stopped_catalog_warm_up_does_not_run() {
         let http = Arc::new(Counting::default());
-        let (_dir, warmup) = warmup_over(http.clone()).await;
-        warmup.bind_busy(Arc::new(|| Some("session-create")));
+        let (_dir, _service, warmup) = warmup_over(http.clone()).await;
+        warmup.bind_gates(Arc::new(Busy(Arc::new(Mutex::new(Some("session-create"))))));
         warmup.arm(Duration::ZERO);
         settle().await;
         warmup.stop();

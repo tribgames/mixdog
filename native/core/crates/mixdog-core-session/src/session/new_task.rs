@@ -190,7 +190,8 @@ fn identity_of(meta: &std::fs::Metadata) -> String {
 }
 
 /// A test-only end of the process at a named point of a request (`MIXDOG_NEW_TASK_CRASH_AT`): what a power cut between two
-/// phases leaves. Compiled only into a build that asks for `crash-gates`.
+/// phases leaves (a new task's phases, a restart notice's store, `agent_registry/restart.rs`). Compiled only into a build that
+/// asks for `crash-gates`.
 #[cfg(feature = "crash-gates")]
 #[allow(clippy::disallowed_methods, reason = "a test build's crash point reads its variable and ends the process")]
 pub(super) fn crash_gate(point: &str) {

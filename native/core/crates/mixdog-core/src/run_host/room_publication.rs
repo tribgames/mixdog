@@ -273,6 +273,16 @@ mod tests {
             arrived
         }
     }
+
+    /// No user message is sent in these tests.
+    struct NoSends;
+    #[async_trait]
+    impl mixdog_core_rooms::rooms::user_send::RoomSend for NoSends {
+        async fn send(&self, _: &mixdog_core_rooms::rooms::user_send::UserMessage) -> Result<bool, RoomError> {
+            unreachable!("no user message is sent here")
+        }
+    }
+
     #[async_trait]
     impl mixdog_core_rooms::rooms::live::RoomLabels for HeldLabels {
         async fn labels(&self, _: &[String]) -> Result<HashMap<String, mixdog_core_rooms::rooms::turn_host::MemberLabel>, String> {
@@ -306,7 +316,10 @@ mod tests {
     }
     #[async_trait]
     impl mixdog_core_rooms::rooms::maintainer::Maintainer for Unreached {
-        async fn ask(&self, _: &str, _: &str) -> mixdog_core_rooms::rooms::maintainer::Maintained {
+        async fn decide(
+            &self,
+            _: &mixdog_core_rooms::rooms::exchange_run::SupervisorStep,
+        ) -> Result<Option<mixdog_core_rooms::rooms::exchange::Decision>, String> {
             unreachable!("no exchange of these tests reaches its supervisor")
         }
     }
@@ -517,7 +530,7 @@ mod tests {
             })
             .expect("bound once");
         let scopes = mixdog_core_base::support::testing::scopes_over(ops.clone(), "room").await;
-        let service = Arc::new(RoomService::new(rooms.clone(), host.clone(), runner.clone(), scopes, agents.clone(), ready.clone()));
+        let service = Arc::new(RoomService::new(rooms.clone(), host.clone(), runner.clone(), scopes, agents.clone(), ready.clone(), Arc::new(NoSends)));
         (service, homes, ready, prepares)
     }
 
@@ -1608,9 +1621,11 @@ mod tests {
                 maintainer: Arc::new(Unreached),
                 preview: Arc::new(|text: &str| mixdog_core_rooms::rooms::preview::plain_preview_text(text)),
                 log: room_log(&logged),
+                // `Date.now()` of the room host: the compared time fields are named by order, not value.
+                now: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as i64)),
             },
         );
-        let calls = mixdog_core_rooms::rooms::calls::RoomCalls::new(Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live.clone())), room_log(&logged));
+        let calls =mixdog_core_rooms::rooms::calls::RoomCalls::new(Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live.clone())), room_log(&logged));
         live.bind_relays(Arc::new({
             let calls = Arc::downgrade(&calls);
             move |room: &str, error: &str| {

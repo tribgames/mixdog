@@ -193,4 +193,3 @@ impl MeasuredThreads for DirectoryThreads {
         Some(self.world.facts(thread, &header, rows).await.media)
     }
 }
-

@@ -1,0 +1,211 @@
+{
+  "name": "read-modes",
+  "files": {
+    "nb.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"markdown\",\n   \"metadata\": {},\n   \"source\": [\n    \"# Title\\n\",\n    \"Some *text*.\"\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "a.txt": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n"
+  },
+  "calls": [
+    {
+      "tool": "read",
+      "input": {
+        "path": "nb.ipynb",
+        "mode": "head"
+      },
+      "text": "[lines 1-15]\n{\n \"cells\": [\n  {\n   \"cell_type\": \"markdown\",\n   \"metadata\": {},\n   \"source\": [\n    \"# Title\\n\",\n    \"Some *text*.\"\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "nb.ipynb",
+        "mode": "hex"
+      },
+      "text": "hex nb.ipynb offset=0 read=184/184\n00000000  7b 0a 20 22 63 65 6c 6c 73 22 3a 20 5b 0a 20 20   |{. \"cells\": [.  |\n00000010  7b 0a 20 20 20 22 63 65 6c 6c 5f 74 79 70 65 22   |{.   \"cell_type\"|\n00000020  3a 20 22 6d 61 72 6b 64 6f 77 6e 22 2c 0a 20 20   |: \"markdown\",.  |\n00000030  20 22 6d 65 74 61 64 61 74 61 22 3a 20 7b 7d 2c   | \"metadata\": {},|\n00000040  0a 20 20 20 22 73 6f 75 72 63 65 22 3a 20 5b 0a   |.   \"source\": [.|\n00000050  20 20 20 20 22 23 20 54 69 74 6c 65 5c 6e 22 2c   |    \"# Title\\n\",|\n00000060  0a 20 20 20 20 22 53 6f 6d 65 20 2a 74 65 78 74   |.    \"Some *text|\n00000070  2a 2e 22 0a 20 20 20 5d 0a 20 20 7d 0a 20 5d 2c   |*.\".   ].  }. ],|\n00000080  0a 20 22 6d 65 74 61 64 61 74 61 22 3a 20 7b 7d   |. \"metadata\": {}|\n00000090  2c 0a 20 22 6e 62 66 6f 72 6d 61 74 22 3a 20 34   |,. \"nbformat\": 4|\n000000a0  2c 0a 20 22 6e 62 66 6f 72 6d 61 74 5f 6d 69 6e   |,. \"nbformat_min|\n000000b0  6f 72 22 3a 20 35 0a 7d                           |or\": 5.}|",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb",
+        "mode": "head"
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb",
+        "mode": "tail"
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb",
+        "mode": "count"
+      },
+      "text": "lines\t15\twords\t24\tbytes\t184",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb",
+        "mode": "summary"
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb",
+        "mode": "hex"
+      },
+      "text": "hex nb.ipynb offset=0 read=184/184\n00000000  7b 0a 20 22 63 65 6c 6c 73 22 3a 20 5b 0a 20 20   |{. \"cells\": [.  |\n00000010  7b 0a 20 20 20 22 63 65 6c 6c 5f 74 79 70 65 22   |{.   \"cell_type\"|\n00000020  3a 20 22 6d 61 72 6b 64 6f 77 6e 22 2c 0a 20 20   |: \"markdown\",.  |\n00000030  20 22 6d 65 74 61 64 61 74 61 22 3a 20 7b 7d 2c   | \"metadata\": {},|\n00000040  0a 20 20 20 22 73 6f 75 72 63 65 22 3a 20 5b 0a   |.   \"source\": [.|\n00000050  20 20 20 20 22 23 20 54 69 74 6c 65 5c 6e 22 2c   |    \"# Title\\n\",|\n00000060  0a 20 20 20 20 22 53 6f 6d 65 20 2a 74 65 78 74   |.    \"Some *text|\n00000070  2a 2e 22 0a 20 20 20 5d 0a 20 20 7d 0a 20 5d 2c   |*.\".   ].  }. ],|\n00000080  0a 20 22 6d 65 74 61 64 61 74 61 22 3a 20 7b 7d   |. \"metadata\": {}|\n00000090  2c 0a 20 22 6e 62 66 6f 72 6d 61 74 22 3a 20 34   |,. \"nbformat\": 4|\n000000a0  2c 0a 20 22 6e 62 66 6f 72 6d 61 74 5f 6d 69 6e   |,. \"nbformat_min|\n000000b0  6f 72 22 3a 20 35 0a 7d                           |or\": 5.}|",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "head"
+      },
+      "text": "[lines 1-30]\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n[lines 1-30 of 30]",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "head",
+        "n": 3
+      },
+      "text": "[lines 1-30]\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n[lines 1-30 of 30]",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "tail",
+        "n": 2
+      },
+      "text": "[lines 1-30]\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n[lines 1-30 of 30]",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "count"
+      },
+      "text": "lines\t30\twords\t60\tbytes\t231",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "summary"
+      },
+      "text": "[lines 1-30]\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n[lines 1-30 of 30]",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "hex",
+        "n": 32
+      },
+      "text": "hex a.txt offset=0 read=32/231\n00000000  6c 69 6e 65 20 31 0a 6c 69 6e 65 20 32 0a 6c 69   |line 1.line 2.li|\n00000010  6e 65 20 33 0a 6c 69 6e 65 20 34 0a 6c 69 6e 65   |ne 3.line 4.line|\n... 199 more bytes (paginate via n + offset)",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "full"
+      },
+      "text": "[lines 1-30]\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n[lines 1-30 of 30]",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "bogus"
+      },
+      "text": "[lines 1-30]\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30\n[lines 1-30 of 30]",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "a.txt",
+        "mode": "head",
+        "offset": 5,
+        "limit": 2
+      },
+      "text": "[lines 5-6]\nline 5\nline 6\n[lines 5-6 of 30; offset:7 for more]",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": [
+          {
+            "file_path": "a.txt",
+            "mode": "tail",
+            "n": 2
+          },
+          "nb.ipynb"
+        ]
+      },
+      "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?}",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "a.txt",
+        "mode": "head",
+        "n": 3
+      },
+      "text": "[lines 1-3]\nline 1\nline 2\nline 3",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "a.txt",
+        "mode": "tail",
+        "n": 2
+      },
+      "text": "[lines 29-30]\nline 29\nline 30",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "a.txt",
+        "mode": "count"
+      },
+      "text": "lines\t30\twords\t60\tbytes\t231",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "path": "a.txt",
+        "mode": "summary"
+      },
+      "text": "summary a.txt\nlines\t30\twords\t60\tbytes\t231\nsymbols\t0\n\n(no obvious symbols/headings found)",
+      "isError": false
+    }
+  ]
+}

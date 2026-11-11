@@ -62,6 +62,8 @@ pub use ticker::TimerHandle;
 pub use ticker::ticker;
 
 pub use exec::job_progress;
+pub use lanes::in_tool_call;
+pub use lanes::tool_label;
 pub use lanes::JobDropped;
 pub use lanes::JobHandle;
 pub use lanes::JobRun;
@@ -69,7 +71,9 @@ pub use lanes::LaneFull;
 pub use lanes::LaneKind;
 pub use lanes::LaneWedged;
 pub use lanes::QueuedJob;
+pub use lanes::Entered;
 pub use lanes::SubmitWaitError;
+pub use lanes::Ticket;
 pub use lanes::ThreadKind;
 pub use liveness::Expired;
 pub use liveness::Liveness;
@@ -120,10 +124,28 @@ pub trait Backend: Send + Sync + 'static {
     fn handle(&self, class: TaskClass) -> tokio::runtime::Handle;
     /// One poll of an instrumented task finished after `elapsed`.
     fn record_poll(&self, task: &'static str, class: TaskClass, elapsed: Duration);
-    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: a full queue answers
-    /// [`LaneFull`]. The lane thread calls [`QueuedJob::run`], which drops a cancelled job at
-    /// dequeue (RL §7.1).
+    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: the job waits in the lane's FIFO
+    /// queue for a thread, and only a queue at its far bound (or a lane with no healthy worker)
+    /// answers [`LaneFull`] (overloaded). The lane thread calls [`QueuedJob::run`], which drops a
+    /// cancelled job at dequeue (RL §7.1).
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull>;
+    /// [`Self::submit`] only when a thread takes the job at once; [`LaneFull`] when it would
+    /// have to wait. Default: [`Self::submit`].
+    fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        self.submit(job)
+    }
+    /// Enqueues a [`LaneToken::submit_wait`] job in arrival order: it is admitted at once, or
+    /// waits on its [`lanes::Ticket`] with its place in the queue kept, or is refused at the far
+    /// bound. `Err(job)` (the default): the backend has no ordered queue, and `submit_wait` retries
+    /// [`Backend::submit`] on [`Backend::capacity_notify`].
+    fn enter(&self, job: QueuedJob) -> Result<lanes::Entered, QueuedJob> {
+        Err(job)
+    }
+    /// Takes the job of a waiting `ticket` out of `lane`'s queue unrun; `false` when the ticket no
+    /// longer waits (it was admitted or answered first).
+    fn withdraw(&self, _lane: LaneKind, _ticket: &lanes::Ticket) -> bool {
+        false
+    }
     /// Called first on every thread started through a [`ThreadToken`]: sets the OS priority
     /// of `kind` and registers the thread with the instrumentation.
     fn enter_thread(&self, kind: ThreadKind);

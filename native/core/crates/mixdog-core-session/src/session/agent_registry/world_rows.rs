@@ -174,6 +174,10 @@ mod tests {
             false
         }
         fn write(&self, _: &str, _: Option<Row>) {}
+        fn keep(&self, _: &str, _: Option<Row>) {}
+        fn kept(&self, _: &str) -> bool {
+            false
+        }
     }
 
     impl LiveSessions for Empty {

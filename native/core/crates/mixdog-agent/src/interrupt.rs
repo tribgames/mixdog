@@ -185,6 +185,60 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
     }
 }
 
+/// One row of a turn recovered after the process died in it.
+#[derive(Debug, PartialEq)]
+pub enum RecoveredRow {
+    /// The stored row at `index`, as stored (with `meta.sentRequestTail` when the request ended with it).
+    Kept { index: usize, body: serde_json::Value },
+    /// A row the recovery adds: a call closed as cancelled, or the restart line.
+    New { role: &'static str, body: serde_json::Value },
+}
+
+/// Node's restart recovery of a turn the process died in (`recoverTurnCheckpoint`, `finalizeInterruptedTurn` with
+/// `process-crash`): every unanswered call closed as cancelled, the restart line, and `sentRequestTail` on the row
+/// the request ended with. `rows` are the stored model rows of the context. The core keeps no partial stream, so the
+/// cut turn is what its committed rows show: it had started a response when a row follows its prompt, and was in its
+/// tool phase when the last row is a call batch.
+pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<RecoveredRow>, String> {
+    let known = rows.iter().map(crate::message_row::message_of).collect::<Result<Vec<_>, _>>()?;
+    let last = known.last();
+    let finalized = finalize_interrupted_turn(Interrupted {
+        transcript: known.clone(),
+        current_user_text: String::new(),
+        response_started: last.is_some_and(|message| message.role() != Role::User),
+        partial_assistant: String::new(),
+        partial_reasoning: String::new(),
+        observed_tool_calls: Vec::new(),
+        observed_tool_results: Vec::new(),
+        phase: if last.is_some_and(|message| !message.assistant_call_ids().is_empty()) { Phase::Tools } else { Phase::Streaming },
+        reason: AbortReason::ProcessCrash,
+    });
+    let mut out = Vec::with_capacity(finalized.transcript.len());
+    for (index, message) in finalized.transcript.iter().enumerate() {
+        let tail = finalized.sent_request_tail == Some(index);
+        let stamp = |mut body: serde_json::Value| {
+            if tail && let Some(object) = body.as_object_mut() {
+                let meta = object.entry("meta").or_insert_with(|| serde_json::json!({}));
+                if let Some(meta) = meta.as_object_mut() {
+                    meta.insert("sentRequestTail".into(), serde_json::Value::Bool(true));
+                }
+            }
+            body
+        };
+        if known.get(index).is_some_and(|was| was == message) {
+            out.push(RecoveredRow::Kept { index, body: stamp(rows[index].clone()) });
+        } else {
+            let role = match message.role() {
+                Role::Assistant => "assistant",
+                Role::Tool => "tool",
+                _ => "user",
+            };
+            out.push(RecoveredRow::New { role, body: stamp(crate::message_row::row_of(message)) });
+        }
+    }
+    Ok(out)
+}
+
 fn append_observed_output(
     messages: &mut Vec<AgentMessage>,
     partial_assistant: &str,

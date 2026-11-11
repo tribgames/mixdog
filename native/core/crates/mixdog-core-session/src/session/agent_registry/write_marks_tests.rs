@@ -66,7 +66,8 @@ async fn workers(headers: Arc<GatedHeaders>) -> (tempfile::TempDir, StoreWorkers
     .await
     .expect("job ran")
     .expect("index");
-    (dir, StoreWorkers::new(index, headers, tokens.interactive_io))
+    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).expect("core state");
+    (dir, StoreWorkers::new(index, headers, tokens.interactive_io, Arc::new(super::KeptRows::new(state))))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

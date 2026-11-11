@@ -37,10 +37,10 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 test-support = ["mixdog-rt/test-support"]
 
 [dev-dependencies]
-mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).

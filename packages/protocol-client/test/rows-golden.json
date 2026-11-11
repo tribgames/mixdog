@@ -304,86 +304,78 @@
     {
      "type": "roomRow",
      "id": "hist_R_0_1",
-     "speaker": "",
+     "room": {
+      "kind": "user",
+      "at": 5000,
+      "fromSession": "s9",
+      "fromAgent": "bot",
+      "fromName": "Lead",
+      "to": [
+       "a1"
+      ],
+      "toName": [
+       "Ann"
+      ]
+     },
      "text": "hi all",
+     "attachments": [
+      {
+       "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+       "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+       "kind": "file",
+       "name": "x.pdf",
+       "mimeType": "application/pdf",
+       "size": 3
+      }
+     ],
      "meta": {
       "at": 5000,
-      "ext": {
-       "room": {
-        "kind": "user",
-        "fromSession": "s9",
-        "fromAgent": "bot",
-        "fromName": "Lead",
-        "to": [
-         "a1"
-        ],
-        "toName": [
-         "Ann"
-        ]
-       },
-       "messageId": "r1",
-       "attachments": [
-        {
-         "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-         "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-         "kind": "file",
-         "name": "x.pdf",
-         "mimeType": "application/pdf",
-         "size": 3
-        }
-       ]
-      }
+      "messageId": "r1"
      }
     },
     {
      "type": "roomRow",
      "id": "hist_R_1_1",
-     "speaker": "a1",
+     "room": {
+      "kind": "speech",
+      "at": 5100,
+      "speaker": "a1",
+      "name": "Ann"
+     },
      "text": "hello",
      "meta": {
       "at": 5100,
-      "ext": {
-       "room": {
-        "kind": "speech",
-        "speaker": "a1",
-        "name": "Ann"
-       },
-       "messageId": "r2"
-      }
+      "messageId": "r2"
      }
     },
     {
      "type": "roomRow",
      "id": "hist_R_2_1",
-     "speaker": "a2",
+     "room": {
+      "kind": "pass",
+      "at": 5200,
+      "speaker": "a2",
+      "name": "Bob",
+      "failed": true
+     },
      "text": "",
      "meta": {
       "at": 5200,
-      "ext": {
-       "room": {
-        "kind": "pass",
-        "speaker": "a2",
-        "name": "Bob",
-        "failed": true
-       },
-       "messageId": "r3"
-      }
+      "messageId": "r3"
      }
     },
     {
      "type": "roomRow",
      "id": "hist_R_3_1",
-     "speaker": "",
+     "room": {
+      "kind": "cap",
+      "at": 5300,
+      "limit": "rounds"
+     },
      "text": "",
      "meta": {
       "at": 5300,
-      "ext": {
-       "room": {
-        "kind": "cap",
-        "limit": "rounds"
-       },
-       "messageId": "r4"
-      }
+      "messageId": "r4"
      }
     }
    ],
