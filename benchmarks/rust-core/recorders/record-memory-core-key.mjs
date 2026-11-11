@@ -7,14 +7,53 @@
 //   1. a fresh profile;
 //   2. a store an old build left: two rows with one common key, the legacy (project_id, element) key without the pool key;
 //   3. the conflict resolved by an explicit edit, the legacy key back in its old form; then an agent memory sharing the key;
-//   4. the race: a duplicate committed between the opening's conflict check and its index build (the 23505 path).
-// The race's one seam: the opened database's `query`, which, once, after the conflict check answered, commits `raceSql` on
-// another connection before the check's answer returns. Nothing waits on time.
+//   4. the race: two starters (two processes, as a daemon handoff has them) open the same store at once, the pool key
+//      missing; each is held by an explicit gate just before its key build (`CREATE UNIQUE INDEX ... pool_elem`) and both
+//      are released together once both arrived (the 23505 path: one builds the key, the other's build collides).
+// The race's one seam, in each starter: the opened database's `exec`, which holds the key build until the recorder's
+// release. Nothing waits on time; every wait has a deadline.
 //
 //   node benchmarks/rust-core/recorders/record-memory-core-key.mjs --tree <dir>
+import { fork } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
-import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { fileURLToPath } from 'node:url';
+import { begin, capture, finish, importFrom, within } from './lib/mc-record.mjs';
+
+const IDENTITY = { model: 'test', dtype: 'q8' };
+const KEY_BUILD = /CREATE UNIQUE INDEX IF NOT EXISTS core_entries_unique_pool_elem/;
+
+// A starter: this file run again by the recorder (MIXDOG_CORE_KEY_STARTER), opening the store the recorder's cluster serves.
+if (process.env.MIXDOG_CORE_KEY_STARTER) {
+  delete process.env.MIXDOG_QUIET_MEMORY_LOG;
+  const logs = [];
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...rest) => {
+    const text = String(chunk);
+    if (text.startsWith('[core-memory]')) logs.push(text.replace(/\n$/, ''));
+    return write(chunk, ...rest);
+  };
+  const tree = process.env.MIXDOG_CORE_KEY_TREE;
+  const dataDir = process.env.MIXDOG_DATA_DIR;
+  const { openDatabase, closeDatabase } = await importFrom(tree, 'src/runtime/memory/lib/memory.mjs');
+  const pgAdapter = await importFrom(tree, 'src/runtime/memory/lib/pg/adapter.mjs');
+  const { db: raw } = await pgAdapter.ensurePgInstance(dataDir, { schema: 'memory' });
+  const exec = raw.exec;
+  const released = new Promise((resolve) => process.on('message', (msg) => msg === 'release' && resolve()));
+  raw.exec = async (text, ...rest) => {
+    if (KEY_BUILD.test(text)) {
+      process.send('arrived');
+      await released;
+    }
+    return exec.call(raw, text, ...rest);
+  };
+  const opened = await capture(async () => {
+    await openDatabase(dataDir, 384, IDENTITY);
+    return 'opened';
+  });
+  await closeDatabase(dataDir);
+  process.send({ opened, logs }, () => process.exit(0));
+} else {
 
 const ctx = begin();
 const SCRATCH = process.env.MIXDOG_RECORDER_SCRATCH ?? 'D:/mixdog-build/tmp/w23/rec';
@@ -34,7 +73,6 @@ process.stderr.write = (chunk, ...rest) => {
 
 const { openDatabase, closeDatabase } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory.mjs');
 const pgAdapter = await importFrom(ctx.tree, 'src/runtime/memory/lib/pg/adapter.mjs');
-const IDENTITY = { model: 'test', dtype: 'q8' };
 
 const INSERT = (element, summary, agent) =>
   `INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('${element}', '${summary}', 'rule', NULL, ${agent ? `'${agent}'` : 'NULL'}, 0, 0)`;
@@ -47,29 +85,36 @@ let db = await openDatabase(dataDir, 384, IDENTITY);
 const state = async () => ({ listing: (await db.query(LISTING)).rows, rows: (await db.query(ROWS)).rows });
 
 const steps = [{ label: 'a fresh profile', logs: logged.splice(0), ...(await state()) }];
-const step = async (label, sql, { raceSql, after } = {}) => {
+const step = async (label, sql, { after } = {}) => {
   if (sql) await db.exec(sql);
   await closeDatabase(dataDir);
-  if (raceSql) {
-    // The opening's db is the adapter's cached instance for this profile.
-    const { db: raw } = await pgAdapter.ensurePgInstance(dataDir, { schema: 'memory' });
-    const query = raw.query;
-    let armed = true;
-    raw.query = async (text, params) => {
-      const out = await query(text, params);
-      if (armed && /HAVING COUNT\(\*\) > 1/.test(text)) {
-        armed = false;
-        await query(raceSql);
-      }
-      return out;
-    };
-  }
   const opened = await capture(async () => {
     db = await openDatabase(dataDir, 384, IDENTITY);
     return 'opened';
   });
   const afterOut = after ? await capture(async () => (await db.query(after)).rowCount) : undefined;
-  steps.push({ label, sql, raceSql, after, opened, afterOut, logs: logged.splice(0), ...(await state()) });
+  steps.push({ label, sql, after, opened, afterOut, logs: logged.splice(0), ...(await state()) });
+};
+
+// Two starters at once over the store this process's cluster serves, released together once both reached the key build.
+const race = async (label, sql) => {
+  await db.exec(sql);
+  await closeDatabase(dataDir);
+  const starters = [0, 1].map(() =>
+    fork(fileURLToPath(import.meta.url), [], { env: { ...process.env, MIXDOG_CORE_KEY_STARTER: '1', MIXDOG_CORE_KEY_TREE: ctx.tree, MIXDOG_DATA_DIR: dataDir }, stdio: ['ignore', 'ignore', 'inherit', 'ipc'] })
+  );
+  const message = (child, what) => new Promise((resolve, reject) => {
+    child.once('message', resolve);
+    child.once('exit', (code) => reject(new Error(`a starter exited (${code}) before ${what}`)));
+  });
+  await within(`${label}: both starters at the key build`, Promise.all(starters.map((child) => message(child, 'the key build'))));
+  const outcomes = starters.map((child) => message(child, 'its outcome'));
+  for (const child of starters) child.send('release');
+  const ended = await within(`${label}: both openings ended`, Promise.all(outcomes));
+  db = await openDatabase(dataDir, 384, IDENTITY);
+  // Which starter wins the build is not fixed: the outcomes are listed in sorted order.
+  const sorted = ended.map((o) => JSON.stringify(o)).sort().map((o) => JSON.parse(o));
+  steps.push({ label, sql, starters: sorted, ...(await state()) });
 };
 
 await step(
@@ -90,9 +135,7 @@ await step(
   ].join(';\n'),
   { after: INSERT('key', 'An agent may share the key', 'reviewer') }
 );
-await step('a duplicate committed between the conflict check and the index build', 'DROP INDEX core_entries_unique_pool_elem', {
-  raceSql: INSERT('key', 'Racing duplicate'),
-});
+await race('two starters build the missing key at once', 'DROP INDEX core_entries_unique_pool_elem');
 
 finish(ctx, {
   url: import.meta.url,
@@ -101,10 +144,11 @@ finish(ctx, {
   extra: {
     entry: 'src/runtime/memory/lib/memory.mjs openDatabase(dataDir, 384, identity) and closeDatabase(dataDir)',
     replay: 'native/core/crates/mixdog-services/src/memory/tests/core_key.rs',
-    exclusions: "the race of step 4 is made at one seam, the opened database's query: after the conflict check answers, raceSql is committed on another connection",
-    normalised: 'none',
+    exclusions: "the race of step 4 is held at one seam in each starter, the opened database's exec: the key build waits for the recorder's release, given once both starters reached it. A starter's own log lines other than [core-memory] are not recorded",
+    normalised: 'step 4: the two starters\' outcomes ({opened, logs}) are listed in sorted order (which one wins the build is not fixed)',
   },
 });
 await closeDatabase(dataDir);
 await pgAdapter.shutdownOwnedPg({ timeoutMs: 20_000 }).catch(() => {});
 process.exit(0);
+}

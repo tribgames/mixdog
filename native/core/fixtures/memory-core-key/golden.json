@@ -40,9 +40,6 @@
     {
       "label": "a store an old build left: duplicate common keys under the legacy key",
       "sql": "DROP INDEX core_entries_unique_pool_elem;\nINSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'First approved preference', 'rule', NULL, NULL, 0, 0);\nINSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'Second approved preference', 'rule', NULL, NULL, 0, 0);\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, (element || id::text))",
-      "raceSql": {
-        "$exact": "undefined"
-      },
       "after": {
         "$exact": "undefined"
       },
@@ -106,9 +103,6 @@
     {
       "label": "the conflict resolved: the pool key replaces the legacy key, and an agent memory may share the common key",
       "sql": "UPDATE core_entries SET element = 'resolved' WHERE id = 2;\nDROP INDEX core_entries_unique_proj_elem;\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, element)",
-      "raceSql": {
-        "$exact": "undefined"
-      },
       "after": "INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'An agent may share the key', 'rule', NULL, 'reviewer', 0, 0)",
       "opened": {
         "result": "opened"
@@ -175,20 +169,23 @@
       ]
     },
     {
-      "label": "a duplicate committed between the conflict check and the index build",
+      "label": "two starters build the missing key at once",
       "sql": "DROP INDEX core_entries_unique_pool_elem",
-      "raceSql": "INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'Racing duplicate', 'rule', NULL, NULL, 0, 0)",
-      "after": {
-        "$exact": "undefined"
-      },
-      "opened": {
-        "result": "opened"
-      },
-      "afterOut": {
-        "$exact": "undefined"
-      },
-      "logs": [
-        "[core-memory] concurrent key conflict preserved; unique index deferred until explicit resolution"
+      "starters": [
+        {
+          "opened": {
+            "result": "opened"
+          },
+          "logs": [
+            "[core-memory] concurrent key conflict preserved; unique index deferred until explicit resolution"
+          ]
+        },
+        {
+          "opened": {
+            "result": "opened"
+          },
+          "logs": []
+        }
       ],
       "listing": [
         {
@@ -210,6 +207,11 @@
           "kind": "index",
           "name": "core_entries_project_idx",
           "definition": "CREATE INDEX core_entries_project_idx ON memory.core_entries USING btree (project_id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_unique_pool_elem",
+          "definition": "CREATE UNIQUE INDEX core_entries_unique_pool_elem ON memory.core_entries USING btree (project_id, agent_id, element) NULLS NOT DISTINCT"
         }
       ],
       "rows": [
@@ -237,15 +239,6 @@
           "agent_id": "reviewer",
           "element": "key",
           "summary": "An agent may share the key",
-          "category": "rule",
-          "status": null
-        },
-        {
-          "id": 4,
-          "project_id": null,
-          "agent_id": null,
-          "element": "key",
-          "summary": "Racing duplicate",
           "category": "rule",
           "status": null
         }

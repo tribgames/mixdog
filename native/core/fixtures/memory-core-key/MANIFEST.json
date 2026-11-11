@@ -1,13 +1,13 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-memory-core-key.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": "src/runtime/memory/lib/memory.mjs openDatabase(dataDir, 384, identity) and closeDatabase(dataDir)",
-  "exclusions": "the race of step 4 is made at one seam, the opened database's query: after the conflict check answers, raceSql is committed on another connection",
+  "exclusions": "the race of step 4 is held at one seam in each starter, the opened database's exec: the key build waits for the recorder's release, given once both starters reached it. A starter's own log lines other than [core-memory] are not recorded",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 8609,
+      "bytes": 8390,
       "path": "golden.json",
-      "sha256": "7b3b3b9a35bc8b3a1708566993477ce421fc8b9c0f8e278a935be17c947cdb6b"
+      "sha256": "7ee26f1fdb1eebf0c35c4b6ea2d955c84488ee3305e7935a32dba76658553339"
     }
   ],
   "inputs": [
@@ -29,7 +29,7 @@
     }
   ],
   "nodeVersion": "v22.20.0",
-  "normalised": "none",
+  "normalised": "step 4: the two starters' outcomes ({opened, logs}) are listed in sorted order (which one wins the build is not fixed)",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -48,11 +48,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-core-key.mjs",
-  "recorderSha256": "c7a7661b8673e05e0c2fddaf86072b32333731059a47802d894d129a568a8423",
+  "recorderSha256": "fb02bebf2fa940d3438240776c81ad188fdad764ae5616be4112a37fdfa11ebb",
   "replay": "native/core/crates/mixdog-services/src/memory/tests/core_key.rs",
   "set": "memory-core-key",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 8609,
+  "totalBytes": 8390,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
