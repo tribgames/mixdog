@@ -163,9 +163,11 @@ pub struct McpGlue {
     oauths: Mutex<HashMap<String, Arc<McpOAuth>>>,
     /// The plugin servers of the last catalog (`SecretOps::configured_servers` is synchronous).
     plugin_servers: Mutex<Map<String, Value>>,
-    /// One chain per server for its toggles; `desired` is the last state requested.
+    /// One chain per server for its toggles; `desired` is the last state requested with its
+    /// request number, `applied` the last request number a run of the chain connected, with its status.
     toggle_turns: Arc<mixdog_rt::KeyedChains>,
-    desired: Mutex<HashMap<String, bool>>,
+    desired: Mutex<HashMap<String, (bool, u64)>>,
+    applied: Mutex<HashMap<String, (u64, Value)>>,
     /// The scopes' connection lifecycle (serialization, generations, readiness, ownership).
     scopes: Arc<ScopeRuntime>,
 }
@@ -226,11 +228,18 @@ impl McpGlue {
             plugin_servers: Mutex::default(),
             toggle_turns: mixdog_rt::KeyedChains::new(),
             desired: Mutex::default(),
+            applied: Mutex::default(),
         })
     }
 
     pub fn hub(&self) -> &Arc<McpHub> {
         &self.hub
+    }
+
+    /// The scopes' connection lifecycle, for a test's watch of its operations.
+    #[cfg(feature = "test-support")]
+    pub fn scope_runtime(&self) -> &Arc<ScopeRuntime> {
+        &self.scopes
     }
 
     /// Connects the runtime scope, the one scope the daemon's own callers read, and returns once its
@@ -1284,17 +1293,33 @@ impl ExtensionHost for GlueHost {
     }
 
     async fn schedule_mcp_toggle(&self, name: &str, enabled: bool) -> Value {
-        let desired = |glue: &McpGlue| lock(&glue.desired).get(name).copied().unwrap_or(enabled);
-        lock(&self.glue.desired).insert(name.to_owned(), enabled);
+        let desired = |glue: &McpGlue| lock(&glue.desired).get(name).copied().unwrap_or((enabled, 0));
+        let asked = {
+            let mut desired = lock(&self.glue.desired);
+            let asked = desired.get(name).map_or(0, |(_, seq)| seq + 1);
+            desired.insert(name.to_owned(), (enabled, asked));
+            asked
+        };
         // A disable would otherwise wait out an explicit sign-in of this server still in flight.
         if !enabled {
+            #[cfg(feature = "test-support")]
+            self.glue.scopes.cancelling_login(name);
             drop(self.glue.logins.cancel_server(name).await);
         }
         let _turn = self.glue.toggle_turns.acquire(name).await;
+        // A toggle asked while the server's chain ran rides that run (Node's `chain.running`,
+        // `resource-extension-sync.mjs` scheduleMcpToggle): the run read this request's state
+        // before it ended, so it connects nothing more and refreshes the surface once.
+        if let Some((covered, status)) = lock(&self.glue.applied).get(name)
+            && *covered >= asked
+        {
+            return status.clone();
+        }
         let status = loop {
-            let want = desired(&self.glue);
+            let (want, seq) = desired(&self.glue);
             let status = self.glue.connect_configured(Op::Only(name.to_owned(), want)).await;
-            if desired(&self.glue) == want {
+            if desired(&self.glue).1 == seq {
+                lock(&self.glue.applied).insert(name.to_owned(), (seq, status.clone()));
                 break status;
             }
         };
