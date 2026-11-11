@@ -218,8 +218,27 @@ impl Tool for GlobTool {
         if let Some(missing) = require_dir(ctx, raw, &root).await? {
             return Ok(text_output(missing));
         }
+        let started = std::time::Instant::now();
         let (mut files, complete) =
             glob_files(ctx, &root, &patterns, arg_bool(&args, "include_noise")).await?;
+        // Node's glob is one `--files` request to the search server: admitted as a broad search, served as a bulk
+        // one (`search-admission.mjs`, `native-search-runner.mjs`, `local-search-telemetry.mjs`). The walk here is
+        // that request: no admission wait or queue, its handler time the walk's.
+        let walk_ms = started.elapsed().as_millis() as u64;
+        let local_search = serde_json::json!({
+            "broad_admissions": 1,
+            "broad_admission_wait_ms": 0,
+            "native_bulk_requests": 1,
+            "native_bulk_queue_ms": 0,
+            "native_bulk_handler_ms": walk_ms,
+            "native_hits": 1,
+            "native_ms": walk_ms,
+        });
+        let text_output = |text: String| {
+            let mut output = text_output(text);
+            output.meta = Some(serde_json::json!({ LOCAL_SEARCH_META: local_search }));
+            output
+        };
         if natural {
             files.sort_by(|a, b| a.0.cmp(&b.0));
         } else {

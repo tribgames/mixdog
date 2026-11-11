@@ -13,7 +13,8 @@
 //! - progress is dropped (`DroppedProgress`): the loop is given no progress callback;
 //! - approvals answer unavailable (`NoApprovals`): the schema allowlist is the execution allowlist
 //!   (`pre-dispatch-deny.mjs`, `explorer.mjs:51-52`) and holds read-only tools only;
-//! - no per-call deadline (`deadline_of: None`, as every session run) and no completion hook;
+//! - the read-only I/O deadline every session run has (`agentLoop`'s calls pass `executeTool`'s
+//!   `runReadOnlyIoWithDeadline`), and no completion hook;
 //! - the thread and the cwd are placeholders: `AgentExplorer::explore` replaces both per query from
 //!   the calling thread and its cwd (`explorer.rs`, `tool_env.thread_id = run.thread`), as
 //!   `runExplorer({ cwd })`.
@@ -56,7 +57,7 @@ impl ExplorerEnv {
             files: self.files.clone(),
             processes: self.processes.clone(),
             progress: Arc::new(DroppedProgress),
-            deadline_of: None,
+            deadline_of: Some(mixdog_agent::tools::read_only_io_deadline()),
             notify: None,
             review: None,
         }
@@ -94,11 +95,11 @@ mod tests {
     }
 
     #[test]
-    fn an_explorer_runs_the_lead_surface_with_the_shared_lanes_and_no_deadline_or_hook() {
+    fn an_explorer_runs_the_lead_surface_with_the_shared_lanes_the_read_only_deadline_and_no_hook() {
         let env = env();
         let tool_env = env.tool_env();
         assert_eq!(tool_env.surface, SurfaceKind::Lead);
         assert_eq!(tool_env.cwd, env.cwd);
-        assert!(tool_env.deadline_of.is_none() && tool_env.notify.is_none());
+        assert!(tool_env.deadline_of.is_some() && tool_env.notify.is_none());
     }
 }
