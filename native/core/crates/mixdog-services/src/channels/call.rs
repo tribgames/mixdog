@@ -114,8 +114,26 @@ fn call_signature(name: &str, args: &Value) -> String {
     Sha256::digest(canonical.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Hears `(remote acquired, pinned session id)`.
-pub type BindingObserver = Arc<dyn Fn(bool, Option<&str>) + Send + Sync>;
+/// The binding as it is announced (`publishRemoteState`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteState<'a> {
+    pub acquired: bool,
+    pub pinned_session_id: Option<&'a str>,
+    /// The pinned intent's working directory: the core's clients send none, so Node's `pointerClient.cwd` is always
+    /// absent and its fallback `remoteIntent.cwd` is the value.
+    pub cwd: Option<&'a str>,
+}
+
+impl RemoteState<'_> {
+    /// The state a client reads (`remote-state.mjs`): `{enabled, sessionId, cwd}`.
+    pub fn to_value(&self) -> Value {
+        let session = self.pinned_session_id.filter(|id| self.acquired && !id.is_empty());
+        json!({ "enabled": session.is_some(), "sessionId": session, "cwd": self.cwd })
+    }
+}
+
+/// Hears the binding after each change.
+pub type BindingObserver = Arc<dyn Fn(&RemoteState<'_>) + Send + Sync>;
 
 #[derive(Clone, Default, PartialEq)]
 struct Binding {
@@ -124,6 +142,12 @@ struct Binding {
     /// The persisted intent the pin came from or was saved as (`state.remoteIntent`); a restore
     /// applies only while it is still this one.
     intent: Option<Arc<RemoteIntent>>,
+}
+
+impl Binding {
+    fn state(&self) -> RemoteState<'_> {
+        RemoteState { acquired: self.remote_acquired, pinned_session_id: self.pinned_session_id.as_deref(), cwd: self.intent.as_ref().and_then(|i| i.cwd.as_deref()) }
+    }
 }
 
 struct Entry {
@@ -281,14 +305,14 @@ impl CallDispatch {
     /// Registers who hears the binding change, and tells it the binding now.
     pub fn observe_binding(&self, observer: BindingObserver) {
         let binding = self.binding.lock().unwrap().clone();
-        observer(binding.remote_acquired, binding.pinned_session_id.as_deref());
+        observer(&binding.state());
         *self.on_binding.lock().unwrap() = Some(observer);
     }
 
     fn binding_changed(&self) {
         let binding = self.binding.lock().unwrap().clone();
         if let Some(observer) = self.on_binding.lock().unwrap().as_ref() {
-            observer(binding.remote_acquired, binding.pinned_session_id.as_deref());
+            observer(&binding.state());
         }
     }
 

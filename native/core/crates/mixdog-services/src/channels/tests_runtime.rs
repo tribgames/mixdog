@@ -673,9 +673,9 @@ async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores
             other => panic!("{name}: record {other}"),
         };
         calls.bind_session_presence(Arc::new(move |_| Box::pin(async move { known })));
-        let shown = Arc::new(Mutex::new((false, None::<String>)));
+        let shown = Arc::new(Mutex::new(Value::Null));
         let sink = shown.clone();
-        calls.observe_binding(Arc::new(move |enabled, session| *sink.lock().unwrap() = (enabled, session.map(str::to_owned))));
+        calls.observe_binding(Arc::new(move |remote| *sink.lock().unwrap() = remote.to_value()));
         let logs = Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = logs.clone();
         let file = super::intent::IntentFile::with_clock(dir.path(), tokens().maintenance_io, Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string())), Arc::new(move || frozen));
@@ -692,9 +692,7 @@ async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores
         assert_eq!(json!(logs.lock().unwrap().clone()), case["logs"], "{name}: logs");
         assert_eq!(json!([boot, after]), case["checkpoints"], "{name}: checkpoints");
         // The Remote state a client is shown (Node's session.list `remoteSession`; the core's hostState.remoteSession).
-        let (enabled, session) = shown.lock().unwrap().clone();
-        let remote = &case["list"]["remoteSession"];
-        assert_eq!((json!(enabled), json!(session)), (remote["enabled"].clone(), remote["sessionId"].clone()), "{name}: remote session shown");
+        assert_eq!(*shown.lock().unwrap(), case["list"]["remoteSession"], "{name}: remote session shown");
         e.runtime.stop_owned_runtime("test").await.unwrap();
     }
 }
