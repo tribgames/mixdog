@@ -13,6 +13,7 @@ use std::sync::Arc;
 use mixdog_core_base::feed::CoreScopedFeeds;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
+use mixdog_services::effort_judge::JudgeTiming;
 use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
 use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
 use mixdog_services::memory::embed::engine::EmbedConfig;
@@ -196,6 +197,9 @@ pub struct ComposedCore {
     stop: tokio_util::sync::CancellationToken,
     /// Node's text of why the core is stopping (`daemon.mjs:272` `shutdown(reason)`), set once by the release before its first step; the stop steps read it.
     stop_reason: Arc<StopReasonCell>,
+    /// Replay-only: the service of `replay/storesSettled`.
+    #[cfg(feature = "replay-controls")]
+    stores_settled: crate::replay_stores_settled::StoresSettled,
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -251,8 +255,9 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
     };
     let effort_judge = EffortJudgeModel::with_options(
         ModelConfig::in_data_dir(data_dir, ort_library),
-        tokens.cpu_bulk,
-        JudgeOptions { tick: tick.clone(), manifest: None, progress: None },
+        mixdog_services::effort_judge::JudgeLanes::of(tokens),
+        // A step's judgment waits as a turn's: Node's step path calls `judgeTurn` too.
+        JudgeOptions { tick: tick.clone(), manifest: None, progress: None, timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()) },
     )
     .map_err(ComposeError::EffortJudge)?;
     Ok(Models { tick, embeddings, effort_judge })
@@ -500,6 +505,10 @@ impl CoreHandle for ComposedCore {
     }
 
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        #[cfg(feature = "replay-controls")]
+        if method == mixdog_app_server::REPLAY_STORES_SETTLED {
+            return Some(&self.stores_settled);
+        }
         self.real.domains.get(method)
     }
 
@@ -749,7 +758,6 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         stop.clone(),
     );
     let core = ComposedCore {
-        real,
         state: watch::Sender::new(LifecycleState::Serving),
         host_media,
         sections,
@@ -765,6 +773,9 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),
+        #[cfg(feature = "replay-controls")]
+        stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone(), real.replay_writers.clone(), real.gateway_usage.clone(), real.ledgers.clone()),
+        real,
         log,
         stop,
         stop_reason,

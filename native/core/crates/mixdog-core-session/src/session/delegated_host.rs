@@ -14,9 +14,6 @@ use async_trait::async_trait;
 use mixdog_services::bots::delivery::queue::Handoffs;
 use serde_json::Value;
 
-#[cfg(test)]
-mod tests;
-
 /// The arguments a copy's answer carries to the owner (`finishToolApproval(id, approved, reason,
 /// device, answers, reply, extra)` without the id); `None` is `undefined`.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -93,7 +90,7 @@ enum Step {
 pub struct DelegatedApprovalHost {
     registry: Mutex<Registry>,
     /// The deferred offers still running, for the tests to await.
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     deferred: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
@@ -144,8 +141,8 @@ impl DelegatedApprovalHost {
     }
 
     /// Returns once every deferred offer, and any it started in turn, has ended.
-    #[cfg(test)]
-    async fn deferred_offers(&self) {
+    #[cfg(feature = "test-support")]
+    pub async fn deferred_offers(&self) {
         loop {
             let Some(offer) = self.deferred.lock().unwrap().pop() else { return };
             crate::session::testing::awaiting(|| "a deferred offer to end".to_owned(), offer).await.unwrap();
@@ -341,9 +338,9 @@ impl DelegatedApprovalHost {
                 host.offer_to(&copy);
             }
         });
-        #[cfg(test)]
+        #[cfg(feature = "test-support")]
         self.deferred.lock().unwrap().push(offer);
-        #[cfg(not(test))]
+        #[cfg(not(feature = "test-support"))]
         drop(offer);
     }
 }

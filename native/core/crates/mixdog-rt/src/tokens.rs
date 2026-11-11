@@ -365,6 +365,10 @@ thread_token!(
     /// SQLite writer threads (one per database).
     SqliteWriterThread => SqliteWriter
 );
+thread_token!(
+    /// The effort judge's thread and the ONNX Runtime threads of its session.
+    JudgeThread => EffortJudge
+);
 
 /// Every token of the process, minted once by [`crate::install`].
 #[derive(Clone, Copy, Debug)]
@@ -381,6 +385,7 @@ pub struct LaneTokens {
     pub computer_thread: ComputerThread,
     pub media_thread: MediaThread,
     pub sqlite_writer_thread: SqliteWriterThread,
+    pub judge_thread: JudgeThread,
 }
 
 impl LaneTokens {
@@ -397,6 +402,7 @@ impl LaneTokens {
             computer_thread: ComputerThread::mint(),
             media_thread: MediaThread::mint(),
             sqlite_writer_thread: SqliteWriterThread::mint(),
+            judge_thread: JudgeThread::mint(),
         }
     }
 }

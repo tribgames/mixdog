@@ -59,6 +59,9 @@ pub enum ThreadKind {
     WebrtcMedia,
     /// The single write connection of one SQLite database (RL §8).
     SqliteWriter,
+    /// The effort judge's own thread (one per judge model, as Node's judge worker) and the ONNX
+    /// Runtime threads its session starts.
+    EffortJudge,
 }
 
 /// The lane is overloaded: its queue holds its far bound of waiting jobs (overload protection,

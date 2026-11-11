@@ -52,7 +52,7 @@ mod tests {
 
     fn judge_over(dir: &std::path::Path, timing: JudgeTiming) -> ModelTurnJudge {
         let config = ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.join("no-ort")) };
-        let model = EffortJudgeModel::new(config, mixdog_rt::testing::tokens().cpu_bulk).unwrap();
+        let model = EffortJudgeModel::new(config, mixdog_services::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())).unwrap();
         ModelTurnJudge::with_timing(model, timing)
     }
 

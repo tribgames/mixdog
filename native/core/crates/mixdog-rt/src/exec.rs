@@ -11,7 +11,8 @@
 //! | io-pty | one thread per job, 64 live per core | 0 / 1024 | normal |
 //!
 //! RT-C is 2 tokio threads (above normal), RT-W cores − 2, min 2 (normal); control / computer /
-//! webrtc-media / sqlite-writer threads are one per token spawn (above / normal / below / normal).
+//! webrtc-media / sqlite-writer / effort-judge threads are one per token spawn (above / normal /
+//! below / normal / normal).
 //!
 //! Every lane has one FIFO queue in arrival order. The room is how many queued jobs a
 //! `submit_wait` caller lets ahead of its own before it is admitted (the lane's queue size before
@@ -75,11 +76,12 @@ const LANES: [LaneKind; 7] = [
     LaneKind::PtyIo,
 ];
 
-const THREAD_KINDS: [ThreadKind; 4] = [
+const THREAD_KINDS: [ThreadKind; 5] = [
     ThreadKind::Control,
     ThreadKind::Computer,
     ThreadKind::WebrtcMedia,
     ThreadKind::SqliteWriter,
+    ThreadKind::EffortJudge,
 ];
 
 fn lane_index(kind: LaneKind) -> usize {
@@ -100,6 +102,7 @@ fn thread_index(kind: ThreadKind) -> usize {
         ThreadKind::Computer => 1,
         ThreadKind::WebrtcMedia => 2,
         ThreadKind::SqliteWriter => 3,
+        ThreadKind::EffortJudge => 4,
     }
 }
 
@@ -149,11 +152,13 @@ const fn lane_lease(kind: LaneKind) -> Duration {
 }
 
 /// OS priority of each dedicated-thread kind: the management listener answers while the async
-/// runtimes stall (above normal); video encoders yield to everything (below normal).
+/// runtimes stall (above normal); video encoders yield to everything (below normal). The effort
+/// judge runs at normal priority as Node's judge worker does: a judgment that waits behind bulk work
+/// misses its 500 ms deadline.
 const fn thread_priority(kind: ThreadKind) -> Priority {
     match kind {
         ThreadKind::Control => Priority::AboveNormal,
-        ThreadKind::Computer | ThreadKind::SqliteWriter => Priority::Normal,
+        ThreadKind::Computer | ThreadKind::SqliteWriter | ThreadKind::EffortJudge => Priority::Normal,
         ThreadKind::WebrtcMedia => Priority::BelowNormal,
     }
 }
@@ -264,7 +269,7 @@ pub struct Executors {
     work_runtime: Option<Runtime>,
     lanes: Vec<LaneExec>,
     tasks: TaskRegistry,
-    threads_entered: [AtomicU64; 4],
+    threads_entered: [AtomicU64; THREAD_KINDS.len()],
     priority_failures: Arc<AtomicU64>,
 }
 

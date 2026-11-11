@@ -253,7 +253,7 @@ impl AgentRegistry {
     /// `flushActiveWorkerRows()` at process exit: the rows this process wrote as active and still holds
     /// as active settle as failed (`process-restart`, stamped now), so a crash of the host never leaves
     /// them running; a row another process took over is left alone. The caller then awaits
-    /// `StoreWorkers::settled` for the writes to reach the headers.
+    /// `StoreWorkers::marks` reaching its accepted count for the writes to reach the headers.
     pub fn flush_active_worker_rows(&self, live: &Liveness<'_>) {
         let mut st = self.lock();
         let keys: Vec<String> = st.active.drain().collect();
