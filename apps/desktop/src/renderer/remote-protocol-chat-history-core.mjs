@@ -26,7 +26,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connect } from '../../../../packages/protocol-client/src/client.ts';
-import { sessionReducer, sessionStateOf } from '../../../../packages/protocol-client/src/session-state.ts';
+import { sessionReducer, sessionStateOf, subscribeFramedSessionStates } from '../../../../packages/protocol-client/src/session-state.ts';
 import { parseDiscovery } from '../main/protocol/discovery.ts';
 import { createWsConnector } from '../main/protocol/ws-connector.ts';
 import { ABORT_CASES, ASKED_PROJECT_FILE, DEVICES, HOOK_RULES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
@@ -238,6 +238,10 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   let clockServer;
   let clockSocket;
   let clock;
+  let bytesServer;
+  let bytesHandled = 0;
+  const bytesSockets = new Set();
+  let handledAll;
   let watcher;
   let provider;
   const clients = [];
@@ -306,7 +310,42 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     // scans (cluster.rs DEFAULT_PORT + PORT_SPAN): a core beside this one, scanning, could take a scanned port between the probe and
     // the bind, and the loser's cluster would be started again when a turn needed it, its readiness polls waiting on the frozen clock.
     const pgPort = await assignedPort();
-    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}`, MIXDOG_ASSIGNED_PG_PORT: String(pgPort) }), cwd: paths.envRoot });
+    // The core's barrier on the model's bytes (mixdog-ai replay_bytes.rs): a line `bytes <total>` after each response chunk it handled.
+    // Bytes on a socket are outside the core's clock until the core admits them, so an advance after a scripted write waits for them.
+    bytesServer = createServer();
+    let bytesBuffer = '';
+    let bytesLost = null;
+    const bytesWaiters = new Set();
+    const bytesSeen = () => { for (const waiter of bytesWaiters) waiter(); };
+    bytesServer.on('connection', (socket) => {
+      bytesSockets.add(socket);
+      socket.setEncoding('utf8');
+      const lost = (error) => { bytesLost = new Error(`the core's byte barrier ended (${error?.message ?? 'closed'}); core: ${core?.tail?.() ?? ''}`); bytesSeen(); };
+      socket.on('error', lost);
+      socket.on('close', () => lost());
+      socket.on('data', (chunk) => {
+        bytesBuffer += chunk;
+        for (let at = bytesBuffer.indexOf('\n'); at >= 0; at = bytesBuffer.indexOf('\n')) {
+          const total = Number(/^bytes (\d+)$/.exec(bytesBuffer.slice(0, at).trim())?.[1]);
+          bytesBuffer = bytesBuffer.slice(at + 1);
+          if (Number.isFinite(total)) bytesHandled = total;
+        }
+        bytesSeen();
+      });
+    });
+    await new Promise((resolve) => bytesServer.listen(0, '127.0.0.1', resolve));
+    handledAll = () => {
+      const want = provider.bodyBytes();
+      if (bytesHandled >= want) return Promise.resolve();
+      return deadline.race(new Promise((resolve, reject) => {
+        const waiter = () => {
+          if (bytesLost) { bytesWaiters.delete(waiter); reject(bytesLost); }
+          else if (bytesHandled >= want) { bytesWaiters.delete(waiter); resolve(); }
+        };
+        bytesWaiters.add(waiter);
+      }), `the core to handle the model's ${want} response bytes (handled ${bytesHandled})`);
+    };
+    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}`, MIXDOG_REPLAY_BYTES: `127.0.0.1:${bytesServer.address().port}`, MIXDOG_ASSIGNED_PG_PORT: String(pgPort) }), cwd: paths.envRoot });
     await deadline.race(clockLine.promise, 'the core to connect to the replay clock (a mixdogd built with --features virtual-clock)');
     const daemonDoc = () => {
       const file = join(paths.runtimeRoot, 'daemon.json');
@@ -371,15 +410,16 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       check();
       return deadline.race(done.promise, what);
     };
-    // Ends the core's current window once it holds as many entries of each kind as Node's: pairs the two and lists their differences.
-    // The barrier before one of Node's inputs: the core has published as many entries of each kind as Node had before it (the core's
-    // states between two of Node's included). Which of them pair is alignHistory's, once the case is over.
+    // The barrier before one of Node's inputs: the core has answered as many calls as Node had before it. States are not counted: the
+    // phone sees one state per Node frame, and a frame Node published for a change the core does not make (yet) is a difference for
+    // alignHistory to report, not a state to wait for. That the core's frames for the earlier inputs are out is the clock's `advance`
+    // (answered at quiescence) and the byte barrier's.
+    // And the core has published as many states as there were windows between Node's inputs in which Node published one: each input's (or
+    // clock move's) effect is out before the next input, however many frames Node split it into.
     const owe = async (owed, what) => {
       const want = kinds(owed);
-      await until(() => {
-        const got = kinds(log);
-        return got.state >= want.state && got.reply >= want.reply;
-      }, what);
+      const windows = new Set(owed.filter((h) => h.kind === 'state').map((h) => node.inputs.filter((i) => i.at <= h.at).length)).size;
+      await until(() => kinds(log).reply >= want.reply && kinds(log).state >= windows, what);
       reached.matched = owed.length;
     };
     let lastKey = null;
@@ -394,18 +434,19 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         random: Math.random,
       }), `the client of ${title} to connect`);
       clients.push(client);
-      client.store.subscribe((change) => {
-        if (viewing && change.type === 'thread' && (change.threadId === threadId || (!threadId && submitting))) {
-          threadId ||= change.threadId;
-          const value = norm(sessionStateOf(client, change.threadId));
+      // The phone shows the thread's states as Node's frames published them (one per `thread/frame`).
+      if (viewing) {
+        subscribeFramedSessionStates(client, () => threadId || (submitting ? undefined : '\0none'), (id, state) => {
+          threadId ||= id;
+          const value = norm(state);
           const key = JSON.stringify(value);
           if (key !== lastKey) {
             lastKey = key;
             log.push({ kind: 'state', value });
           }
-        }
-        wake();
-      });
+        });
+      }
+      client.store.subscribe(() => wake());
       // What the submitting phone's thread list hears, each at the clock the core stood at.
       // What the submitting phone's thread list hears after its join read, each at the clock it came at (normalized once the thread's id
       // is known).
@@ -440,10 +481,13 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     };
     for (const input of node.inputs) {
       const owed = compared.filter((h) => h.at < input.at);
-      await owe(owed, `the core to publish as many entries as Node's ${owed.length} before ${input.input}`);
+      await owe(owed, `the core to publish its entries for Node's ${owed.length} before ${input.input}`);
       // Node's clocks stood at `input.clock` for this input (its own moves, and the recorder's `afterInputMs` after each input): the
       // core's moves as far.
-      if (input.clock > clockAt) await clock(`advance ${input.clock - clockAt}`);
+      if (input.clock > clockAt) {
+        await handledAll();
+        await clock(`advance ${input.clock - clockAt}`);
+      }
       clockAt = Math.max(clockAt, input.clock);
       runFeedTimers();
       if (input.input === 'clock') continue;
@@ -509,6 +553,9 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       if (clockServer) {
         clockSocket?.destroy();
         await ending.race(new Promise((resolve) => clockServer.close(resolve)), 'the replay clock to close');
+      }
+      if (bytesServer) {
+        await ending.race(new Promise((resolve) => { bytesServer.close(resolve); for (const s of bytesSockets) s.destroy(); }), 'the byte barrier to close');
       }
     } finally {
       ending.clear();

@@ -406,8 +406,17 @@ fn response_of(response: reqwest::Response) -> HttpResponse {
     HttpResponse {
         status: response.status().as_u16(),
         headers,
-        body: Box::new(ReqwestBody(response)),
+        body: replay_counted(Box::new(ReqwestBody(response))),
     }
+}
+
+/// A response body as the transport hands it on: counted for a replay's barrier on the model's bytes (feature
+/// `replay-bytes`), unchanged otherwise.
+pub(crate) fn replay_counted(body: Box<dyn BodyStream>) -> Box<dyn BodyStream> {
+    #[cfg(feature = "replay-bytes")]
+    return super::replay_bytes::counted(body);
+    #[cfg(not(feature = "replay-bytes"))]
+    body
 }
 
 /// The deadline passed: a transient transport fact (Node: undici

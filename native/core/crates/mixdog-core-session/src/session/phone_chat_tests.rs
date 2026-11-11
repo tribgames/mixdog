@@ -557,6 +557,7 @@ fn queue_row(projected: &Value, at: i64, clock: u64) -> Value {
 fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Value)> {
     let mut out = Vec::new();
     let (mut rows, mut history, mut queued, mut busy) = (0usize, Vec::<Value>::new(), Vec::<Value>::new(), false);
+    let mut structure = 0i64;
     for publication in publications {
         let state = &publication["state"];
         let items = state["items"].as_array().unwrap();
@@ -588,6 +589,10 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
             out.push(("thread/runtime/updated".to_owned(), json!({ "value": { "busy": true, "commandBusy": state["commandBusy"], "spinner": spinner } })));
         }
         busy = state["busy"] == true;
+        // Each recorded publication is one of Node's frames; its structure changed when `structureRevision` went up.
+        let revision = state["structureRevision"].as_i64().unwrap();
+        out.push(("thread/frame".to_owned(), json!({ "structureChanged": revision > structure })));
+        structure = revision;
     }
     out
 }
@@ -610,8 +615,13 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let frames = || rig.feeds.frames(handle.id.as_str());
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
-            // Its row, its history entry, its turn start and its busy runtime: the setup is done when all four were published.
-            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 4).then_some(())).await;
+            // Its row, its history entry, its turn start and its busy runtime: the setup is done when all four were published and
+            // the phone's frame that carries them has closed.
+            let done = || {
+                let all = frames();
+                (all.iter().filter(|(_, method, _)| method != "thread/frame").count() == 4 && all.last().is_some_and(|(_, method, _)| method == "thread/frame")).then_some(())
+            };
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], done).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;

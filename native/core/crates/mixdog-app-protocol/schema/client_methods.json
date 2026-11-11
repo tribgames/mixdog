@@ -15399,12 +15399,15 @@
           ]
         },
         "sessionModel": {
+          "default": null,
           "type": [
             "string",
             "null"
           ]
         },
         "sessionProvider": {
+          "default": null,
+          "description": "Always sent, `null` before the conversation has a provider (context-state.mjs `routeState`: `runtime.sessionProvider ?? null`).",
           "type": [
             "string",
             "null"

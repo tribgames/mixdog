@@ -24,11 +24,11 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
