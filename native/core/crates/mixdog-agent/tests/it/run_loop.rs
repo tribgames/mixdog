@@ -69,6 +69,9 @@ use mixdog_protocol::TurnId;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+#[path = "loop_node_cases.rs"]
+mod loop_node_cases;
+
 // ---------------------------------------------------------------------------
 // Scripted provider
 // ---------------------------------------------------------------------------
