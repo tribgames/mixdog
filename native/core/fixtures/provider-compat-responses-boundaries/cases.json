@@ -763,222 +763,384 @@
         "updatesBeforeOptOut": 1,
         "modeAfterOptOut": "custom",
         "request": {
-          "body": {
-            "model": "openai/gpt-6.1-sol",
-            "input": [
-              {
-                "role": "user",
-                "content": [
-                  {
-                    "type": "input_text",
-                    "text": "low"
-                  }
-                ]
-              },
-              {
-                "role": "assistant",
-                "content": [
-                  {
-                    "type": "output_text",
-                    "text": "ok"
-                  }
-                ]
-              },
-              {
-                "role": "user",
-                "content": [
-                  {
-                    "type": "input_text",
-                    "text": "high"
-                  }
-                ]
-              },
-              {
-                "role": "assistant",
-                "content": [
-                  {
-                    "type": "output_text",
-                    "text": "ok"
-                  }
-                ]
-              },
-              {
-                "role": "user",
-                "content": [
-                  {
-                    "type": "input_text",
-                    "text": "medium"
-                  }
-                ]
-              }
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
             ],
-            "store": false,
-            "include": [
-              "reasoning.encrypted_content"
+            [
+              "connection",
+              "keep-alive"
             ],
-            "stream": true,
-            "reasoning": {
-              "effort": "medium"
-            },
-            "prompt_cache_key": "boundary-session"
-          },
-          "headers": {
-            "session-id": "boundary-session",
-            "x-client-request-id": "boundary-session"
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "509"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"medium\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"medium\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-3\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
           }
         },
         "messagesUnchanged": true,
         "requests": [
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                }
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
+            "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
               ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
+              [
+                "connection",
+                "keep-alive"
               ],
-              "stream": true,
-              "reasoning": {
-                "effort": "low"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
-            "headers": {
-              "session-id": "boundary-session",
-              "x-client-request-id": "boundary-session"
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "240"
+              ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "chunks": [
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+              ]
             }
           },
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "type": "configuration_update",
-                  "reasoning": {
-                    "effort": "H"
-                  }
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                }
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
+            "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
               ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
+              [
+                "connection",
+                "keep-alive"
               ],
-              "stream": true,
-              "reasoning": {
-                "effort": "low"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
-            "headers": {
-              "session-id": "boundary-session",
-              "x-client-request-id": "boundary-session"
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "431"
+              ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "chunks": [
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+              ]
             }
           },
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "medium"
-                    }
-                  ]
-                }
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
+            "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
               ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
+              [
+                "connection",
+                "keep-alive"
               ],
-              "stream": true,
-              "reasoning": {
-                "effort": "medium"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
-            "headers": {
-              "session-id": "boundary-session",
-              "x-client-request-id": "boundary-session"
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "509"
+              ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"medium\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"medium\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "chunks": [
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-3\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+              ]
             }
           }
         ]
       },
       "calls": [
+        {
+          "entry": "new node_modules/openai/index.mjs.default",
+          "args": [
+            {
+              "apiKey": "test-only",
+              "baseURL": "https://mixdog-test.invalid/v1",
+              "maxRetries": 0
+            }
+          ]
+        },
         {
           "entry": "src/runtime/agent/orchestrator/providers/effort-configuration.mjs.prepareTurnEffortConfiguration",
           "args": [
@@ -1004,11 +1166,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             }
           ]
@@ -1032,11 +1197,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             },
             [
@@ -1123,11 +1291,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             }
           ]
@@ -1151,11 +1322,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             },
             [
@@ -1279,11 +1453,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             }
           ]
@@ -1308,11 +1485,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             },
             [
@@ -1383,6 +1563,281 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "240"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "431"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "509"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"medium\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"medium\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-3\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
@@ -1391,107 +1846,199 @@
       "input": {},
       "result": {
         "first": {
-          "body": {
-            "model": "openai/gpt-6.1-sol",
-            "input": [
-              {
-                "role": "user",
-                "content": [
-                  {
-                    "type": "input_text",
-                    "text": "low"
-                  }
-                ]
-              },
-              {
-                "role": "assistant",
-                "content": [
-                  {
-                    "type": "output_text",
-                    "text": "ok"
-                  }
-                ]
-              },
-              {
-                "role": "user",
-                "content": [
-                  {
-                    "type": "input_text",
-                    "text": "high"
-                  }
-                ]
-              }
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
             ],
-            "store": false,
-            "include": [
-              "reasoning.encrypted_content"
+            [
+              "connection",
+              "keep-alive"
             ],
-            "stream": true,
-            "reasoning": {
-              "effort": "H"
-            },
-            "prompt_cache_key": "boundary-session"
-          },
-          "headers": {
-            "session-id": "boundary-session",
-            "x-client-request-id": "boundary-session"
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "370"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"H\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
           }
         },
         "second": {
-          "body": {
-            "model": "openai/gpt-6.1-sol",
-            "input": [
-              {
-                "role": "user",
-                "content": [
-                  {
-                    "type": "input_text",
-                    "text": "low"
-                  }
-                ]
-              },
-              {
-                "role": "assistant",
-                "content": [
-                  {
-                    "type": "output_text",
-                    "text": "ok"
-                  }
-                ]
-              },
-              {
-                "type": "configuration_update",
-                "reasoning": {
-                  "effort": "H"
-                }
-              },
-              {
-                "role": "user",
-                "content": [
-                  {
-                    "type": "input_text",
-                    "text": "high"
-                  }
-                ]
-              }
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
             ],
-            "store": false,
-            "include": [
-              "reasoning.encrypted_content"
+            [
+              "connection",
+              "keep-alive"
             ],
-            "stream": true,
-            "reasoning": {
-              "effort": "low"
-            },
-            "prompt_cache_key": "boundary-session"
-          },
-          "headers": {
-            "session-id": "boundary-session",
-            "x-client-request-id": "boundary-session"
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "431"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
           }
         }
       },
       "calls": [
+        {
+          "entry": "new node_modules/openai/index.mjs.default",
+          "args": [
+            {
+              "apiKey": "test-only",
+              "baseURL": "https://mixdog-test.invalid/v1",
+              "maxRetries": 0
+            }
+          ]
+        },
         {
           "entry": "src/runtime/agent/orchestrator/providers/effort-configuration.mjs.prepareTurnEffortConfiguration",
           "args": [
@@ -1517,11 +2064,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             }
           ]
@@ -1578,11 +2128,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             }
           ]
@@ -1606,11 +2159,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             },
             [
@@ -1684,11 +2240,14 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0
                   }
-                }
+                ]
               }
             },
             [
@@ -1741,6 +2300,190 @@
               "effortConfigurationEnabled": true
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "370"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"H\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "431"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -1799,57 +2542,53 @@
         },
         "requests": [
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "type": "configuration_update",
-                  "reasoning": {
-                    "effort": "H"
-                  }
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "reasoning": {
-                "effort": "low"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
             "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
               [
                 "accept",
                 "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
               ],
               [
                 "authorization",
@@ -1864,89 +2603,81 @@
                 "boundary-session"
               ],
               [
-                "user-agent",
-                "OpenAI/JS 6.49.0"
-              ],
-              [
                 "x-client-request-id",
                 "boundary-session"
               ],
               [
-                "x-stainless-arch",
-                "x64"
+                "accept-language",
+                "*"
               ],
               [
-                "x-stainless-lang",
-                "js"
+                "sec-fetch-mode",
+                "cors"
               ],
               [
-                "x-stainless-os",
-                "Windows"
+                "accept-encoding",
+                "gzip, deflate"
               ],
               [
-                "x-stainless-package-version",
-                "6.49.0"
-              ],
-              [
-                "x-stainless-retry-count",
-                "0"
-              ],
-              [
-                "x-stainless-runtime",
-                "node"
-              ],
-              [
-                "x-stainless-runtime-version",
-                "v22.20.0"
+                "content-length",
+                "431"
               ]
-            ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 400,
+              "contentType": "application/json",
+              "body": "{\"error\":{\"message\":\"Unsupported input item type: configuration_update\",\"type\":\"invalid_request_error\"}}"
+            }
           },
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "reasoning": {
-                "effort": "H"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
             "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
               [
                 "accept",
                 "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
               ],
               [
                 "authorization",
@@ -1961,42 +2692,34 @@
                 "boundary-session"
               ],
               [
-                "user-agent",
-                "OpenAI/JS 6.49.0"
-              ],
-              [
                 "x-client-request-id",
                 "boundary-session"
               ],
               [
-                "x-stainless-arch",
-                "x64"
+                "accept-language",
+                "*"
               ],
               [
-                "x-stainless-lang",
-                "js"
+                "sec-fetch-mode",
+                "cors"
               ],
               [
-                "x-stainless-os",
-                "Windows"
+                "accept-encoding",
+                "gzip, deflate"
               ],
               [
-                "x-stainless-package-version",
-                "6.49.0"
-              ],
-              [
-                "x-stainless-retry-count",
-                "0"
-              ],
-              [
-                "x-stainless-runtime",
-                "node"
-              ],
-              [
-                "x-stainless-runtime-version",
-                "v22.20.0"
+                "content-length",
+                "370"
               ]
-            ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"H\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "chunks": [
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+              ]
+            }
           }
         ],
         "progress": [
@@ -2023,10 +2746,7 @@
             {
               "apiKey": "test-only",
               "baseURL": "https://mixdog-test.invalid/v1",
-              "maxRetries": 0,
-              "fetch": {
-                "callback": "fetch"
-              }
+              "maxRetries": 0
             }
           ]
         },
@@ -2060,10 +2780,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -2127,10 +2844,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -2161,10 +2875,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -2232,6 +2943,188 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "431"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"Unsupported input item type: configuration_update\",\"type\":\"invalid_request_error\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "370"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"H\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
@@ -2289,57 +3182,53 @@
         },
         "requests": [
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "type": "configuration_update",
-                  "reasoning": {
-                    "effort": "H"
-                  }
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "reasoning": {
-                "effort": "low"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
             "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
               [
                 "accept",
                 "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
               ],
               [
                 "authorization",
@@ -2354,89 +3243,84 @@
                 "boundary-session"
               ],
               [
-                "user-agent",
-                "OpenAI/JS 6.49.0"
-              ],
-              [
                 "x-client-request-id",
                 "boundary-session"
               ],
               [
-                "x-stainless-arch",
-                "x64"
+                "accept-language",
+                "*"
               ],
               [
-                "x-stainless-lang",
-                "js"
+                "sec-fetch-mode",
+                "cors"
               ],
               [
-                "x-stainless-os",
-                "Windows"
+                "accept-encoding",
+                "gzip, deflate"
               ],
               [
-                "x-stainless-package-version",
-                "6.49.0"
-              ],
-              [
-                "x-stainless-retry-count",
-                "0"
-              ],
-              [
-                "x-stainless-runtime",
-                "node"
-              ],
-              [
-                "x-stainless-runtime-version",
-                "v22.20.0"
+                "content-length",
+                "431"
               ]
-            ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "chunks": [
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r-created\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"in_progress\"}}\n\n",
+                "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"r-failed\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"failed\",\"error\":{\"status\":400,\"code\":\"invalid_request_error\",\"message\":\"Unsupported input item type: configuration_update\"}}}\n\n"
+              ]
+            }
           },
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "reasoning": {
-                "effort": "H"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
             "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
               [
                 "accept",
                 "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
               ],
               [
                 "authorization",
@@ -2451,42 +3335,34 @@
                 "boundary-session"
               ],
               [
-                "user-agent",
-                "OpenAI/JS 6.49.0"
-              ],
-              [
                 "x-client-request-id",
                 "boundary-session"
               ],
               [
-                "x-stainless-arch",
-                "x64"
+                "accept-language",
+                "*"
               ],
               [
-                "x-stainless-lang",
-                "js"
+                "sec-fetch-mode",
+                "cors"
               ],
               [
-                "x-stainless-os",
-                "Windows"
+                "accept-encoding",
+                "gzip, deflate"
               ],
               [
-                "x-stainless-package-version",
-                "6.49.0"
-              ],
-              [
-                "x-stainless-retry-count",
-                "0"
-              ],
-              [
-                "x-stainless-runtime",
-                "node"
-              ],
-              [
-                "x-stainless-runtime-version",
-                "v22.20.0"
+                "content-length",
+                "370"
               ]
-            ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"H\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "chunks": [
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+              ]
+            }
           }
         ],
         "progress": [
@@ -2529,10 +3405,7 @@
             {
               "apiKey": "test-only",
               "baseURL": "https://mixdog-test.invalid/v1",
-              "maxRetries": 0,
-              "fetch": {
-                "callback": "fetch"
-              }
+              "maxRetries": 0
             }
           ]
         },
@@ -2566,10 +3439,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -2633,10 +3503,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -2667,10 +3534,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -2762,6 +3626,191 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "431"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r-created\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"in_progress\"}}\n\n",
+              "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"r-failed\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"failed\",\"error\":{\"status\":400,\"code\":\"invalid_request_error\",\"message\":\"Unsupported input item type: configuration_update\"}}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "370"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"H\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-2\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
@@ -2822,57 +3871,53 @@
         },
         "requests": [
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "type": "configuration_update",
-                  "reasoning": {
-                    "effort": "H"
-                  }
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "reasoning": {
-                "effort": "low"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
             "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
               [
                 "accept",
                 "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
               ],
               [
                 "authorization",
@@ -2887,42 +3932,36 @@
                 "boundary-session"
               ],
               [
-                "user-agent",
-                "OpenAI/JS 6.49.0"
-              ],
-              [
                 "x-client-request-id",
                 "boundary-session"
               ],
               [
-                "x-stainless-arch",
-                "x64"
+                "accept-language",
+                "*"
               ],
               [
-                "x-stainless-lang",
-                "js"
+                "sec-fetch-mode",
+                "cors"
               ],
               [
-                "x-stainless-os",
-                "Windows"
+                "accept-encoding",
+                "gzip, deflate"
               ],
               [
-                "x-stainless-package-version",
-                "6.49.0"
-              ],
-              [
-                "x-stainless-retry-count",
-                "0"
-              ],
-              [
-                "x-stainless-runtime",
-                "node"
-              ],
-              [
-                "x-stainless-runtime-version",
-                "v22.20.0"
+                "content-length",
+                "431"
               ]
-            ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "chunks": [
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r-created\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"in_progress\"}}\n\n",
+                "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg-partial\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n",
+                "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"r-failed\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"failed\",\"error\":{\"status\":400,\"code\":\"invalid_request_error\",\"message\":\"Unsupported input item type: configuration_update\"}}}\n\n"
+              ]
+            }
           }
         ],
         "text": [
@@ -2937,10 +3976,7 @@
             {
               "apiKey": "test-only",
               "baseURL": "https://mixdog-test.invalid/v1",
-              "maxRetries": 0,
-              "fetch": {
-                "callback": "fetch"
-              }
+              "maxRetries": 0
             }
           ]
         },
@@ -2974,10 +4010,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -3041,10 +4074,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -3075,10 +4105,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -3146,6 +4173,101 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "431"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r-created\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"in_progress\"}}\n\n",
+              "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg-partial\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n",
+              "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"r-failed\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"failed\",\"error\":{\"status\":400,\"code\":\"invalid_request_error\",\"message\":\"Unsupported input item type: configuration_update\"}}}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
@@ -3162,57 +4284,53 @@
         },
         "requests": [
           {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "low"
-                    }
-                  ]
-                },
-                {
-                  "role": "assistant",
-                  "content": [
-                    {
-                      "type": "output_text",
-                      "text": "ok"
-                    }
-                  ]
-                },
-                {
-                  "type": "configuration_update",
-                  "reasoning": {
-                    "effort": "H"
-                  }
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "high"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "reasoning": {
-                "effort": "low"
-              },
-              "prompt_cache_key": "boundary-session"
-            },
+            "method": "POST",
+            "origin": "https://mixdog-test.invalid",
+            "path": "/v1/responses",
             "headers": [
+              [
+                "host",
+                "mixdog-test.invalid"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
               [
                 "accept",
                 "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
               ],
               [
                 "authorization",
@@ -3227,42 +4345,32 @@
                 "boundary-session"
               ],
               [
-                "user-agent",
-                "OpenAI/JS 6.49.0"
-              ],
-              [
                 "x-client-request-id",
                 "boundary-session"
               ],
               [
-                "x-stainless-arch",
-                "x64"
+                "accept-language",
+                "*"
               ],
               [
-                "x-stainless-lang",
-                "js"
+                "sec-fetch-mode",
+                "cors"
               ],
               [
-                "x-stainless-os",
-                "Windows"
+                "accept-encoding",
+                "gzip, deflate"
               ],
               [
-                "x-stainless-package-version",
-                "6.49.0"
-              ],
-              [
-                "x-stainless-retry-count",
-                "0"
-              ],
-              [
-                "x-stainless-runtime",
-                "node"
-              ],
-              [
-                "x-stainless-runtime-version",
-                "v22.20.0"
+                "content-length",
+                "431"
               ]
-            ]
+            ],
+            "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+            "reply": {
+              "status": 400,
+              "contentType": "application/json",
+              "body": "{\"error\":{\"message\":\"Unsupported input item type: configuration_update\",\"type\":\"invalid_request_error\"}}"
+            }
           }
         ],
         "modeAfter": "responses"
@@ -3274,10 +4382,7 @@
             {
               "apiKey": "test-only",
               "baseURL": "https://mixdog-test.invalid/v1",
-              "maxRetries": 0,
-              "fetch": {
-                "callback": "fetch"
-              }
+              "maxRetries": 0
             }
           ]
         },
@@ -3311,10 +4416,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -3378,10 +4480,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -3412,10 +4511,7 @@
                   {
                     "apiKey": "test-only",
                     "baseURL": "https://mixdog-test.invalid/v1",
-                    "maxRetries": 0,
-                    "fetch": {
-                      "callback": "fetch"
-                    }
+                    "maxRetries": 0
                   }
                 ]
               }
@@ -3485,6 +4581,97 @@
               "protocol": "openai-responses"
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "session-id",
+              "boundary-session"
+            ],
+            [
+              "x-client-request-id",
+              "boundary-session"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "431"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"low\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]},{\"type\":\"configuration_update\",\"reasoning\":{\"effort\":\"H\"}},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"high\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_key\":\"boundary-session\"}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"Unsupported input item type: configuration_update\",\"type\":\"invalid_request_error\"}}"
+          }
         }
       ]
     },
@@ -3683,11 +4870,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -3695,7 +4882,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -3960,11 +5147,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -3972,7 +5159,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -4233,11 +5420,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -4245,7 +5432,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -4457,11 +5644,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -4469,7 +5656,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -4681,11 +5868,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -4693,7 +5880,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -5022,11 +6209,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -5034,7 +6221,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -5111,11 +6298,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -5123,7 +6310,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -5181,41 +6368,67 @@
         }
       },
       "result": {
-        "requests": [
-          {
-            "body": {
-              "model": "openai/gpt-6.1-sol",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "hi"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true
-            },
-            "headers": {
-              "headers": [
-                [
-                  "x-test",
-                  "kept"
+        "result": {
+          "content": "ok",
+          "model": "openai/gpt-6.1-sol",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": null,
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "compat-responses:custom-boundary-no-session",
+            "items": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
                 ]
-              ]
+              }
+            ]
+          },
+          "providerState": {
+            "compatResponses": {
+              "previousResponseId": null,
+              "responseId": "response-1",
+              "store": false,
+              "owner": "compat-responses:custom-boundary-no-session",
+              "encryptedReasoningItems": [],
+              "encryptedReasoningHistory": [],
+              "seenMessageCount": 1,
+              "model": "openai/gpt-6.1-sol",
+              "updatedAt": 1794225600000
             }
+          },
+          "usage": {
+            "$exact": "undefined"
           }
-        ],
-        "headersIsTheCallersObject": true,
-        "hasPromptCacheKey": false
+        }
       },
       "calls": [
+        {
+          "entry": "new node_modules/openai/index.mjs.default",
+          "args": [
+            {
+              "apiKey": "test-only",
+              "baseURL": "https://mixdog-test.invalid/v1",
+              "maxRetries": 0,
+              "defaultHeaders": {
+                "$exact": "undefined"
+              }
+            }
+          ]
+        },
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
@@ -5223,6 +6436,9 @@
               "name": "custom-boundary-no-session",
               "config": {
                 "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
               },
               "customConfig": {
                 "protocol": "openai-responses"
@@ -5232,11 +6448,23 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
                   }
-                }
+                ]
               }
             },
             [
@@ -5258,6 +6486,93 @@
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "x-test",
+              "kept"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "172"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+          }
         }
       ]
     },
@@ -5441,11 +6756,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -5453,7 +6768,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -5683,11 +6998,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -5695,7 +7010,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -5932,11 +7247,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -5944,7 +7259,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -6185,11 +7500,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -6197,7 +7512,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -6444,11 +7759,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -6456,7 +7771,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -6662,11 +7977,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -6674,7 +7989,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -6892,11 +8207,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -6904,7 +8219,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -7118,11 +8433,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -7130,7 +8445,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -7182,24 +8497,67 @@
       "id": "session-header-merging-neither-synthesizes-nor-drops-authorization",
       "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:492",
       "input": {
-        "plain": {
-          "requestHeaders": {
-            "Session-ID": null
+        "requests": [
+          {
+            "requestHeaders": {
+              "Session-ID": null
+            }
           },
-          "client": "a scripted client.responses.create"
-        },
-        "sdk": {
-          "requestHeaders": {
-            "Authorization": "Bearer caller",
-            "Session-ID": null
+          {
+            "requestHeaders": {
+              "Authorization": "Bearer caller",
+              "Session-ID": null
+            }
           }
-        },
+        ],
         "sessionId": "generated"
       },
       "result": {
-        "plainHeadersPassedToCreate": {
-          "x-client-request-id": "generated",
-          "Session-ID": null
+        "plain": {
+          "content": "ok",
+          "model": "openai/gpt-6.1-sol",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": null,
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "compat-responses:custom-boundary-auth-not-synthesized",
+            "items": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "providerState": {
+            "compatResponses": {
+              "previousResponseId": null,
+              "responseId": "response-1",
+              "store": false,
+              "owner": "compat-responses:custom-boundary-auth-not-synthesized",
+              "encryptedReasoningItems": [],
+              "encryptedReasoningHistory": [],
+              "seenMessageCount": 1,
+              "model": "openai/gpt-6.1-sol",
+              "updatedAt": 1794225600000
+            }
+          },
+          "usage": {
+            "$exact": "undefined"
+          }
         },
         "sdkResult": {
           "content": "ok",
@@ -7250,12 +8608,28 @@
       },
       "calls": [
         {
+          "entry": "new node_modules/openai/index.mjs.default",
+          "args": [
+            {
+              "apiKey": "test-only",
+              "baseURL": "https://mixdog-test.invalid/v1",
+              "maxRetries": 0,
+              "defaultHeaders": {
+                "$exact": "undefined"
+              }
+            }
+          ]
+        },
+        {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
               "name": "custom-boundary-auth-not-synthesized",
               "config": {
                 "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
               },
               "customConfig": {
                 "protocol": "openai-responses"
@@ -7265,11 +8639,23 @@
                 "callback": "getCachedModelInfo"
               },
               "client": {
-                "responses": {
-                  "create": {
-                    "callback": "create"
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
                   }
-                }
+                ]
               }
             },
             [
@@ -7393,11 +8779,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -7405,7 +8791,92 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer test-only"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "x-client-request-id",
+              "generated"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "203"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"prompt_cache_key\":\"generated\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"model\":\"openai/gpt-6.1-sol\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://mixdog-test.invalid",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "mixdog-test.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "content-type",

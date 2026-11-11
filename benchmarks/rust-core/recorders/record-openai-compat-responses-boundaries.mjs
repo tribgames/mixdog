@@ -117,20 +117,19 @@ await rec.run('failed-replay-never-replayed-third-time', `${SRC}:162`, {}, async
 });
 
 // ---- the provider object of the test (stub client or the real SDK client over a scripted fetch) ----
-const sse = (...events) => new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
-function fixture(suffix, { sdk = false, reply } = {}) {
+// The endpoint's answers are descriptors served by the loopback endpoint (every frame its own socket write); the provider's client is the real OpenAI SDK client
+// (global fetch, redirected to the loopback endpoint by the recorder), so the request recorded is the head and body bytes that arrived at the socket.
+const sse = (...events) => ({ status: 200, contentType: 'text/event-stream', chunks: events.map((event) => `data: ${JSON.stringify(event)}\n\n`) });
+function fixture(suffix, { reply } = {}) {
   const requests = [];
   const row = { id: MODEL, reasoningLevels: ['low', 'medium', 'high'], customReasoning: { wireFormat: 'standard', wireValues: { high: 'H' } } };
   const completed = () => ({ type: 'response.completed', response: { id: `response-${requests.length}`, model: MODEL, status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }] } });
+  rec.net.reply = (request) => {
+    requests.push(request);
+    return reply ? reply(requests.length, completed) : sse(completed());
+  };
   const provider = { name: `custom-boundary-${suffix}`, config: { clientOptions: {} }, defaultHeaders: undefined, customConfig: MODE, nativePdf: false, getCachedModelInfo: () => row,
-    client: { responses: { async create(body, options) { requests.push({ body: structuredClone(body), headers: options?.headers ?? null }); return (async function* () { yield completed(); })(); } } } };
-  if (sdk) {
-    provider.client = new OpenAI({ apiKey: 'test-only', baseURL: 'https://mixdog-test.invalid/v1', maxRetries: 0, fetch: async (_url, init) => {
-      requests.push({ body: JSON.parse(init.body), headers: [...new Headers(init.headers)] });
-      if (reply) return reply(requests.length, completed);
-      return sse(completed());
-    } });
-  }
+    client: new OpenAI({ apiKey: 'test-only', baseURL: 'https://mixdog-test.invalid/v1', maxRetries: 0 }) };
   return { provider, requests };
 }
 function appendTurn(session, provider, effort) {
@@ -148,7 +147,7 @@ await rec.run('provider-opt-out-with-old-update-history', `${SRC}:242`, {}, asyn
     await sendCompatResponses(provider, session.messages, MODEL, [], appendTurn(session, provider, effort));
     session.messages.push({ role: 'assistant', content: 'ok' });
   }
-  const updatesBeforeOptOut = updatesOf(requests.at(-1).body).length;
+  const updatesBeforeOptOut = updatesOf(JSON.parse(requests.at(-1).body)).length;
   provider.config.effortConfigurationEnabled = false;
   const opts = appendTurn(session, provider, 'medium');
   const before = structuredClone(session.messages);
@@ -169,7 +168,7 @@ await rec.run('per-request-override-either-direction', `${SRC}:261`, {}, async (
 });
 
 const REJECTION_TEXT = 'Unsupported input item type: configuration_update';
-const rejected400 = () => new Response(JSON.stringify({ error: { message: REJECTION_TEXT, type: 'invalid_request_error' } }), { status: 400, headers: { 'content-type': 'application/json' } });
+const rejected400 = () => ({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { message: REJECTION_TEXT, type: 'invalid_request_error' } }) });
 const createdEvent = { type: 'response.created', response: { id: 'r-created', model: MODEL, status: 'in_progress' } };
 const failedEvent = { type: 'response.failed', response: { id: 'r-failed', model: MODEL, status: 'failed', error: { status: 400, code: 'invalid_request_error', message: REJECTION_TEXT } } };
 const textDeltaEvent = { type: 'response.output_text.delta', item_id: 'msg-partial', output_index: 0, content_index: 0, delta: 'partial' };
@@ -181,7 +180,7 @@ function updatedTurn(provider) {
 }
 for (const [shape, reject] of [['http-400-before-stream-opens', rejected400], ['response-failed-after-created-ack', () => sse(createdEvent, failedEvent)]]) {
   await rec.run(`update-rejection-replays-once-through-stream:${shape}`, `${SRC}:409`, { shape }, async () => {
-    const { provider, requests } = fixture(`e2e-retry-${shape}`, { sdk: true, reply: (attempt1, completed) => (attempt1 === 1 ? reject() : sse(completed())) });
+    const { provider, requests } = fixture(`e2e-retry-${shape}`, { reply: (attempt1, completed) => (attempt1 === 1 ? reject() : sse(completed())) });
     const { messages, opts } = updatedTurn(provider);
     const progress = [];
     const out = await attempt(sendCompatResponses(provider, messages, MODEL, [], { ...opts, onStreamDelta: (kind) => progress.push([requests.length, kind]) }));
@@ -189,7 +188,7 @@ for (const [shape, reject] of [['http-400-before-stream-opens', rejected400], ['
   });
 }
 await rec.run('visible-output-then-rejection-not-replayed', `${SRC}:434`, {}, async () => {
-  const { provider, requests } = fixture('e2e-visible', { sdk: true, reply: () => sse(createdEvent, textDeltaEvent, failedEvent) });
+  const { provider, requests } = fixture('e2e-visible', { reply: () => sse(createdEvent, textDeltaEvent, failedEvent) });
   const { messages, opts } = updatedTurn(provider);
   const text = [];
   const out = await attempt(sendCompatResponses(provider, messages, MODEL, [], { ...opts, onTextDelta: (delta) => text.push(delta) }));
@@ -197,7 +196,7 @@ await rec.run('visible-output-then-rejection-not-replayed', `${SRC}:434`, {}, as
 });
 await rec.run('rejection-after-cancellation-not-replayed', `${SRC}:450`, {}, async () => {
   const controller = new AbortController();
-  const { provider, requests } = fixture('e2e-cancelled', { sdk: true, reply: () => { controller.abort(); return rejected400(); } });
+  const { provider, requests } = fixture('e2e-cancelled', { reply: () => { controller.abort(); return rejected400(); } });
   const { messages, opts } = updatedTurn(provider);
   const out = await attempt(sendCompatResponses(provider, messages, MODEL, [], { ...opts, signal: controller.signal }));
   return { ...out, requests, modeAfter: effortConfigurationMode(provider.name, MODEL, MODE) };
@@ -238,12 +237,11 @@ await headerCase('sdk-default-session-headers-not-shadowed-by-generated', 310, {
   const second = await sendCompatResponses(wireFixture('client-options-headers', { defaultHeaders: { 'Session-ID': 'unused' }, clientOptions: { defaultHeaders: new Headers({ 'X-Client-Request-ID': 'sdk-request' }) } }), hi, MODEL, [], { sessionId: 'generated' });
   return { first, second };
 });
-await rec.run('sessionless-requests-retain-original-header-input', `${SRC}:332`, { requestHeaders: new Headers({ 'X-Test': 'kept' }) }, async () => {
-  const requests = [];
-  const provider = { name: 'custom-boundary-no-session', config: { clientOptions: {} }, customConfig: MODE, nativePdf: false, getCachedModelInfo: () => ROW, client: { responses: { async create(body, options) { requests.push({ body: structuredClone(body), headers: options?.headers }); return (async function* () { yield completedEvent; })(); } } } };
+// The Node test also asserts that the headers option handed to `create` is the caller's own Headers object (JS identity, not observable on the wire: the one omission
+// of this case); the head that arrives with the caller's header and no synthesized session header is recorded.
+await headerCase('sessionless-requests-retain-original-header-input', 332, { requestHeaders: new Headers({ 'X-Test': 'kept' }) }, async () => {
   const requestHeaders = new Headers({ 'X-Test': 'kept' });
-  await sendCompatResponses(provider, hi, MODEL, [], { requestHeaders });
-  return { requests, headersIsTheCallersObject: requests[0].headers === requestHeaders, hasPromptCacheKey: Object.hasOwn(requests[0].body, 'prompt_cache_key') };
+  return { result: await sendCompatResponses(wireFixture('no-session'), hi, MODEL, [], { requestHeaders }) };
 });
 for (const scope of ['request-record', 'request-pairs', 'provider-defaults', 'sdk-defaults']) {
   const values = () => ({ 'session-id': undefined, 'X-Client-Request-ID': undefined });
@@ -268,12 +266,9 @@ const AUTH_SESSION_HEADERS = () => ({ record: { 'Session-ID': 'caller-session', 
 for (const format of ['record', 'pairs', 'Headers']) {
   await headerCase(`sdk-merge-session-override-and-deletion-keep-auth-headers:${format}`, 474, { format, defaultHeaders: { 'api-key': 'gateway-key' }, requestHeaders: AUTH_SESSION_HEADERS()[format], sessionId: 'generated' }, async () => ({ result: await sendCompatResponses(wireFixture(`auth-${format}`, { defaultHeaders: { 'api-key': 'gateway-key' } }), hi, MODEL, [], { sessionId: 'generated', requestHeaders: AUTH_SESSION_HEADERS()[format] }) }));
 }
-await rec.run('session-header-merging-neither-synthesizes-nor-drops-authorization', `${SRC}:492`, { plain: { requestHeaders: { 'Session-ID': null }, client: 'a scripted client.responses.create' }, sdk: { requestHeaders: { Authorization: 'Bearer caller', 'Session-ID': null } }, sessionId: 'generated' }, async ({ net }) => {
-  answerOk(net);
-  const seen = [];
-  const plainProvider = { name: 'custom-boundary-auth-not-synthesized', config: { clientOptions: {} }, customConfig: MODE, nativePdf: false, getCachedModelInfo: () => ROW, client: { responses: { async create(body, options) { seen.push({ body: structuredClone(body), headers: options?.headers }); return (async function* () { yield completedEvent; })(); } } } };
-  await sendCompatResponses(plainProvider, hi, MODEL, [], { sessionId: 'generated', requestHeaders: { 'Session-ID': null } });
+await headerCase('session-header-merging-neither-synthesizes-nor-drops-authorization', 492, { requests: [{ requestHeaders: { 'Session-ID': null } }, { requestHeaders: { Authorization: 'Bearer caller', 'Session-ID': null } }], sessionId: 'generated' }, async () => {
+  const plain = await sendCompatResponses(wireFixture('auth-not-synthesized'), hi, MODEL, [], { sessionId: 'generated', requestHeaders: { 'Session-ID': null } });
   const sdkResult = await sendCompatResponses(wireFixture('auth-caller-override'), hi, MODEL, [], { sessionId: 'generated', requestHeaders: { Authorization: 'Bearer caller', 'Session-ID': null } });
-  return { plainHeadersPassedToCreate: seen[0].headers, sdkResult };
+  return { plain, sdkResult };
 });
 await rec.finish();
