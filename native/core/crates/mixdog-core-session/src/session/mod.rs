@@ -183,6 +183,8 @@ mod switch_replay;
 #[cfg(test)]
 mod lifecycle_replay;
 #[cfg(test)]
+mod sequence_replay;
+#[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
 mod turn_admission_tests;

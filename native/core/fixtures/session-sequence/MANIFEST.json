@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-session-sequence.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-session-sequence.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
   "entry": "Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord) and manager/session-close.mjs (closeSession) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.",
   "exclusions": [
     "session ids drop the test's process id (sess_sequence_<tag>_<n>)",
@@ -8,6 +8,10 @@
     "the recorded stored record is the whole readDurableSessionRecord result and the whole directory listing of the sessions dir (the OS's order), the log file is its exact text",
     "the random op lists come from the test's seeded generator (seed * 7919), recorded as inputs",
     "the temp data dir is a path under the OS temp dir: it is not recorded; a recorded string that holds it is a defect of the recording (the recorder fails on it)",
+    "replay: logFile and sessionsDir are not compared: they are Node's JSONL session log and its files in the sessions dir, a file format the core does not write (its store is the thread store); the stored record they hold is compared whole (stored)",
+    "replay: timersArmed is not compared: it is Node's debounce timer (150 ms) of saveSession; the core keeps no debounced copy, the debounced save is written at once and answers nothing, and the stored record after it is compared",
+    "replay: a delete of a session that is not stored answers false through thread/delete, the client's deleteSession (lifecycle/session-switch/session-delete.mjs:56 isAvailableSession refuses it before the store is asked); the recording calls the store's deleteSession (store/session-delete.mjs:175), whose idempotent true for an absent record no client reaches. The replay asserts false there and compares the recorded true in the results list",
+    "replay: messages: the place of the messages field in the stored record as in session-lifecycle (the thread holds the recorded messages as one header field; it is compared where the recorded record has it)",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
     "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
@@ -42,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+      "sha256": "2e2a95456d03c0523f4eeb39d178d501e9e904447b0e1201e25bd7bd5990a285"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
@@ -56,14 +60,15 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
-      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
-      "commitFilesMissingFromTree": 199,
-      "exact": false,
-      "filesDifferingFromCommit": 238
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -71,8 +76,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-sequence.mjs",
-  "recorderSha256": "c93e6d2fce65b9f24b1b8419c54809b7f7ac305074679385a37f07bb39dbea2e",
-  "replay": "mixdog-core-session actor ordering (S/close.rs detach/close, S/delete.rs delete_session, the item-commit barrier) driven by the same op list per case with the case's unlink failures injected in the store writer: compare each op's result, the lifecycle commit error, the stored record (messages, generation, closed) and the log file (normalised) whole.",
+  "recorderSha256": "3f1b5d027dfa02f96a026da0f458e6a1de6b40dc64048c1f4bb1516c5864656c",
+  "replay": "mixdog-core-session session/sequence_replay.rs, one test per recorded case, over the real thread store in a scratch data dir: the first save creates the thread under the recorded id with the recorded record as its header (create_with_id); a later save is close.rs patch_header_fenced (expectedGeneration 0) of the client's messages over SessionThreads, or the create again when no record is stored; close and detach are close.rs write_close / write_detach (markSessionClosed, bumpSessionGeneration), answered with the generation stored after them or null when no record is stored; delete is thread/delete; line 64's closeSession is SessionClose::detach accepted while the delete is held at its mark. Node's unlink failure is the delete mark's durable write failing (rolled back), asked of the case's plan once per mark. Compared whole: every op's result, firstSave / deleted / closed, unlinkPlanLeft, the marks written with their failure (unlinks), commitError (null: no barrier of the replay failed), initial and clockSteps (the replay arms no timer and moves no clock) and the stored record (the thread header, messages placed as the recorded record has them).",
   "set": "session-sequence",
   "testFile": "src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs",
   "totalBytes": 214678,

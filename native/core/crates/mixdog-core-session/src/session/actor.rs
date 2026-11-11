@@ -2144,6 +2144,7 @@ impl SessionActor {
                 self.settle_goal(settle);
             }
             Effect::AfterPublish(tx) => self.after_publish.push(tx),
+            Effect::Decided(_) => {}
         }
     }
 
@@ -2206,14 +2207,32 @@ impl SessionActor {
                 Effect::AfterPublish(tx) => {
                     let _ = tx.send(Err(error.clone()));
                 }
+                Effect::Decided(_) => {}
             }
         }
     }
 
-    /// A barrier failed: nothing after the acked state is applied (RL §6.1).
+    /// A barrier failed: nothing after the acked state is applied (RL §6.1). A conditional header patch behind the
+    /// record that failed was decided against a header that never landed: its caller hears `conflict` with the header
+    /// as it holds and computes it again, as Node's write accepted behind a failed one runs on what that one did.
     fn fail_all(&mut self, error: CoreError) {
-        for entry in self.outbox.fail_all() {
-            self.fail_entry(entry, &error);
+        for (index, entry) in self.outbox.fail_all().into_iter().enumerate() {
+            let decided = entry.effects.iter().find_map(|effect| match effect {
+                Effect::Decided(keys) => Some(keys.clone()),
+                _ => None,
+            });
+            match decided {
+                Some(keys) if index > 0 => {
+                    let current: serde_json::Map<String, Value> =
+                        keys.into_iter().map(|key| (key.clone(), self.acked.header.get(&key).cloned().unwrap_or(Value::Null))).collect();
+                    for effect in entry.effects {
+                        if let Effect::Reply { tx: Some(tx), .. } = effect {
+                            let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
+                        }
+                    }
+                }
+                _ => self.fail_entry(entry, &error),
+            }
         }
         self.generation += 1;
         self.projected = self.acked.clone();
@@ -2415,9 +2434,10 @@ impl SessionActor {
             Ctl::RefreshSurface => self.refresh_surface(),
             Ctl::CwdApplied { changed } => self.cwd_applied(changed),
             Ctl::Unsubscribed => self.try_unload(),
-            Ctl::Closed => {
+            Ctl::Closed(taken) => {
                 self.tombstoned = true;
                 self.try_unload();
+                let _ = taken.send(());
             }
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
@@ -4162,6 +4182,12 @@ impl SessionActor {
         match result {
             Ok(plan) => {
                 self.apply_plan(plan, req.op.clone(), tx);
+                if req.method.as_str() == "thread/header/patch"
+                    && let Some(expect) = req.params.get("expect").and_then(Value::as_object)
+                    && let Some(entry) = self.outbox.last_mut()
+                {
+                    entry.effects.push(Effect::Decided(expect.keys().cloned().collect()));
+                }
                 Ok(())
             }
             Err(error) => fail(error, tx, &mut self.ops),

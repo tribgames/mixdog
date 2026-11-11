@@ -71,6 +71,9 @@ pub(crate) enum Effect {
     /// Told once the frames of the pump that released this entry are published: the caller sees its change as a client does.
     /// An entry whose record failed to be stored is told that failure instead; its change is never shown.
     AfterPublish(oneshot::Sender<Result<(), CoreError>>),
+    /// A conditional header patch, decided against these header keys as projected: when a record ahead of it fails its
+    /// barrier, its caller hears `conflict` and computes it again instead of the failure.
+    Decided(Vec<String>),
 }
 
 pub(crate) struct Entry {
@@ -189,6 +192,10 @@ impl Outbox {
 
     fn index(&self, id: u64) -> Option<usize> {
         self.entries.binary_search_by_key(&id, |entry| entry.id).ok()
+    }
+
+    pub fn last_mut(&mut self) -> Option<&mut Entry> {
+        self.entries.back_mut()
     }
 
     pub fn get_mut(&mut self, id: u64) -> Option<&mut Entry> {
