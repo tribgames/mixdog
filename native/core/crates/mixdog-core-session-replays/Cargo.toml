@@ -81,4 +81,4 @@ tokio-util = { workspace = true }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
