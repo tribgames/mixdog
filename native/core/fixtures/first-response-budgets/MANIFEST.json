@@ -1,0 +1,101 @@
+{
+  "cases": 11,
+  "command": "node benchmarks/rust-core/recorders/record-first-response-budgets.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "runs": "VertexAIProvider.firstResponseBudget (vertex-ai.mjs:227), OpenAICompatProvider.firstResponseBudget (openai-compat.mjs:111), MimoOAuthProvider.firstResponseBudget (mimo-oauth.mjs:158), AntigravityOAuthProvider.firstResponseBudget (antigravity-oauth.mjs:110) for every curated Antigravity model, the default and an unlisted id; one process per environment"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 22466,
+      "path": "golden.json",
+      "sha256": "722a54cc9ea469621e8c4773e1ac1e316e4d623889b00eb73b7a2963de53c6e8"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/first-response-budgets-probe.mjs",
+      "sha256": "69ee85b9c9a5d00cee0697b21f56161d68450e3764ce98f778a89798f9b6dea9"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "328447ed2c094b8abc839f44612c61353568502315cc575feaa176c354d5e945"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-first-response-budgets.mjs",
+  "recorderSha256": "7d9659831d32406cdeea5277de314ed69b5da877436546b85949e5ef09142b6c",
+  "replay": {
+    "compare": "mixdog-ai providers::first_byte::FirstByteSettings::from_env over the recorded env of each case, then the real adapters' first_response_budget: GoogleAdapter (Vertex AI with modelParameters {serviceTier}, Antigravity per model, policy::antigravity_with for the ladder) and CompatAdapter (mimo-oauth and the profiles without a window of their own); compare every budget whole",
+    "entry": "Drive these public items on o1: mixdog-ai/src/providers/first_byte.rs:58 FirstByteSettings::from_env; mixdog-ai/src/providers/first_byte.rs:109 FirstByteSettings::antigravity_budget.",
+    "existsButNotPublicOnO1": [],
+    "inputs": {
+      "environment": "each case lists the variables it sets (cases[].observed.env); no other variable is set. The replay hands them to FirstByteSettings::from_env as a lookup, not through the process environment",
+      "models": "the curated Antigravity rows (no cached catalog): gemini-3.8-flash is gemini-flash, gemini-3.1-pro and gemini-4-argon are gemini-pro, Claude and gpt-oss have no family"
+    },
+    "missingOnO1": [],
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 58,
+        "name": "FirstByteSettings::from_env",
+        "path": "native/core/crates/mixdog-ai/src/providers/first_byte.rs"
+      },
+      {
+        "line": 109,
+        "name": "FirstByteSettings::antigravity_budget",
+        "path": "native/core/crates/mixdog-ai/src/providers/first_byte.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "first-response-budgets",
+  "totalBytes": 22466,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

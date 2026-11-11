@@ -15,6 +15,8 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::retry::RetryRow;
 use mixdog_core_api::domain::retry::RetrySchedule;
 
+use crate::providers::first_byte::FirstByteSettings;
+
 const fn secs(s: u64) -> Duration {
     Duration::from_secs(s)
 }
@@ -63,14 +65,26 @@ pub fn gemini() -> RetryPolicy {
 /// limit schedule that each start the ladder afresh. Spent quota is never
 /// retried; recovery cycles are off.
 pub fn antigravity() -> RetryPolicy {
+    antigravity_with(&FirstByteSettings::process())
+}
+
+/// [`antigravity`] with the same-host ladder of `settings` (`MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS` and
+/// `MIXDOG_ANTIGRAVITY_RETRY_BACKOFF_MS`, `ANTIGRAVITY_RETRY`): everything that is not a 429. Node's backoff list holds the
+/// wait before attempt n at index n, its first value the duplicate `withRetry` expects; the schedule's steps are the rest,
+/// and a single value serves every attempt.
+pub fn antigravity_with(settings: &FirstByteSettings) -> RetryPolicy {
     let mut policy = RetryPolicy::codex_default();
     let steps = || ladder(&[1, 2, 4]);
+    let waits = &settings.antigravity_backoff_ms;
+    let same_host = Backoff::Ladder(waits.get(1..).filter(|rest| !rest.is_empty()).unwrap_or(waits).iter().map(|ms| Duration::from_millis(*ms as u64)).collect());
     let row = RetrySchedule {
-        max_retries: 3,
-        backoff: steps(),
+        max_retries: settings.antigravity_attempts - 1,
+        backoff: same_host,
         jitter: Jitter::symmetric(0.1),
         advice: AdviceRule::honored_in_full(),
     };
+    // The capacity and rate-limit schedules (429/503/529) are fixed constants, not the environment's.
+    let capacity = RetrySchedule { max_retries: 3, backoff: steps(), ..row.clone() };
     policy.request = RetryRow {
         schedule: row.clone(),
         by_kind: vec![
@@ -82,7 +96,7 @@ pub fn antigravity() -> RetryPolicy {
                         budget: Some(secs(60)),
                         ..AdviceRule::honored_in_full()
                     },
-                    ..row.clone()
+                    ..capacity
                 },
                 resets_base: true,
             },

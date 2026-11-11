@@ -9,7 +9,7 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 
 use super::models::{ModelTable, SeedModel};
 use super::retry;
-use crate::providers::first_byte::{FirstBytePolicy, PROVIDER_MAX_BEFORE_WARN_MS};
+use crate::providers::first_byte::FirstBytePolicy;
 
 /// The wire a model is served on (PW §5.7 `WIRES`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -595,8 +595,9 @@ impl CompatProfile {
                     ("441", "Request blocked by risk control"),
                 ],
                 // `MIMO_FIRST_BYTE_TIMEOUT_MS = min(300 s, PROVIDER_MAX_BEFORE_WARN_MS)`, one first-byte retry
-                // (`COMPAT_RETRY_PROFILES['mimo-oauth'].firstByteRetries`).
-                first_byte: Some(FirstBytePolicy { timeout_ms: PROVIDER_MAX_BEFORE_WARN_MS, max_ms: PROVIDER_MAX_BEFORE_WARN_MS, retries: Some(1) }),
+                // (`COMPAT_RETRY_PROFILES['mimo-oauth'].firstByteRetries`); the ceiling is the environment's
+                // ([`crate::providers::first_byte::FirstByteSettings::compat`]).
+                first_byte: Some(FirstBytePolicy { timeout_ms: 300_000, max_ms: 300_000, retries: Some(1) }),
                 ..ChatDialect::PLAIN
             },
             credential: CredentialKind::StaticKey {
