@@ -1,12 +1,13 @@
 //! Node's recording `fixtures/session-route-state/recording.json` (`record-session-route-state.mjs`, test file
 //! `src/session-runtime/session-lifecycle.test.mjs`), read when the test runs and decoded with [`Exact`]: each case's
-//! recorded inputs reach the core the way a client sends them: lines 27, 49, 74 and 229 as `route/set`
-//! (`RouteSetService` over the real `RouteService`, the real config file and `refresh_route_fields`; the model row is the
-//! recording's, the catalog seam), the `inheritFrom` cases (306, 372) through the thread protocol
-//! (`thread/inheritancePreflight`, `thread/fork`) on a real session directory, compared at what a client observes: the
-//! route `route/set` answers, the preflight verdict, the carry's answer and the heir's conversation; the compactor calls
-//! Node's mocks counted are not observable. Lines 10, 104, 149 and 255 call the route functions, each declared in the
-//! case table with the reason no client call carries the recorded step.
+//! recorded inputs reach the core the way a client sends them: lines 27, 49, 74, 149 and 229 as `route/set`
+//! (`RouteSetService` over the real `RouteService`, `SessionRoutes` and the real thread store, the real config file and
+//! `refresh_route_fields`; the model row is the recording's, the catalog seam, and the catalog's cached windows are its
+//! roster files), compared whole: the client's reply, the stored session record and the stored config document; the
+//! `inheritFrom` cases (306, 372) through the thread protocol (`thread/inheritancePreflight`, `thread/fork`) on a real
+//! session directory, compared at what a client observes: the preflight verdict, the carry's answer and the heir's
+//! conversation; the compactor calls Node's mocks counted are not observable. Lines 10, 104 and 255 call the route
+//! functions, each declared in the case table with the reason no client call carries the recorded step.
 
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +16,7 @@ use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::admin_route::{
-    Obj, ContextState, model_meta_looks_resolved, refresh_route_fields, resolve_route_context_state, route_fast_key, save_model_settings,
+    Obj, ContextState, refresh_route_fields, resolve_route_context_state, route_fast_key, save_model_settings,
     selection_fast_capable, window_meta_of,
 };
 use mixdog_ai::transport::http::{HttpResponse, HttpSend};
@@ -29,16 +30,19 @@ use mixdog_core_config::config::Config;
 use mixdog_core_domains::domains::ai_admin::agent_route_service::AgentRouteSetter;
 use mixdog_core_domains::domains::ai_admin::chain::{CatalogRouteContext, RouteFacts};
 use mixdog_core_domains::domains::ai_admin::model_list::ModelListService;
-use mixdog_core_domains::domains::ai_admin::route_service::{LiveControls, RouteService, SessionFollow};
+use mixdog_core_domains::domains::ai_admin::route_service::{LiveControls, RouteService};
 use mixdog_core_domains::domains::ai_admin::route_set_service::{ROUTE_SET, RouteSetService};
 use mixdog_core_ports::ports::domain_sessions::AgentRoutePublisher;
-use mixdog_core_ports::ports::route::{FollowOptions, Followed};
+use mixdog_core_ports::ports::route::{LiveRoute, SessionRoutes};
 use mixdog_core_ports::ports::route_write::RouteWriter;
+use mixdog_core_session::session::route_session::SessionRouteAdapter;
+use mixdog_core_session::session::thread_state::SessionThreads;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::orch::util::PortError;
 use mixdog_testkit::exact::Exact;
 use serde_json::{Value, json};
 
+use super::context_world::tests::{Fixed, Quiet, WindowFacts};
 use super::inheritance_fit::tests::{TextOnly, seams};
 use super::inheritance_fit::{HostInheritanceFit, MeasuredThreads, RouteWindows};
 
@@ -112,8 +116,9 @@ impl RouteFacts for Facts {
         self.meta.clone()
     }
 
-    fn window_meta(&self, _: &str, _: &str, meta: &Value) -> Option<Value> {
-        window_meta_of(Some(meta), None).cloned()
+    fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {
+        let cached = self.catalog.cached_windows(provider, model).and_then(|windows| serde_json::to_value(windows).ok());
+        window_meta_of(Some(meta), cached.as_ref()).cloned()
     }
 
     fn catalog_knows(&self, _: &str, _: &str) -> bool {
@@ -152,13 +157,20 @@ impl RouteWriter for Cell {
     }
 
     async fn refresh_route_effort(&self, thread: &ThreadId, meta: Option<Value>, _: bool, _: Option<u64>) -> Result<Option<Obj>, PortError> {
-        let target = self.route(thread);
+        let target = RouteWriter::route(self, thread);
         let config = self.config.agent();
         let text = |key: &str| target.get(key).and_then(Value::as_str).unwrap_or("").trim().to_owned();
         let (provider, model) = (text("provider"), text("model"));
         let meta = meta.unwrap_or_else(|| self.catalog.model_meta_in(&provider, &model, None));
         let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.catalog.fast_capable(provider, meta, effort, params);
-        let route = refresh_route_fields(&config, &target, Some(&meta), &provider, &fast);
+        let route = refresh_route_fields(
+            &config,
+            &target,
+            Some(&meta),
+            &provider,
+            &fast,
+            &|provider, model| self.catalog.cached_windows(provider, model).and_then(|w| serde_json::to_value(w).ok()),
+        );
         self.set_route_state(thread, route.clone());
         Ok(Some(route))
     }
@@ -166,28 +178,13 @@ impl RouteWriter for Cell {
     fn refresh_statusline_usage(&self, _: &ThreadId, _: &Obj) {}
 }
 
-/// No session follows an adopted route here: the replay holds only the route cell.
-struct NoFollow;
+impl LiveRoute for Cell {
+    fn route(&self, thread: &ThreadId) -> Obj {
+        RouteWriter::route(self, thread)
+    }
 
-#[async_trait]
-impl SessionFollow for NoFollow {
-    fn open_lease(&self, _: &ThreadId, origin: Option<u64>) -> u64 {
-        origin.unwrap_or(0)
-    }
-    async fn follow(&self, _: &ThreadId, _: &FollowOptions) -> Result<Followed, PortError> {
-        Ok(Followed::default())
-    }
-    async fn tune(&self, _: &ThreadId) -> Result<(), PortError> {
-        Ok(())
-    }
-    async fn switch_now(&self, _: &ThreadId) -> Result<Option<Value>, PortError> {
-        Ok(None)
-    }
-    async fn has_session(&self, _: &ThreadId) -> Result<bool, PortError> {
-        Ok(true)
-    }
-    async fn seat(&self, _: &ThreadId) -> Result<(), PortError> {
-        Ok(())
+    fn adopt_held(&self, _: &ThreadId, _: &Obj) {
+        unreachable!("route/set adopts no pick held by an earlier process")
     }
 }
 
@@ -210,12 +207,20 @@ struct Setup {
     config: Value,
     meta: Value,
     known: Option<String>,
+    /// The provider catalog's cached roster rows, `provider/model` -> windows (`provider-catalog-cache`'s roster files).
+    windows: Value,
+    /// The session record the client's session holds before the call (Node's `store.loadSession`), its id the thread's.
+    session: Value,
 }
 
-/// One client of `route/set` over the real route service and the real config file.
+/// One client of `route/set` over the real route service, the real config file and the real thread store.
 struct Client {
     service: RouteSetService,
+    thread: ThreadId,
+    directory: Arc<mixdog_core_session::session::SessionDirectory>,
+    config_file: std::path::PathBuf,
     _dirs: (tempfile::TempDir, tempfile::TempDir),
+    _rig: mixdog_core_session::session::testing::Rig,
 }
 
 /// The op store every `route/set` of a test records its op in; each call carries its own op id.
@@ -238,7 +243,17 @@ impl Client {
         let path = dir.path().join("mixdog-config.json");
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": setup.config })).unwrap()).unwrap();
         let (config, _) = Config::open(&path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
-        let catalog = Arc::new(catalog(dir.path()).await);
+        let mut rosters: std::collections::BTreeMap<String, Vec<Value>> = Default::default();
+        for (key, windows) in setup.windows.as_object().into_iter().flatten() {
+            let (provider, model) = key.split_once('/').expect("provider/model");
+            let mut row = windows.as_object().cloned().expect("windows");
+            row.insert("id".into(), json!(model));
+            rosters.entry(format!("{provider}-models.json")).or_default().push(Value::Object(row));
+        }
+        for (file, rows) in rosters {
+            std::fs::write(dir.path().join(file), serde_json::to_vec(&json!({ "models": rows })).unwrap()).unwrap();
+        }
+        let catalog = Arc::new(catalog(dir.path()).await.with_rosters(dir.path().to_path_buf()));
         let facts = Arc::new(Facts { meta: setup.meta, catalog: catalog.clone(), known: setup.known });
         let cell = Arc::new(Cell { route: Mutex::default(), config: config.clone(), catalog: catalog.clone() });
         let models = Arc::new(ModelListService {
@@ -248,7 +263,16 @@ impl Client {
             unsupported: Arc::new(mixdog_ai::service::effort_configuration::UnsupportedEfforts::default()),
             host: None,
         });
-        let routes = RouteService { config: config.clone(), facts: facts.clone(), writer: cell, session: Arc::new(NoFollow), models, controls: Arc::new(NoControls) };
+        let rig = mixdog_core_session::session::testing::Rig::new();
+        let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone()))));
+        let threads = Arc::new(SessionThreads::new(directory.clone()));
+        let change = Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
+        let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
+        let follow = Arc::new(SessionRoutes::new(threads.clone(), threads, adapter, cell.clone()));
+        let record = setup.session.as_object().cloned().expect("the session record");
+        let thread = ThreadId::from(record["id"].as_str().expect("the session id").to_owned());
+        directory.create_with_id(thread.clone(), record, json!({})).await.expect("the session record is created");
+        let routes = RouteService { config: config.clone(), facts: facts.clone(), writer: cell, session: follow, models, controls: Arc::new(NoControls) };
         let agent_routes = AgentRouteSetter {
             routes: mixdog_core_config::config::AgentRoutes::new(config.clone(), agents.path()),
             config: config.clone(),
@@ -257,13 +281,24 @@ impl Client {
             hidden: mixdog_core_config::config::hidden_agents::hidden_agents(),
         };
         let service = RouteSetService { routes: Arc::new(routes), agents: Arc::new(agent_routes), ops: ops.scopes.clone() };
-        Client { service, _dirs: (dir, agents) }
+        Client { service, thread, directory, config_file: path, _dirs: (dir, agents), _rig: rig }
     }
 
-    /// `route/set` of the thread `t` with `route`, op `n`: the live route it answers.
+    /// `route/set` of the client's thread with `route`, op `n`: the live route it answers.
     async fn set(&self, route: &Value, n: u64) -> Value {
-        let params = with_op(json!({ "threadId": "t", "route": route }), n);
+        let params = with_op(json!({ "threadId": self.thread.as_str(), "route": route }), n);
         value(&self.service, request(ROUTE_SET, params, Some(n))).await.expect("route/set")
+    }
+
+    /// The session record the store holds, as a client reads it.
+    async fn stored_session(&self) -> Value {
+        Value::Object(self.directory.stored_header(&self.thread).await.expect("the session record"))
+    }
+
+    /// The config document the file holds (its `agent` section).
+    fn stored_config(&self) -> Value {
+        let file: Value = serde_json::from_slice(&std::fs::read(&self.config_file).unwrap()).unwrap();
+        file["agent"].clone()
     }
 }
 
@@ -296,38 +331,55 @@ async fn a_placeholder_row_keeps_the_saved_fast_setting() {
     assert_eq!(Exact::Array(got), *case.get("result"));
 }
 
-/// The route the case's `route/set` answers, at the fields the recording keeps: the effective effort and the Fast
-/// capability; `metadataResolved` is Node's probe of the row (no reply carries it).
-async fn effort_state(line: f64) {
+/// An object with its top-level fields in key order: Node's loader assembles a stored session (`store.loadSession`: the
+/// header's fields, the messages, then `tools`) and Node's route object keeps the position of a key first set to
+/// `undefined` (`contextPercent`), where the core writes fields in the order it sets them. Every value, nested order and the
+/// set of fields are compared whole (the manifest's `exclusions`).
+fn by_key(record: Exact) -> Exact {
+    match record {
+        Exact::Object(mut entries) => {
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            Exact::Object(entries)
+        }
+        other => other,
+    }
+}
+
+/// Every `route/set` the recording made for the case at `line` (`routeSets`: Node's `setRoute` as the client's write calls
+/// it, over the real route resolution, session store and config save), played through `route/set` on a thread created from the
+/// recorded session record: the client's whole reply, the whole session record and the whole config document left stored.
+/// `restrict_to_default`: the one provider the case names as known (`makeResolveRoute`'s default provider).
+async fn route_sets(line: f64, restrict_to_default: bool) {
     let recording = recording();
     let case = case(&recording, line);
-    let (route, meta) = (plain(case.get("input").get("route")), plain(case.get("input").get("meta")));
-    let client = Client::new(Setup { config: json!({}), meta: meta.clone(), known: None }, &ops().await).await;
-    let answer = client.set(&route, 1).await;
-    let got = Exact::Object(vec![
-        ("effectiveEffort".into(), Exact::plain(&answer["effectiveEffort"])),
-        ("fastCapable".into(), Exact::Bool(answer["fastCapable"] == json!(true))),
-        ("metadataResolved".into(), Exact::Bool(model_meta_looks_resolved(Some(&meta)))),
-    ]);
-    assert_eq!(got, *case.get("result"), "line {line}");
+    for (n, set) in case.get("routeSets").as_array().iter().enumerate() {
+        let (input, outcome) = (set.get("input"), set.get("outcome"));
+        let known = restrict_to_default.then(|| input.get("defaultProvider").as_str().to_owned());
+        let setup = Setup { config: plain(input.get("config")), meta: plain(input.get("meta")), known, windows: plain(input.get("windows")), session: plain(input.get("session")) };
+        let client = Client::new(setup, &ops().await).await;
+        let reply = client.set(&plain(input.get("route")), 1).await;
+        assert_eq!(by_key(Exact::plain(&reply)), by_key(outcome.get("reply").clone()), "line {line} #{n}: the reply");
+        assert_eq!(by_key(Exact::plain(&client.stored_session().await)), by_key(outcome.get("session").clone()), "line {line} #{n}: the stored session");
+        assert_eq!(Exact::plain(&client.stored_config()), *outcome.get("file"), "line {line} #{n}: the stored config");
+    }
 }
 
 /// Line 27: a cold placeholder row keeps the route's effort and Fast setting.
 #[tokio::test]
 async fn cold_metadata_preserves_effort_and_fast() {
-    effort_state(27.0).await;
+    route_sets(27.0, false).await;
 }
 
 /// Line 49: a resolved row's metadata decides the effort and Fast capability.
 #[tokio::test]
 async fn resolved_metadata_is_authoritative() {
-    effort_state(49.0).await;
+    route_sets(49.0, false).await;
 }
 
 /// Line 74: Cursor's parameter variants validate Fast.
 #[tokio::test]
 async fn cursor_parameter_variants_validate_fast() {
-    effort_state(74.0).await;
+    route_sets(74.0, false).await;
 }
 
 /// Line 104: the model's default share and the ten-point steps of `resolveRouteContextState`.
@@ -346,45 +398,17 @@ fn the_context_share_has_a_model_default_and_ten_point_steps() {
     assert_eq!(Exact::Array(got), *case.get("result"));
 }
 
-/// Line 149: a placeholder row (no windows of its own) takes the catalog's cached windows, asked once per resolve as
-/// the route chain asks (`chain.rs` `window_meta`: `catalog.cached_windows` then `window_meta_of`); the recorded table
-/// is the catalog. Direct: tried through `route/set`, the route it answers carries no `contextDefaultPercent` and no
-/// `selectedContextWindow` for a placeholder row (`refresh_route_fields` sizes the route from the row alone), where Node's
-/// `refreshRouteEffort` resolves the cached windows (`route-resolution.mjs:48`); reported open, see the case table.
-#[test]
-fn a_placeholder_row_takes_the_catalogs_windows() {
-    let recording = recording();
-    let case = case(&recording, 149.0);
-    let table = plain(case.get("input").get("table"));
-    let got: Vec<Exact> = case
-        .get("result")
-        .as_array()
-        .iter()
-        .map(|row| {
-            let (route, meta) = (obj(row.get("route")), plain(row.get("meta")));
-            let (provider, model) = (route["provider"].as_str().unwrap(), route["model"].as_str().unwrap());
-            let cached = table.get(format!("{provider}/{model}")).cloned();
-            let state = context_state(resolve_route_context_state(&route, window_meta_of(Some(&meta), cached.as_ref())));
-            Exact::Object(vec![
-                ("route".into(), Exact::plain(&Value::Object(route.clone()))),
-                ("meta".into(), Exact::plain(&meta)),
-                ("state".into(), state),
-                ("lookups".into(), Exact::plain(&json!([[provider, model]]))),
-            ])
-        })
-        .collect();
-    assert_eq!(Exact::Array(got), *case.get("result"));
+/// Line 149: a placeholder row (no windows of its own) takes the catalog's cached windows: the recorded table is the
+/// catalog's roster files, and each selection's reply and stored state are Node's.
+#[tokio::test]
+async fn a_placeholder_row_takes_the_catalogs_windows() {
+    route_sets(149.0, false).await;
 }
 
 /// Line 229: a cleared saved percent is the model's default (`route/set` answers no `contextPercent`).
 #[tokio::test]
 async fn a_cleared_saved_share_is_the_model_default() {
-    let recording = recording();
-    let case = case(&recording, 229.0);
-    let input = case.get("input");
-    let setup = Setup { config: plain(input.get("config")), meta: json!({}), known: Some(input.get("defaultProvider").as_str().to_owned()) };
-    let answer = Client::new(setup, &ops().await).await.set(&plain(input.get("route")), 1).await;
-    assert_eq!(answer.get("contextPercent").map_or(Exact::Undefined, Exact::plain), *case.get("result"));
+    route_sets(229.0, true).await;
 }
 
 /// One recorded `inheritFrom` scenario of lines 306 and 372, played through the protocol a client uses on a real
