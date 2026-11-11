@@ -11,15 +11,15 @@
   "entry": "mixdog-local-wire.mjs toLocalProviderMessages(history); mixdog-local.mjs MixdogLocalProvider({}, { ensureServer }).send(messages, \"test-local\", tools, { signal, onToolCall }) where ensureServer returns { baseURL: http://127.0.0.1:8080/v1, apiKey: \"test-key\" } (the OpenAI SDK sends real HTTP to the scripted endpoint, which answers 400 if a system message is not first). Not run: a real llama server.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16038,
+      "bytes": 16218,
       "path": "cases.json",
-      "sha256": "eb60d8c5d6b79b1f831d7afde8ccdfa34953144a8079f2cb3fdbb7735cf167f3"
+      "sha256": "709a4e43592427e7cf718fb6904fa93ee3c93436ee7dfeea243239f47b5a874f"
     }
   ],
   "inputs": [
@@ -41,11 +41,27 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "instructions-merge",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "streamed-tool-call-single-system",
+      "level": "wire"
+    },
+    {
+      "id": "cancelled-send-starts-no-server",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -70,9 +86,9 @@
   "recorderSha256": "5633c0a5c1dba45995cef89c7d978e0f37ee155539509f258f9f29b9115a5ca5",
   "replay": "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
   "replayExclusions": {
-    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-mixdog-local-wire",
-  "totalBytes": 16038,
+  "totalBytes": 16218,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
