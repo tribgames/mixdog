@@ -127,7 +127,6 @@ mod tests {
     use mixdog_core_rooms::rooms::records::RoomDoc;
     use mixdog_core_rooms::rooms::records::RoomStore;
     use mixdog_core_rooms::rooms::records::Rooms;
-    use mixdog_core_rooms::rooms::service::RoomRunner;
     use mixdog_core_rooms::rooms::service::RoomService;
     use mixdog_core_rooms::rooms::home::HomePorts;
     use mixdog_core_rooms::rooms::home::Presence;
@@ -158,10 +157,26 @@ mod tests {
         checked: std::sync::Mutex<Vec<Vec<String>>>,
         /// A stop in front of the index writes' next lookup (the edges look the workspace up here, the listings through `Gate`).
         edge_stop: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
+        /// A stop in front of the next presence check (the rooms' first load's member check).
+        presence_stop: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
     }
     impl Agents {
         fn new(roster: Vec<(String, String)>) -> Self {
-            Self { lookup_fails: false.into(), roster, deleted: std::sync::Mutex::default(), checked: std::sync::Mutex::default(), edge_stop: std::sync::Mutex::default() }
+            Self {
+                lookup_fails: false.into(),
+                roster,
+                deleted: std::sync::Mutex::default(),
+                checked: std::sync::Mutex::default(),
+                edge_stop: std::sync::Mutex::default(),
+                presence_stop: std::sync::Mutex::default(),
+            }
+        }
+        /// The opener and the arrival signal of the next presence check.
+        fn arm_presence(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
+            let (open, held) = tokio::sync::oneshot::channel();
+            let (reached, arrived) = tokio::sync::oneshot::channel();
+            *self.presence_stop.lock().unwrap() = Some((reached, held));
+            (open, arrived)
         }
         /// The opener and the arrival signal of the edges' next lookup.
         fn arm_edges(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
@@ -207,6 +222,11 @@ mod tests {
         }
         async fn presence(&self, ids: &[String]) -> Result<HashMap<String, Presence>, RoomError> {
             self.checked.lock().unwrap().push(ids.to_vec());
+            let stop = self.presence_stop.lock().unwrap().take();
+            if let Some((reached, held)) = stop {
+                let _ = reached.send(());
+                let _ = held.await;
+            }
             let deleted = self.deleted.lock().unwrap();
             Ok(ids.iter().map(|id| (id.clone(), if deleted.contains(id) { Presence::Deleted } else { Presence::Present })).collect())
         }
@@ -231,17 +251,60 @@ mod tests {
         }
     }
 
-    struct Idle;
+    /// The rooms' runner as `compose_flip.rs` composes it: the calls' scheduler over the live rooms' exchanges.
+    type Runner = mixdog_core_rooms::rooms::runner::CallsRunner<mixdog_core_rooms::rooms::exchange_run::ExchangeRunner>;
+
+    /// The members' labels, the first thing an exchange reads after its start saved the room running (`exchange_run.rs` `turns_body`):
+    /// where a test arms it, the next exchange stops there for good (the core is restarted under it, as Node's exchange is cut off by
+    /// its host made again) and says it arrived. No exchange of these tests goes further.
+    #[derive(Default)]
+    struct HeldLabels {
+        armed: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    }
+    impl HeldLabels {
+        /// The arrival signal of the next exchange.
+        fn arm(&self) -> tokio::sync::oneshot::Receiver<()> {
+            let (reached, arrived) = tokio::sync::oneshot::channel();
+            *self.armed.lock().unwrap() = Some(reached);
+            arrived
+        }
+    }
     #[async_trait]
-    impl RoomRunner for Idle {
-        fn is_running(&self, _: &str) -> bool {
-            false
+    impl mixdog_core_rooms::rooms::live::RoomLabels for HeldLabels {
+        async fn labels(&self, _: &[String]) -> Result<HashMap<String, mixdog_core_rooms::rooms::turn_host::MemberLabel>, String> {
+            let reached = self.armed.lock().unwrap().take().expect("an exchange went past its start where the test held none");
+            let _ = reached.send(());
+            std::future::pending().await
         }
-        fn stop(&self, _: &str) {}
-        async fn start(&self, _: &str, _: Vec<String>) -> Result<(), RoomError> {
-            unreachable!("no room speaks in this test")
+    }
+
+    /// The live rooms' ports no step of these tests reaches past an exchange's start: the room view's publish (no catalog), and a row
+    /// taken in as it is (an interrupted row has no files, `room_files.rs`).
+    struct Unreached;
+    #[async_trait]
+    impl mixdog_core_rooms::rooms::live::RoomApprovals for Unreached {
+        async fn approve(&self, _: &str, _: mixdog_core_rooms::rooms::live::ApprovalAnswer) -> Result<bool, String> {
+            unreachable!("no member asks for approval in these tests")
         }
-        fn cancel_owed_to(&self, _: &str, _: &[String]) {}
+        async fn answer_question(&self, _: &str, _: mixdog_core_rooms::rooms::live::ApprovalAnswer) -> Result<bool, String> {
+            unreachable!("no member asks a question in these tests")
+        }
+        fn member_questions(&self, _: &str, _: &[String]) -> Vec<Value> {
+            Vec::new()
+        }
+        fn publish_view(&self, _: &str, _: Option<mixdog_core_rooms::rooms::live::ExchangeView>, _: Vec<Value>) {}
+    }
+    #[async_trait]
+    impl mixdog_core_rooms::rooms::live::RoomFiles for Unreached {
+        async fn take_in(&self, _: &str, row: Value) -> Result<Value, String> {
+            Ok(row)
+        }
+    }
+    #[async_trait]
+    impl mixdog_core_rooms::rooms::maintainer::Maintainer for Unreached {
+        async fn ask(&self, _: &str, _: &str) -> mixdog_core_rooms::rooms::maintainer::Maintained {
+            unreachable!("no exchange of these tests reaches its supervisor")
+        }
     }
 
     /// The listing's task workspace lookup (the first step of every catalog publication and listing; the index-driven edges look
@@ -327,10 +390,11 @@ mod tests {
     }
 
     /// The room records' store, with a stop in front of a save where a test arms one: the next save says it arrived, then fails
-    /// with the given text or waits until the test opens it.
+    /// with the given text or waits until the test opens it; and a stop in front of the next load, which waits until opened.
     struct Saves {
         inner: StateRoomStore,
         armed: Arc<std::sync::Mutex<Option<SaveStop>>>,
+        load: Arc<std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>,
     }
     struct SaveStop {
         reached: tokio::sync::oneshot::Sender<()>,
@@ -339,7 +403,7 @@ mod tests {
     }
     /// The arming end of [`Saves`].
     #[derive(Clone, Default)]
-    struct SaveGate(Arc<std::sync::Mutex<Option<SaveStop>>>);
+    struct SaveGate(Arc<std::sync::Mutex<Option<SaveStop>>>, Arc<std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>);
     impl SaveGate {
         /// The opener and the arrival signal of the next save, which fails with `fails` when given.
         fn arm(&self, fails: Option<String>) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
@@ -348,10 +412,22 @@ mod tests {
             *self.0.lock().unwrap() = Some(SaveStop { reached, fails, held });
             (open, arrived)
         }
+        /// The opener and the arrival signal of the next load (a core's first read of the room records).
+        fn arm_load(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
+            let (open, held) = tokio::sync::oneshot::channel();
+            let (reached, arrived) = tokio::sync::oneshot::channel();
+            *self.1.lock().unwrap() = Some((reached, held));
+            (open, arrived)
+        }
     }
     #[async_trait]
     impl RoomStore for Saves {
         async fn load(&self) -> Result<RoomDoc, RoomError> {
+            let armed = self.load.lock().unwrap().take();
+            if let Some((reached, held)) = armed {
+                let _ = reached.send(());
+                let _ = held.await;
+            }
             self.inner.load().await
         }
         async fn save(&self, doc: &RoomDoc) -> Result<(), RoomError> {
@@ -370,7 +446,7 @@ mod tests {
     /// How long a step may take before the test calls it hung (a failure bound, not a wait the test relies on).
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
-    type Service = RoomService<Saves, SessionRoomHost, Idle>;
+    type Service = RoomService<Saves, SessionRoomHost, Runner>;
 
     /// The room service over the production wiring (`wire`, as `compose_flip.rs` composes it), the real index, store and room
     /// records; the list's fence is the test's gate.
@@ -397,10 +473,18 @@ mod tests {
         rig: Rig,
         /// The folder of the core's files, which a restart opens again.
         data: mixdog_core_session::session::testing::DataDir,
+        /// The live rooms (their exchanges, and the start-up's recovery of the rooms cut off).
+        live: Arc<mixdog_core_rooms::rooms::live::LiveRooms>,
+        /// Where an exchange stops after its start.
+        exchanges: Arc<HeldLabels>,
+        /// How many preparations of the rooms' first load have started.
+        prepares: tokio::sync::watch::Receiver<u32>,
     }
 
     /// The room service, the agent deletion's room ports and the rooms' first load over the records, as `compose_flip.rs` composes
-    /// them: every room call and a member forgotten await the first load, which prunes the members proven deleted.
+    /// them: every room call and a member forgotten await the first load, which hosts the rooms and prunes the members proven
+    /// deleted. Each preparation that starts is counted in `prepares`.
+    #[allow(clippy::too_many_arguments)]
     async fn rooms_over(
         rooms: &Arc<Rooms<Saves>>,
         host: &Arc<SessionRoomHost>,
@@ -408,15 +492,20 @@ mod tests {
         agents: &Arc<Agents>,
         ops: &mixdog_store::state::CoreState,
         logged: &Arc<std::sync::Mutex<Vec<String>>>,
-    ) -> (Arc<Service>, Arc<SessionHomePorts<Saves>>, Arc<RoomsReady>) {
+        live: &Arc<mixdog_core_rooms::rooms::live::LiveRooms>,
+        runner: &Arc<Runner>,
+    ) -> (Arc<Service>, Arc<SessionHomePorts<Saves>>, Arc<RoomsReady>, tokio::sync::watch::Receiver<u32>) {
         let ready = RoomsReady::new();
-        let homes = Arc::new(SessionHomePorts::new(agents.clone(), sessions.clone(), rooms.clone(), host.clone(), Arc::new(Idle), ready.clone()));
+        let homes = Arc::new(SessionHomePorts::new(agents.clone(), sessions.clone(), rooms.clone(), host.clone(), runner.clone(), ready.clone()));
+        let (started, prepares) = tokio::sync::watch::channel(0u32);
         ready
             .bind({
-                let (homes, log) = (Arc::downgrade(&homes), room_log(logged));
+                let (live, rooms, homes, log, started) = (live.clone(), rooms.clone(), Arc::downgrade(&homes), room_log(logged), Arc::new(started));
                 move || {
-                    let (homes, log) = (homes.clone(), log.clone());
+                    let (live, rooms, homes, log) = (live.clone(), rooms.clone(), homes.clone(), log.clone());
+                    started.send_modify(|count| *count += 1);
                     async move {
+                        live.host_loaded(&rooms).await?;
                         let Some(homes) = homes.upgrade() else { return Ok(()) };
                         homes.prune_deleted(&*log).await
                     }
@@ -424,8 +513,22 @@ mod tests {
             })
             .expect("bound once");
         let scopes = mixdog_core_base::support::testing::scopes_over(ops.clone(), "room").await;
-        let service = Arc::new(RoomService::new(rooms.clone(), host.clone(), Arc::new(Idle), scopes, agents.clone(), ready.clone()));
-        (service, homes, ready)
+        let service = Arc::new(RoomService::new(rooms.clone(), host.clone(), runner.clone(), scopes, agents.clone(), ready.clone()));
+        (service, homes, ready, prepares)
+    }
+
+    /// The start-up's recovery as `compose_flip.rs` passes it to `ready::recover`: the rooms cut off marked interrupted, then the
+    /// catalog republished, bounded.
+    fn recovery(world: &Composed) -> impl FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RoomError>> + Send>> + Send + 'static {
+        let (live, rooms, summaries) = (world.live.clone(), world.rooms.clone(), world.summaries.clone());
+        move || {
+            Box::pin(async move {
+                live.recover(&rooms).await?;
+                tokio::time::timeout(DEADLINE, summaries.republish_now())
+                    .await
+                    .map_err(|_| RoomError::Port("the catalog's republish after the rooms' first load did not end within the deadline".into()))
+            })
+        }
     }
 
     /// `room_log` of `compose_flip.rs`: each line prefixed `[mixdog-rooms] `.
@@ -437,24 +540,15 @@ mod tests {
     impl Composed {
         /// The core restarted from its files: every part of this one ended and its databases closed, a new core composed over the
         /// same folder (the index, the session store and the room records read back from what this one wrote; the agents are the
-        /// daemon's, which outlives it), and its start-up `recover` as `compose_flip.rs` starts it, with the catalog's republish
-        /// (`RoomSummaries::publish`, awaited) after the first load and ahead of the mutations that awaited it. The new core's app
-        /// feed is a new connection.
+        /// daemon's, which outlives it), and its start-up `recover` as `compose_flip.rs` starts it ([`recovery`]), ahead of the
+        /// mutations that awaited the first load. An exchange the old core held stays held. The new core's app feed is a new
+        /// connection.
         async fn restart(self) -> (Self, tokio::task::JoinHandle<()>) {
-            let Composed { service, list, homes, ready, agents, app, gate, deletes, saves, summaries, rooms, host, sessions, ops, logged, edges, projections, rig, data } = self;
-            drop((service, list, homes, ready, app, gate, deletes, summaries, rooms, host, sessions, ops, edges, projections, rig));
+            let Composed { service, list, homes, ready, agents, app, gate, deletes, saves, summaries, rooms, host, sessions, ops, logged, edges, projections, rig, data, live, exchanges, prepares } = self;
+            drop((service, list, homes, ready, app, gate, deletes, summaries, rooms, host, sessions, ops, edges, projections, rig, live, exchanges, prepares));
             data.close_databases();
             let world = composed_over(agents, data, saves, logged).await;
-            let summaries = world.summaries.clone();
-            let started = mixdog_core_rooms::rooms::ready::recover(
-                world.rooms.clone(),
-                world.ready.clone(),
-                move || async move {
-                    summaries.publish().await;
-                    Ok(())
-                },
-                room_log(&world.logged),
-            );
+            let started = mixdog_core_rooms::rooms::ready::recover(world.rooms.clone(), world.ready.clone(), recovery(&world), room_log(&world.logged));
             (world, started)
         }
 
@@ -818,6 +912,8 @@ mod tests {
                     let pre = frames(&world.app);
                     created += 1;
                     let room_id = room.as_ref().map(|r| r["roomId"].clone()).unwrap_or(Value::Null);
+                    // A listing held at its lookup until the call's reply is queued.
+                    let mut after_reply: Option<tokio::sync::oneshot::Sender<()>> = None;
                     let (answer, replied) = match call {
                         "create" => world.call_held("room/create", json!({ "name": "Room One", "members": bots }), created).await,
                         "update" => world.call_held("room/update", json!({ "roomId": room_id, "name": "Room Renamed" }), created).await,
@@ -904,6 +1000,75 @@ mod tests {
                             let listed = value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.map_err(|error| format!("{error:?}"));
                             (listed, AfterAnswer::default())
                         }
+                        // The room's exchange started and stopped at its first step after its start saved the room running (`HeldLabels`),
+                        // as Node's is held after its start's save; the core is restarted under it by the next step.
+                        // Its catalog republish (a whole listing: the catalog is not loaded) is held at its lookup until the reply is
+                        // queued: Node's waits for the start's save and a daemon listing (`agent-room-exchange.ts:137-138`) while the
+                        // continue answers at once (`agent-rooms.ts:414`); the core's exchange runs beside the reply, unordered.
+                        "continue-held" => {
+                            after_reply = Some(world.gate.arm().0);
+                            let arrived = world.exchanges.arm();
+                            let held = world.call_held("room/continue", json!({ "roomId": room_id }), created).await;
+                            tokio::time::timeout(DEADLINE, arrived)
+                                .await
+                                .unwrap_or_else(|_| panic!("{what}: the exchange never went past its start"))
+                                .expect("the exchange's stop");
+                            held
+                        }
+                        // No client call first: the core restarted (`Composed::restart`, no definition deleted), its start-up's recovery
+                        // and a room update that awaits the same first load met as Node's recording names them (`startup`): the update
+                        // starting the first load while the start-up's read of the room records is held; a member forgotten starting it
+                        // there and the update called while the first load is held at its member check; or, with a room cut off, the
+                        // update called there. The core's order of the two is one ([`RoomsReady::ready`]); Node's other is a named
+                        // difference. The step's answer is the update's.
+                        "restart-and-update" => {
+                            let waiters = node["startup"].as_str().expect("the start-up's waiters");
+                            let load = (waiters != "interrupted").then(|| world.saves.arm_load());
+                            let (presence_open, presence) = world.agents.arm_presence();
+                            let (next, started) = world.restart().await;
+                            (world, fold) = (next, Fold::default());
+                            let update = |world: &Composed| world.spawn_held("room/update", json!({ "roomId": room_id, "maxRounds": 4 }), created);
+                            let mut updating = None;
+                            let mut forgetting = None;
+                            if let Some((load_open, load_arrived)) = load {
+                                tokio::time::timeout(DEADLINE, load_arrived)
+                                    .await
+                                    .unwrap_or_else(|_| panic!("{what}: the start-up never read the room records"))
+                                    .expect("the load's stop");
+                                let mut prepares = world.prepares.clone();
+                                let before = *prepares.borrow_and_update();
+                                if waiters == "update-before-recovery" {
+                                    updating = Some(update(&world));
+                                } else {
+                                    let (homes, spare) = (world.homes.clone(), node["spareBot"].as_str().expect("the bot in no room").to_owned());
+                                    forgetting = Some(tokio::spawn(async move { homes.forget_room_member(&spare).await }));
+                                }
+                                tokio::time::timeout(DEADLINE, prepares.wait_for(|count| *count > before))
+                                    .await
+                                    .unwrap_or_else(|_| panic!("{what}: the call never started the rooms' first load"))
+                                    .expect("the preparations' count");
+                                load_open.send(()).expect("the load waits at its stop");
+                            }
+                            tokio::time::timeout(DEADLINE, presence)
+                                .await
+                                .unwrap_or_else(|_| panic!("{what}: the first load never checked its members"))
+                                .expect("the check's stop");
+                            let (updating, replied) = updating.unwrap_or_else(|| update(&world));
+                            presence_open.send(()).expect("the check waits at its stop");
+                            let answer = tokio::time::timeout(DEADLINE, updating)
+                                .await
+                                .unwrap_or_else(|_| panic!("{what}: the update never answered"))
+                                .expect("the update's task");
+                            if let Some(forgetting) = forgetting {
+                                tokio::time::timeout(DEADLINE, forgetting)
+                                    .await
+                                    .unwrap_or_else(|_| panic!("{what}: the member was never forgotten"))
+                                    .expect("the forgetting's task")
+                                    .expect("the member forgotten");
+                            }
+                            tokio::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up");
+                            (answer.map_err(|error| format!("{error:?}")), replied)
+                        }
                         other => panic!("{what}: a call this replay does not know: {other}"),
                     };
                     if forced == Some(name) {
@@ -921,6 +1086,9 @@ mod tests {
                     let mut sent = pre;
                     sent.extend(frames(&world.app));
                     replied.release();
+                    if let Some(open) = after_reply.take() {
+                        let _ = open.send(());
+                    }
                     // Node's recorder awaits the call's background listing to its end before the next step sets its listing fault; so
                     // does the replay, for the core's, and for what the index writes made by then publish.
                     tokio::time::timeout(DEADLINE, world.summaries.background_ended())
@@ -995,7 +1163,8 @@ mod tests {
     /// The core's known differences from Node in what the client is sent, each with its owner (`coreDifferences` of the set's
     /// manifest, from `benchmarks/rust-core/recorders/room-catalog-core-differences.json`): one part of one step and Node's
     /// publications in it exactly, then either the core's frames in it exactly with, for each frame, the Node publication whose row
-    /// it carries, or (an order Node can produce and the core cannot) `compareWith`: the recorded scenario whose same step and part
+    /// it carries (or, for a row no publication of Node's has, that row exactly), or (an order Node can produce and the core cannot)
+    /// `compareWith`: the recorded scenario whose same step and part
     /// is the order the core produces, which the core's part then equals whole. A part that differs from Node and is not named so, a
     /// named part that differs from its entry, and an entry no part used all fail the replay, together, at its end.
     struct Differences {
@@ -1088,7 +1257,7 @@ mod tests {
                     vec![("the step", &events[..])]
                 }
                 "transport-loss-and-renderer-reload" => vec![("the step", &events[..])],
-                "create" | "update" | "update-rounds" | "reset" | "remove" | "forget-member" => {
+                "create" | "update" | "update-rounds" | "reset" | "remove" | "forget-member" | "continue-held" | "restart-and-update" => {
                     let answered_at = events.iter().position(|e| e["kind"] == "answered" || e["kind"] == "threw").expect("the call's end");
                     vec![("before the answer", &events[..answered_at]), ("after the answer", &events[answered_at..])]
                 }
@@ -1140,10 +1309,14 @@ mod tests {
                 let frames: Vec<Value> = (0..core.len())
                     .map(|at| {
                         let pair = (from..node.len()).find(|&k| carries(at, &node[k].1));
-                        if let Some(k) = pair {
-                            from = k;
+                        match pair {
+                            Some(k) => {
+                                from = k;
+                                json!({ "frame": core_shapes[at], "publication": k })
+                            }
+                            // A frame no publication's row matches: its row, against Node's.
+                            None => json!({ "frame": core_shapes[at], "publication": null, "row": core[at].1, "node": node.iter().map(|(_, rows)| rows).collect::<Vec<_>>() }),
                         }
-                        json!({ "frame": core_shapes[at], "publication": pair })
                     })
                     .collect();
                 differences.failures.push(format!(
@@ -1154,31 +1327,45 @@ mod tests {
             return;
         };
         let named_node: Vec<&str> = entry["node"].as_array().expect("node").iter().map(|s| s.as_str().expect("shape")).collect();
-        // An order Node can produce and the core cannot: the core's part is the one Node recorded in the named scenario, whole.
-        if let Some(with) = entry["compareWith"].as_str() {
-            if named_node != node_shapes {
-                differences.failures.push(format!("{label}: not the named difference; Node published {node_shapes:?}; named: {entry}"));
-                return;
-            }
-            let other = differences.compared[with].get(&(step.to_owned(), part.to_owned())).cloned().unwrap_or_else(|| panic!("{label}: {with} has no such part"));
-            let same = other.len() == core.len() && (0..core.len()).all(|at| holds(at, &other[at].1, core_names));
-            if !same {
-                let other_shapes: Vec<&str> = other.iter().map(|(shape, _)| shape.as_str()).collect();
-                differences.failures.push(format!("{label}: the core's part is not Node's {with} / {step} / {part} (Node published {other_shapes:?}, the core sent {core_shapes:?})"));
-            }
+        if named_node != node_shapes {
+            differences.failures.push(format!("{label}: not the named difference; Node published {node_shapes:?}; named: {entry}"));
             return;
         }
+        // An order Node can produce and the core cannot: the core's part is the one Node recorded in the named scenario, whole, or,
+        // with the core's frames named too, paired with that scenario's publications as below.
+        let other;
+        let node = match entry["compareWith"].as_str() {
+            Some(with) => {
+                other = differences.compared[with].get(&(step.to_owned(), part.to_owned())).cloned().unwrap_or_else(|| panic!("{label}: {with} has no such part"));
+                if entry.get("core").is_none() {
+                    let same = other.len() == core.len() && (0..core.len()).all(|at| holds(at, &other[at].1, core_names));
+                    if !same {
+                        let other_shapes: Vec<&str> = other.iter().map(|(shape, _)| shape.as_str()).collect();
+                        differences.failures.push(format!("{label}: the core's part is not Node's {with} / {step} / {part} (Node published {other_shapes:?}, the core sent {core_shapes:?})"));
+                    }
+                    return;
+                }
+                &other
+            }
+            None => &node,
+        };
         let named_core: Vec<&str> = entry["core"].as_array().expect("core").iter().map(|f| f["frame"].as_str().expect("frame")).collect();
-        if named_node != node_shapes || named_core != core_shapes {
+        if named_core != core_shapes {
             differences.failures.push(format!("{label}: not the named difference; Node published {node_shapes:?}, the core sent {core_shapes:?}; named: {entry}"));
             return;
         }
-        let Some(pairs) = entry["core"].as_array().expect("core").iter().map(|f| f["publication"].as_u64().map(|k| k as usize)).collect::<Option<Vec<usize>>>() else {
-            differences.failures.push(format!("{label}: a frame paired with no Node publication; every frame names the publication whose row it carries: {entry}"));
-            return;
-        };
+        // Each frame's publication; a frame that carries a row no publication of Node's has (a state between two of Node's) names
+        // that row exactly instead (`publication` null, `row`).
+        let named_frames = entry["core"].as_array().expect("core");
+        let pairs: Vec<Option<usize>> = named_frames.iter().map(|f| f["publication"].as_u64().map(|k| k as usize)).collect();
         let mut last = 0;
-        for (at, &k) in pairs.iter().enumerate() {
+        for (at, pair) in pairs.iter().enumerate() {
+            let Some(k) = *pair else {
+                if named_frames[at].get("row").is_none_or(|row| core[at].1.as_ref() != Some(row)) {
+                    differences.failures.push(format!("{label}: frame {at} ({}) does not carry the named row; it carries {}", core_shapes[at], json!(core[at].1)));
+                }
+                continue;
+            };
             if k < last || k >= node.len() {
                 differences.failures.push(format!("{label}: frame {at} is paired out of Node's order (publication {k})"));
                 return;
@@ -1189,7 +1376,7 @@ mod tests {
             }
         }
         for (k, (shape, rows)) in node.iter().enumerate() {
-            if let Some(at) = pairs.iter().rposition(|pair| *pair == k)
+            if let Some(at) = pairs.iter().rposition(|pair| *pair == Some(k))
                 && !holds(at, rows, core_names)
             {
                 differences.failures.push(format!("{label}: after frame {at} the client does not hold Node's publication {k} ({shape})"));
@@ -1325,21 +1512,80 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
         std::fs::create_dir_all(data.path().join("state")).expect("state dir");
         let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
-        let rooms = Arc::new(Rooms::new(Saves { inner: StateRoomStore::new(data.state(state)), armed: saves.0.clone() }));
-        let room_rows =Arc::new(RoomListRows::new(rooms.clone(), Arc::new(Idle), agents.clone()));
-        let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), agents: agents.clone() });
-        let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
-        list.fence(store.clone());
+        let rooms = Arc::new(Rooms::new(Saves { inner: StateRoomStore::new(data.state(state)), armed: saves.0.clone(), load: saves.1.clone() }));
         let deletes = Arc::new(Deletes {
             inner: Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone())))),
             armed: std::sync::Mutex::new(None),
         });
         let sessions: Arc<dyn SessionOps> = deletes.clone();
+        // The live rooms and the runner as `compose_flip.rs` composes them: the room daemon is the production one over the session
+        // directory, its catalog republish the summaries', bound once they exist (`late_room_summaries`).
+        let late_summaries: Arc<std::sync::OnceLock<Arc<RoomSummaries>>> = Arc::default();
+        let exchanges = Arc::new(HeldLabels::default());
+        let live = mixdog_core_rooms::rooms::live::LiveRooms::new(
+            rooms.clone(),
+            mixdog_core_rooms::rooms::live::RoomPorts {
+                daemon: Arc::new(crate::run_host::room_daemon::DirectoryRoomDaemon::new(directory.clone(), {
+                    let late = late_summaries.clone();
+                    Arc::new(move || {
+                        if let Some(summaries) = late.get() {
+                            summaries.republish();
+                        }
+                    })
+                })),
+                approvals: Arc::new(Unreached),
+                labels: exchanges.clone(),
+                files: Arc::new(Unreached),
+                sessions: sessions.clone(),
+                catalog: agents.clone(),
+                maintainer: Arc::new(Unreached),
+                preview: Arc::new(|text: &str| mixdog_core_rooms::rooms::preview::plain_preview_text(text)),
+                log: room_log(&logged),
+            },
+        );
+        let calls = mixdog_core_rooms::rooms::calls::RoomCalls::new(Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live.clone())), room_log(&logged));
+        live.bind_relays(Arc::new({
+            let calls = Arc::downgrade(&calls);
+            move |room: &str, error: &str| {
+                if let Some(calls) = calls.upgrade() {
+                    calls.fail_relays(room, error)
+                }
+            }
+        }));
+        let runner: Arc<Runner> = Arc::new(mixdog_core_rooms::rooms::runner::CallsRunner::new(calls, live.clone()));
+        let room_rows = Arc::new(RoomListRows::new(rooms.clone(), runner.clone(), agents.clone()));
+        let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), agents: agents.clone() });
+        let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
+        list.fence(store.clone());
         let deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(sections.clone());
         let publication = wire(list.clone(), sections, deletions, agents.clone(), &index, directory, sessions.clone()).expect("wired");
+        assert!(late_summaries.set(publication.summaries.clone()).is_ok(), "the summaries are bound once");
         let ops = data.state(mixdog_core_base::support::testing::op_state(data.path()));
         let host = publication.host;
-        let (service, homes, ready) = rooms_over(&rooms, &host, &sessions, &agents, &ops, &logged).await;
-        Composed { service, list, homes, ready, agents, app, gate, deletes, saves, summaries: publication.summaries, rooms, host, sessions, ops, logged, edges: publication.edges, projections: store, rig, data }
+        let (service, homes, ready, prepares) = rooms_over(&rooms, &host, &sessions, &agents, &ops, &logged, &live, &runner).await;
+        Composed {
+            service,
+            list,
+            homes,
+            ready,
+            agents,
+            app,
+            gate,
+            deletes,
+            saves,
+            summaries: publication.summaries,
+            rooms,
+            host,
+            sessions,
+            ops,
+            logged,
+            edges: publication.edges,
+            projections: store,
+            rig,
+            data,
+            live,
+            exchanges,
+            prepares,
+        }
     }
 }
