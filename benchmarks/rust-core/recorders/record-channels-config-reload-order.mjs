@@ -12,7 +12,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { begin, finish, importFrom, plain, within } from './lib/mc-record.mjs';
+import { begin, finish, importFrom, exact, within } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const root = mkdtempSync(join(tmpdir(), 'mixdog-channels-reload-'));
@@ -34,10 +34,10 @@ const reloadResults = [];
 const reloader = createConfigReloader({
   state: { automationRunning: true },
   getConfig: () => config,
-  setConfig: (value) => { config = value; events.push({ event: 'setConfig', value: plain(value) }); },
+  setConfig: (value) => { config = value; events.push({ event: 'setConfig', value: exact(value) }); },
   getBridgeRuntimeConnected: () => false,
-  scheduler: { reloadConfig: (schedules, options) => events.push({ event: 'scheduler.reloadConfig', schedules: plain(schedules), options: plain(options) }) },
-  services: { syncWebhookAndEventRuntime: (options) => events.push({ event: 'syncWebhookAndEventRuntime', options: plain(options) }), stopWebhookAndEventRuntime: async () => { events.push({ event: 'stopWebhookAndEventRuntime' }); } },
+  scheduler: { reloadConfig: (schedules, options) => events.push({ event: 'scheduler.reloadConfig', schedules: exact(schedules), options: exact(options) }) },
+  services: { syncWebhookAndEventRuntime: (options) => events.push({ event: 'syncWebhookAndEventRuntime', options: exact(options) }), stopWebhookAndEventRuntime: async () => { events.push({ event: 'stopWebhookAndEventRuntime' }); } },
   load: () => {
     calls += 1;
     const id = calls;
@@ -63,10 +63,10 @@ try {
   steps.push({ step: 'write channels revision 102 -> load #2 started while #1 is pending', events: events.splice(0) });
   loads.get(2).resolve({ revision: 2 });
   await within('reload #2 to apply', reloadResults[1], 30_000);
-  steps.push({ step: 'load #2 resolves with {revision: 2} -> applied', events: events.splice(0), config: plain(config) });
+  steps.push({ step: 'load #2 resolves with {revision: 2} -> applied', events: events.splice(0), config: exact(config) });
   loads.get(1).resolve({ revision: 1 });
   await within('reload #1 to settle', reloadResults[0], 30_000);
-  steps.push({ step: 'load #1 (older) resolves with {revision: 1} last -> discarded; its caller got the newer reload', events: events.splice(0), config: plain(config), reload1SettledAfterReload2: true });
+  steps.push({ step: 'load #1 (older) resolves with {revision: 1} last -> discarded; its caller got the newer reload', events: events.splice(0), config: exact(config), reload1SettledAfterReload2: true });
 } finally {
   watch.stop();
   rmSync(root, { recursive: true, force: true });

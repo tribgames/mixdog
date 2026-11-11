@@ -6,13 +6,13 @@
 // in Rust where the scope is Option<&str>; listed in the manifest.
 //
 //   node benchmarks/rust-core/recorders/record-memory-scope-filter.mjs --tree <dir>
-import { begin, capture, finish, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const { appendProjectScopeClause, projectScopePredicate } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory-recall-scope-filter.mjs');
 const objectScope = { id: 42 };
 
-const predicate = async (scope, next, options) => ({ input: { scope: plain(scope), next, options: options ?? null }, ...(await capture(() => projectScopePredicate(scope, next, options))) });
+const predicate = async (scope, next, options) => ({ input: { scope: exact(scope), next, options: options ?? null }, ...(await capture(() => projectScopePredicate(scope, next, options))) });
 const shapes = [];
 for (const [scope, next, options] of [
   ['common', 3], ['all', 3], [undefined, 3], ['mixdog', 5, { column: 'e.project_id' }], ['mixdog', 1], ['mixdog', 12, { column: 'x.pid' }],

@@ -4,7 +4,7 @@
 // (default k and an explicit k), evidence kind, the ranked order with its scores, and isSemanticOnlyRecall.
 //
 //   node benchmarks/rust-core/recorders/record-memory-recall-fusion.mjs --tree <dir>
-import { begin, capture, finish, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const m = await importFrom(ctx.tree, 'src/runtime/memory/lib/recall-fusion.mjs');
@@ -32,7 +32,7 @@ const rowProbes = [];
 for (const [name, row] of Object.entries(rows)) {
   rowProbes.push({
     name,
-    row: plain(row),
+    row: exact(row),
     laneRanks: (await capture(() => recallLaneRanks(row))),
     rrf: (await capture(() => recallRrfScore(row))),
     rrfK10: (await capture(() => recallRrfScore(row, 10))),
@@ -40,7 +40,7 @@ for (const [name, row] of Object.entries(rows)) {
   });
 }
 for (const value of [null, undefined]) {
-  rowProbes.push({ name: `row ${value}`, row: plain(value), laneRanks: await capture(() => recallLaneRanks(value)), rrf: await capture(() => recallRrfScore(value)), evidence: await capture(() => recallEvidenceKind(value)) });
+  rowProbes.push({ name: `row ${value}`, row: exact(value), laneRanks: await capture(() => recallLaneRanks(value)), rrf: await capture(() => recallRrfScore(value)), evidence: await capture(() => recallEvidenceKind(value)) });
 }
 const rankProbes = [];
 for (const [name, list, k] of [
@@ -52,7 +52,7 @@ for (const [name, list, k] of [
   ['null list', null],
   ['empty list', []],
 ]) {
-  rankProbes.push({ name, rows: plain(list), k: k ?? 'default', ...(await capture(() => rankRecallCandidates(list, k)
+  rankProbes.push({ name, rows: exact(list), k: k ?? 'default', ...(await capture(() => rankRecallCandidates(list, k)
     .map(({ id, rrf, retrievalScore, evidence, row }) => ({ id, rrf, retrievalScore, evidence, rowId: row.id })))) });
 }
 const semanticProbes = [];
@@ -60,7 +60,7 @@ for (const list of [
   [{ _retrievalEvidence: 'semantic' }, { _retrievalEvidence: 'semantic' }],
   [{ _retrievalEvidence: 'semantic' }, { _retrievalEvidence: 'lexical' }],
   [], null, 'x', [null], [{ _retrievalEvidence: 'semantic' }],
-]) semanticProbes.push({ rows: plain(list), ...(await capture(() => isSemanticOnlyRecall(list))) });
+]) semanticProbes.push({ rows: exact(list), ...(await capture(() => isSemanticOnlyRecall(list))) });
 
 finish(ctx, {
   url: import.meta.url,

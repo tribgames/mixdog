@@ -87,7 +87,7 @@ const further = [
   await session([], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], { 'org/model/resolve/main/onnx/model.onnx': { status: 200, body: 'graph' } }),
   await session([], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], {}),
   await session([], [{ call: 'file', model: 'org/model', file: 'config.json' }], { 'org/model/resolve/main/config.json': { status: 503, body: 'busy' } }),
-  await session([{ path: 'org/model/config.json', bytesHex: hex('not json') }, { path: 'org/model/vocab.txt', bytesHex: hex('plain text') }],
+  await session([{ path: 'org/model/config.json', bytesHex: hex('not json') }, { path: 'org/model/vocab.txt', bytesHex: hex('exact text') }],
     [{ call: 'file', model: 'org/model', file: 'config.json' }, { call: 'file', model: 'org/model', file: 'vocab.txt' }],
     { 'org/model/resolve/main/config.json': { status: 200, body: '{}' } }),
   await session([{ path: GRAPH, bytesHex: hex('graph') }], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], {}),
@@ -102,7 +102,7 @@ finish(ctx, {
     cases: [
       { name: 'an intact cached graph with empty or NUL external weights fetches only the weights', session: graphCase },
       { name: 'empty, NUL-filled or unparsable cached model files are fetched again', session: fileCase },
-      { name: 'further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, plain-text file, healthy cache', sessions: further },
+      { name: 'further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, exact-text file, healthy cache', sessions: further },
     ],
   },
   extra: {

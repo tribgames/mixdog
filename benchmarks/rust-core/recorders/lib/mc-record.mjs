@@ -104,7 +104,7 @@ export function finish(ctx, { url, set, golden, extra, flags = '', files = {} })
   const stage = stageSet(final);
   // Random UUIDs (index revisions) are named by order of first appearance in the file, so two recordings are byte-identical.
   const seen = new Map();
-  const goldenText = orderedStringify(golden).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (uuid) => {
+  const goldenText = orderedStringify(exact(golden)).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (uuid) => {
     if (!generatedUuids.has(uuid)) return uuid;
     if (!seen.has(uuid)) seen.set(uuid, `<uuid-${seen.size + 1}>`);
     return seen.get(uuid);

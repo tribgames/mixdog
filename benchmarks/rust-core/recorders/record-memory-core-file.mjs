@@ -12,7 +12,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
-import { begin, capture, finish, freezeClock, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const CLOCK_MS = 1_800_000_000_000;
@@ -44,8 +44,8 @@ const cases = [];
   const statements = [];
   const coreRows = [{ id: 1, summary: 'common rule', project_id: null, updated_at: 10 }, { id: 2, summary: 'alpha rule', project_id: 'alpha', updated_at: 20 }, { id: 3, summary: 'other rule', project_id: 'beta', updated_at: 30 }];
   const generatedRows = [{ core_summary: 'common generated', project_id: null, score: 1, last_seen_at: 10 }, { core_summary: 'alpha generated', project_id: 'alpha', score: 2, last_seen_at: 20 }, { core_summary: 'other generated', project_id: 'beta', score: 3, last_seen_at: 30 }];
-  const db = { query: async (sql, params) => { statements.push({ sql, params: plain(params ?? null) }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: generatedRows }; } };
-  db.transaction = (run) => run({ query: async (sql, params) => { statements.push({ sql, params: plain(params ?? null), inTransaction: true }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: [] }; } });
+  const db = { query: async (sql, params) => { statements.push({ sql, params: exact(params ?? null) }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: generatedRows }; } };
+  db.transaction = (run) => run({ query: async (sql, params) => { statements.push({ sql, params: exact(params ?? null), inTransaction: true }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: [] }; } });
   const steps = [];
   const migrated = await capture(() => refreshCoreMemoryFile(db, root));
   steps.push({ label: 'refreshCoreMemoryFile(db, dataDir)', ...migrated, statements: statements.splice(0), files: files(root).filter((f) => f.path === 'core-memory.json') });

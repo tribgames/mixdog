@@ -61,8 +61,8 @@ rows.push(await content('skill body with meta skill', { role: 'user', content: '
 rows.push(await content('runtime marker', { role: 'user', content: '[mixdog-runtime] continue' }));
 rows.push(await content('assistant dot', { role: 'assistant', content: '.', toolCalls: undefined }));
 rows.push(await content('assistant dot with tool calls', { role: 'assistant', content: '.', toolCalls: [{ id: 'c' }] }));
-rows.push(await content('plain user', { role: 'user', content: 'please continue the task' }));
-rows.push(await content('plain assistant', { role: 'assistant', content: 'working on it' }));
+rows.push(await content('exact user', { role: 'user', content: 'please continue the task' }));
+rows.push(await content('exact assistant', { role: 'assistant', content: 'working on it' }));
 rows.push(await content('compact summary meta synthetic', { role: 'user', content: 'summary', meta: { source: 'compact-summary', synthetic: true } }));
 rows.push(await content('active-turn continuation', { role: 'user', content: continuation, meta: { source: 'compact-active-turn-continuation', synthetic: true } }));
 rows.push(await content('synthetic flag only', { role: 'user', content: 'hello', meta: { synthetic: true } }));
@@ -71,7 +71,7 @@ rows.push(await content('no content', { role: 'user' }));
 
 const helpers = [];
 for (const role of ['user', 'assistant', 'system', 'tool', 'USER', ' user ', null, undefined, 'developer']) helpers.push({ fn: 'normalizeIngestRole', role: role === undefined ? { absent: true } : role, ...(await capture(() => normalizeIngestRole(role))) });
-for (const value of ['plain', '', null, undefined, [{ type: 'text', text: 'x' }, { type: 'image' }, { type: 'text', text: 'y' }], [{ type: 'text' }], [{ text: 'no type' }], ['str', { type: 'text', text: 'z' }], { type: 'text', text: 'obj' }, 5]) {
+for (const value of ['exact', '', null, undefined, [{ type: 'text', text: 'x' }, { type: 'image' }, { type: 'text', text: 'y' }], [{ type: 'text' }], [{ text: 'no type' }], ['str', { type: 'text', text: 'z' }], { type: 'text', text: 'obj' }, 5]) {
   helpers.push({ fn: 'allTextContent', content: value === undefined ? { absent: true } : value, ...(await capture(() => allTextContent(value))) });
 }
 for (const text of ['', 'Task completed', 'Tool use completed', 'normal text', null]) helpers.push({ fn: 'isUnquotedToolCompletionHead', text, ...(await capture(() => isUnquotedToolCompletionHead(text))) });

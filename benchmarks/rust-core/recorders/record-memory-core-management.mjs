@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { begin, capture, finish, freezeClock, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const CLOCK_MS = 1_800_000_000_000;
@@ -48,7 +48,7 @@ const statements = [];
 let indexReads = 0;
 const db = {
   query: async (sql, args = []) => {
-    statements.push({ sql, params: plain(args) });
+    statements.push({ sql, params: exact(args) });
     if (sql.includes('pg_advisory_xact_lock')) { indexReads++; return { rows: [] }; }
     const statement = sqlite.prepare(sql.replace(/::(?:text|boolean|jsonb)/g, '').replace(/\$(\d+)/g, ':p$1'));
     return { rows: statement.all(Object.fromEntries(args.map((value, i) => [`p${i + 1}`, typeof value === 'boolean' ? Number(value) : value]))) };
@@ -64,7 +64,7 @@ const step = async (label, args, fn, extra = () => ({})) => {
   const before = statements.length;
   indexReads = 0;
   const out = await capture(fn);
-  steps.push({ label, args: scrub(plain(args)), ...scrub(out), ...extra(out), indexReads, statements: statements.slice(before) });
+  steps.push({ label, args: scrub(exact(args)), ...scrub(out), ...extra(out), indexReads, statements: statements.slice(before) });
   return out;
 };
 const list = (label, scope, options) => step(label, { scope, options }, () => listManagedMemories(db, scope, options), (out) => (out.result ? { formatted: formatManagedMemories(out.result) } : {}));
@@ -104,7 +104,7 @@ finish(ctx, {
     entry: { runs: 'listManagedMemories and formatManagedMemories (core-memory-management.mjs); createMemoryActionHandlers(...).handleMemoryAction({action:"core", op:"list"}) (memory-action-handlers.mjs) over real .mixdog/project.id directories', notRun: 'PostgreSQL (SQLite stand-in of the test file); the TUI parser parseMemoryCoreRows (deleted TUI)' },
     replay: 'mixdog-services memory: mem/core/list.rs list + format and mem/core/action.rs list with project_paths (project id from each path\'s .mixdog/project.id), over the same four rows; compares entries, nextOffset, projectScopes, formatted text, error text, the pg_advisory_xact_lock count per call (indexReads) and the ordered statements',
     exclusions: 'parseMemoryCoreRows is not recorded (the formatted text it parsed is)',
-    normalised: { 'temp project root': 'every occurrence (plain, JSON-escaped, forward slashes) written as <root>; the replay creates its own folders with the stated project ids' },
+    normalised: { 'temp project root': 'every occurrence (exact, JSON-escaped, forward slashes) written as <root>; the replay creates its own folders with the stated project ids' },
   },
 });
 process.exit(0);

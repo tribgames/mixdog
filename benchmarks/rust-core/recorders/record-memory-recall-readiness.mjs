@@ -9,7 +9,7 @@
 // case here settles before the timer could: the recorder waits on explicit promises, not on time).
 //
 //   node benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs --tree <dir>
-import { begin, capture, finish, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const { embedRecallQuery } = await importFrom(ctx.tree, 'src/runtime/memory/lib/recall-embedding-readiness.mjs');
@@ -29,7 +29,7 @@ async function scenario(label, query, config) {
         isReady: () => { log.push('isReady'); return config.ready; },
         canWarmup: () => { log.push('canWarmup'); return config.canWarmup; },
         warmup: (...a) => { log.push('warmup'); return config.warmup(...a); },
-        embed: async (text, options) => { log.push(['embed', text, plain(options)]); return vector; },
+        embed: async (text, options) => { log.push(['embed', text, exact(options)]); return vector; },
         onWarmupError: (error) => { log.push(['onWarmupError', error?.message ?? String(error)]); },
         ...extraOptions,
       }),
@@ -42,7 +42,7 @@ async function scenario(label, query, config) {
   return { label, query, ...outcome, calls: log, timers: timers.map(({ armed, cleared }) => ({ armed, cleared: cleared === true })) };
 }
 const settled = (promise, reference = null) => promise.then(
-  (value) => ({ result: plain((({ error, ...rest }) => rest)(value)), ...(value.error ? { errorMessage: value.error.message, errorIsTheInjectedObject: reference ? value.error === reference : null } : {}) }),
+  (value) => ({ result: exact((({ error, ...rest }) => rest)(value)), ...(value.error ? { errorMessage: value.error.message, errorIsTheInjectedObject: reference ? value.error === reference : null } : {}) }),
   (error) => ({ rejected: { name: error?.name ?? null, message: String(error?.message ?? error) }, rejectedWithTheInjectedReason: reference ? error === reference : null }),
 );
 

@@ -11,33 +11,58 @@
       "calls": [
         [
           [
-            "advert"
+            "advert",
+            "inst-1"
           ],
           [
             "notify",
             "notifications/mixdog/remote",
-            "acquired"
+            {
+              "state": "acquired"
+            }
           ],
           [
-            "initProviders"
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
           ],
           [
             "scheduler.start"
           ],
           [
-            "snapshot.start"
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
           ],
           [
-            "pipeline.new"
+            "pipeline.new",
+            {
+              "rules": []
+            }
           ],
           [
-            "wire.events"
+            "wire.events",
+            {}
           ],
           [
             "pipeline.start"
           ],
           [
-            "webhook.new"
+            "webhook.new",
+            {
+              "enabled": true
+            }
           ],
           [
             "wire.webhook"
@@ -85,6 +110,72 @@
       "calls": [
         [
           [
+            "advert",
+            "inst-1"
+          ],
+          [
+            "notify",
+            "notifications/mixdog/remote",
+            {
+              "state": "acquired"
+            }
+          ],
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.start"
+          ],
+          [
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
+          ],
+          [
+            "pipeline.new",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "webhook.new",
+            {
+              "enabled": true
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ],
+          [
+            "ownership",
+            "active owner lead=42 pid=<pid>"
+          ]
+        ],
+        [
+          [
             "scheduler.stop"
           ],
           [
@@ -97,10 +188,12 @@
             "pipeline.stop"
           ],
           [
-            "locks.release"
+            "locks.release",
+            "inst-1"
           ],
           [
-            "advert.clear"
+            "advert.clear",
+            "inst-1"
           ],
           [
             "ownership",
@@ -126,15 +219,22 @@
       "calls": [
         [
           [
-            "advert"
+            "advert",
+            "inst-1"
           ],
           [
             "notify",
             "notifications/mixdog/remote",
-            "acquired"
+            {
+              "state": "acquired"
+            }
           ],
           [
-            "initProviders"
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
           ],
           [
             "scheduler.stop"
@@ -143,10 +243,12 @@
             "snapshot.stop"
           ],
           [
-            "locks.release"
+            "locks.release",
+            "inst-1"
           ],
           [
-            "advert.clear"
+            "advert.clear",
+            "inst-1"
           ],
           [
             "ownership",
@@ -155,10 +257,12 @@
         ],
         [
           [
-            "locks.release"
+            "locks.release",
+            "inst-1"
           ],
           [
-            "advert.clear"
+            "advert.clear",
+            "inst-1"
           ]
         ]
       ],
@@ -179,17 +283,90 @@
       "calls": [
         [
           [
+            "advert",
+            "inst-1"
+          ],
+          [
+            "notify",
+            "notifications/mixdog/remote",
+            {
+              "state": "acquired"
+            }
+          ],
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.start"
+          ],
+          [
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
+          ],
+          [
+            "pipeline.new",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "webhook.new",
+            {
+              "enabled": true
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ],
+          [
+            "ownership",
+            "active owner lead=42 pid=<pid>"
+          ]
+        ],
+        [
+          [
             "loadConfig"
           ],
           [
             "scheduler.reload",
-            true
+            [],
+            {
+              "restart": true
+            }
           ],
           [
-            "pipeline.reload"
+            "pipeline.reload",
+            {
+              "rules": []
+            }
           ],
           [
-            "wire.events"
+            "wire.events",
+            {}
           ],
           [
             "pipeline.start"
@@ -199,7 +376,12 @@
           ],
           [
             "webhook.reload",
-            false
+            {
+              "enabled": true
+            },
+            {
+              "autoStart": false
+            }
           ],
           [
             "wire.webhook"
@@ -228,7 +410,10 @@
           ],
           [
             "scheduler.reload",
-            false
+            [],
+            {
+              "restart": false
+            }
           ]
         ]
       ],
@@ -250,25 +435,47 @@
       "calls": [
         [
           [
-            "initProviders"
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
           ],
           [
             "scheduler.start"
           ],
           [
-            "snapshot.start"
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
           ],
           [
-            "pipeline.new"
+            "pipeline.new",
+            {
+              "rules": []
+            }
           ],
           [
-            "wire.events"
+            "wire.events",
+            {}
           ],
           [
             "pipeline.start"
           ],
           [
-            "webhook.new"
+            "webhook.new",
+            {
+              "enabled": true
+            }
           ],
           [
             "wire.webhook"
@@ -290,7 +497,37 @@
         ],
         [
           [
-            "initProviders"
+            "scheduler.stop"
+          ],
+          [
+            "snapshot.stop"
+          ],
+          [
+            "webhook.stop"
+          ],
+          [
+            "pipeline.stop"
+          ],
+          [
+            "locks.release",
+            "inst-1"
+          ],
+          [
+            "advert.clear",
+            "inst-1"
+          ],
+          [
+            "ownership",
+            "standby: done"
+          ]
+        ],
+        [
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
           ],
           [
             "scheduler.stop"
@@ -299,10 +536,12 @@
             "snapshot.stop"
           ],
           [
-            "locks.release"
+            "locks.release",
+            "inst-1"
           ],
           [
-            "advert.clear"
+            "advert.clear",
+            "inst-1"
           ],
           [
             "ownership",

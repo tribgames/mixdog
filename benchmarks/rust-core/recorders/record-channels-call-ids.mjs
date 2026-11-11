@@ -11,7 +11,7 @@
 // WebSocket/stop concerns of the core (GONE).
 //
 //   node benchmarks/rust-core/recorders/record-channels-call-ids.mjs --tree <dir>
-import { begin, capture, finish, importFrom, plain, within } from './lib/mc-record.mjs';
+import { begin, capture, finish, importFrom, exact, within } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const { createChannelTransport } = await importFrom(ctx.tree, 'src/standalone/channel-transport.mjs');
@@ -30,7 +30,7 @@ async function session(label, makeScript) {
   const calls = [];
   let n = 0;
   const transport = createChannelTransport({
-    handleCall: async (name, args, caller) => { n += 1; calls.push({ name, args: plain(args), caller: plain(caller ?? null) }); return { call: n }; },
+    handleCall: async (name, args, caller) => { n += 1; calls.push({ name, args: exact(args), caller: exact(caller ?? null) }); return { call: n }; },
   });
   const wire = [];
   try {

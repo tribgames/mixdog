@@ -13,7 +13,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mock } from 'node:test';
-import { begin, capture, finish, freezeClock, importFrom, plain, within } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom, exact, within } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const CLOCK_MS = 1_800_000_000_000;
@@ -26,7 +26,7 @@ let onFlush = null;
 mock.module(lib('./memory-cycle.mjs'), {
   namedExports: {
     flushRawEmbeddings: async (_db, options) => {
-      flushes.push(plain(options));
+      flushes.push(exact(options));
       onFlush?.();
       return { attempted: 0, embedded: 0 };
     },
@@ -42,7 +42,7 @@ function store() {
     statements,
     rows: () => [...entries.values()].map((e) => ({ ...e })),
     query: async (sql, params) => {
-      statements.push({ sql, params: plain(params ?? null) });
+      statements.push({ sql, params: exact(params ?? null) });
       if (sql.includes('MAX(source_turn)')) {
         const turns = [...entries.values()].map((e) => e.source_turn);
         return { rows: [{ max_turn: turns.length ? Math.max(...turns) : 0 }] };
@@ -60,7 +60,7 @@ const createRuntime = (db, durability = {}) => createSessionIngestRuntime({ getD
 
 // Waits until the product has made `count` flush calls in total (the background flush and sweep).
 const flushed = (count) => (flushes.length >= count ? Promise.resolve() : within(`${count} background flush calls (have ${flushes.length})`, new Promise((resolve) => { onFlush = () => { if (flushes.length >= count) resolve(); }; }), 30_000));
-const call = async (runtime, args, extra = {}) => ({ args: plain(args), ...(await capture(() => runtime.ingestSessionMessages(args))), ...extra });
+const call = async (runtime, args, extra = {}) => ({ args: exact(args), ...(await capture(() => runtime.ingestSessionMessages(args))), ...extra });
 
 const cases = [];
 {
@@ -68,7 +68,7 @@ const cases = [];
   const saved = [];
   let onSaved = null;
   const savedWait = new Promise((resolve) => { onSaved = resolve; });
-  const runtime = createRuntime(db, { saveOrdinalHighWater: async (sessionId, snapshot) => { saved.push(plain([sessionId, snapshot])); onSaved(); } });
+  const runtime = createRuntime(db, { saveOrdinalHighWater: async (sessionId, snapshot) => { saved.push(exact([sessionId, snapshot])); onSaved(); } });
   const messages = [msg('user', 'ping'), msg('assistant', 'pong'), msg('user', 'ping')];
   const steps = [];
   steps.push(await call(runtime, { sessionId: 's5', messages }));
