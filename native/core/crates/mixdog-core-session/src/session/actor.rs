@@ -927,10 +927,6 @@ impl SessionActor {
         surface: watch::Sender<Arc<SessionSurface>>,
         ch: ActorChannels,
     ) -> Self {
-        let mut state = state;
-        if let Some(strip) = deps.shell_strips.strip(&id) {
-            state.sections.shell_jobs = Some(strip);
-        }
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
         Self {
