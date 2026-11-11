@@ -159,7 +159,6 @@
         {
           "query": "cLaUdE코드",
           "literal": "claude코드",
-          "exactTermsIncludeLiteral": true,
           "exactTerms": [
             "claude코드"
           ],
@@ -173,21 +172,103 @@
               "claude코드"
             ]
           ],
-          "exactIds": [
-            1,
-            2,
-            3
-          ],
-          "allReturnedIds": [
-            1,
-            2,
-            3
+          "finalStatementHasOrderBy": false,
+          "returned": [
+            {
+              "id": "1",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "1000",
+              "ts": "1000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:1",
+              "source_turn": null,
+              "content": "어제 CLAUDE코드 설정을 바꿨다",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": 0.4,
+              "sparse_rank": "3",
+              "trg_sim": 1,
+              "trgm_rank": "3",
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 1.7320508075688774,
+              "exact_rank": "3"
+            },
+            {
+              "id": "2",
+              "element": "Claude코드 정리",
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "2000",
+              "ts": "2000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:2",
+              "source_turn": null,
+              "content": "무관한 본문",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": 2,
+              "sparse_rank": "1",
+              "trg_sim": 1,
+              "trgm_rank": "2",
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 1.7320508075688774,
+              "exact_rank": "2"
+            },
+            {
+              "id": "3",
+              "element": null,
+              "summary": "요약: claude코드 비교",
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "3000",
+              "ts": "3000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:3",
+              "source_turn": null,
+              "content": "무관한 본문",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": 0.8,
+              "sparse_rank": "2",
+              "trg_sim": 1,
+              "trgm_rank": "1",
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 1.7320508075688774,
+              "exact_rank": "1"
+            }
           ]
         },
         {
           "query": "Ärger",
           "literal": "ärger",
-          "exactTermsIncludeLiteral": true,
           "exactTerms": [
             "ärger"
           ],
@@ -201,18 +282,73 @@
               "ärger"
             ]
           ],
-          "exactIds": [
-            6
-          ],
-          "allReturnedIds": [
-            5,
-            6
+          "finalStatementHasOrderBy": false,
+          "returned": [
+            {
+              "id": "5",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "5000",
+              "ts": "5000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:5",
+              "source_turn": null,
+              "content": "DER ÄRGER WAR GROSS",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": null,
+              "sparse_rank": null,
+              "trg_sim": 1,
+              "trgm_rank": "1",
+              "exact_hits": null,
+              "exact_phrase_hits": null,
+              "exact_rarity": null,
+              "exact_rank": null
+            },
+            {
+              "id": "6",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "6000",
+              "ts": "6000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:6",
+              "source_turn": null,
+              "content": "der ärger war gross",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": 0.4,
+              "sparse_rank": "1",
+              "trg_sim": null,
+              "trgm_rank": null,
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 3,
+              "exact_rank": "1"
+            }
           ]
         },
         {
           "query": "nullterm",
           "literal": "nullterm",
-          "exactTermsIncludeLiteral": true,
           "exactTerms": [
             "nullterm"
           ],
@@ -226,17 +362,43 @@
               "nullterm"
             ]
           ],
-          "exactIds": [
-            9
-          ],
-          "allReturnedIds": [
-            9
+          "finalStatementHasOrderBy": false,
+          "returned": [
+            {
+              "id": "9",
+              "element": null,
+              "summary": "the nullterm lives in the summary",
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "9000",
+              "ts": "9000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:9",
+              "source_turn": null,
+              "content": "nothing here",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": 0.8,
+              "sparse_rank": "1",
+              "trg_sim": 1,
+              "trgm_rank": "1",
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 3,
+              "exact_rank": "1"
+            }
           ]
         },
         {
           "query": "my_var",
           "literal": "my_var",
-          "exactTermsIncludeLiteral": true,
           "exactTerms": [
             "my_var"
           ],
@@ -250,18 +412,73 @@
               "my_var"
             ]
           ],
-          "exactIds": [
-            10
-          ],
-          "allReturnedIds": [
-            10,
-            11
+          "finalStatementHasOrderBy": false,
+          "returned": [
+            {
+              "id": "10",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "10000",
+              "ts": "10000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:10",
+              "source_turn": null,
+              "content": "set my_var=1",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": 0.2,
+              "sparse_rank": "1",
+              "trg_sim": 1,
+              "trgm_rank": "2",
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 3,
+              "exact_rank": "1"
+            },
+            {
+              "id": "11",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "11000",
+              "ts": "11000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:11",
+              "source_turn": null,
+              "content": "set myXvar=1",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": null,
+              "sparse_rank": null,
+              "trg_sim": 1,
+              "trgm_rank": "1",
+              "exact_hits": null,
+              "exact_phrase_hits": null,
+              "exact_rarity": null,
+              "exact_rank": null
+            }
           ]
         },
         {
           "query": "a%b",
           "literal": "a%b",
-          "exactTermsIncludeLiteral": true,
           "exactTerms": [
             "a%b"
           ],
@@ -275,18 +492,73 @@
               "a%b"
             ]
           ],
-          "exactIds": [
-            12
-          ],
-          "allReturnedIds": [
-            12,
-            13
+          "finalStatementHasOrderBy": false,
+          "returned": [
+            {
+              "id": "12",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "12000",
+              "ts": "12000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:12",
+              "source_turn": null,
+              "content": "ratio a%b here",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": null,
+              "sparse_rank": null,
+              "trg_sim": 1,
+              "trgm_rank": "2",
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 3,
+              "exact_rank": "1"
+            },
+            {
+              "id": "13",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "13000",
+              "ts": "13000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:13",
+              "source_turn": null,
+              "content": "ratio aXYZb here",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": null,
+              "sparse_rank": null,
+              "trg_sim": 1,
+              "trgm_rank": "1",
+              "exact_hits": null,
+              "exact_phrase_hits": null,
+              "exact_rarity": null,
+              "exact_rank": null
+            }
           ]
         },
         {
           "query": "x\\y",
           "literal": "x\\y",
-          "exactTermsIncludeLiteral": true,
           "exactTerms": [
             "x\\y"
           ],
@@ -300,13 +572,98 @@
               "x\\y"
             ]
           ],
-          "exactIds": [
-            14
-          ],
-          "allReturnedIds": [
-            13,
-            14,
-            15
+          "finalStatementHasOrderBy": false,
+          "returned": [
+            {
+              "id": "13",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "13000",
+              "ts": "13000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:13",
+              "source_turn": null,
+              "content": "ratio aXYZb here",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": null,
+              "sparse_rank": null,
+              "trg_sim": 1,
+              "trgm_rank": "2",
+              "exact_hits": null,
+              "exact_phrase_hits": null,
+              "exact_rarity": null,
+              "exact_rank": null
+            },
+            {
+              "id": "14",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "14000",
+              "ts": "14000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:14",
+              "source_turn": null,
+              "content": "path x\\y here",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": null,
+              "sparse_rank": null,
+              "trg_sim": null,
+              "trgm_rank": null,
+              "exact_hits": 1,
+              "exact_phrase_hits": 0,
+              "exact_rarity": 3,
+              "exact_rank": "1"
+            },
+            {
+              "id": "15",
+              "element": null,
+              "summary": null,
+              "category": "fact",
+              "status": "active",
+              "score": 0.34033358,
+              "last_seen_at": "15000",
+              "ts": "15000",
+              "project_id": "p",
+              "session_id": "s",
+              "source_ref": "exact:15",
+              "source_turn": null,
+              "content": "path xy here",
+              "chunk_root": null,
+              "concept_id": null,
+              "supersedes_id": null,
+              "is_root": 1,
+              "role": "assistant",
+              "dense_sim": null,
+              "dense_rank": null,
+              "sparse_lex": null,
+              "sparse_rank": null,
+              "trg_sim": 1,
+              "trgm_rank": "1",
+              "exact_hits": null,
+              "exact_phrase_hits": null,
+              "exact_rarity": null,
+              "exact_rank": null
+            }
           ]
         }
       ]
