@@ -9,7 +9,8 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-mimo-oauth',
   entry: 'src/runtime/agent/orchestrator/providers/mimo-oauth.mjs MimoOAuthProvider({ preconnect: false }).listModels() and .send([], "mimo-v2.6-pro", [], {}) with MIMO_OAUTH_CREDENTIALS_PATH in the data directory (credential file written by the recorder). The stored base URL is https://mimo.invalid/v1; fetch is redirected to the scripted endpoint.',
-  replay: 'mixdog-ai providers::compat (listing.rs, creds.rs, login/mimo.rs): with the stored credential `input.credential`, the models request (url path, authorization, x-mimo-source) and the model ids; with none, the send error text.',
+  compare: 'mixdog-ai providers::compat (listing.rs, creds.rs, login/mimo.rs): with the stored credential `input.credential`, the models request (url path, authorization, x-mimo-source) and the model ids; with none, the send error text.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 process.env.MIMO_OAUTH_CREDENTIALS_PATH = join(rec.dataDir, 'mimo-oauth.json');
 const { MimoOAuthProvider } = await rec.P('agent/orchestrator/providers/mimo-oauth.mjs');
