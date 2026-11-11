@@ -85,7 +85,39 @@ if (dir) {
       });
     },
   };
-  const clock = { now: () => at, timers, scheduler: null, prewarms: new Set(), streams: new Set(), track, config };
+  // `contextRead(read)`: `syncContextStats`' read of the runtime's status (status-clock-hooks.mjs on context-state.mjs); `moveRead(run)`
+  // runs the one a route move makes (routes-write.mjs:142). Between an order with `statusReads.start` and one with `statusReads.take`
+  // each read a move makes is kept as the fields `syncContextDisplayFields` takes from it (context-state.mjs:116-136), and the first
+  // `fail` of them find no status (`null`, as a runtime without one answers). Other reads (a settings change's) are left alone.
+  const reads = { log: null, failing: 0, moving: false };
+  const moveRead = (run) => {
+    reads.moving = true;
+    try {
+      return run();
+    } finally {
+      reads.moving = false;
+    }
+  };
+  const contextRead = (read) => {
+    if (!reads.moving || !reads.log) return read();
+    if (reads.failing > 0) {
+      reads.failing -= 1;
+      reads.log.push(null);
+      return null;
+    }
+    const ctx = read();
+    const compaction = ctx?.compaction;
+    reads.log.push(
+      ctx
+        ? {
+            contextWindow: ctx.contextWindow ?? null,
+            compaction: { boundaryTokens: compaction?.boundaryTokens ?? null, triggerTokens: compaction?.triggerTokens ?? null, autoCompactTokenLimit: compaction?.autoCompactTokenLimit ?? null },
+          }
+        : null
+    );
+    return ctx;
+  };
+  const clock = { now: () => at, timers, scheduler: null, prewarms: new Set(), streams: new Set(), track, config, contextRead, moveRead };
   globalThis.__mixdogRecStatusClock = clock;  /** Until no tracked work is left: each round awaits what is pending, which may start more, then lets the event loop turn once - a
    *  store hands its change to subscribers on a later turn (the projection's publish timer starts there). */
   const drained = async () => {
@@ -137,6 +169,10 @@ if (dir) {
         // No scheduler yet: no session has registered a pass, so there is nothing to settle; the clock still moves.
         const recomputes = () => clock.scheduler?.counters().recomputes ?? 0;
         const before = recomputes();
+        if (request.statusReads?.start) {
+          reads.log = [];
+          reads.failing = request.statusReads.fail ?? 0;
+        }
         for (const step of request.steps) {
           if (step.markAll) clock.scheduler?.markAll();
           advance(step.ms);
@@ -145,6 +181,11 @@ if (dir) {
         // The order's marker, after everything its passes published: a client that has read it holds what the daemon does.
         for (const broadcast of clock.streams) broadcast({ type: MARKER, key: `${MARKER}:${handled}`, order: handled });
         reply = { pid: process.pid, at, passes: recomputes() - before, marker: handled };
+        if (request.statusReads?.take) {
+          Object.assign(reply, { statusReads: reads.log, unfailed: reads.failing });
+          reads.log = null;
+          reads.failing = 0;
+        }
       } catch (error) {
         reply = { pid: process.pid, error: error.message };
       }

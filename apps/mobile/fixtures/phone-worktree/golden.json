@@ -13107,6 +13107,499 @@
       "switchRoute": {
         "provider": "custom-fixture",
         "model": "fixture-wide"
+      },
+      "before": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-model",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": null,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "statusReads": [
+        {
+          "contextWindow": 128000,
+          "compaction": {
+            "boundaryTokens": 128000,
+            "triggerTokens": 128000,
+            "autoCompactTokenLimit": null
+          }
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-wide",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": 100,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-wide",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": 100,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 2,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
       }
     },
     {
@@ -13804,6 +14297,1000 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
+      }
+    },
+    {
+      "group": "session",
+      "switchRoute": {
+        "provider": "custom-fixture",
+        "model": "fixture-model"
+      },
+      "before": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-wide",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": 100,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 2,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "statusReads": [
+        {
+          "contextWindow": 128000,
+          "compaction": {
+            "boundaryTokens": 128000,
+            "triggerTokens": 128000,
+            "autoCompactTokenLimit": null
+          }
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-model",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": null,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 2,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-model",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": null,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      }
+    },
+    {
+      "group": "session",
+      "switchRoute": {
+        "provider": "custom-fixture",
+        "model": "fixture-wide"
+      },
+      "failStatus": true,
+      "before": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-model",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": null,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "statusReads": [
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-wide",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": 100,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "value": {
+          "value": {
+            "newTaskDefault": "branch",
+            "branchPrefix": "",
+            "sizeWarnBytes": 2147483648,
+            "autoCleanup": true,
+            "maxWorktrees": 15,
+            "unusedDays": 30,
+            "cleanupArchived": true,
+            "deleteBranch": false
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<runtime pid>",
+            "model": "fixture-wide",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": 100,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 4,
+              "at": "<time>"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
       }
     },
     {

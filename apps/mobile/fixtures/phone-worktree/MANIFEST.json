@@ -1,5 +1,5 @@
 {
-  "cases": 274,
+  "cases": 276,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the relay transport (encryption, admission) and the window process; the daemon runs without memory worker and MCP servers (MIXDOG_DAEMON_SKIP_MEMORY, MIXDOG_DISABLE_MCP), with the supervisor binary the real-turn harness cached",
@@ -28,9 +28,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 722375,
+      "bytes": 772665,
       "path": "golden.json",
-      "sha256": "f10a92064368c3136b40cee91ebdb7b13b673d2a77057706dbe33eb7d7f44893"
+      "sha256": "b15c3b48cb074fac1fc469cb07cded7df6a133fd08ffa76ebd724288e3709913"
     }
   ],
   "inputs": [
@@ -52,11 +52,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/status-clock-hooks.mjs",
-      "sha256": "41c83cefc78f08fa5598c8549fc599b3007aaf270a1bb35082d68667d700060a"
+      "sha256": "739366de328f86f7c4ea8d9ea06810c0a6eb3d740f07d9dc81b99d093761053a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/status-clock-preload.mjs",
-      "sha256": "0c4815cf93d97f5b207dc305933162b754d76181682f98612beb3b24ae91122e"
+      "sha256": "9ee7bd6d723e35f62bf16eec2be49517b413af60a8a708f19d8cb744042d2575"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -88,7 +88,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
-  "recorderSha256": "c60f2af4f3644a1d325f7fce060c93c11a49e26cd1eb4bb57e252d8ca04fe5bb",
+  "recorderSha256": "b37b23127f95167f89e26cc2875aec9618fefe1d2a1a8401226ea0c7aa154c0d",
+  "routeMoves": {
+    "compared": "by mixdog-core-session route_config_tests (the move's thread/header/patch with the route Node resolved, the status read answered as recorded, the failed one failing): the moved route and context fields equal `frame`, a fasterInCore field `settled` instead; the replay sends each move as input (route/set) and compares the cases after it",
+    "entries": "a session group entry with switchRoute: the desktop's setRoute of the session ({...switchRoute, applyToCurrentSession: true, keepMainModel: false}), with `before` (the session's read before it), `statusReads` (the status read of the move's own sync, routes-write.mjs:142, as the fields syncContextDisplayFields takes: context-state.mjs:116-142; a settings change's later sync is not the move's), `frame` (the read right after the move: no status pass ran, routes-write.mjs:133-142 published) and `settled` (the read after the next status-clock order)",
+    "fault": "failStatus: the move's own sync (routes-write.mjs:142) finds no status (null, as the runtime answers without one), injected by status-clock-hooks.mjs on context-state.mjs:140 and status-clock-preload.mjs `contextRead`; the recording fails if the move made no read to fail. A move of an idle session never moves its window (the session's window follows at its next turn: routes-write.mjs:168-175 deferUntilNextTurn), so the recorded moves keep it"
+  },
   "set": "phone-worktree",
   "settledStatus": {
     "core": "has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case",
@@ -109,5 +114,5 @@
   "syntheticInput": {
     "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
   },
-  "totalBytes": 722375
+  "totalBytes": 772665
 }
