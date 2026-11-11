@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 272152,
+      "bytes": 272122,
       "path": "golden.json",
-      "sha256": "dd71b5c49ce98797e1f8cbf55286de258130d40e9589f40d51616aa634d97fb9"
+      "sha256": "82bbcef908e6c9c514c1584d4af8025af0378d4c92abd346a9272089d76f1028"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-error-presentation-cases.mjs",
-  "recorderSha256": "6750dd58ae28511da4b155f64e4218a59483fcced9bb514701d386ad86d7ac70",
+  "recorderSha256": "b4eb697c752879b479ac1b7b4132405adb6dd52f5f4f8a986ffd4615f44ab77b",
   "replay": {
     "compare": "mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe",
     "entry": "Drive these public items on o1: mixdog-ai/src/service/error_text.rs:174 present_error_text; mixdog-ai/src/service/error_text.rs:346 safe_error_details; mixdog-ai/src/retry/classify.rs:142 kind_of (classifies Facts (status, code, scope) into an ErrorKind; `pub mod retry`, `pub mod classify`; the nearest to providerErrorKind, whose input is an error object).",
@@ -75,6 +75,11 @@
       "describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private",
       "anthropicQuotaError: mixdog-ai/src/providers/anthropic/errors.rs:103 `quota_error_text` is pub(super)"
     ],
+    "inputs": {
+      "clock": "the current time (new Date(), Date.now) is the fixed instant 1800000000000 = 2027-01-15T08:00:00.000Z for the whole run; a replay must give the code under test this instant",
+      "locale": "not read: no Intl or toLocale* on these paths; toDateString is locale-independent",
+      "timeZone": "UTC: the reset wording (\"09:00\", \"1/15 09:00\") is the local time of resetAt, and the month/day prefix appears when its local day differs from the current local day; a replay must run with this zone"
+    },
     "missingOnO1": [
       "providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds"
     ],
@@ -104,6 +109,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "error-presentation-cases",
-  "totalBytes": 272152,
+  "totalBytes": 272122,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

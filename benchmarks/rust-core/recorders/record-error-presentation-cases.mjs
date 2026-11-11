@@ -7,12 +7,16 @@
 // error objects, providerErrorKind and the persisted-descriptor describeError.
 //
 //   TZ=UTC node benchmarks/rust-core/recorders/record-error-presentation-cases.mjs --tree <export of b6f10295a with node_modules>
-// (the recorder sets TZ=UTC itself: the "resets at HH:MM" wording is local time; Date.now is the shared fixed clock)
+// The "resets at" wording reads the local time of the reset and compares its day with today's (new Date()): the recorder sets TZ=UTC itself and
+// puts Date (new Date(), Date.now) on node:test's mock clock at the shared fixed instant, so neither the machine's zone nor the real date reaches
+// the recording. No locale is read on these paths (no Intl, no toLocale*; toDateString is locale-independent).
 process.env.TZ = 'UTC';
+import { mock } from 'node:test';
 import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet, FIXED_NOW } from './lib/case-set.mjs';
 
 const set = openSet('error-presentation-cases', import.meta.url);
+mock.timers.enable({ apis: ['Date'], now: FIXED_NOW });
 const { describeError, safeErrorDetails } = await set.load('src/runtime/shared/error-presentation.mjs');
 const { anthropicQuotaError } = await set.load('src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs');
 const { presentErrorText } = await set.load('src/runtime/shared/err-text.mjs');
@@ -180,6 +184,6 @@ await set.run('a refused tool schema names the tool definition instead of a gene
 
 await set.finish({
   entry: { runs: 'describeError, safeErrorDetails (shared/error-presentation.mjs), presentErrorText (shared/err-text.mjs), providerErrorKind / DETERMINISTIC_KINDS (providers/provider-error-kind.mjs), anthropicQuotaError (anthropic-oauth-request/initial-status.mjs)', notRun: 'no provider is called: every input is a constructed error, descriptor or string' },
-  replay: { entry: 'mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe', normalised: { timeZone: 'recorded with TZ=UTC (the reset wording is local time); resetAt = the fixed clock + 1 h', secretShapedInput: 'sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)' } },
+  replay: { entry: 'mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe', inputs: { clock: 'the current time (new Date(), Date.now) is the fixed instant 1800000000000 = 2027-01-15T08:00:00.000Z for the whole run; a replay must give the code under test this instant', timeZone: 'UTC: the reset wording ("09:00", "1/15 09:00") is the local time of resetAt, and the month/day prefix appears when its local day differs from the current local day; a replay must run with this zone', locale: 'not read: no Intl or toLocale* on these paths; toDateString is locale-independent' }, normalised: { timeZone: 'recorded with TZ=UTC (the reset wording is local time); resetAt = the fixed clock + 1 h', secretShapedInput: 'sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)' } },
 });
 process.exit(0);

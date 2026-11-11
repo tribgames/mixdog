@@ -6,6 +6,9 @@
 // the test matched one, its message; the Windows-only read-only-index case records {skipped} elsewhere.
 //
 //   node benchmarks/rust-core/recorders/record-media-store-cases.mjs --tree <export of b6f10295a with node_modules>
+// The store files an asset under the LOCAL date of its createdAt, and the legacy case builds createdAt from a local time (as the Node test does):
+// the recorder sets TZ=UTC itself so the machine's zone never reaches the recording.
+process.env.TZ = 'UTC';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -184,7 +187,7 @@ await set.run('a boards file with a malformed list is recovered from its backup 
 
 await set.finish({
   entry: { runs: 'src/runtime/media/store.mjs (listMediaAssets, saveMediaAsset, resolveMediaFile, readMediaAsset, cacheMediaThumbnail, deleteMediaAsset(s), mediaOpenCommand, mediaStoreCacheStats, boards API) as a fresh module instance per case, over a temp data dir', notRun: 'native rendition generation (the stub bytes cannot render; generate:false or the miss is what is recorded)', scripted: scriptedUuids },
-  replay: { entry: 'mixdog-store media: write the case\'s start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock', normalised: { uuids: 'generated ids are scripted (a counter, as the entry says), recorded as they came', dataDir: '<data> wherever it occurs (paths listed in normalised.paths)' } },
+  replay: { entry: 'mixdog-store media: write the case\'s start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock', inputs: { timeZone: 'UTC: the date folder of an asset is the local date of its createdAt and the legacy case\'s createdAt is new Date(2026, 6, 5, 12, 0, 0) in local time; a replay must run with this zone', locale: 'not read on these paths' }, normalised: { uuids: 'generated ids are scripted (a counter, as the entry says), recorded as they came', dataDir: '<data> wherever it occurs (paths listed in normalised.paths)' } },
   replaceInText: roots.map((r) => [r, '<data>']),
   replaceRegex: [[/mixdog-tmp-[0-9a-f]{16}/g, 'mixdog-tmp-<random>']],
   normaliseReason: 'the temp data dir is written <data>; the store\'s temp file names index.json.mixdog-tmp-<16 random hex> are written mixdog-tmp-<random>',
