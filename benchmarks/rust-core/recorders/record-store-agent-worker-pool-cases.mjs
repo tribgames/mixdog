@@ -229,7 +229,7 @@ async function corruptCacheCases(root, reference) {
   }
   return { cache: maskFsStamps(valid), tamperedEntries: { [IDS[2]]: 'stamp[3] replaced by "1"', [IDS[3]]: 'stamp "garbage"', [IDS[5]]: 'header an array', [IDS[7]]: 'header plus unknownField', '../escape': 'a copy of another entry under a path-like id' }, results };
 }
-/** Stamp slots 4, 6 and 7 are the inode and the birth and change times (ns) the recording machine's file system gave: written "<fs>"; the other slots are set by the recording (explicit sizes and aged mtimes). */
+/** A cache stamp is, per file of the record (log, then json), ino, size, mtimeNs, ctimeNs (store-agent-worker-header-cache.mjs STAMP_FIELDS), so slots 4, 6 and 7 are the json file's inode, modification time (ns) and change time (ns) as the recording machine's file system gave them: written "<fs>"; the other slots are set by the recording (explicit sizes and aged mtimes). */
 function maskFsStamps(cache) {
   const copy = structuredClone(cache);
   for (const entry of Object.values(copy.sessions ?? {})) if (Array.isArray(entry?.stamp)) for (const slot of [4, 6, 7]) if (slot in entry.stamp) entry.stamp[slot] = '<fs>';
@@ -337,7 +337,7 @@ await set.run('listing a large index costs a bounded number of fs calls, whateve
 
 await set.finish({
   entry: {
-    maskedFsStamps: 'the cache record (and each damaged cache text written back, in the `corrupt` phase) holds sessions.*.stamp[4], [6], [7] (inode, birth time, change time of the recording machine) as "<fs>"; the rest of the cache is whole', runs: 'store-agent-worker-rows.mjs (listStoredAgentWorkers, listStoredAgentWorkersAsync, listStoredAgentWorkerLinks, storedAgentWorkerHeaderStats, flushStoredAgentWorkerHeaderCache) in a fresh module instance per cold reader / restarted daemon, over stores in a temp data dir', notRun: 'raw cache stamps are machine values and are not recorded' },
+    maskedFsStamps: 'the cache record (and each damaged cache text written back, in the `corrupt` phase) holds sessions.*.stamp[4], [6], [7] (the inode, mtimeNs and ctimeNs of the json file on the recording machine) as "<fs>"; the rest of the cache is whole', runs: 'store-agent-worker-rows.mjs (listStoredAgentWorkers, listStoredAgentWorkersAsync, listStoredAgentWorkerLinks, storedAgentWorkerHeaderStats, flushStoredAgentWorkerHeaderCache) in a fresh module instance per cold reader / restarted daemon, over stores in a temp data dir', notRun: 'raw cache stamps are machine values and are not recorded' },
   replay: { entry: 'mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count', normalised: { dataDir: 'temp, not in the recording' } },
   replaceInText: roots.map((r) => [r, '<data>']),
 });

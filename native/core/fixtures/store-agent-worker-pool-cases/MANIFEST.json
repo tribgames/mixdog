@@ -2,7 +2,7 @@
   "cases": 8,
   "command": "node benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
-    "maskedFsStamps": "the cache record (and each damaged cache text written back, in the `corrupt` phase) holds sessions.*.stamp[4], [6], [7] (inode, birth time, change time of the recording machine) as \"<fs>\"; the rest of the cache is whole",
+    "maskedFsStamps": "the cache record (and each damaged cache text written back, in the `corrupt` phase) holds sessions.*.stamp[4], [6], [7] (the inode, mtimeNs and ctimeNs of the json file on the recording machine) as \"<fs>\"; the rest of the cache is whole",
     "notRun": "raw cache stamps are machine values and are not recorded",
     "runs": "store-agent-worker-rows.mjs (listStoredAgentWorkers, listStoredAgentWorkersAsync, listStoredAgentWorkerLinks, storedAgentWorkerHeaderStats, flushStoredAgentWorkerHeaderCache) in a fresh module instance per cold reader / restarted daemon, over stores in a temp data dir"
   },
@@ -64,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs",
-  "recorderSha256": "2bb0cad635de5e45ee230bfca1240fdceacacaa4dca6f6b64370876047223abc",
+  "recorderSha256": "5dcca40186a86ad0b5aaf47790086f3e79f36a88634a25e35e49c88d432bbbf1",
   "replay": {
     "compare": "mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count",
     "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (new (pool_list.rs:619), list (pool_list.rs:624); re-exported by agents/mod.rs:50).",
