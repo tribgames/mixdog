@@ -4,7 +4,8 @@
 //        TTL timer is armed on a never-advanced clock: every `setTimeout` armed is recorded);
 //   82   `session.list` is the one catalog route and never rides session responses (`createSessionService().handleCall`);
 //   130  `session.read` with `messageStart` returns raw agent messages;
-//   156  call idempotency is isolated per client process (same callId, two clients: both run);
+//   156  call idempotency is isolated per client process (same callId, two clients: both run): the Node of the base commit
+//        AND the Node with the fix of `node-fix-call-id-once-per-session.patch` (a call id accepted once per session);
 //   243  submit ACKs queue intake and unsubscribe/disconnect never interrupt execution (HTTP + SSE, detachable runtime);
 //   299  session faults answer as call errors and non-serializable values are dropped;
 //   320  an addressed session never silently moves to another id (service log lines recorded);
@@ -20,24 +21,27 @@
 // NOT recorded (reasons in `notRecorded`): 48 (a Node daemon log line), 451 (the Node transport's call-cache entry counter).
 //
 //   node benchmarks/rust-core/recorders/record-session-transport-call-contract.mjs --tree <dir>
+import { rmSync } from 'node:fs';
 import { exact, exactArgs } from './lib/exact.mjs';
+import { buildPatchedTree } from './lib/patched-tree.mjs';
 import { DETERMINISM, FIXED_CWD, FIXED_PID, FIXED_PPID, Signal, installDeterminism, withLoggedDaemon } from './lib/session-wire-harness.mjs';
 import { outcomeExact, runSessionRecorder } from './lib/session-rec.mjs';
 
 installDeterminism();
+const PATCH_156 = 'benchmarks/rust-core/recorders/patches/node-fix-call-id-once-per-session.patch';
 
 await runSessionRecorder(import.meta.url, {
   set: 'session-transport-call-contract',
   testFile: 'scripts/session-transport/call-contract.test.mjs',
   entry: 'Ran src/tui/session/oauth-flows.mjs, src/standalone/session-service.mjs createSessionService().handleCall (scripted runtime factory / readStoredSession / listSessions / log), the real HTTP session transport + session-client attachSession and createSession (callId cache, client registry, remote runtime proxy) with the stub runtimes of scripts/session-transport/_shared.mjs, and src/standalone/session-proxy/transitions.mjs createTransitions. A TCP tap in front of the transport records every HTTP exchange (status line, headers in order, body). Did not run the log-summary and call-cache-metric cases (see notRecorded).',
-  replay: "Replayed at what a client sees by native/core/crates/mixdog-app-server/src/tests/session_transport.rs (the server over a real session thread): case 438 a_retried_start_with_the_same_op_runs_once (turn/start retried with the same opId and payload answers the first answer; the thread holds the prompt once), 507 a_reused_op_with_another_payload_fails_closed (another payload under the same opId is refused, opIdConflict, and changes nothing), 243 unsubscribing_never_interrupts_the_running_turn (thread/unsubscribe of a viewer leaves the turn to complete; the attached client sees the answer), 130 an_unknown_thread_is_refused_and_nothing_is_created (thread/read of an unknown id is refused; nothing loaded or written). Node's scripted runtime values (revision, full, reservedOnly, its call list, the HTTP exchange log) are not compared. Not replayed: 15 (the OAuth registry's status/complete/cancel answers are replayed from fixtures/login-status by mixdog-core-domains ai_account/tests.rs provider_sign_in_feeds_publish_the_statuses_node_answered; this case's flow starts with url null, which no core sign-in start produces: LoginState::Authorize carries a URL); 82 (no thread list rides a session answer: the core's thread/start, thread/read and thread/name/set answers are typed by mixdog-app-protocol with no list field, and thread/list is the one route); 299 (Node's session.read actions getProfile/getOutputStyle/getTheme have no core method; a core failure is a JSON-RPC error by construction and an answer is serde JSON, which holds no non-serializable value); 320 and 369 (a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed); 465 (the Node TUI's remote-runtime proxy: client code, Rust-side client work). Case 156 replayed as the_same_op_from_another_connection_is_answered_once — DIFFERS from Node by design: the core scopes op ids to the thread (mixdog-core-session session/ops.rs), so the same opId from a second connection is answered with the first answer and runs once; no real caller can produce that collision: every opId is random (packages/protocol-client/src/client.ts:804 uuidv7 from crypto.getRandomValues, used by desktop and phone; src/standalone/protocol-session/index.mjs:28 uuidv7; native/core run_host agent_home_deps.rs:82, directory_sessions.rs:63, tool_pool/session_port.rs Uuid::now_v7; agent_send_world.rs:373 Uuid::new_v4; app-server server.rs:775 steer ids scoped by connection), so a repeat is one client retrying after a reconnect.",
+  replay: "Replayed over the transport harness of native/core/crates/mixdog-app-server/src/tests/wire.rs: the server behind its real WebSocket listener on a loopback port, real client connections driven as the daemon drives them, over a real session thread. Every frame each client received is compared whole and in order (session_transport.rs whole); the only normalization is wire::normalized: ids the core generates become <id:N> in order of first appearance and clock readings (*At fields, clientHostPid) become <clock>/<pid>. The recorded HTTP exchanges (wire: start lines, headers, Content-Length) are Node's HTTP/SSE framing of each call; the core's client transport is one WebSocket carrying each JSON-RPC message as one text frame (mixdog-app-server-transport websocket.rs), so the frame bodies are compared and the HTTP framing has no counterpart. Cases: 438 a_retried_start_with_the_same_op_runs_once, 507 a_reused_op_with_another_payload_fails_closed, 243 unsubscribing_never_interrupts_the_running_turn, 130 an_unknown_thread_is_refused_and_nothing_is_created, 156 the_same_op_from_another_connection_is_answered_once (the --with-the-fix case: Node patched by node-fix-call-id-once-per-session.patch accepts a call id once per session and answers the retry from another client with the first answer; replayed as two connections sending the same op id; the base-commit case records the defect, two runs of one submission, and is not replayed). Not replayed: 15 (the OAuth registry's status/complete/cancel answers are replayed from fixtures/login-status by mixdog-core-domains ai_account/tests.rs provider_sign_in_feeds_publish_the_statuses_node_answered; this case's flow starts with url null, which no core sign-in start produces: LoginState::Authorize carries a URL); 82 (no thread list rides a session answer: the core's thread/start, thread/read and thread/name/set answers are typed by mixdog-app-protocol with no list field, and thread/list is the one route); 299 (Node's session.read actions getProfile/getOutputStyle/getTheme have no core method; a core failure is a JSON-RPC error by construction and an answer is serde JSON, which holds no non-serializable value); 320 and 369 (a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed); 465 (the Node TUI's remote-runtime proxy: client code, Rust-side client work).",
   values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: [
     'cases 48 and 451 are listed in notRecorded with their reasons',
     'wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine\'s roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads "<CWD> (JSON-escaped)"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised',
     ...DETERMINISM,
   ],
-}, async ({ imp }) => {
+}, async ({ imp, tree, importFrom }) => {
   const S = await imp('scripts/session-transport/_shared.mjs');
   const { createTransitions } = await imp('src/standalone/session-proxy/transitions.mjs');
   const cases = [];
@@ -107,10 +111,10 @@ await runSessionRecorder(import.meta.url, {
   }
 
   // test line 156
-  {
-    const result = await withLoggedDaemon(S, async ({ discovery, calls, wire }) => {
-      const first = await sessionClient(discovery, FIXED_PID);
-      const second = await sessionClient(discovery, FIXED_PPID);
+  const run156 = (S156) =>
+    withLoggedDaemon(S156, async ({ discovery, calls, wire }) => {
+      const first = await S156.attachSession({ discovery, cwd: FIXED_CWD, leadPid: FIXED_PID });
+      const second = await S156.attachSession({ discovery, cwd: FIXED_CWD, leadPid: FIXED_PPID });
       const created = await first.call('session.create', { cwd: FIXED_CWD });
       const { sessionId } = created;
       const args = { sessionId, prompt: 'same payload' };
@@ -123,7 +127,15 @@ await runSessionRecorder(import.meta.url, {
       await first.close('recorder end');
       return { steps, serviceCalls: calls, wire: await wire.exchanges() };
     });
-    add('call-idempotency-is-isolated-per-client-process', 156, { clients: [{ leadPid: FIXED_PID }, { leadPid: FIXED_PPID }], callId: 'same-process-local-id', ...setup }, result);
+  const input156 = { clients: [{ leadPid: FIXED_PID }, { leadPid: FIXED_PPID }], callId: 'same-process-local-id', ...setup };
+  add('call-idempotency-is-isolated-per-client-process', 156, { ...input156, node: 'base commit b6f10295a' }, await run156(S));
+  {
+    // The daemon's session transport from the patched copy; the rest of the harness (service, clients) is the base tree's.
+    const patched = buildPatchedTree(tree, PATCH_156);
+    try {
+      const { createSessionTransport } = await importFrom(patched, 'src/standalone/session-transport.mjs');
+      add('call-idempotency-is-isolated-per-client-process--with-the-fix', 156, { ...input156, node: 'base commit b6f10295a with node-fix-call-id-once-per-session.patch applied' }, await run156({ ...S, createSessionTransport }));
+    } finally { rmSync(patched, { recursive: true, force: true }); }
   }
 
   // test line 243
