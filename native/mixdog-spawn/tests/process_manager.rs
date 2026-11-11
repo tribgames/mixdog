@@ -632,6 +632,23 @@ async fn refusing_the_input_ends_a_waiting_write() {
     let _ = collect(&m, &h).await;
 }
 
+/// A whole write resolves only once the process has its bytes, not once they are queued: to a process that reads nothing, it
+/// is still waiting with every byte inside the queue, and when the process is ended before reading them it fails, so a
+/// caller never takes a part of its input for the whole.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_whole_write_is_done_when_the_process_has_it_and_fails_when_it_never_does() {
+    let m = manager();
+    let h = handle("whole-unread");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, long_sleep()) }).await.unwrap();
+    // Well inside the 1 MiB queue, far more than the pipe holds.
+    let mut write = Box::pin(m.write_input_whole(&h, vec![b'x'; 512 * 1024]));
+    assert!(poll_once(&mut write).await.is_pending(), "queued is not written");
+    m.kill(&h).unwrap();
+    let ended = tokio::time::timeout(WAIT, write).await.expect("the write ends with the process");
+    assert!(ended.is_err(), "an unread write fails: {ended:?}");
+    let _ = collect(&m, &h).await;
+}
+
 async fn poll_once<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {
     std::future::poll_fn(|cx| std::task::Poll::Ready(std::pin::Pin::new(&mut *future).poll(cx))).await
 }

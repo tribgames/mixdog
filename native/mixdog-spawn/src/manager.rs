@@ -168,6 +168,9 @@ struct InputQueue {
     cap: usize,
     /// Held by a write for all of its pieces (see `write_input_wait`); fair, so waiting writers go in arrival order.
     writer: Arc<tokio::sync::Mutex<()>>,
+    /// Raised when the writer thread has written a chunk to the process, or stopped writing, for
+    /// [`LocalProcessManager::write_input_whole`].
+    written: tokio::sync::Notify,
 }
 
 /// `bytes` in pieces of at most `cap` bytes, each ending at a UTF-8 character boundary (a piece is cut inside a character only when
@@ -200,6 +203,12 @@ struct InputState {
     dead: bool,
     /// No more writes are taken (a disposed terminal); the input stays open.
     refused: bool,
+    /// Bytes ever queued, and ever written to the process: a write is in the process's input once
+    /// `written` reaches the `queued` it left.
+    queued: u64,
+    written: u64,
+    /// The writer thread's write failed (its OS error code, when it had one): nothing more is written.
+    failed: Option<Option<i32>>,
 }
 
 impl InputQueue {
@@ -211,11 +220,15 @@ impl InputQueue {
                 closing: false,
                 dead: false,
                 refused: false,
+                queued: 0,
+                written: 0,
+                failed: None,
             }),
             ready: Condvar::new(),
             room: tokio::sync::Notify::new(),
             cap,
             writer: Arc::new(tokio::sync::Mutex::new(())),
+            written: tokio::sync::Notify::new(),
         })
     }
 
@@ -234,6 +247,7 @@ impl InputQueue {
             });
         }
         state.bytes += bytes.len();
+        state.queued += bytes.len() as u64;
         state.chunks.push_back(bytes);
         drop(state);
         self.ready.notify_one();
@@ -268,6 +282,30 @@ impl InputQueue {
         drop(state);
         self.ready.notify_one();
         self.room.notify_waiters();
+        self.written.notify_waiters();
+    }
+
+    /// Resolves once every byte queued up to `mark` is written to the process; fails when the writer stopped before that
+    /// (its write failed, or the process is gone).
+    async fn written_to(&self, mark: u64) -> Result<(), ProcessError> {
+        loop {
+            let mut written = std::pin::pin!(self.written.notified());
+            // Registered before the state is read, so a write finished in between is not missed.
+            written.as_mut().enable();
+            {
+                let state = self.lock();
+                if state.written >= mark {
+                    return Ok(());
+                }
+                if let Some(os_code) = state.failed {
+                    return Err(ProcessError::Io { os_code });
+                }
+                if state.dead {
+                    return Err(ProcessError::StdinClosed);
+                }
+            }
+            written.await;
+        }
     }
 
     fn run(&self, mut sink: Box<dyn Write + Send>) {
@@ -289,10 +327,13 @@ impl InputQueue {
                     state = self.ready.wait(state).unwrap_or_else(|e| e.into_inner());
                 }
             };
-            if sink.write_all(&chunk).and_then(|()| sink.flush()).is_err() {
+            if let Err(error) = sink.write_all(&chunk).and_then(|()| sink.flush()) {
+                self.lock().failed = Some(error.raw_os_error());
                 self.shutdown();
                 return;
             }
+            self.lock().written += chunk.len() as u64;
+            self.written.notify_waiters();
         }
     }
 }
@@ -1113,26 +1154,43 @@ impl LocalProcessManager {
     /// write is the process's own (a task holding it to the last piece), so a caller dropped after that (its connection closed, the call
     /// cancelled) never cuts it in half. Closing the input (`close_stdin`, as a disposal does) ends a write waiting for room.
     pub async fn write_input_wait(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        self.queue_input_whole(handle, bytes).await.map(|_| ())
+    }
+
+    /// [`Self::write_input_wait`], resolved once the writer thread has written every byte of it to the process: an error
+    /// when it could not (the write failed, or the process is gone or its input closed first), so a caller never mistakes
+    /// a part of `bytes` for all of it.
+    pub async fn write_input_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        let (input, mark) = self.queue_input_whole(handle, bytes).await?;
+        input.written_to(mark).await
+    }
+
+    /// Queues the whole of `bytes` (see [`Self::write_input_wait`]); the queue and the byte count queued up to its last
+    /// piece.
+    async fn queue_input_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(Arc<InputQueue>, u64), ProcessError> {
         let proc = self.inner.lookup(handle)?;
         let input = Arc::clone(proc.input.as_ref().ok_or(ProcessError::StdinClosed)?);
         let writing = Arc::clone(&input.writer).lock_owned().await;
+        let queue = Arc::clone(&input);
         let write = mixdog_rt::spawn("process-input", mixdog_rt::TaskClass::Work, async move {
             let _writing = writing;
-            for piece in pieces(&bytes, input.cap.max(1)) {
+            for piece in pieces(&bytes, queue.cap.max(1)) {
                 loop {
-                    let mut room = std::pin::pin!(input.room.notified());
+                    let mut room = std::pin::pin!(queue.room.notified());
                     // Registered before the push is tried, so room made in between is not missed.
                     room.as_mut().enable();
-                    match input.push(piece.to_vec()) {
+                    match queue.push(piece.to_vec()) {
                         Err(ProcessError::Overloaded { queue: ProcessQueue::Input }) => room.await,
                         Err(other) => return Err(other),
                         Ok(()) => break,
                     }
                 }
             }
-            Ok(())
+            // Read while the write side is still held: no other write has queued after this one.
+            Ok(queue.lock().queued)
         });
-        write.await.unwrap_or(Err(ProcessError::StdinClosed))
+        let mark = write.await.unwrap_or(Err(ProcessError::StdinClosed))?;
+        Ok((input, mark))
     }
 
     /// Resolves with the output bytes pushed once the process's reader is parked at its feed's gate: held back by a consumer that trails by
@@ -1246,7 +1304,7 @@ impl ProcessManager for LocalProcessManager {
     }
 
     async fn write_stdin_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
-        self.write_input_wait(handle, bytes).await
+        self.write_input_whole(handle, bytes).await
     }
 
     fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {

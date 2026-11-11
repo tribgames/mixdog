@@ -328,6 +328,19 @@ fn spawn_failure(error: ProcessError) -> ToolError {
     failed(code, format!("Error: [shell-tool-failed] [spawn failed]\n\n{detail}"))
 }
 
+/// The command could not be handed to the shell whole, so it was ended unrun. Node discards the helper's write result
+/// (`stdinWrite`, `let _ = write_all`) and a pipe that broke part way would run what arrived; here the call fails instead.
+fn input_failure(error: ProcessError) -> ToolError {
+    let code = match error {
+        ProcessError::Io { os_code } => ToolErrorCode::Io { os_code },
+        other => ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("{other:?}") },
+    };
+    failed(
+        code,
+        "Error: [shell-tool-failed] [stdin write failed]\n\nthe command could not be passed whole to the shell, so it was not run".to_owned(),
+    )
+}
+
 /// `_exitClassDiagnostic`.
 fn exit_class_diagnostic(code: i32) -> String {
     if code == 126 {
@@ -845,10 +858,30 @@ impl ShellTool {
                 script.insert_str(0, &hand_off);
             }
             // The whole script, of any size, then end of input: the bootstrap reads to the end before it compiles
-            // (Node hands the helper the whole string in one `stdinWrite`). A process that is already gone has
-            // nothing to read; its exit is reported as it is.
-            let _ = ctx.processes.write_stdin_whole(&job.handle, script.into_bytes()).await;
-            let _ = ctx.processes.close_stdin(&job.handle);
+            // (Node hands the helper the whole string in one `stdinWrite`). The input is closed only once all of it was
+            // written: a write that failed or stopped short ends the tree with its input still open, so the bootstrap
+            // never reaches the end of a part of the script and runs nothing. A cancel during the write leaves the input
+            // open too; the cancel below ends the tree.
+            let written = tokio::select! {
+                written = ctx.processes.write_stdin_whole(&job.handle, script.into_bytes()) => Some(written),
+                () = ctx.cancel.cancelled() => None,
+            };
+            match written {
+                Some(Ok(())) => {
+                    let _ = ctx.processes.close_stdin(&job.handle);
+                }
+                Some(Err(error)) => {
+                    // A kill of a process that already exited is not an error.
+                    let _ = ctx.processes.kill(&job.handle);
+                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
+                    if let Some(path) = &hoist_path {
+                        spill::remove_file(runtime.config.lanes.maintenance, &ctx.cancel, path).await;
+                    }
+                    return Err(input_failure(error));
+                }
+                None => {}
+            }
         }
         ctx.progress.progress(ToolProgress::ProcessStarted(job.handle.clone()));
         // The hoisted file goes when the command has settled (a promoted or killed tree may still

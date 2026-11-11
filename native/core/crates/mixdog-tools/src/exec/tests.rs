@@ -39,6 +39,11 @@ struct FakeProcesses {
     quiet: std::sync::atomic::AtomicBool,
     /// A kill that cannot be sent (the process manager refuses it).
     refuse_kill: std::sync::atomic::AtomicBool,
+    /// A write to a process's input that fails (its pipe broke).
+    refuse_write: std::sync::atomic::AtomicBool,
+    /// Every handle whose input was closed, and every handle killed, in order.
+    closed: Mutex<Vec<ProcessHandle>>,
+    killed: Mutex<Vec<ProcessHandle>>,
 }
 
 struct ChanSource(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -83,6 +88,9 @@ impl ProcessManager for FakeProcesses {
     }
 
     async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        if self.refuse_write.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(ProcessError::Io { os_code: Some(232) });
+        }
         let script = String::from_utf8(bytes).unwrap();
         self.fed.lock().unwrap().push(script.clone());
         let mut senders = self.senders.lock().unwrap();
@@ -91,7 +99,8 @@ impl ProcessManager for FakeProcesses {
         self.act(&script, handle, &tx, seq);
         Ok(())
     }
-    fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
+    fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.closed.lock().unwrap().push(handle.clone());
         Ok(())
     }
     fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
@@ -101,6 +110,7 @@ impl ProcessManager for FakeProcesses {
         if self.refuse_kill.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(ProcessError::UnknownHandle);
         }
+        self.killed.lock().unwrap().push(handle.clone());
         let mut senders = self.senders.lock().unwrap();
         let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         let reason = if self.limited.lock().unwrap().contains(handle) { KillReason::TimeLimit } else { KillReason::Requested };
@@ -1227,6 +1237,22 @@ fn windows_powershell_rig() -> (Rig, ShellTool) {
     config.skill_runtime = Some(skill_runtime());
     let shell = ShellTool::new(ExecRuntime::new(config));
     (rig, shell)
+}
+
+/// A script whose write to PowerShell's input fails is never run in part: its input is left open (the bootstrap reads
+/// to the end before it compiles, so it runs nothing), the tree is ended, and the call fails.
+#[tokio::test]
+async fn a_script_that_could_not_be_written_whole_is_ended_unrun_and_the_call_fails() {
+    let (rig, shell) = windows_powershell_rig();
+    rig.processes.refuse_write.store(true, std::sync::atomic::Ordering::SeqCst);
+    let error = shell.call(&ctx(&rig, "w1"), serde_json::json!({"command": "echo hi"})).await.unwrap_err();
+    assert_eq!(
+        error.message_for_model,
+        "Error: [shell-tool-failed] [stdin write failed]\n\nthe command could not be passed whole to the shell, so it was not run"
+    );
+    let handle = ProcessHandle::from("task-w1");
+    assert!(rig.processes.closed.lock().unwrap().is_empty(), "the input of a part-written script is never closed");
+    assert_eq!(*rig.processes.killed.lock().unwrap(), [handle]);
 }
 
 #[tokio::test]

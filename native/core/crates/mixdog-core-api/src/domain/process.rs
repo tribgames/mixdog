@@ -203,8 +203,9 @@ pub trait ProcessManager: Send + Sync {
     async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>)
     -> Result<(), ProcessError>;
     /// Writes the whole of `bytes`, of any size, waiting for room as the process reads (Node's `stdinWrite`, which hands
-    /// the helper the whole string): never a part of it. A manager without a bounded input queue writes as
-    /// [`write_stdin`](Self::write_stdin).
+    /// the helper the whole string): never a part of it. Resolves once every byte is in the process's input; an error
+    /// when that could not happen (a failed write, a process gone first), after which the caller must not close the input
+    /// as if the whole had arrived. A manager without a bounded input queue writes as [`write_stdin`](Self::write_stdin).
     async fn write_stdin_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         self.write_stdin(handle, bytes).await
     }
