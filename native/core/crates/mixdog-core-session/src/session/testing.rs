@@ -119,6 +119,8 @@ pub struct TestCompaction {
     pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     /// How many listings have read `offloads` (every prune's, an open's reconcile included).
     pub listings: tokio::sync::watch::Sender<usize>,
+    /// How many listings have answered their candidates (past the gate).
+    pub listed: tokio::sync::watch::Sender<usize>,
     /// A compaction that commits its result as the host's does (`HostManualCompaction::compact` commits through the
     /// directory): `compact` answers what it answers instead of `result`.
     pub commits: Mutex<Option<CommitWith>>,
@@ -168,8 +170,12 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
             arrived.notify_one();
             release.notified().await;
         }
-        let Some((data, _)) = offloads else { return Vec::new() };
-        offload_store(&data, thread).prune_candidates().await
+        let candidates = match offloads {
+            Some((data, _)) => offload_store(&data, thread).prune_candidates().await,
+            None => Vec::new(),
+        };
+        self.listed.send_modify(|count| *count += 1);
+        candidates
     }
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
         let offloads = lock(&self.offloads).clone();
