@@ -950,6 +950,14 @@ impl ThreadStore for StoreThreads {
         })
     }
 
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        let (index, child) = (self.index.clone(), child.as_str().to_owned());
+        Box::pin(async move {
+            let parents = index.archived_agent_parents(&child).await.map_err(|e| internal("archived agent", &e))?;
+            Ok(parents.into_iter().map(ThreadId::from).collect())
+        })
+    }
+
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
         Box::pin(async move {

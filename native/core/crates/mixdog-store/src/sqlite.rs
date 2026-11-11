@@ -340,7 +340,8 @@ const PURGEABLE_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
     AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id) LIMIT 1";
 
 /// The tables holding a session's rows, with their keys: a purge step deletes by key.
-const PURGE_TABLES: [(&str, &str); 14] = [
+const PURGE_TABLES: [(&str, &str); 15] = [
+    ("archived_agents", "session, child"),
     ("history", "session, ordinal"),
     ("model_switches", "session, ordinal"),
     ("amends", "session, ordinal"),
@@ -463,6 +464,10 @@ fn upsert_edge(
         None
     };
     write_row(tx, &row, dirty, labels)?;
+    tx.prepare_cached("DELETE FROM archived_agents WHERE session = ?1")?.execute([&head.session])?;
+    for child in crate::archived_agent::children(&head.header) {
+        tx.prepare_cached("INSERT INTO archived_agents (session, child) VALUES (?1, ?2)")?.execute([&head.session, &child])?;
+    }
     let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted, user_name: row.user_name.clone() };
     let edge = (watch && before.as_ref() != Some(&after)).then(|| RowEdge { id: row.id.clone(), before, after });
     Ok((row.summary.len(), edge))
@@ -1740,6 +1745,20 @@ impl SqliteStore {
                 .query_row([&session], |r| r.get(0))
                 .optional()?
                 .flatten())
+        })
+        .await
+    }
+
+    /// The sessions not deleted whose header carries `child`'s archived result (`archived_agents`).
+    pub async fn archived_agent_parents(&self, child: &str) -> Result<Vec<String>, DbError> {
+        let child = child.to_owned();
+        self.read(move |c| {
+            let mut stmt = c.prepare_cached(
+                "SELECT a.session FROM archived_agents a JOIN sessions s ON s.id = a.session
+                 WHERE a.child = ?1 AND s.deleted = 0 AND s.log_id <> '' ORDER BY a.session",
+            )?;
+            let rows = stmt.query_map([&child], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
         })
         .await
     }
