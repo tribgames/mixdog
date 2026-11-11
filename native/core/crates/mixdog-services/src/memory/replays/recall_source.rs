@@ -8,11 +8,6 @@
 //!   holding the recorded rows (module `pg`), the returned text compared whole. Node's `searches` / `statements` are the
 //!   log of the test file's scripted database (it answers by SQL text), which the core's real database has no
 //!   counterpart of; the text is what a client reads.
-//!
-//! Case 1 (test line 79) is not replayed: its second search (`{sessionId, includeMembers}`) records the root before the
-//! newer raw row, while the statement it records orders `ts DESC` (raw 1748735998002 > root 1748735998000); the test
-//! file's stand-in answers `WHERE session_id = $1` in its own order. A database answering that statement puts the raw
-//! row first, as the core does. Reported for a decision on the recording.
 
 use mixdog_testkit::Exact;
 
@@ -122,6 +117,11 @@ mod pg {
     #[tokio::test(flavor = "multi_thread")]
     async fn id_recall_preserves_original_root_member_and_raw_bodies_without_duplicating_named_members() {
         searches(0, "ID recall preserves original root, member and RAW bodies without duplicating named members (test line 72)").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn explicit_member_search_and_session_expansion_keep_code_urls_and_tables() {
+        searches(1, "explicit member search and session expansion keep code, URLs and tables (test line 79)").await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
