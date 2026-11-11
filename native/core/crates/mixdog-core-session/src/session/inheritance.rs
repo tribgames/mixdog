@@ -181,7 +181,9 @@ impl SessionDirectory {
         }
         let held = handle.cell.header.load();
         // The summary of the header as acked (the view's own, `view()`): the patch's reply is sent before its view is published,
-        // so the view held now still shows the heir before it named its source.
+        // so the view held now still shows the heir before it named its source. Node answers `sourceSessionId: source.id` and the heir's
+        // route (`lifecycle/inheritance.mjs:234-239`); the answer's `thread.forkedFromId` is that source. Pinned by the replay
+        // `a_successful_inheritance_restores_its_boundary_as_node_recorded` (`inheritFromResult`, session_host_replay_tests.rs).
         Ok(Reply::Value(json!({
             "thread": self.deps().transcript.summary(heir, &held),
             "messages": count,

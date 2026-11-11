@@ -358,8 +358,14 @@ mod tests {
     }
 
     async fn service(dir: &std::path::Path, sight: Arc<dyn WorkspaceSight>) -> (ShellJobsService, Arc<TaskRegistry>, Arc<Folders>) {
+        service_at(dir, sight, Arc::new(std::sync::atomic::AtomicU64::new(1_767_323_045_678))).await
+    }
+
+    /// [`service`] on a clock the test moves.
+    async fn service_at(dir: &std::path::Path, sight: Arc<dyn WorkspaceSight>, now: Arc<std::sync::atomic::AtomicU64>) -> (ShellJobsService, Arc<TaskRegistry>, Arc<Folders>) {
         let tokens = mixdog_rt::testing::tokens();
-        let tasks = Arc::new(TaskRegistry::new(Arc::new(NoPublisher), || 1_767_323_045_678));
+        let clock = now.clone();
+        let tasks = Arc::new(TaskRegistry::new(Arc::new(NoPublisher), move || clock.load(std::sync::atomic::Ordering::SeqCst)));
         let runtime = ExecRuntime::new(ExecConfig {
             tasks: tasks.clone(),
             lanes: IoLanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
@@ -377,7 +383,7 @@ mod tests {
             script_syntax: Arc::new(TopLevel),
             windows: false,
             powershell: false,
-            now_ms: Arc::new(|| 1_767_323_045_678),
+            now_ms: Arc::new(move || now.load(std::sync::atomic::Ordering::SeqCst)),
         });
         let processes = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
         let shells = Arc::new(ShellControl::new(runtime, processes));
@@ -407,6 +413,36 @@ mod tests {
 
     fn call(method: &'static str, params: Value, op: u64) -> CoreRequest {
         request(method, with_op(params, op), Some(op))
+    }
+
+    /// The strip a session loads with (`ShellStrips`, read by `SessionActor::new`): Node's host shows the poller's last scan of the runtime
+    /// (`statusline-segments.mjs:240-253`), which keeps a running job and a finished one until it is older than its retention
+    /// (`finishedMs < now - FINISHED_SHELL_JOB_TTL_MS` drops it, so a row exactly the retention old stays), whether it ended while the
+    /// session was shown or while it was closed. The core builds the strip when the session loads, so a job that ended while the session was
+    /// closed is on it while within the retention and gone after it, with no timer of the session's own.
+    #[tokio::test]
+    async fn a_strip_at_load_keeps_a_finished_job_within_its_retention_and_drops_it_after() {
+        use mixdog_spawn::tasks::FINISHED_RETENTION_MS;
+        use mixdog_spawn::tasks::TaskOutcome;
+        use mixdog_spawn::tasks::TaskStatus;
+        let dir = tempfile::tempdir().unwrap();
+        let ended_at = 1_767_323_045_678;
+        let now = Arc::new(std::sync::atomic::AtomicU64::new(ended_at));
+        let (service, tasks, _) = service_at(dir.path(), Arc::new(Sees(Vec::new())), now.clone()).await;
+        let thread = ThreadId::from("closed-session");
+        start(&tasks, "ended", "shell", Some("closed-session"), "build", "/w", false);
+        start(&tasks, "running", "shell", Some("closed-session"), "serve", "/w", false);
+        tasks.finish("ended", TaskOutcome { status: TaskStatus::Completed, exit_code: Some(0) }).unwrap();
+        let ids = |strip: &Value, key: &str| strip[key].as_array().unwrap().iter().map(|row| row["taskId"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        let at = |ms: u64| {
+            now.store(ended_at + ms, std::sync::atomic::Ordering::SeqCst);
+            service.shells.strip(&thread).expect("a shell runtime")
+        };
+        let within = at(FINISHED_RETENTION_MS);
+        assert_eq!((ids(&within, "jobs"), ids(&within, "finished"), within["count"].clone()), (vec!["running".to_owned()], vec!["ended".to_owned()], json!(1)), "a finished job exactly the retention old is still shown");
+        let after = at(FINISHED_RETENTION_MS + 1);
+        assert_eq!((ids(&after, "jobs"), ids(&after, "finished")), (vec!["running".to_owned()], Vec::<String>::new()), "past the retention the finished job leaves the strip, the running one stays");
+        assert_eq!(after["finished"], json!([]), "an empty list, as Node's empty bucket");
     }
 
     /// Node's recording of the shell-job actions (`record-shell-job-actions.mjs`).
