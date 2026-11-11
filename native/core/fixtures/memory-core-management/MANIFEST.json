@@ -1,0 +1,58 @@
+{
+  "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-management.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL (SQLite stand-in of the test file); the TUI parser parseMemoryCoreRows (deleted TUI)",
+    "runs": "listManagedMemories and formatManagedMemories (core-memory-management.mjs); createMemoryActionHandlers(...).handleMemoryAction({action:\"core\", op:\"list\"}) (memory-action-handlers.mjs) over real .mixdog/project.id directories"
+  },
+  "exclusions": "parseMemoryCoreRows is not recorded (the formatted text it parsed is)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 28085,
+      "path": "golden.json",
+      "sha256": "60102b1113d4af95165596f1e2a64fda020e019cbcfcc5cce16739cfb156ba0c"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "temp project root": "every occurrence (plain, JSON-escaped, forward slashes) written as <root>; the replay creates its own folders with the stated project ids"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-core-management.mjs",
+  "recorderSha256": "c221a8bb6731f4315ecb011fbd023d1ff3739722a96f7bfb8c96d79bceb61c92",
+  "replay": "mixdog-services memory: mem/core/list.rs list + format and mem/core/action.rs list with project_paths (project id from each path's .mixdog/project.id), over the same four rows; compares entries, nextOffset, projectScopes, formatted text, error text, the pg_advisory_xact_lock count per call (indexReads) and the ordered statements",
+  "set": "memory-core-management",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 28085,
+  "uuidsNormalised": "golden.json: 3 random UUIDs, each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)"
+}
