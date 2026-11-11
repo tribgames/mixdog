@@ -100,6 +100,8 @@ pub struct Row {
     pub historical_root_element: Option<String>,
     pub historical_root_summary: Option<String>,
     pub compact_body: bool,
+    /// The member ids a compact body stands for (`_compactMemberIds`), as strings.
+    pub compact_member_ids: Option<Vec<String>>,
     pub compact_raw: bool,
     /// A curated core-memory row: `id` is the negated core id, shown as `core:N`.
     pub core: bool,
