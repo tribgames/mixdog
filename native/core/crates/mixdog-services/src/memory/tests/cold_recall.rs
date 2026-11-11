@@ -144,3 +144,63 @@ async fn a_recall_stopped_during_the_cold_wait_ends_at_once_and_the_load_goes_on
     assert!(outcome.cancelled, "the stopped recall is the caller's cancellation, not a reply: {}", outcome.text);
     assert_eq!(release.receiver_count(), 2, "the load goes on after the recall stopped waiting for it");
 }
+
+/// An embedder whose embed is held by the test: it says it started, waits for the release, then says it finished.
+struct HeldEmbed {
+    ready: bool,
+    started: Arc<tokio::sync::Notify>,
+    finished: Arc<tokio::sync::Notify>,
+    release: tokio::sync::watch::Receiver<bool>,
+}
+
+#[async_trait::async_trait]
+impl crate::memory::recall::readiness::ColdEmbed for HeldEmbed {
+    type Error = String;
+    fn is_ready(&self) -> bool {
+        self.ready
+    }
+    fn can_warmup(&self) -> bool {
+        true
+    }
+    fn warmup(&self) -> futures::future::BoxFuture<'static, Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+    async fn embed(&self, _: &str, _: crate::memory::recall::readiness::EmbedRequest) -> Result<Vec<f32>, String> {
+        self.started.notify_one();
+        let _ = self.release.clone().wait_for(|released| *released).await;
+        self.finished.notify_one();
+        Ok(vec![1.0])
+    }
+    fn on_warmup_error(&self, _: &String) {}
+}
+
+/// A recall stopped while its query is embedded is released at once with the request's cancellation (`rpc.mjs:74-78`), and the
+/// embedding is not dropped with the caller's future: it runs on, held here, and finishes on its own.
+async fn a_stopped_embedding_releases_the_caller_and_runs_on(ready: bool) {
+    mixdog_rt::testing::tokens();
+    let (started, finished) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let (release, held) = tokio::sync::watch::channel(false);
+    let embedder = Arc::new(HeldEmbed { ready, started: started.clone(), finished: finished.clone(), release: held });
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let (asking, token) = (embedder.clone(), cancel.clone());
+    let caller = tokio::spawn(async move {
+        crate::memory::recall::readiness::embed_recall_query(&asking, Some("staging"), Duration::from_secs(3), &token, || "aborted".to_owned()).await
+    });
+    awaiting("the embedding to start", started.notified()).await;
+    cancel.cancel();
+    let outcome = awaiting("the stopped caller, while its embedding is still held", caller).await.expect("the caller");
+    assert_eq!(outcome, Err("aborted".to_owned()), "the stopped caller is refused at once");
+    release.send(true).expect("the embedding is held");
+    awaiting("the embedding to finish on its own after its caller left", finished.notified()).await;
+}
+
+#[tokio::test]
+async fn a_recall_stopped_during_a_warm_embedding_ends_at_once_and_the_embedding_goes_on() {
+    a_stopped_embedding_releases_the_caller_and_runs_on(true).await;
+}
+
+#[tokio::test]
+async fn a_recall_stopped_during_the_embedding_after_a_cold_load_ends_at_once_and_it_goes_on() {
+    tokio::time::pause();
+    a_stopped_embedding_releases_the_caller_and_runs_on(false).await;
+}
