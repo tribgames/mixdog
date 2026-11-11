@@ -759,7 +759,7 @@ mod tests {
     #[test]
     fn equals_v8_bit_for_bit() {
         let cases: Vec<serde_json::Value> =
-            serde_json::from_str(include_str!("../testdata/math_v8.json")).expect("golden");
+            serde_json::from_str(mixdog_testkit::fixture!("testdata/math_v8.json")).expect("golden");
         assert!(cases.len() > 3000);
         for case in &cases {
             let name = case[0].as_str().expect("name");

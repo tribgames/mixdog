@@ -8,6 +8,13 @@
       "sha256": "067ecd4392e1a0d78e11316aa4c44442498ac8a7413abed05a21770898e7fb76"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -21,10 +28,11 @@
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-setup-warmup.mjs",
+  "recorderSha256": "99fc91540ad474151ce2194954f0237e6e9aaa4848766edd3abf21fe73e77c2e",
   "set": "provider-setup-warmup",
   "totalBytes": 2621
 }
