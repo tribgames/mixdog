@@ -9,7 +9,20 @@
    "src/runtime/agent/orchestrator/tools/builtin/task-tool.mjs",
    "src/runtime/shared/background-tasks.mjs"
   ],
-  "command": "node apps/desktop/src/shared/test-recorded/record/record-runtime-guidance.mjs"
+  "command": "node apps/desktop/src/shared/test-recorded/record/record-runtime-guidance.mjs",
+  "recorder": "apps/desktop/src/shared/test-recorded/record/record-runtime-guidance.mjs",
+  "recorderSha256": "0e72525f170d88608d490f3bc8a3c8470c5d34d1e447d536bade420497324e46",
+  "nodeVersion": "v22.20.0",
+  "inputs": [
+   {
+    "path": "apps/desktop/src/shared/test-recorded/record/node-source.mjs",
+    "sha256": "2035caede310511f7ee1b365d709ff70ebf7327dfe3e0f54f57629f2ba89cb8d"
+   },
+   {
+    "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+    "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+   }
+  ]
  },
  "guidance": "Its result is delivered automatically when it finishes; use task wait only if you need it now.",
  "promotedHold": "moved to background after the 60s hold",
