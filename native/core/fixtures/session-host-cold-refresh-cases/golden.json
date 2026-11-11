@@ -1,0 +1,70 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "the cold-view refresh skips unchanged sessions and refreshes a written one",
+      "observed": {
+        "sessions": [
+          "sess_cold_0",
+          "sess_cold_1",
+          "sess_cold_2",
+          "sess_cold_3",
+          "sess_cold_4",
+          "sess_cold_5"
+        ],
+        "initialStamps": [
+          "sess_cold_0:1",
+          "sess_cold_1:1",
+          "sess_cold_2:1",
+          "sess_cold_3:1",
+          "sess_cold_4:1",
+          "sess_cold_5:1"
+        ],
+        "openReads": [
+          "sess_cold_0",
+          "sess_cold_1",
+          "sess_cold_2",
+          "sess_cold_3",
+          "sess_cold_4",
+          "sess_cold_5"
+        ],
+        "unchanged": {
+          "readsAfterThreeTicks": [],
+          "published": []
+        },
+        "writtenSession": "sess_cold_2",
+        "written": {
+          "reads": [
+            "sess_cold_2"
+          ],
+          "published": [
+            {
+              "sessionId": "sess_cold_2",
+              "snapshot": {
+                "sessionId": "sess_cold_2",
+                "projectionStamp": "projection-7",
+                "queued": [],
+                "items": [
+                  {
+                    "id": "row",
+                    "kind": "assistant",
+                    "text": "sess_cold_2:2"
+                  }
+                ],
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            }
+          ]
+        },
+        "readsAfterNextTick": [
+          "sess_cold_2"
+        ]
+      }
+    }
+  ]
+}

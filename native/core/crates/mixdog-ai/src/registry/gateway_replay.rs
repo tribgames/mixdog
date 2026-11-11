@@ -162,6 +162,10 @@ struct World {
 }
 
 fn world(scenario: &Value, chunking: Chunking) -> World {
+    world_with(scenario, chunking, None)
+}
+
+fn world_with(scenario: &Value, chunking: Chunking, accounting: Option<super::accounted::AccountingDeps>) -> World {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -208,7 +212,12 @@ fn world(scenario: &Value, chunking: Chunking) -> World {
         io,
         gated_off: Arc::new(|_| false),
     });
-    World { endpoint, vault, accounts, registry: ProviderRegistry::new(Arc::new(builder)), _dir: dir }
+    let registry = ProviderRegistry::new(Arc::new(builder));
+    let registry = match accounting {
+        Some(deps) => registry.with_accounting(deps),
+        None => registry,
+    };
+    World { endpoint, vault, accounts, registry, _dir: dir }
 }
 
 struct NoEnv;
@@ -397,10 +406,8 @@ async fn replay(id: &str) {
     replay_as(id, Chunking::PerEvent).await;
 }
 
-async fn replay_as(id: &str, chunking: Chunking) {
-    let scenario = fixture(id);
-    let node_version = recorder_node();
-    let w = world(&scenario, chunking);
+/// The scenario's provider as the registry registers it, its logins and key roster stored first.
+async fn register(w: &World, scenario: &Value, id: &str) -> Arc<dyn ProviderAdapter> {
     let provider = scenario["provider"].as_str().unwrap();
     if let Some(doc) = login(provider) {
         std::fs::write(w._dir.path().join(format!("{provider}.json")), doc.to_string()).unwrap();
@@ -416,7 +423,32 @@ async fn replay_as(id: &str, chunking: Chunking) {
     let mut config = serde_json::Map::new();
     config.insert(provider.to_owned(), scenario["config"].clone());
     w.registry.init_providers(&config).await.unwrap_or_else(|e| panic!("{id}: {e}"));
-    let adapter: Arc<dyn ProviderAdapter> = w.registry.get(provider).await.expect("registered");
+    w.registry.get(provider).await.expect("registered")
+}
+
+/// The request of one recorded send.
+fn send_request(provider: &str, send: &Value) -> ModelRequest {
+    let mut messages = vec![message(provider, &json!({"role": "system", "content": "You are a fixture assistant."}))];
+    messages.extend(send["history"].as_array().unwrap().iter().map(|m| message(provider, m)));
+    messages.push(message(provider, &json!({"role": "user", "content": "Look up the answer."})));
+    let mut options = RequestOptions { session_id: send["sessionId"].as_str().map(str::to_owned), ..RequestOptions::default() };
+    if let Some(pin) = send.get("pin") {
+        options.wire_pin = WirePin::from_route(pin);
+    }
+    ModelRequest {
+        model: send["model"].as_str().unwrap().to_owned(),
+        messages,
+        tools: send["tools"].as_array().unwrap().iter().map(|t| tool(t.as_str().unwrap())).collect(),
+        options,
+    }
+}
+
+async fn replay_as(id: &str, chunking: Chunking) {
+    let scenario = fixture(id);
+    let node_version = recorder_node();
+    let w = world(&scenario, chunking);
+    let provider = scenario["provider"].as_str().unwrap();
+    let adapter = register(&w, &scenario, id).await;
     if scenario["listing"].is_array() {
         let before = w.endpoint.sent.lock().unwrap().len();
         adapter.models().expect("a listing").list_models().await.unwrap_or_else(|e| panic!("{id}: listing: {e:?}"));
@@ -433,20 +465,8 @@ async fn replay_as(id: &str, chunking: Chunking) {
     for (n, send) in scenario["sends"].as_array().unwrap().iter().enumerate() {
         let before = w.endpoint.sent.lock().unwrap().len();
         w.endpoint.log.lock().unwrap().clear();
-        let mut messages = vec![message(provider, &json!({"role": "system", "content": "You are a fixture assistant."}))];
-        messages.extend(send["history"].as_array().unwrap().iter().map(|m| message(provider, m)));
-        messages.push(message(provider, &json!({"role": "user", "content": "Look up the answer."})));
-        let mut options = RequestOptions { session_id: send["sessionId"].as_str().map(str::to_owned), ..RequestOptions::default() };
-        if let Some(pin) = send.get("pin") {
-            options.wire_pin = WirePin::from_route(pin);
-        }
-        let pinned = options.wire_pin.clone();
-        let request = ModelRequest {
-            model: send["model"].as_str().unwrap().to_owned(),
-            messages,
-            tools: send["tools"].as_array().unwrap().iter().map(|t| tool(t.as_str().unwrap())).collect(),
-            options,
-        };
+        let request = send_request(provider, send);
+        let pinned = request.options.wire_pin.clone();
         let outcome = match adapter.attempt(Arc::new(request)).await {
             Ok(mut stream) => {
                 let mut events = Vec::new();
@@ -565,6 +585,88 @@ async fn reasoning_then_a_quota_refusal_in_one_chunk() {
 #[tokio::test]
 async fn text_then_a_quota_refusal_in_one_chunk() {
     replay_as("custom-keys-after-output", Chunking::Whole).await;
+}
+
+/// Prices nothing; the composition tests read only when rows are written.
+struct Unpriced;
+
+impl super::accounting::UsagePricing for Unpriced {
+    fn price_usage(&self, args: &crate::catalog::UsageArgs) -> crate::catalog::PricedUsage {
+        crate::catalog::PricedUsage { input: args.input_tokens, cost_usd: None, rates: Default::default() }
+    }
+}
+
+/// The ledger: notes, as each row is written, whether the consumer was already told the wire is done.
+struct Ledger(Arc<std::sync::atomic::AtomicBool>, Mutex<Vec<bool>>);
+
+#[async_trait]
+impl super::accounting::UsageSink for Ledger {
+    async fn record_queued(&self, _: super::accounting::UsageRow) -> Result<(), String> {
+        self.1.lock().unwrap().push(self.0.load(std::sync::atomic::Ordering::SeqCst));
+        Ok(())
+    }
+}
+
+/// What the consumer of the first recorded send sees (`ModelStream::on_wire_left`), through the stream the
+/// production registry stacks for the scenario's provider (accounting outermost): the events in order with the
+/// callback's place among them (`None`), and, per ledger row, whether the callback had come.
+async fn wire_left_through(id: &str) -> (Vec<Option<StreamEvent>>, Vec<bool>) {
+    let scenario = fixture(id);
+    let left = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let ledger = Arc::new(Ledger(Arc::clone(&left), Mutex::default()));
+    let sink: Arc<dyn super::accounting::UsageSink> = ledger.clone();
+    let deps = super::accounted::AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(Arc::clone(&sink))));
+    let w = world_with(&scenario, Chunking::PerEvent, Some(deps));
+    let adapter = register(&w, &scenario, id).await;
+    let send = &scenario["sends"][0];
+    let mut stream = adapter.attempt(Arc::new(send_request(scenario["provider"].as_str().unwrap(), send))).await.expect("the send streams");
+    let seen: Arc<Mutex<Vec<Option<StreamEvent>>>> = Arc::default();
+    {
+        let (seen, left) = (Arc::clone(&seen), Arc::clone(&left));
+        stream.on_wire_left(Arc::new(move || {
+            if !left.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                seen.lock().unwrap().push(None);
+            }
+        }));
+    }
+    // Every answer is served from the recording: a stream still pending after this hangs.
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while let Some(item) = stream.next().await {
+            seen.lock().unwrap().push(Some(item.unwrap_or_else(|e| panic!("{id}: {e:?}"))));
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{id}: the stream did not end within 30 s"));
+    let events = std::mem::take(&mut *seen.lock().unwrap());
+    let rows = ledger.1.lock().unwrap().clone();
+    (events, rows)
+}
+
+fn place(events: &[Option<StreamEvent>], what: impl Fn(&StreamEvent) -> bool) -> usize {
+    events.iter().position(|e| e.as_ref().is_some_and(&what)).expect("the event is in the stream")
+}
+
+/// Every production stack hands the consumer's callback to the stream that awaits after the wire: the ledger's
+/// row is written only after it came, on a plain route, a gateway's rerouted send and a key pool's send.
+#[tokio::test]
+async fn the_ledger_row_of_every_stack_is_written_after_the_consumer_is_told_the_wire_is_done() {
+    for id in ["custom-reasoning-replay", "openrouter-reroute-unsupported", "custom-keys-reasoning", "custom-keys-anthropic-thinking"] {
+        let (events, rows) = wire_left_through(id).await;
+        assert!(events.iter().any(Option::is_none), "{id}: the callback came");
+        assert!(!rows.is_empty() && rows.iter().all(|told| *told), "{id}: every ledger row after the callback: {rows:?}");
+    }
+}
+
+/// The key pool binds the serving key (its store work, then the routing stamp) after the serving attempt's wire is
+/// done and before it releases `Completed`: the consumer is told as that attempt's `Completed` comes in, before the
+/// stamp, not once the accounting sees the pool's `Completed`.
+#[tokio::test]
+async fn a_key_pool_tells_the_consumer_before_it_binds_the_serving_key() {
+    for id in ["custom-keys-reasoning", "custom-keys-anthropic-thinking"] {
+        let (events, _) = wire_left_through(id).await;
+        let told = events.iter().position(Option::is_none).expect("the callback came");
+        assert!(told < place(&events, |e| matches!(e, StreamEvent::AccountRouting(_))), "{id}: told before the stamp: {events:?}");
+    }
 }
 
 #[test]
