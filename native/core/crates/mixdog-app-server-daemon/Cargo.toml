@@ -7,13 +7,6 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[features]
-# The phone terminal replay's core only: the terminal size leases on a clock the replay steps (mixdog-spawn `lease-clock`).
-terminal-lease-clock = ["mixdog-spawn/lease-clock"]
-# Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
-replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls"]
-crash-gates = ["mixdog-core-session/crash-gates"]
-
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
@@ -109,7 +102,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "te
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-app-protocol = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
@@ -119,8 +112,8 @@ mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-core-config = { workspace = true, features = ["count-work"] }
-mixdog-protocol = { workspace = true, features = ["codegen"] }
-mixdog-core-run = { workspace = true, features = ["test-support"] }
+mixdog-protocol = { workspace = true }
+mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-agent = { workspace = true, features = ["test-support"] }
