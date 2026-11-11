@@ -17,12 +17,10 @@ pub mod hop_bindings;
 pub mod quota_usage;
 pub mod home_directory;
 pub mod quota_history;
-#[cfg(test)]
-mod fixture_fs;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
 #[cfg(test)]
 mod process_tests;
-#[cfg(test)]
-mod process_services_tests;
 #[cfg(test)]
 #[cfg(test)]
 mod wire_parity_tests;
@@ -108,8 +106,6 @@ pub mod run_seams;
 pub mod compaction_follow;
 pub mod settings_changes;
 pub mod prompt_session;
-#[cfg(test)]
-mod prompt_session_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;

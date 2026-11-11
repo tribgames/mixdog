@@ -83,7 +83,7 @@ windows-sys = { workspace = true, features = [
 mixdog-testkit = { workspace = true }
 # The credential-read counter (`mixdog_ai::work`) seen from a crate that only depends on the crates that read: the
 # `credential_reads_tests` integration test. Only this crate's test builds turn the features on.
-mixdog-core = { workspace = true, features = ["count-work"] }
+mixdog-core = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 # The mock seams and the inline lane backend are test fixtures only; the daemon runs on `mixdog_rt::exec`.
