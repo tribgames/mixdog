@@ -20,13 +20,13 @@ import {
   exactProductIdentity,
   importFrom,
   parseArgs,
-  recordingProvenance,
   resolveTree,
   stageSet,
   within,
   writeJson,
   writeSetManifest,
 } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-channel-remote-intent.mjs';
@@ -243,7 +243,7 @@ writeSetManifest(stage, {
   command: `node ${recorder} --tree <tree>`,
   identity,
   extra: {
-    provenance: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs']),
+    ...recorderProvenance(import.meta.url),
     exclusions: [
       'transport.logs keeps only the lines starting "remote intent " or "channel remote intent ": the listener, client-registry and pointer lines belong to the HTTP transport, which the core replaces with WebSocket connections',
       'a log line that ends in an OS error message (the unreadable intent) is compared up to that message: the text is the platform error of the runtime, not of the product',

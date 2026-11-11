@@ -14,6 +14,17 @@
       "sha256": "c888cfe7947022b09cf402b649da18e0567809323743ecf4c87227d2d1ea8891"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -31,17 +42,8 @@
     "treeKind": "archive",
     "version": "1.4.5"
   },
-  "provenance": {
-    "inputs": [
-      {
-        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-        "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
-      }
-    ],
-    "nodeVersion": "v22.20.0",
-    "recorderSha256": "2f4eb64c6f8258d8fe09aedea648608a2d9d7db76b0c6e07020a89e178578668"
-  },
   "recorder": "benchmarks/rust-core/recorders/record-channel-remote-intent.mjs",
+  "recorderSha256": "1dde83e4235e93817e5562f008030eede860a9893acb265bc1a2f88218f1bb25",
   "set": "channel-remote-intent",
   "totalBytes": 25603
 }
