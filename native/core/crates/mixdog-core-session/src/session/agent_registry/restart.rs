@@ -267,16 +267,34 @@ impl AgentRegistry {
     }
 }
 
-/// `notifyRestartFailures()`: tells each owner, once, that its agent task died with the previous process.
-/// The notification is queued under its stable execution id first (`TaskNotifier::finished`, which the
-/// session directory queues for the owner's model), and only then is the row stamped, so a crash between
-/// the two retries the row and the id makes the retry exactly-once. Returns how many owners were told.
-pub async fn notify_restart_failures(
-    registry: &AgentRegistry,
-    notifier: &dyn mixdog_tools::exec::TaskNotifier,
-    board: &JobBoard,
-    stamp: &str,
-) -> Result<usize, String> {
+/// Where a restart failure's notice goes: the owner's queue, durably and under its stable execution id, then the owner's live
+/// card (`mgr.enqueuePendingMessage` + `settlePendingMessageWrites`, then `notifySessionCompletion`, `restart-notify.mjs:115-131`).
+#[async_trait]
+pub trait RestartNotices: Send + Sync {
+    /// Resolves once the notice is stored in the owner's queue; the same `execution` queued again is one entry.
+    async fn queue_durably(&self, owner: &ThreadId, execution: &str, text: String) -> Result<(), String>;
+    /// The live, best-effort card on the owner's attached views.
+    async fn show(&self, owner: &ThreadId, execution: &str, text: String);
+}
+
+#[async_trait]
+impl RestartNotices for crate::session::SessionDirectory {
+    async fn queue_durably(&self, owner: &ThreadId, execution: &str, text: String) -> Result<(), String> {
+        self.queue_completion_durably(owner, "agent", execution, "failed", text).await
+    }
+
+    async fn show(&self, owner: &ThreadId, execution: &str, text: String) {
+        let meta = serde_json::json!({ "execution_surface": "agent", "execution_id": execution, "status": "failed" });
+        self.show_completion(owner, text, meta).await;
+    }
+}
+
+/// `notifyRestartFailures()`: tells each owner, once, that its agent task died with the previous process. In Node's order
+/// (`restart-notify.mjs:115-131`): the notice is stored in the owner's queue under its stable execution id first, only then is
+/// the row stamped and the task registered. A failure or a crash before the stamp leaves the row owed
+/// (the next pass or restart retries it, and the id makes the retry one entry); a row whose notice was refused is left for
+/// the next pass, as Node's per-row catch. Returns how many owners were told.
+pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn RestartNotices, board: &JobBoard, stamp: &str) -> Result<usize, String> {
     let mut told = 0;
     for (session, row) in registry.pending_restart_failures().await? {
         let execution = restart_notification_id(&row);
@@ -289,7 +307,16 @@ pub async fn notify_restart_failures(
             RESTART_FAILURE_ERROR,
             "",
         );
-        notifier.finished(&ThreadId::from(clean(row.get("ownerSessionId")).as_str()), "agent", &execution, "failed", text).await;
+        let owner = ThreadId::from(clean(row.get("ownerSessionId")).as_str());
+        // The card goes first, as every completion's: the queued copy then knows its card stands for it and shows no row of
+        // its own (`suppressDisplay`), where Node's queue dedups the later mirror by the same id.
+        notices.show(&owner, &execution, text.clone()).await;
+        crate::session::new_task::crash_gate("restart-notice-unstored");
+        if let Err(error) = notices.queue_durably(&owner, &execution, text).await {
+            tracing::warn!("[agent-tool] restart notification retry pending: {error}");
+            continue;
+        }
+        crate::session::new_task::crash_gate("restart-notice-stored");
         registry.mark_restart_notified(&[session], stamp).await?;
         register_failed_task(board, &row);
         told += 1;

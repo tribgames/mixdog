@@ -105,7 +105,10 @@ fn queued<R: Send + 'static>(
         Ok(handle) => handle.await,
         Err(error) => {
             tracing::warn!("an io-durability job could not be queued: {error:?}");
-            Err(mixdog_rt::JobDropped)
+            Err(match error {
+                mixdog_rt::SubmitWaitError::ShutDown(_) => mixdog_rt::JobDropped::ShutDown,
+                _ => mixdog_rt::JobDropped::Dropped,
+            })
         }
     }
     }

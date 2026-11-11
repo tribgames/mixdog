@@ -4,6 +4,10 @@
 /// The primary assistant's contact: the Lead configuration itself.
 pub const MIXY_AGENT_ID: &str = "lead";
 
+/// What a session id is (`SESSION_ID_PATTERN`, `runtime-core/session-id.mjs`): the pattern's source
+/// and flags, as a `JsRegex` compiles them.
+pub const SESSION_ID_PATTERN: (&str, &str) = ("^[A-Za-z0-9_-]+$", "");
+
 /// `meta.source` of every row stored in a room's log.
 pub const ROOM_ROW_SOURCE: &str = "agent-room";
 
@@ -69,6 +73,10 @@ pub fn room_member_of_session(session_id: &str) -> Option<RoomMember> {
 pub fn is_room_thread_session_id(session_id: &str) -> bool {
     room_id_of_session(session_id).is_some() || room_member_of_session(session_id).is_some()
 }
+
+#[cfg(test)]
+#[path = "ids_home_replay.rs"]
+mod home_replay;
 
 #[cfg(test)]
 mod tests {

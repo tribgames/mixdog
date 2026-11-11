@@ -1839,3 +1839,80 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
     }
     assert_eq!(replayed, 18, "recorded start cases replayed");
 }
+
+/// `fixtures/session-transport-project-surface/recording.json` case 12 (`scripts/session-transport/project-surface.test.mjs`):
+/// the daemon's project calls in Node's order, through the core's methods (`project.list` -> `project/list`, `inspect` ->
+/// `project/read`, `add` -> `project/create`, `touch` -> `project/touch`, `rename` -> `project/update`, `ensureDirectory` ->
+/// `project/ensureDirectory`, `remove` -> `project/delete`) on a real registry, compared at what a client sees: each answer and the
+/// registry `project/list` shows after it. Node's store was scripted, so its invented values are read as what they stand for:
+/// `resolved:<p>` and `created:<p>` are the resolved folder, the name `Added` is the store's own name for a new row (the core's is
+/// the folder's name); the recorded store call list is Node's internal seam and not compared.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_project_calls_answer_what_node_recorded() {
+    let recording: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-transport-project-surface/recording.json")).unwrap()).unwrap();
+    let case = recording["cases"].as_array().unwrap().iter().find(|case| case["testLine"] == 12).unwrap();
+    let env = env();
+    // The recorded registry starts empty: take the fixture's own row out first.
+    call(&env, "project/delete", json!({ "path": env.root.to_string_lossy() })).await.unwrap();
+    let base = env.root.parent().unwrap().to_path_buf();
+    let at = |recorded: &str| -> String {
+        let recorded = recorded.trim_start_matches("resolved:").trim_start_matches("created:");
+        match recorded {
+            "C:\\project" => env.root.to_string_lossy().into_owned(),
+            "C:\\new" => base.join("new").to_string_lossy().into_owned(),
+            "existing-directory" => env.root.join("src").to_string_lossy().into_owned(),
+            other => panic!("unmapped recorded path {other}"),
+        }
+    };
+    let row = |recorded: &Value| -> Value {
+        let path = at(recorded["path"].as_str().unwrap());
+        let name = match recorded["name"].as_str().unwrap() {
+            "Added" => "project".to_owned(),
+            name => name.to_owned(),
+        };
+        json!({ "path": path, "name": name })
+    };
+    let listed = |projects: &Value| -> Vec<Value> { projects.as_array().unwrap().iter().map(|p| json!({ "path": p["path"], "name": p["name"] })).collect() };
+    let steps = case["result"]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 7);
+    for step in steps {
+        let name = step["name"].as_str().unwrap();
+        let args = &step["args"][0];
+        let path = || at(args["path"].as_str().unwrap());
+        let want = &step["ok"];
+        let got = match name {
+            "project.list" => {
+                let got = call(&env, "project/list", json!({})).await.unwrap();
+                assert_eq!(listed(&got["projects"]), want["projects"].as_array().unwrap().iter().map(row).collect::<Vec<_>>(), "{name}");
+                continue;
+            }
+            "project.inspect" => {
+                let got = call(&env, "project/read", json!({ "path": path() })).await.unwrap();
+                json!({ "path": got["path"], "exists": got["exists"], "directory": got["directory"] })
+            }
+            "project.add" => call(&env, "project/create", json!({ "path": path() })).await.unwrap(),
+            "project.touch" => call(&env, "project/touch", json!({ "path": path() })).await.unwrap(),
+            "project.rename" => call(&env, "project/update", json!({ "path": path(), "alias": args["name"] })).await.unwrap(),
+            "project.ensureDirectory" => {
+                let got = call(&env, "project/ensureDirectory", json!({ "path": path() })).await.unwrap();
+                assert!(std::path::Path::new(got["path"].as_str().unwrap()).is_dir(), "{name}: the folder exists");
+                got
+            }
+            "project.remove" => call(&env, "project/delete", json!({ "path": path() })).await.unwrap(),
+            other => panic!("unrecorded call {other}"),
+        };
+        let want = match name {
+            "project.inspect" => json!({ "path": at(want["path"].as_str().unwrap()), "exists": want["exists"], "directory": want["directory"] }),
+            "project.ensureDirectory" => json!({ "path": at(want["path"].as_str().unwrap()) }),
+            "project.add" | "project.touch" | "project.rename" => json!({ "project": row(&want["project"]) }),
+            _ => want.clone(),
+        };
+        let got = match name {
+            "project.add" | "project.touch" | "project.rename" => json!({ "project": { "path": got["project"]["path"], "name": got["project"]["name"] } }),
+            _ => got,
+        };
+        assert_eq!(got, want, "{name}: the answer");
+        let after = call(&env, "project/list", json!({})).await.unwrap();
+        assert_eq!(listed(&after["projects"]), step["rowsAfter"].as_array().unwrap().iter().map(row).collect::<Vec<_>>(), "{name}: the registry after it");
+    }
+}

@@ -24,11 +24,11 @@ pub struct DirectoryRoomDaemon {
     log: SessionRoomLog,
     republish_catalog: RepublishCatalog,
     /// Run between the opening of a room log and the post into it (a replay releases the log there, as a daemon's detach does).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     between_open_and_post: Option<BetweenOpenAndPost>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub type BetweenOpenAndPost = Arc<dyn Fn(ThreadId) -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
 
 impl DirectoryRoomDaemon {
@@ -38,12 +38,12 @@ impl DirectoryRoomDaemon {
             log: SessionRoomLog::new(directory.clone()),
             directory,
             republish_catalog,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             between_open_and_post: None,
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn with_between_open_and_post(mut self, hook: BetweenOpenAndPost) -> Self {
         self.between_open_and_post = Some(hook);
         self
@@ -73,7 +73,7 @@ fn content_of(prompt: &RoomPrompt) -> Value {
 #[async_trait]
 impl RoomDaemon for DirectoryRoomDaemon {
     async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<(), String> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(hook) = &self.between_open_and_post {
             // The product's own open and post, in its two steps, with the hook between them.
             let handle = mixdog_core_session::session::room_log::open_for_post(&self.directory, session_id).await.map_err(node_error)?;

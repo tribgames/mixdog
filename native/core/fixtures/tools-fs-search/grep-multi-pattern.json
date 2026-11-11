@@ -1,0 +1,155 @@
+{
+  "name": "grep-multi-pattern",
+  "files": {
+    "src/a.ts": "const alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n",
+    "src/b.ts": "import { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;\n",
+    "docs/x.md": "# Notes\n\nbeta release\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "beta"
+        ]
+      },
+      "text": "# grep pattern:\"alpha\"\n# ./src/a.ts:1 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n# ./src/b.ts:1 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;\n\n# grep pattern:\"beta\"\n# ./docs/x.md:3 [lines 1-3]\n# Notes\n\nbeta release\n# ./src/a.ts:3 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n# ./src/b.ts:2 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "nomatch1",
+          "nomatch2"
+        ]
+      },
+      "text": "# grep pattern:\"alpha\"\n# ./src/a.ts:1 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n# ./src/b.ts:1 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;\n\n(no matches) patterns=[\"nomatch1\",\"nomatch2\"]",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "zzz",
+          "yyy"
+        ]
+      },
+      "text": "(no matches)",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "(bad"
+        ]
+      },
+      "text": "# grep pattern:\"alpha\"\n# ./src/a.ts:1 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n# ./src/b.ts:1 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;\n\n# grep pattern:\"(bad\"\nError: regex parse error: regex parse error:\n    (?:(bad)\n    ^\nerror: unclosed group",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "beta"
+        ],
+        "context": 0
+      },
+      "text": "# grep pattern:\"alpha\"\n./src/a.ts:1:const alpha = 1;\n./src/a.ts:4:  return alpha;\n./src/b.ts:1:import { alpha } from \"./a\";\n./src/b.ts:2:// alpha and beta together\n\n# grep pattern:\"beta\"\n./docs/x.md:3:beta release\n./src/a.ts:3:export function beta() {\n./src/b.ts:3:export const delta = beta;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "beta"
+        ],
+        "context": 1
+      },
+      "text": "# grep pattern:\"alpha\"\n# ./src/a.ts:1 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n# ./src/b.ts:1 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;\n\n# grep pattern:\"beta\"\n# ./docs/x.md:3 [lines 2-3]\n\nbeta release\n# ./src/a.ts:3 [lines 2-4]\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n# ./src/b.ts:2 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "beta"
+        ],
+        "limit": 1
+      },
+      "text": "# grep pattern:\"alpha\"\n# ./src/a.ts:1 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n[1 of 4 shown; offset:1 for the rest]\n\n# grep pattern:\"beta\"\n# ./docs/x.md:3 [lines 1-3]\n# Notes\n\nbeta release\n[1 of 4 shown; offset:1 for the rest]",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "beta"
+        ],
+        "mode": "files"
+      },
+      "text": "./docs/x.md\n./src/a.ts\n./src/b.ts",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "beta"
+        ],
+        "mode": "count"
+      },
+      "text": "./docs/x.md:1\n./src/a.ts:3\n./src/b.ts:3\n[total 7 matches across 3 files]",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "beta"
+        ],
+        "path": "src/b.ts"
+      },
+      "text": "# grep pattern:\"alpha\"\n# src/b.ts:1 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;\n\n# grep pattern:\"beta\"\n# src/b.ts:2 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "(bad"
+      },
+      "text": "Error: regex parse error: regex parse error:\n    (?:(bad)\n    ^\nerror: unclosed group",
+      "isError": true
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "gamma",
+          "delta"
+        ],
+        "glob": "*.ts"
+      },
+      "text": "# grep pattern:\"gamma\"\n# ./src/a.ts:2 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n\n# grep pattern:\"delta\"\n# ./src/b.ts:3 [lines 1-3]\nimport { alpha } from \"./a\";\n// alpha and beta together\nexport const delta = beta;",
+      "isError": false
+    }
+  ]
+}

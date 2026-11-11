@@ -225,10 +225,10 @@ export function patchedProductIdentity(tree, commit, patchList) {
   return { ...identity, commit, baseCommit: commit, patches, ...(patch ? { patch } : {}), exact: true };
 }
 
-/** The recorders' `--tree` export of `commit`: exactly the commit, or with `--patch <file>` the commit with that fix applied. */
+/** The recorders' `--tree` export of `commit`: exactly the commit, or with `--patch <file>[,<file>…]` the commit with those fixes applied. */
 export function nodeTreeIdentity(args, tree, commit) {
   const patch = args.get('patch');
-  return patch ? patchedProductIdentity(tree, commit, resolve(patch)) : exactProductIdentity(tree, commit);
+  return patch ? patchedProductIdentity(tree, commit, patch.split(',').map((p) => resolve(p))) : exactProductIdentity(tree, commit);
 }
 
 /** Nearest-rank percentile of an ascending numeric array. */

@@ -1,0 +1,196 @@
+{
+  "name": "list-glob-path",
+  "files": {
+    "src/a.ts": "a\n",
+    "src/b.ts": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "src/c.js": "c\n",
+    "src/sub/d.ts": "d\n",
+    "src/.hid.ts": "h\n",
+    "src/.cfg/e.ts": "e\n",
+    "src/node_modules/m/i.ts": "i\n",
+    "src/node_modules/top.ts": "t\n",
+    "README.md": "r\n",
+    "docs/x.md": "x\n"
+  },
+  "mtimes": {
+    "src/a.ts": "2026-01-05T00:00:00Z",
+    "src/sub/d.ts": "2026-01-04T00:00:00Z",
+    "docs/x.md": "2026-01-03T10:00:00Z",
+    "src/sub": "2026-01-06T00:00:00Z",
+    "src/node_modules": "2026-01-07T00:00:00Z"
+  },
+  "warmup": [
+    {
+      "tool": "list",
+      "input": {
+        "path": "warm/*.none"
+      }
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "*.none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.ts"
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nsub/d.ts\t1KB\t2026-01-04 00:00:00\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/**/*.ts"
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nsub/d.ts\t1KB\t2026-01-04 00:00:00\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "**/*.md"
+      },
+      "text": "docs/x.md\t1KB\t2026-01-03 10:00:00\nREADME.md\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "*.md"
+      },
+      "text": "docs/x.md\t1KB\t2026-01-03 10:00:00\nREADME.md\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.ts",
+        "limit": 1
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\n[entries 1-1 of 5; offset:1 for more]",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.ts",
+        "offset": 1
+      },
+      "text": "sub/d.ts\t1KB\t2026-01-04 00:00:00\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.ts",
+        "hidden": true
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nsub/d.ts\t1KB\t2026-01-04 00:00:00\n.cfg/e.ts\t1KB\t2026-01-02 03:04:05\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.ts",
+        "meta": true
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nsub/d.ts\t1KB\t2026-01-04 00:00:00\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.TS"
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nsub/d.ts\t1KB\t2026-01-04 00:00:00\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.zz"
+      },
+      "text": "(no matches)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "<ROOT>/src/*.ts"
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nsub/d.ts\t1KB\t2026-01-04 00:00:00\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/{a,c}.*"
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nc.js\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/s*"
+      },
+      "text": "sub\t-\t2026-01-06 00:00:00",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/n*"
+      },
+      "text": "node_modules\t-\t2026-01-07 00:00:00",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/**/i.ts"
+      },
+      "text": "(no matches)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/**/e.ts"
+      },
+      "text": "(no matches)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/**/e.ts",
+        "hidden": true
+      },
+      "text": ".cfg/e.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "README.md/*.x"
+      },
+      "text": "Error: not a directory — <ROOT>/README.md",
+      "isError": true
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/*.ts",
+        "limit": 0
+      },
+      "text": "a.ts\t1KB\t2026-01-05 00:00:00\nsub/d.ts\t1KB\t2026-01-04 00:00:00\n.hid.ts\t1KB\t2026-01-02 03:04:05\nb.ts\t3KB\t2026-01-02 03:04:05\nnode_modules/top.ts\t1KB\t2026-01-02 03:04:05",
+      "isError": false
+    }
+  ]
+}

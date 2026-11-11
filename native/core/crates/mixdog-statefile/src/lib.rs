@@ -62,6 +62,7 @@ pub use lock::steps as lock_steps;
 pub use lock::default_timeout;
 pub use lock::LockHold;
 pub use lock::hold_lock;
+pub use lock::hold_lock_one_deadline;
 pub use lock::lock_path;
 pub use lock::process_exists;
 pub use publish::Opts;

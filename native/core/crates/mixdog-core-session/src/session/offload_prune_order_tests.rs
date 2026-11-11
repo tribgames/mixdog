@@ -83,7 +83,7 @@ async fn world(name: &str) -> World {
 
 /// A completion the thread queues and is not woken by (`live: false`), naming `path`.
 fn queued_completion(path: &str) -> Inbox {
-    Inbox::TaskNotification { surface: "agent".into(), task_id: "task_agent_1".into(), status: "completed".into(), text: format!("look at {path}"), origin: None, live: false }
+    Inbox::TaskNotification { surface: "agent".into(), task_id: "task_agent_1".into(), status: "completed".into(), text: format!("look at {path}"), origin: None, live: false, durable: None }
 }
 
 fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
@@ -122,7 +122,7 @@ impl World {
 
     /// A completion that wakes the thread: its turn runs, until `release`.
     async fn start_turn(&self) {
-        let message = Inbox::TaskNotification { surface: "agent".into(), task_id: "task_agent_2".into(), status: "failed".into(), text: "failed".into(), origin: None, live: true };
+        let message = Inbox::TaskNotification { surface: "agent".into(), task_id: "task_agent_2".into(), status: "failed".into(), text: "failed".into(), origin: None, live: true, durable: None };
         within("the actor takes the message", self.handle.inbox.send(message)).await.expect("the actor runs");
         within("the turn starts", eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(()))).await;
     }

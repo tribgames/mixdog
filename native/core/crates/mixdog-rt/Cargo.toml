@@ -18,7 +18,6 @@ virtual-clock = ["tokio/test-util", "dep:chrono"]
 arc-swap = { workspace = true }
 # The replay's clock refuses a wall clock chrono's `DateTime<Utc>` (`utc_now!`) cannot hold.
 chrono = { workspace = true, optional = true }
-crossbeam-channel = { workspace = true }
 # The driver features are named here so RT-C and RT-W always have time and I/O drivers
 # (`enable_all`), regardless of what other crates in the build enable.
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros"] }

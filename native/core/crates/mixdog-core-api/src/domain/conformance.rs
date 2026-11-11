@@ -28,6 +28,7 @@ use super::fs::FileService;
 use super::fs::FsError;
 use super::fs::FsErrorKind;
 use super::fs::ReadRange;
+use super::fs::SearchClass;
 use super::fs::SearchRequest;
 use super::fs::WalkRequest;
 use super::fs::WritePrecondition;
@@ -1097,6 +1098,8 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 include_hidden: false,
                 respect_ignore: false,
                 include_dirs: false,
+                prune: Vec::new(),
+                server: None,
             },
         )
         .as_mut(),
@@ -1120,6 +1123,10 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 exclude_globs: Vec::new(),
                 include_hidden: false,
                 respect_ignore: false,
+                limit: None,
+                first_per_file: false,
+                deadline: None,
+                class: SearchClass::Interactive,
             },
         )
         .as_mut(),
@@ -1141,6 +1148,10 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 exclude_globs: Vec::new(),
                 include_hidden: false,
                 respect_ignore: false,
+                limit: None,
+                first_per_file: false,
+                deadline: None,
+                class: SearchClass::Interactive,
             },
         )
         .as_mut(),

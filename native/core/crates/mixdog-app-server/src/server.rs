@@ -93,6 +93,11 @@ use crate::outgoing::Outgoing;
 use crate::serialization::KeyedQueues;
 use crate::serialization::QueueKey;
 
+/// The reads one connection may have waiting for an in-flight place of their class before a further one is refused
+/// (`inflightLimit`). Far above any shipped client: the desktop and phone send at most a thread list's previews at once,
+/// and `protocol-client` resends a refused read after another answer (`client.ts:840`).
+const READ_WAIT_BOUND: usize = 4096;
+
 const INITIALIZE: &str = "initialize";
 
 /// The namespaces served by the thread directory and loaded threads; every other namespace
@@ -316,7 +321,7 @@ impl Shared {
 
     // ---- requests
 
-    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, mut request: JsonRpcRequest) -> Inbound {
+    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, request: JsonRpcRequest) -> Inbound {
         let id = request.id.clone();
         // No origin is no scope to judge the call by: refuse, never assume one.
         let Some(origin) = (self.origin_of)(conn.id) else {
@@ -355,9 +360,32 @@ impl Shared {
             return Inbound::Continue;
         }
         let cap = self.config.limits.inflight.cap(spec.class);
-        let no_params = serde_json::Value::Null;
-        let params = request.params.as_ref().unwrap_or(&no_params);
-        let Ok(slot) = conn.admit(spec.class, cap, || self.core.request_started(&request.method, params)) else {
+        let started = |request: &JsonRpcRequest| {
+            let no_params = serde_json::Value::Null;
+            self.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params))
+        };
+        if spec.mutation == Mutation::None && spec.class == RequestClass::C1 {
+            // A C1 read (`thread/read`, `thread/list`, ...) past its class's cap waits its turn, in arrival order, as Node answers every read it is sent; only a
+            // backlog past `READ_WAIT_BOUND` is refused.
+            let shared = Arc::clone(self);
+            let later = move |request: JsonRpcRequest| -> crate::connection::Queued {
+                Box::new(move |conn: Arc<Connection>| {
+                    let no_params = serde_json::Value::Null;
+                    let guard = shared.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params));
+                    let slot = conn.granted(spec.class, guard);
+                    let _ = shared.admitted(&conn, request, spec, origin, slot);
+                })
+            };
+            return match conn.admit_or_queue(spec.class, cap, READ_WAIT_BOUND, request, started, later) {
+                Ok((slot, request)) => self.admitted(conn, request, spec, origin, slot),
+                Err(None) => Inbound::Continue,
+                Err(Some(_)) => {
+                    self.reject(conn, &id, &ErrorData::InflightLimit { class: spec.class, limit: cap });
+                    Inbound::Continue
+                }
+            };
+        }
+        let Ok(slot) = conn.admit(spec.class, cap, || started(&request)) else {
             let limit = ErrorData::InflightLimit {
                 class: spec.class,
                 limit: cap,
@@ -365,6 +393,19 @@ impl Shared {
             self.reject(conn, &id, &limit);
             return Inbound::Continue;
         };
+        self.admitted(conn, request, spec, origin, slot)
+    }
+
+    /// A request that holds its in-flight slot: checked, decoded and dispatched.
+    fn admitted(
+        self: &Arc<Self>,
+        conn: &Arc<Connection>,
+        mut request: JsonRpcRequest,
+        spec: &'static MethodSpec,
+        origin: Origin,
+        slot: crate::connection::Slot,
+    ) -> Inbound {
+        let id = request.id.clone();
         if let Err(data) = precheck(spec, request.params.as_ref()) {
             drop(slot);
             self.reject(conn, &id, &data);

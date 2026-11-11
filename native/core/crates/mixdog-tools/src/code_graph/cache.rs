@@ -199,6 +199,40 @@ pub struct GraphCache {
     scheduled: AtomicBool,
     /// Serialises the commit (merge, write, prune, sweep) within this core.
     commit: Mutex<()>,
+    /// Node's resident graphs (`memory-cache.mjs`), least recently used first: per project root, the indexed
+    /// file set's signature, the names looked up in that graph and the graph's own bytes.
+    resident: Mutex<Vec<Resident>>,
+    resident_max_entries: usize,
+    resident_max_bytes: u64,
+}
+
+struct Resident {
+    root: String,
+    signature: u64,
+    lookups: super::graph::Lookups,
+    base_bytes: u64,
+    token_index_bytes: u64,
+    built_at: i64,
+}
+
+impl Resident {
+    /// graph-model.mjs:204 `_estimateGraphRetainedBytes`: the base graph, its token index once a query built it,
+    /// and the runtime caches.
+    fn retained(&self, runtime: &super::graph::Runtime) -> u64 {
+        self.base_bytes + if runtime.queried { self.token_index_bytes } else { 0 } + runtime.cache_bytes()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs inside a prune once every resident is measured and before any is cleared, on the pruning thread.
+    static PRUNE_GATE: std::cell::RefCell<Option<Box<dyn FnMut(&[Resident])>>> = std::cell::RefCell::new(None);
+}
+
+/// `Math.max(min, Math.floor(Number(process.env[name]) || fallback))`.
+fn env_count(name: &str, fallback: f64, min: f64) -> f64 {
+    let parsed = std::env::var(name).ok().map(|raw| mixdog_js::string_to_number(&raw)).filter(|n| *n != 0.0 && !n.is_nan()).unwrap_or(fallback);
+    parsed.max(min)
 }
 
 fn now_ms() -> i64 {
@@ -206,6 +240,56 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// memory-cache.mjs:26 `_pruneCodeGraphMemoryCache` over residents ordered oldest first: past the byte budget the
+/// oldest graphs first lose their runtime caches (the lookups among them), then graphs other than the newest leave;
+/// past the entry budget the oldest leave. Returns the retained bytes left, as Node's `totalRetainedBytes`.
+///
+/// Node measures and evicts in one stretch of its single thread; here every resident's runtime caches stay locked from
+/// the first measure to the last clear, so a query on another thread waits instead of filling them in between.
+fn prune_resident(all: &mut Vec<Resident>, max_entries: usize, max_bytes: u64) -> u64 {
+    let mut total;
+    let mut rows: Vec<u64>;
+    {
+        let mut runtimes: Vec<_> = all.iter().map(|r| r.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner)).collect();
+        rows = all.iter().zip(&runtimes).map(|(r, runtime)| r.retained(runtime)).collect();
+        total = rows.iter().sum::<u64>();
+        #[cfg(test)]
+        PRUNE_GATE.with(|gate| {
+            if let Some(gate) = gate.borrow_mut().as_mut() {
+                gate(all);
+            }
+        });
+        for ((r, runtime), row) in all.iter().zip(runtimes.iter_mut()).zip(rows.iter_mut()) {
+            if total <= max_bytes {
+                break;
+            }
+            runtime.clear();
+            let after = r.retained(runtime);
+            total -= row.saturating_sub(after);
+            *row = after;
+        }
+    }
+    let newest = all.len().saturating_sub(1);
+    let keep: Vec<bool> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let keep = total <= max_bytes || index == newest;
+            if !keep {
+                total -= row;
+            }
+            keep
+        })
+        .collect();
+    let mut kept = keep.iter();
+    all.retain(|_| kept.next() == Some(&true));
+    let mut kept = keep.iter();
+    rows.retain(|_| kept.next() == Some(&true));
+    let excess = all.len().saturating_sub(max_entries);
+    all.drain(..excess);
+    total - rows.drain(..excess).sum::<u64>()
 }
 
 /// `<first 16 hex of SHA-256(key)>`.
@@ -253,7 +337,37 @@ impl GraphCache {
             pending: Mutex::default(),
             scheduled: AtomicBool::new(false),
             commit: Mutex::new(()),
+            resident: Mutex::default(),
+            // `CODE_GRAPH_MEMORY_MAX_ENTRIES` and `CODE_GRAPH_MEMORY_MAX_BYTES`.
+            resident_max_entries: env_count("MIXDOG_CODE_GRAPH_MEMORY_MAX_ENTRIES", 6.0, 1.0).floor().max(1.0) as usize,
+            resident_max_bytes: (env_count("MIXDOG_CODE_GRAPH_MEMORY_MAX_MB", 48.0, 0.0) * 1024.0 * 1024.0).floor().max(1024.0 * 1024.0) as u64,
         }
+    }
+
+    /// The runtime caches of `root`'s resident graph: kept while the graph stays resident over the indexed file set it
+    /// was built for (Node's `_touchCodeGraphCache`: the root becomes the newest); a graph built over a changed set, or
+    /// after its root was evicted, starts with none and is measured (`measure`: base and token index bytes) as Node's
+    /// `_setCodeGraphCache` adds it, then the residents are pruned.
+    pub(super) fn lookups_for(&self, root: &str, signature: u64, measure: impl FnOnce() -> (u64, u64)) -> super::graph::Lookups {
+        let mut all = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let kept = all.iter().position(|r| r.root == root).map(|at| all.remove(at));
+        // build.mjs:658: a resident graph answers for CODE_GRAPH_TTL_MS after its build; later the set is loaded anew.
+        if let Some(entry) = kept.filter(|r| r.signature == signature && now_ms() - r.built_at < 30_000) {
+            let lookups = entry.lookups.clone();
+            all.push(entry);
+            return lookups;
+        }
+        let (base_bytes, token_index_bytes) = measure();
+        let lookups = super::graph::Lookups::default();
+        all.push(Resident { root: root.to_owned(), signature, lookups: lookups.clone(), base_bytes, token_index_bytes, built_at: now_ms() });
+        prune_resident(&mut all, self.resident_max_entries, self.resident_max_bytes);
+        lookups
+    }
+
+    /// dispatch.mjs:377: every call ends with the resident graphs pruned, the runtime caches it filled counted.
+    pub(super) fn prune_after_call(&self) {
+        let mut all = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        prune_resident(&mut all, self.resident_max_entries, self.resident_max_bytes);
     }
 
     #[cfg(test)]
@@ -533,5 +647,51 @@ mod tests {
         cache.stage(&other, vec![file("a.mjs", "y")]);
         cache.flush().unwrap();
         assert!(!dir.join("0123456789abcdef.json").exists(), "an unreferenced payload is swept");
+    }
+
+    /// Two calls on one resident graph: a prune (the end of one call) and a query of another call that starts on the
+    /// graph (its token index built) while the prune has measured and not yet cleared. As on Node's single thread the
+    /// query cannot change what the prune measured: it waits, the prune's accounting stays whole, and the bytes it
+    /// reports are the residents' as it leaves them.
+    #[test]
+    fn a_query_starting_on_a_graph_while_it_is_pruned_waits_for_the_prune() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = GraphCache::new(tmp.path().join("cache"));
+        let old = cache.lookups_for("old", 1, || (100, 5_000));
+        cache.lookups_for("new", 2, || (2_000, 0));
+        cache.resident_max_bytes = 1_000;
+        let gate_old = old.clone();
+        let query = Arc::new(Mutex::new(None));
+        let seen = query.clone();
+        PRUNE_GATE.with(|gate| {
+            *gate.borrow_mut() = Some(Box::new(move |_: &[Resident]| {
+                let lookups = gate_old.clone();
+                // The other call, on a thread of its own: it takes the graph's runtime caches if it can.
+                let started = std::thread::spawn(move || match lookups.try_lock() {
+                    Ok(mut runtime) => {
+                        runtime.queried = true;
+                        true
+                    }
+                    Err(_) => false,
+                })
+                .join()
+                .unwrap();
+                *seen.lock().unwrap() = Some(started);
+            }));
+        });
+        let total = {
+            let mut all = cache.resident.lock().unwrap();
+            let total = prune_resident(&mut all, cache.resident_max_entries, cache.resident_max_bytes);
+            let left: u64 = all.iter().map(|r| r.retained(&r.lookups.lock().unwrap())).sum();
+            assert_eq!(total, left, "the bytes reported are the residents' as the prune left them");
+            assert_eq!(all.iter().map(|r| r.root.as_str()).collect::<Vec<_>>(), ["new"]);
+            total
+        };
+        PRUNE_GATE.with(|gate| *gate.borrow_mut() = None);
+        assert_eq!(*query.lock().unwrap(), Some(false), "the query waited for the prune");
+        assert!(!old.lock().unwrap().queried, "nothing reached the graph's caches during the prune");
+        assert!(total > cache.resident_max_bytes, "the newest graph stays over the budget");
+        // The query goes on once the prune is done.
+        old.lock().unwrap().queried = true;
     }
 }
