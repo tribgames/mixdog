@@ -679,6 +679,9 @@ pub(crate) struct SessionActor {
     pending: bool,
     indeterminate: bool,
     published_storage: StorageState,
+    /// A hidden input's start changed the runtime and no runtime note published it yet (`RunSlot::hidden`): a snapshot shows the
+    /// runtime as last published, idle, as Node's store held it (a kickoff sets no busy until the turn's next runtime change).
+    runtime_held: std::sync::atomic::AtomicBool,
     ch: ActorChannels,
     jobs_tx: mpsc::UnboundedSender<JobDone>,
     jobs_rx: mpsc::UnboundedReceiver<JobDone>,
@@ -987,6 +990,7 @@ impl SessionActor {
             pending: false,
             indeterminate: false,
             published_storage: StorageState::Ok,
+            runtime_held: std::sync::atomic::AtomicBool::new(false),
             ch,
             jobs_tx,
             jobs_rx,
@@ -2017,7 +2021,9 @@ impl SessionActor {
                         // input's start is published with the runtime's next change (`RunSlot::hidden`).
                         let hidden_start = run.phase == RunPhase::Started
                             && self.run.as_ref().is_some_and(|slot| slot.hidden && slot.turn.as_str() == run.rid.as_str());
-                        if !hidden_start {
+                        if hidden_start {
+                            self.runtime_held.store(true, SeqCst);
+                        } else {
                             notes.push(self.runtime_note());
                         }
                     }
@@ -2109,6 +2115,7 @@ impl SessionActor {
     }
 
     fn runtime_note(&self) -> Note {
+        self.runtime_held.store(false, SeqCst);
         Note::new(
             "thread/runtime/updated",
             &ThreadSectionParams {
@@ -2345,13 +2352,20 @@ impl SessionActor {
     }
 
     fn view(&self) -> SessionView {
-        SessionView::build(
+        let mut view = SessionView::build(
             self.feed_id.clone(),
             self.deps.transcript.summary(&self.id, &self.acked.header),
             &self.acked,
             self.storage(),
             None,
-        )
+        );
+        if self.runtime_held.load(SeqCst)
+            && let Some(runtime) = view.state.runtime.as_mut()
+        {
+            runtime.busy = false;
+            runtime.spinner = None;
+        }
+        view
     }
 
     /// The control cell follows the projected state.
