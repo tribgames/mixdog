@@ -90,8 +90,8 @@ pub(super) struct Provider(pub(super) Arc<EmbeddingProvider>);
 
 #[async_trait]
 impl QueryEmbedder for Provider {
-    async fn query_vector(&self, text: &str) -> Option<Vec<f32>> {
-        crate::memory::recall::readiness::RecallEmbedder::new(self.0.clone(), false).query_vector(text).await
+    async fn query_vector(&self, text: &str, cancel: &tokio_util::sync::CancellationToken) -> crate::memory::error::Result<Option<Vec<f32>>> {
+        crate::memory::recall::readiness::RecallEmbedder::new(self.0.clone(), false).query_vector(text, cancel).await
     }
 }
 

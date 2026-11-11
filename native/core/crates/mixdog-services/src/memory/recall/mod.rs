@@ -23,6 +23,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::memory::core::access::MemoryCaller;
 use crate::memory::error::{MemoryError, Result};
@@ -49,10 +50,21 @@ pub const RECALL_OUTPUT_MAX_BYTES: usize = 20 * 1024;
 const FAN_OUT_QUERIES_CAP: usize = 5;
 const FAN_OUT_DEADLINE: Duration = Duration::from_secs(180);
 
-/// The vector of a recall query, when the embedding model can answer in time.
+/// The vector of a recall query, when the embedding model can answer in time; `cancel` is the request's signal and a cancelled
+/// request is refused with [`aborted`].
 #[async_trait]
 pub trait QueryEmbedder: Send + Sync {
-    async fn query_vector(&self, text: &str) -> Option<Vec<f32>>;
+    async fn query_vector(&self, text: &str, cancel: &CancellationToken) -> Result<Option<Vec<f32>>>;
+}
+
+/// `throwIfAborted(signal)` / `abortReason(signal)` of a request aborted with no reason: Node's default `AbortError`.
+pub fn aborted() -> MemoryError {
+    MemoryError::rejected("This operation was aborted")
+}
+
+/// `throwIfAborted(signal)`.
+fn throw_if_aborted(cancel: &CancellationToken) -> Result<()> {
+    if cancel.is_cancelled() { Err(aborted()) } else { Ok(()) }
 }
 
 #[cfg(test)]
@@ -251,9 +263,14 @@ impl Recall {
         self.clock().now_ms
     }
 
-    /// The `recall` tool.
+    /// The `recall` tool with a request no one cancels.
     pub async fn recall(&self, args: &Value) -> RecallOutcome {
-        match self.handle_search(&recall_search_args(args)).await {
+        self.recall_cancellable(args, &CancellationToken::new()).await
+    }
+
+    /// The `recall` tool; `cancel` is the request's signal (the turn's stop).
+    pub async fn recall_cancellable(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
+        match self.handle_search(&recall_search_args(args), cancel).await {
             Ok(mut outcome) => {
                 outcome.text = cap_recall_text(&outcome.text, RECALL_OUTPUT_MAX_BYTES);
                 outcome
@@ -264,7 +281,7 @@ impl Recall {
 
     /// The internal `search_memories` tool.
     pub async fn search_memories(&self, args: &Value) -> RecallOutcome {
-        match self.handle_search(args).await {
+        match self.handle_search(args, &CancellationToken::new()).await {
             Ok(outcome) => outcome,
             Err(error) => {
                 RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true }
@@ -272,7 +289,9 @@ impl Recall {
         }
     }
 
-    pub async fn handle_search(&self, args: &Value) -> Result<RecallOutcome> {
+    /// `handleSearch(args, signal)` (`query-handlers.mjs:49`).
+    pub async fn handle_search(&self, args: &Value, cancel: &CancellationToken) -> Result<RecallOutcome> {
+        throw_if_aborted(cancel)?;
         let mut args = args.clone();
         if let Some(object) = args.as_object_mut()
             && !object.get("ids").is_some_and(Value::is_array)
@@ -281,12 +300,12 @@ impl Recall {
                 }
         let search = SearchArgs::new(args);
         if let Some(queries) = search.query_list() {
-            return self.fan_out(&search, queries).await;
+            return self.fan_out(&search, queries, cancel).await;
         }
-        self.dispatch(&search).await
+        self.dispatch(&search, cancel).await
     }
 
-    async fn fan_out(&self, args: &SearchArgs, queries: Vec<String>) -> Result<RecallOutcome> {
+    async fn fan_out(&self, args: &SearchArgs, queries: Vec<String>, cancel: &CancellationToken) -> Result<RecallOutcome> {
         let mut dedup: Vec<String> = Vec::new();
         for q in queries.iter().map(|q| js_trim(q).to_owned()).filter(|q| !q.is_empty()) {
             if !dedup.contains(&q) {
@@ -302,8 +321,8 @@ impl Recall {
         for (index, query) in selected.iter().enumerate() {
             let mut sub = args.raw.clone();
             sub["query"] = json!(query);
-            let this = self.clone();
-            set.spawn(async move { (index, this.dispatch(&SearchArgs::new(sub)).await) });
+            let (this, cancel) = (self.clone(), cancel.clone());
+            set.spawn(async move { (index, this.dispatch(&SearchArgs::new(sub), &cancel).await) });
         }
         let gather = async {
             let mut parts: Vec<Option<String>> = vec![None; selected.len()];
@@ -325,7 +344,7 @@ impl Recall {
         Ok(RecallOutcome::ok(format!("{header}{}", parts.join("\n\n"))))
     }
 
-    async fn dispatch(&self, args: &SearchArgs) -> Result<RecallOutcome> {
+    async fn dispatch(&self, args: &SearchArgs, cancel: &CancellationToken) -> Result<RecallOutcome> {
         let db = &self.deps.db;
         let clock = self.clock();
         if args.raw.get("currentSession") == Some(&Value::Bool(true))
@@ -345,7 +364,7 @@ impl Recall {
         }
         let plan = resolve_search_plan(&clock, args, resolved.as_deref());
         if !plan.query.is_empty() && !plan.is_last() {
-            return Ok(RecallOutcome::ok(self.search_by_query(&clock, args, &plan).await?));
+            return Ok(RecallOutcome::ok(self.search_by_query(&clock, args, &plan, cancel).await?));
         }
         if plan.is_last() {
             let (text, cursor) = browse_last_sessions(db, &clock, args, &plan).await?;
@@ -372,12 +391,15 @@ impl Recall {
         }
     }
 
-    async fn search_by_query(&self, clock: &Clock, args: &SearchArgs, plan: &SearchPlan) -> Result<String> {
+    /// `searchByQuery` (`query-hybrid-search.mjs:276`): the request's signal is checked around the query's embedding, which it also ends.
+    async fn search_by_query(&self, clock: &Clock, args: &SearchArgs, plan: &SearchPlan, cancel: &CancellationToken) -> Result<String> {
         let db = &self.deps.db;
+        throw_if_aborted(cancel)?;
         let vector = match &self.deps.embedder {
-            Some(embedder) => embedder.query_vector(&plan.retrieval_query).await,
+            Some(embedder) => embedder.query_vector(&plan.retrieval_query, cancel).await?,
             None => None,
         };
+        throw_if_aborted(cancel)?;
         let candidates = self.retrieve_candidates(args, plan, vector).await?;
         let retrieval_limit = candidates.retrieval_limit;
         let mut filtered = order_candidates(candidates.results.clone(), plan, candidates.vague_latest_root_mode);

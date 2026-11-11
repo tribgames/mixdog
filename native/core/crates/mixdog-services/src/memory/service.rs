@@ -106,6 +106,11 @@ impl LocalMemory {
         self.recall.recall(args).await
     }
 
+    /// The `recall` tool's outcome for a request `cancel` ends (the turn's stop: Node's request signal, `tool-routes.mjs:19-46`).
+    pub async fn recall_outcome_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> RecallOutcome {
+        self.recall.recall_cancellable(args, cancel).await
+    }
+
     /// `refreshCoreMemorySnapshot(reason)`: a failure is logged, never raised.
     pub async fn refresh_snapshot(&self, reason: &str) {
         if let Err(error) = crate::memory::core::snapshot::refresh(self.lane, &self.db, &self.data_dir, &self.revision).await {
