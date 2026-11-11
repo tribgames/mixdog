@@ -685,6 +685,13 @@ const SCENARIOS = [
       // JavaScript's `\d` is ASCII: an Arabic-Indic digit between colons does not split the output line, so the second
       // line is attributed (its `zed` past the clip unattributed) rather than ambiguous and rescanned per pattern.
       'attr2/b.ts': `needle:\u0661:other\nneedle:\u0661:${'y'.repeat(600)} zed\n`,
+      // The server's printer clip (`--max-columns=500 --max-columns-preview`, grep-printer `write_exceeded_line`): a
+      // line longer than 500 bytes with its terminator keeps its first 500 grapheme clusters (a base letter with a
+      // combining mark, a skin-toned emoji), a CRLF terminator counts two bytes, and a last line without one counts
+      // its own bytes only. Context lines are printed by the same rule.
+      'clip/g.ts': `hit ${'e\u0301'.repeat(300)} zed\nhit ${'\u{1F44D}\u{1F3FD}'.repeat(200)} zed\nhit ${'g'.repeat(600)}\n`,
+      'clip/crlf.ts': `hit ${'a'.repeat(495)}\r\nhit ${'b'.repeat(494)}\r\nhit ${'c'.repeat(600)}\r\nhit crlf short\r\n`,
+      'clip/nonl.ts': `ctx ${'k'.repeat(600)}\nhit ${'h'.repeat(496)}`,
     };
     const mtimes = {};
     for (const d of ['f1', 'f2', 'f3', 'f4', 'f5']) {
@@ -736,6 +743,11 @@ const SCENARIOS = [
         ...both({ pattern: 'hit' }, ['long', 'edge'], 'long'),
         ...both({ pattern: 'hit', context: 0 }, ['long', 'edge'], 'long'),
         ...both({ pattern: 'hit', limit: 2 }, ['long', 'm'], 'long'),
+        ...both({ pattern: 'hit' }, ['clip', 'edge'], 'clip'),
+        ...both({ pattern: 'hit', context: 0 }, ['clip', 'edge'], 'clip'),
+        ...both({ pattern: ['hit', 'zed'], context: 0 }, ['clip', 'edge'], 'clip'),
+        ...both({ pattern: 'hit', context: 1 }, ['clip', 'edge'], 'clip'),
+        ...both({ pattern: 'hit', context: 1 }, ['long', 'edge'], 'long'),
         ...both({ pattern: ['hit', 'pad'] }),
         ...both({ pattern: ['hit', 'pad'], context: 0, limit: 5 }),
         ...both({ pattern: ['edge', 'middle'] }, ['edge', 'm'], 'edge'),
@@ -1016,7 +1028,11 @@ if (process.argv[2] === '--child') {
     const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
     let outcome;
     const from = standin?.events.length ?? 0;
-    if (call.server) await standin.script(call.server);
+    // `--standin-check`: the real server answers each call the stand-in would cut at a deadline, and the stand-in's
+    // answer to the same request is recorded beside it.
+    const checking = process.env.RECORDER_STANDIN_CHECK === '1' && call.server && !call.server.silent;
+    const script = checking ? { compare: true } : call.server;
+    if (call.server) await standin.script(script);
     try {
       const run = () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd));
       const raw = call.server?.silent ? await silentServerCall(run, standin, from) : await run();
@@ -1031,8 +1047,9 @@ if (process.argv[2] === '--child') {
     }
     if (call.server) {
       // The control pipe is ordered: once the stand-in acknowledges a script sent now, every report it made before is in.
-      if (!call.server.silent) await standin.script(call.server);
+      if (!call.server.silent) await standin.script(script);
       const seen = standin.events.slice(from);
+      if (checking) outcome.compare = seen.filter((e) => e.event === 'compare').map(({ real, standin }) => ({ real, standin }));
       const count = (name) => seen.filter((e) => e.event === name).length;
       outcome.searchServer = {
         requests: count('request'),
@@ -1077,6 +1094,9 @@ if (!graphBin || !existsSync(graphBin)) throw new Error('--graph-bin <mixdog-gra
 const scratch = args.get('scratch');
 if (!scratch) throw new Error('--scratch <scratch parent> is required');
 const only = args.get('only');
+// A check of the search stand-in against the real server (printed, not recorded): `--only <a stand-in scenario>`.
+const standinCheck = args.has('standin-check');
+if (standinCheck && !SCENARIOS.find((s) => s.name === only)?.standin) throw new Error('--standin-check needs --only <a stand-in scenario>');
 const selected = only ? SCENARIOS.filter((s) => s.name === only) : SCENARIOS;
 if (only && selected.length === 0) throw new Error(`no scenario ${only}`);
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
@@ -1089,7 +1109,7 @@ async function recordScenario(scenario) {
   const sandbox = join(run, scenario.name);
   const ws = join(sandbox, 'ws');
   mkdirSync(ws, { recursive: true });
-  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: ws, RECORDER_SCENARIO: scenario.name, RECORDER_RESULT: join(sandbox, 'result.json'), MIXDOG_GRAPH_BIN: graphBin, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0' };
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: ws, RECORDER_SCENARIO: scenario.name, RECORDER_RESULT: join(sandbox, 'result.json'), MIXDOG_GRAPH_BIN: graphBin, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', ...(standinCheck ? { RECORDER_STANDIN_CHECK: '1' } : {}) };
   for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
     env[name] = join(sandbox, name.toLowerCase());
     mkdirSync(env[name], { recursive: true });

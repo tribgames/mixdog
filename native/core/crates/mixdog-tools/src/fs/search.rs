@@ -52,7 +52,6 @@ const GREP_CONTEXT_LIMIT_MAX: usize = 40;
 const CONTENT_MATCH_CAP: usize = 200_000;
 /// `PUBLIC_PATH_BATCH_LIMIT`: the scopes one grep `path` array may name.
 const GREP_PATH_BATCH_LIMIT: usize = 10;
-const GREP_MAX_COLUMNS: usize = 500;
 
 // ---------------------------------------------------------------------------
 // shared walk helpers
@@ -1034,17 +1033,6 @@ fn escape_glob(name: &str) -> String {
     out
 }
 
-/// The search server's printer (`--max-columns=500 --max-columns-preview`, grep-printer `write_exceeded_line`): a line
-/// longer than 500 bytes with its terminator keeps its first 500 characters and is marked; no match count is kept, so
-/// the mark is always the omitted-end one. The match text carries no terminator; a `\n` one is counted.
-fn clip_match_text(s: &str) -> String {
-    if s.len() < GREP_MAX_COLUMNS {
-        return s.to_owned();
-    }
-    let head: String = s.chars().take(GREP_MAX_COLUMNS).collect();
-    format!("{head} [... omitted end of long line]")
-}
-
 /// Path prefix for grep results: the search path as given (`./` for the cwd).
 fn grep_display_root(raw: &str, root: &AbsPath, cwd: &AbsPath) -> String {
     let given = raw.trim().replace('\\', "/");
@@ -1439,7 +1427,7 @@ impl GrepTool {
         let lines: Vec<String> = found
             .all
             .iter()
-            .map(|(label, h)| format!("{}:{}:{}", label.replace('/', std::path::MAIN_SEPARATOR_STR), h.line, clip_match_text(&h.text)))
+            .map(|(label, h)| format!("{}:{}:{}", label.replace('/', std::path::MAIN_SEPARATOR_STR), h.line, h.text))
             .collect();
         let Some((by_pattern, residual)) = attribute_combined(&lines, &regexes) else { return Ok(None) };
         let mut bodies = Vec::with_capacity(patterns.len());
@@ -1869,7 +1857,7 @@ async fn adaptive_body(
     let anchors = &all[..all.len().min(cap)];
     let matches = anchors
         .iter()
-        .map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: clip_match_text(&h.text) })
+        .map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: h.text.clone() })
         .collect();
     let text = super::grep_context::expand(ctx, matches, pattern, window.offset, window.limit, known, window.context.unwrap_or(0), budget).await?;
     let mut out = if text.is_empty() { no_matches(known) } else { text };
@@ -1903,7 +1891,7 @@ fn bare_body(all: &[(String, Hit)], window: &Window, shape: Shape) -> String {
         && (shape.totals == Totals::Combined || window.limit == usize::MAX || after.len() <= window.limit);
     let page = &after[..after.len().min(window.limit)];
     let mut out = if shape.fanout {
-        page.iter().map(|(label, h)| format!("{label}:{}:{}", h.line, clip_match_text(&h.text))).collect::<Vec<_>>().join("\n")
+        page.iter().map(|(label, h)| format!("{label}:{}:{}", h.line, h.text)).collect::<Vec<_>>().join("\n")
     } else {
         bare_content(page, shape.single)
     };
@@ -1973,7 +1961,7 @@ fn count_body(all: &[(String, Hit)], window: &Window, complete: bool) -> String 
 
 fn bare_content(page: &[(String, Hit)], single: bool) -> String {
     if single {
-        return page.iter().map(|(_, h)| format!("{}:{}", h.line, clip_match_text(&h.text))).collect::<Vec<_>>().join("\n");
+        return page.iter().map(|(_, h)| format!("{}:{}", h.line, h.text)).collect::<Vec<_>>().join("\n");
     }
     let mut groups: Vec<(&str, Vec<&Hit>)> = Vec::new();
     for (label, h) in page {
@@ -1986,7 +1974,7 @@ fn bare_content(page: &[(String, Hit)], single: bool) -> String {
     for (label, hits) in groups {
         out.push(if hits.len() == 1 { label.to_owned() } else { format!("{label} ({} hits)", hits.len()) });
         for h in hits {
-            out.push(format!("  {}: {}", h.line, clip_match_text(&h.text)));
+            out.push(format!("  {}: {}", h.line, h.text));
         }
     }
     out.join("\n")

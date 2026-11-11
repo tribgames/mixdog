@@ -36,6 +36,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
 tokio-util = { workspace = true }
+unicode-segmentation = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
