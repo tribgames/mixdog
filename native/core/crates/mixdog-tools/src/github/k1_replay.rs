@@ -295,13 +295,14 @@ async fn tool_text(runner: &Arc<Scripted>, data_dir: Option<&Path>, input: &Valu
     }
 }
 
-/// The recorder's `tool(input, answer, options)`: the commands, the text and its bytes, and the raw file read back.
-async fn tool(runner: Arc<Scripted>, data_dir: Option<&Path>, input: Value, session: Option<(&str, &str)>) -> Exact {
+/// The recorder's `tool(input, answer, options)`: the commands, the text and the bytes of the text as stored (its temp folders
+/// written as the recording writes them), and the raw file read back.
+async fn tool(masks: &Masks, runner: Arc<Scripted>, data_dir: Option<&Path>, input: Value, session: Option<(&str, &str)>) -> Exact {
     let text = tool_text(&runner, data_dir, &input, session).await;
     let mut entries = vec![
         ("input", Exact::plain(&input)),
         ("commands", runner.commands()),
-        ("textBytes", number(recorded_bytes(&text) as u64)),
+        ("textBytes", number(masks.text(&text).len() as u64)),
         ("text", s(&text)),
     ];
     let raw = serde_json::from_str::<Value>(&text).ok().and_then(|parsed| parsed.get("raw").and_then(Value::as_str).map(str::to_owned));
@@ -310,19 +311,6 @@ async fn tool(runner: Arc<Scripted>, data_dir: Option<&Path>, input: Value, sess
         entries.push(("rawFile", Exact::plain(&serde_json::from_str::<Value>(&content).expect("the raw file is the JSON response"))));
     }
     o(entries)
-}
-
-/// Bytes of the recorder's `os.tmpdir()` (the agent scratch folder `C:\Users\tempe\.mixdog\data\scratch\s.<16 hex>`): the
-/// recording counts `textBytes` over the text before its temp folder was written `<tmp>`, so every recorded text holding a
-/// raw path is 49 bytes (54 − "<tmp>") longer than its normalised form. The core's text is counted with that folder in
-/// place of this run's.
-const RECORDER_TMP_BYTES: usize = 54;
-
-fn recorded_bytes(text: &str) -> usize {
-    let root = std::env::temp_dir().to_string_lossy().trim_end_matches(['\\', '/']).to_owned();
-    let slashed = root.replace('\\', "/");
-    let uses = text.matches(&root).count() + if slashed == root { 0 } else { text.matches(&slashed).count() };
-    text.len() - uses * root.len() + uses * RECORDER_TMP_BYTES
 }
 
 fn json_text(value: &Value) -> String {
@@ -534,13 +522,14 @@ async fn case10_model_facing_results_drop_api_only_fields_keep_decision_fields_a
     let mut nested = pr["head"]["repo"].clone();
     nested["full_name"] = json!(REPO);
     let session = |call| Some(("sess_github_raw", call));
-    let projected = tool(Scripted::fixed(&json_text(&pr)), data, json!({"action": "run.view", "repo": REPO, "id": 7}), session("call_1")).await;
-    let repo_view = tool(Scripted::fixed(&json_text(&nested)), data, json!({"action": "repo.view", "repo": REPO}), None).await;
+    let projected = tool(&masks, Scripted::fixed(&json_text(&pr)), data, json!({"action": "run.view", "repo": REPO, "id": 7}), session("call_1")).await;
+    let repo_view = tool(&masks, Scripted::fixed(&json_text(&nested)), data, json!({"action": "repo.view", "repo": REPO}), None).await;
     let bodies: Vec<Value> = (1..=2).map(|number| json!({"number": number, "body": "y".repeat(20_000)})).collect();
-    let bodies = tool(Scripted::fixed(&json_text(&json!(bodies))), data, json!({"action": "pr.list", "repo": REPO, "limit": 2}), session("call_bodies")).await;
+    let bodies = tool(&masks, Scripted::fixed(&json_text(&json!(bodies))), data, json!({"action": "pr.list", "repo": REPO, "limit": 2}), session("call_bodies")).await;
     let page: Vec<Value> = (1..=60).map(|number| json!({"number": number, "title": "t".repeat(200)})).collect();
-    let listed = tool(Scripted::fixed(&json_text(&json!(page))), data, json!({"action": "issue.list", "repo": REPO, "limit": 60}), session("call_2")).await;
+    let listed = tool(&masks, Scripted::fixed(&json_text(&json!(page))), data, json!({"action": "issue.list", "repo": REPO, "limit": 60}), session("call_2")).await;
     let merged = tool(
+        &masks,
         Scripted::fixed(&json_text(&json!({"sha": sha(), "merged": true, "message": "Merged"}))),
         data,
         json!({"action": "pr.merge", "repo": REPO, "number": 7, "sha": sha()}),
@@ -578,7 +567,7 @@ async fn case11_list_actions_return_compact_projected_rows_while_raw_keeps_the_f
             input[key] = value.clone();
         }
         let call_id = format!("call_{action}");
-        let out = tool(Scripted::fixed(&json_text(&response)), data, input, Some(("sess_github_list", &call_id))).await;
+        let out = tool(&masks, Scripted::fixed(&json_text(&response)), data, input, Some(("sess_github_list", &call_id))).await;
         calls.push(o(vec![
             ("action", s(action)),
             ("collection", call.get("collection").clone()),
@@ -595,7 +584,7 @@ async fn case11_list_actions_return_compact_projected_rows_while_raw_keeps_the_f
     }
     issue.insert("number".into(), json!(1));
     issue.insert("title".into(), json!("Bug"));
-    let view = tool(Scripted::fixed(&json_text(&Value::Object(issue))), data, json!({"action": "issue.view", "repo": REPO, "number": 1}), None).await;
+    let view = tool(&masks, Scripted::fixed(&json_text(&Value::Object(issue))), data, json!({"action": "issue.view", "repo": REPO, "number": 1}), None).await;
     masks.compare(&o(vec![("calls", Exact::Array(calls)), ("issueView", view)]), &expected, "case 11");
 }
 
@@ -605,13 +594,14 @@ async fn case12_pr_view_and_issue_view_keep_the_decision_fields_cap_the_body_and
     let mut masks = Masks::default();
     let data = masks.folder("github-view-");
     let data = Some(data.path());
+    let masks = &masks;
     let view = |args: Value, payload: Value| {
         let call = format!("call_{}", args["action"].as_str().expect("an action"));
         let mut input = json!({"repo": REPO});
         for (key, value) in args.as_object().expect("args") {
             input[key] = value.clone();
         }
-        async move { tool(Scripted::fixed(&json_text(&payload)), data, input, Some(("sess_github_view", &call))).await }
+        async move { tool(&masks, Scripted::fixed(&json_text(&payload)), data, input, Some(("sess_github_view", &call))).await }
     };
     let pr = plain(expected.get("prPayload"));
     let issue = plain(expected.get("issuePayload"));
@@ -623,7 +613,7 @@ async fn case12_pr_view_and_issue_view_keep_the_decision_fields_cap_the_body_and
     generic.insert("name".into(), json!("CI"));
     generic.insert("status".into(), json!("completed"));
     let generic = view(json!({"action": "run.view", "id": 5}), Value::Object(generic)).await;
-    let enterprise = tool(Scripted::fixed(r#"{"full_name":"owner/project"}"#), data, json!({"action": "repo.view", "repo": REPO, "hostname": "ghe.example.com"}), None).await;
+    let enterprise = tool(&masks, Scripted::fixed(r#"{"full_name":"owner/project"}"#), data, json!({"action": "repo.view", "repo": REPO, "hostname": "ghe.example.com"}), None).await;
     let pr_view = view(json!({"action": "pr.view", "number": 7}), pr.clone()).await;
     let issue_view = view(json!({"action": "issue.view", "number": 7}), issue.clone()).await;
     let actual = o(vec![
@@ -643,13 +633,14 @@ async fn case13_list_results_omit_raw_unless_rows_or_excerpts_were_cut() {
     let mut masks = Masks::default();
     let data = masks.folder("github-list-raw-");
     let data = Some(data.path());
-    let list = |items: Vec<Value>, limit: Option<u64>| {
+    let masks = &masks;
+    let list =|items: Vec<Value>, limit: Option<u64>| {
         let call = format!("call_{}_{}", items.len(), limit.unwrap_or(0));
         let mut input = json!({"action": "issue.list", "repo": REPO});
         if let Some(limit) = limit {
             input["limit"] = json!(limit);
         }
-        async move { tool(Scripted::fixed(&json_text(&json!(items))), data, input, Some(("sess_github_list_raw", &call))).await }
+        async move { tool(&masks, Scripted::fixed(&json_text(&json!(items))), data, input, Some(("sess_github_list_raw", &call))).await }
     };
     let whole = list(vec![json!({"number": 1, "title": "T", "state": "open", "body": "short", "url": "u"})], None).await;
     let excerpt = list(vec![json!({"number": 1, "title": "T", "state": "open", "body": "x".repeat(500)})], None).await;
@@ -662,7 +653,9 @@ async fn case13_list_results_omit_raw_unless_rows_or_excerpts_were_cut() {
 async fn case14_results_that_cannot_be_clamped_by_strings_still_fit_the_output_cap() {
     let expected = recorded(14, "results that cannot be clamped by strings still fit the output cap");
     let assets: Vec<Value> = (0..500).map(|index| json!({"id": index, "name": format!("asset-{index}.zip"), "size": index})).collect();
+    let masks = Masks::default();
     let view = tool(
+        &masks,
         Scripted::fixed(&json_text(&json!({"id": 42, "tag_name": "v1", "name": "One", "assets": assets}))),
         None,
         json!({"action": "release.view", "repo": REPO, "id": 42}),
@@ -674,9 +667,9 @@ async fn case14_results_that_cannot_be_clamped_by_strings_still_fit_the_output_c
     for index in 0..3000 {
         wide.insert(format!("k{index}"), json!(index));
     }
-    let page = tool(Scripted::fixed(&json_text(&json!([Value::Object(wide), {"number": 2}]))), None, json!({"action": "issue.list", "repo": REPO, "limit": 2}), None).await;
+    let page = tool(&masks, Scripted::fixed(&json_text(&json!([Value::Object(wide), {"number": 2}]))), None, json!({"action": "issue.list", "repo": REPO, "limit": 2}), None).await;
     let actual = o(vec![("capBytes", number(super::reduce::output_max_bytes() as u64)), ("releaseView", view), ("wideList", page)]);
-    Masks::default().compare(&actual, &expected, "case 14");
+    masks.compare(&actual, &expected, "case 14");
 }
 
 #[test]
