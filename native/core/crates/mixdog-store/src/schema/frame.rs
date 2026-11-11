@@ -73,12 +73,45 @@ pub fn group_marker(count: u64, members: &[u8]) -> Vec<u8> {
     format!("#group {count:08x} {:016x} {hex}", members.len()).into_bytes()
 }
 
+/// First bytes of a group file's head frame (FORMAT.md §1, §3.6): the file's first frame, taking
+/// the ordinal of the checkpoint it carries. Its payload, covered by the frame's CRC, is the marker
+/// fields of its group (`#gfile <count> <bytes> <sha256>`, as `#group `), one space, then the
+/// `checkpoint` record of the state before the group. It is no record and no anchor to any reader
+/// that does not know group files, so such a reader never opens a group file (§3.6). The fields
+/// and the space add 97 bytes to a checkpoint payload, within `NON_BODY_MAX`: a head is a frame of
+/// at most `MAX_FRAME_LEN` like any other.
+pub const GROUP_FILE_HEAD: &[u8] = b"#gfile ";
+
+/// The head frame payload of a group file whose members are `members` and whose state before the
+/// group is the `checkpoint` record `checkpoint` (its encoded payload).
+pub fn group_file_head(count: u64, members: &[u8], checkpoint: &[u8]) -> Vec<u8> {
+    let mut out = group_marker(count, members);
+    out[..GROUP_FILE_HEAD.len()].copy_from_slice(GROUP_FILE_HEAD);
+    out.push(b' ');
+    out.extend_from_slice(checkpoint);
+    out
+}
+
+/// A group file's head payload: its group's marker and the `checkpoint` record payload. `Err` for
+/// anything else.
+pub fn parse_group_file_head(payload: &[u8]) -> Result<(GroupMarker, &[u8]), CorruptCause> {
+    if !payload.starts_with(GROUP_FILE_HEAD) || payload.len() <= GROUP_MARKER_LEN || payload[GROUP_MARKER_LEN] != b' ' {
+        return Err(CorruptCause::Framing);
+    }
+    Ok((marker_fields(&payload[..GROUP_MARKER_LEN])?, &payload[GROUP_MARKER_LEN + 1..]))
+}
+
 /// The marker a payload is; `None` for a record payload. `Err` for a payload that starts as a
 /// marker and is not one.
 pub fn parse_group_marker(payload: &[u8]) -> Result<Option<GroupMarker>, CorruptCause> {
     if !payload.starts_with(GROUP_MARKER) {
         return Ok(None);
     }
+    marker_fields(payload).map(Some)
+}
+
+/// The count, bytes and digest of a marker payload whose 7-byte prefix was matched.
+fn marker_fields(payload: &[u8]) -> Result<GroupMarker, CorruptCause> {
     let lower_hex = |digits: &[u8]| digits.iter().all(|&b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
     let hex = |digits: &[u8]| if lower_hex(digits) { std::str::from_utf8(digits).ok().and_then(|text| u64::from_str_radix(text, 16).ok()) } else { None };
     let rest = &payload[GROUP_MARKER.len()..];
@@ -95,7 +128,7 @@ pub fn parse_group_marker(payload: &[u8]) -> Result<Option<GroupMarker>, Corrupt
     for (i, byte) in sha256.iter_mut().enumerate() {
         *byte = u8::from_str_radix(std::str::from_utf8(&rest[26 + 2 * i..28 + 2 * i]).expect("hex digits"), 16).expect("hex digits");
     }
-    Ok(Some(GroupMarker { count, bytes, sha256 }))
+    Ok(GroupMarker { count, bytes, sha256 })
 }
 
 /// Bytes of frames after which the writer starts the next batch with a `checkpoint`.
@@ -108,8 +141,8 @@ pub const DURABILITY_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 /// `checkpoint` (or `session`) frame of the newest log file to its end are fewer.
 pub const REVERSE_SCAN_MAX: u64 = CHECKPOINT_EVERY + 2 * DURABILITY_WINDOW_BYTES;
 /// Largest member bytes of a group written in place, appended to a log file (FORMAT.md §3.6). A
-/// larger group is a group file (§1): checkpoint, marker, members and nothing else, published
-/// whole under the number after a gap, read forward from its first frame.
+/// larger group is a group file (§1): its head frame, the members and nothing else, published
+/// whole under the number after a gap, read forward from its head.
 pub const GROUP_IN_PLACE_MAX: u64 = 2 * 1024 * 1024;
 /// Bytes before a candidate anchor in which the marker of an in-place group covering it starts:
 /// the marker frame and the largest in-place group (§3.5).

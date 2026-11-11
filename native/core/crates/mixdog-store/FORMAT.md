@@ -23,7 +23,8 @@ R2, R26–R35, §4.11. Where this file differs from them, §11 lists the decisio
 - `<id>` matches `^[A-Za-z0-9_-]+$`. A session directory holds only `log.*` files and
   transient `.<name>.tmp-<16 hex>` files of `publish_file`; nothing else.
 - `log.000000` starts with the `session` frame. Every later file starts with a
-  `checkpoint` frame and is created whole through `publish_file` (synced, then renamed).
+  `checkpoint` frame (a segment) or a group file head (a group file, §3.6) and is created whole
+  through `publish_file` (synced, then renamed).
   No append makes a file exceed `ROTATE_AT` = 64 MiB; the next batch goes to a new file.
   Files other than the newest are immutable.
 - **Kinds, from the names alone.** A file is a *segment* (appended to in place) or a *group
@@ -34,6 +35,16 @@ R2, R26–R35, §4.11. Where this file differs from them, §11 lists the decisio
   damaged. Writers before group files numbered without gaps, so their logs hold no group file
   and read unchanged; their readers list a log with a gap unchanged (they look up the next
   file by number, not by `n + 1`).
+  A gap comes from a group file and from nothing else: a rotation and the segment after a group
+  file take `current + 1`; every new file appears whole under its name by one rename, so a
+  crash leaves the name or does not; no log file is ever deleted or renumbered except by
+  `session.repair` (§3.4), which removes the newest files down to the damage, so it leaves no
+  gap before a file it keeps; a number never wraps (a name has 6 digits; a 7-digit name is not
+  a log name and the listing fails on it, §6.3). A file whose name says one kind and whose
+  bytes are the other is never read as either: a file after a gap that does not start with a
+  group file head has no anchor (the log does not open; a forward read ends in damage at that
+  file, `store_tests::a_segment_after_a_gap_is_damage_not_a_group`), and a group file head
+  where a segment is named is no record and no anchor.
 - No store file is memory-mapped.
 
 ## 2. Frame
@@ -185,6 +196,9 @@ journal entries use `ItemKey` = `Text<4096>` and fit as well.
   damage point to the end of that file, and every newer log file, to
   `quarantine/session_damage/<escaped "damage/<id>/<file_no>/<offset>">/`, truncate at the
   damage point, `sync_file`, then append `meta{set:{repairedAt, repairCutOrdinal}}`.
+  A damaged group file (§3.6) is moved whole, wherever in it the damage was found: it is used
+  whole or not at all, and the file before it becomes the newest
+  (`store_tests::repairing_a_damaged_group_file_moves_it_whole`).
 
 ### 3.5 Reverse scan
 
@@ -209,7 +223,8 @@ are trusted and no search is unbounded:
   or damaged marker cannot hide an anchor); the forward scan reports it if it reaches it. A
   marker naming more than `GROUP_IN_PLACE_MAX` bytes is no in-place group.
 - *Group files* (§1) are never reverse-scanned: when the newest file is one, it is read
-  forward from its first frame (§6.3), so no line inside its group is ever a candidate.
+  forward from its head frame (§6.3), so no line inside its group is ever a candidate. A group
+  file holds no `checkpoint` or `session` line at all: its one anchor is its head (§3.6).
 - Otherwise (nothing usable within `REVERSE_SCAN_MAX` + `GROUP_LOOKBACK`), the newest file is
   read whole from its first frame and the forward scan classifies everything.
 
@@ -242,6 +257,29 @@ member:
   is `session.repair`) — the same policy as a damaged frame, wherever the group is in the log.
 A payload starting `#group ` that is not a marker is `framing` damage.
 
+A group of more than `GROUP_IN_PLACE_MAX` member bytes is not appended: it is a *group file*
+(§1). A group file is `head members` and nothing else. The head is a frame by §2 with the
+ordinal of the checkpoint it carries; its payload is
+`#gfile <count> <bytes> <sha256> <checkpoint record>`: the three fields as in a marker, one
+space, then the `checkpoint` record (§5.2) of the state before the group, all under the
+frame's CRC. The members follow with the next ordinals. The head is the file's only anchor and
+it cannot be read without the group it names: there is no frame in a group file that says
+"the state is this" without saying "and these members follow". The file's length is exactly
+the head's plus `bytes`. It is used whole or not at all:
+- a file whose first frame is not a committed head (cut, zeros, any byte of it changed) has no
+  anchor: the log does not open, as for a segment whose first frame does not read;
+- otherwise, a length other than head + `bytes` (the group cut anywhere, **the whole group
+  missing included**, or bytes after it), or members that do not check as above, is damage of
+  the whole file: `damaged{file_no, offset: 0, ordinal: the head's}`. The session opens
+  read-only holding exactly the state before the group (the head's checkpoint); a forward read
+  returns nothing of the file, the head's checkpoint included. There is no torn tail in a group
+  file and nothing in it is ever truncated; `session.repair` moves it whole (§3.4).
+A reader folds the members as it checks them, in bounded memory, into a fold of that open that
+is returned only once the whole group has checked; until then nothing outside the open sees a
+member, and when the check fails the open returns the fold of the head's state
+(`store_tests::every_byte_of_a_group_file_recovers_before_or_after_the_group` compares the
+whole state and every record at every byte).
+
 **Invariant G: an anchor is never stored where its use would skip an unvalidated group.** An
 anchor is written only as the first frame of a write that starts after every earlier write
 (groups included) is durable whole, and never in the same write as a group or after a group in
@@ -252,37 +290,48 @@ which checks it whole. Each writer path keeps it (`src/log.rs`, `LogWriter::appe
 - *in place* (a group of at most `GROUP_IN_PLACE_MAX` member bytes, appended to a segment): the
   write is `[checkpoint] marker members` — the checkpoint, when due, is before the marker, and
   none follows the members; the next write starts only after this one's `sync_file`;
-- *group file* (a larger group): a new file `[checkpoint] marker members`, published whole
-  (temporary file, `sync_file`, rename, directory sync), numbered after a gap (§1); nothing is
-  ever appended to it (`LogWriter::sealed`, also set when a writer opens on one), so the next
-  write is a new segment published whole whose leading checkpoint is written after the group
-  file is durable; a clean close adds nothing to a group file;
+- *group file* (a larger group): a new file `head members`, published whole (temporary file,
+  `sync_file`, rename, directory sync), numbered after a gap (§1). Its anchor is its head,
+  which names the group: using it is reading the group. Nothing is ever appended to it
+  (`LogWriter::sealed`, also set when a writer opens on one), so the next write is a new
+  segment published whole whose leading checkpoint is written after the group file is durable;
+  a clean close adds nothing to a group file;
 - *rotation*: a new segment published whole, starting with a checkpoint, after the previous
   file's last write is durable;
 - *clean close*: a checkpoint alone, after every earlier write is durable;
 - `create` (the `session` frame alone) and `repair_damage` (truncation, then a `meta` record:
   no anchor) write no anchor after a group.
 The reader side: a group file is never reverse-scanned (§3.5); it is read forward from its
-first frame, its group checked whole in `GROUP_CHECK_CHUNK` pieces (`framing::GroupCheck`: the
-SHA-256 hashed as bytes come, one frame held at a time) and its members folded as they are
-checked, kept only if the whole group checks. A group file is published whole, so anything in it
-that does not read whole — a marker that does not check, a member, a cut, zeros — is damage at
-that frame (never a torn tail, never "no group").
+head, its group checked whole in `GROUP_CHECK_CHUNK` pieces (`framing::GroupCheck`: the
+SHA-256 hashed as bytes come, one frame held at a time). The open does it once (§6.3). A
+forward read (`read_forward`: the projection's reconcile and rebuild) that enters a group file
+checks the group whole, every member a record, before it returns the head's checkpoint or any
+member; its later windows inside the file read members by position (each frame's header, CRC
+and ordinal, within the extent the head names), as positioned reads of members do.
 
 Logs written before groups have no markers: every frame reads as before, no version change.
-A reader built before this section (o1) reads a log with groups without misreading it: the
-marker is a well-formed frame to it, so it returns the marker as the frame of its ordinal, the
-first member then fails the ordinal check (`ordinal` damage at the member), and the marker's
-payload is no record (§5.1: damage of the record layer at the marker). Such a session opens
-read-only as damaged at its first group after its newest anchor; rows before stay pageable;
-positioned reads of members of groups before the anchor read as before
-(`store_tests::an_old_reader_never_misreads_a_log_with_groups`, over every file of the log).
-Per kind: a group file holds one anchor, its first frame, so an old reader opening it as the
-newest file anchors there and stops at the marker with damage; nothing is truncated (damage,
-not a torn tail, so its open-for-append refuses). A segment after a group file starts with a
-checkpoint written once the group file was durable; an old reader opens from its anchors as a
-new one does and stops at any in-place group after its newest anchor the same way. It never
-reverse-scans into a group file, and reads members by position as plain frames.
+A reader built before this section (o1) and a log with groups, per kind of file:
+- *a segment with in-place groups*: the marker is a well-formed frame to it, so it returns the
+  marker as the frame of its ordinal, the first member then fails the ordinal check (`ordinal`
+  damage at the member), and the marker's payload is no record (§5.1: damage of the record
+  layer at the marker). Such a session opens read-only as damaged at its first group after its
+  newest anchor; nothing is truncated (damage, not a torn tail, so its open-for-append
+  refuses); rows before stay pageable; positioned reads of members of groups before the anchor
+  read as before;
+- *a group file as the newest file*: it does not open the session at all. No line of a group
+  file is a `checkpoint` or `session` frame, so its reverse scan finds no anchor; it then reads
+  from the file's first frame, whose payload (`#gfile …`) is no record, and fails the open.
+  This holds for the file as written and cut at, zeroed from, or changed at any byte
+  (`store_tests::every_byte_of_a_group_file_recovers_before_or_after_the_group` runs the old
+  reader's scans at every one): it never opens a session whose newest file is a group file,
+  whole or not, so it never opens one with the group missing;
+- *a segment after a group file*: it starts with a checkpoint written once the group file was
+  durable; an old reader opens from it as a new one does. It never reverse-scans into the group
+  file and reads its members by position as plain frames.
+What an old reader cannot do is tell a damaged group file that is not the newest file from a
+whole one at open (it does not read it then; nor does this reader's open): a damaged member
+fails its positioned read in both. (`store_tests::an_old_reader_never_misreads_a_log_with_groups`,
+over every file of logs with groups in every position.)
 
 ## 4. Blobs
 
@@ -425,8 +474,9 @@ never compared for identity.
   *n*'s barrier succeeded (one durability job in flight per session, RL §6.1). A batch
   appended in place holds at most `DURABILITY_WINDOW_BYTES` (≥ `MAX_FRAME_LEN`): one record, or
   a group of at most `GROUP_IN_PLACE_MAX` member bytes. A larger group (one request's whole
-  unit, e.g. an inherited conversation) is a group file (§1, §3.6): `checkpoint`, marker,
-  members, published whole; the next batch starts a new segment with a `checkpoint`.
+  unit, e.g. an inherited conversation) is a group file (§1, §3.6): its head (the `checkpoint`
+  and the group's fields in one frame) and the members, published whole; the next batch starts
+  a new segment with a `checkpoint`.
 - A batch whose barrier failed is truncated away before any later append (SM §8
   `RollingBack`/`PendingRollback`), so at any time at most one unsynced batch exists, at
   the end of the newest file.
@@ -455,8 +505,10 @@ goes out of line by the §4.2 rule like any body.
 1. List `sessions/<id>/` (≤ `ceil(size / ROTATE_AT)` log names, plus two per group file
    (it and the segment after it; each group file over `GROUP_IN_PLACE_MAX` bytes), plus tmp
    names).
-2. If the newest file is a group file (§1): read its first frame (the anchor), then forward in
-   `GROUP_CHECK_CHUNK` pieces, checking its group whole and folding its members (§3.6); skip
+2. If the newest file is a group file (§1): read its head (the anchor: the state before the
+   group and the group's fields); if the file's length is the head's plus the group's bytes,
+   read forward in `GROUP_CHECK_CHUNK` pieces, checking the group whole and folding its members
+   (§3.6); any failure is damage of the whole file and the open holds the head's state; skip
    steps 2′–4. Otherwise:
 2′. Reverse scan (§3.5) the newest file to the newest committed `checkpoint`/`session`.
    The bytes from its start to the end of file are fewer than `REVERSE_SCAN_MAX` = 9 MiB

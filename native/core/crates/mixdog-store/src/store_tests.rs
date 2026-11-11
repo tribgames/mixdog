@@ -721,6 +721,40 @@ fn first_ordinal(bytes: &[u8]) -> u64 {
     u64::from_str_radix(std::str::from_utf8(&bytes[..16]).unwrap(), 16).unwrap()
 }
 
+/// A payload the test wrote, as a reader hands its record on: what a read of it must return.
+fn as_read(payload: &[u8]) -> serde_json::Value {
+    serde_json::to_value(serde_json::from_slice::<crate::schema::record::Record>(payload).expect("a record")).expect("record")
+}
+
+/// Every record the log of `id` holds, whole and in order, as the projection rebuild reads them: forward from the
+/// `session` frame through every file (`read_forward`, 1 MiB windows); and how the read ended.
+fn recovered(env: &Env, id: &str) -> (Vec<serde_json::Value>, ForwardEnd) {
+    let dir = env.dir(id);
+    let mut pos = crate::schema::checkpoint::FramePos { ordinal: first_ordinal_unlaned(&dir).unwrap(), file_no: 0, offset: 0 };
+    let mut records = Vec::new();
+    loop {
+        let read = read_forward_unlaned(&dir, pos, 1 << 20).unwrap();
+        records.extend(read.frames.iter().map(|(record, _, _)| serde_json::to_value(record).expect("record")));
+        match read.next {
+            ForwardEnd::More(next) => pos = next,
+            end => return (records, end),
+        }
+    }
+}
+
+/// Whether the reader o1 shipped (vendored, `framing_o1`) opens a newest file of these bytes: it anchors at the newest
+/// `checkpoint`/`session` line its reverse scan finds, with none at the file's first frame, and opens only when the frame
+/// it anchors at is a committed `checkpoint` or `session` record (o1 `log.rs`: `read_head`, `read_tail`).
+fn o1_opens(bytes: &[u8]) -> bool {
+    use crate::schema::record::Record;
+    let first = std::str::from_utf8(bytes.get(..16).unwrap_or_default()).ok().and_then(|t| u64::from_str_radix(t, 16).ok()).unwrap_or(0);
+    let anchor = crate::framing_o1::reverse_scan(bytes, true).unwrap_or(crate::framing_o1::Anchor { start: 0, ordinal: first });
+    let scan = crate::framing_o1::scan(bytes, 0, anchor.start, anchor.ordinal);
+    scan.frames
+        .first()
+        .is_some_and(|f| matches!(serde_json::from_slice::<Record>(f.payload(bytes)), Ok(Record::Checkpoint(_) | Record::Session(_))))
+}
+
 impl Env {
     async fn try_reopen(&self, id: &str) -> Result<OpenedLog, String> {
         let (dir, blobs, store) = (self.dir(id), BlobStore::new(&self.data), self.store.clone());
@@ -728,84 +762,137 @@ impl Env {
     }
 }
 
-/// A session whose last write is a group file (FORMAT.md §1): one item, then `members` big items. Returns the env, the
-/// group file's path and bytes, its marker offset, and the exact states before and after the group (the open of the file
-/// cut right after its leading checkpoint, and of the file whole).
+/// What an open and a forward read of a session hold.
+#[derive(Debug, Clone, PartialEq)]
+struct Seen {
+    /// The open's whole state and its status; `None` when the log does not open.
+    opened: Option<(serde_json::Value, LogStatus)>,
+    /// Every record a forward read returns, and how it ended.
+    rows: Vec<serde_json::Value>,
+    read: ForwardEnd,
+}
+
+/// A session `s1` whose last file is a group file (FORMAT.md §1), `log.000002` after `log.000000`.
 struct GroupFile {
     env: Env,
     path: PathBuf,
     bytes: Vec<u8>,
-    marker_at: usize,
-    before: serde_json::Value,
-    after: serde_json::Value,
+    /// Where the members start: the length of the head frame.
+    head_len: usize,
+    /// The head's ordinal: its checkpoint's.
+    ordinal: u64,
+    /// The `checkpoint` record payload the head carries.
+    checkpoint: Vec<u8>,
+    /// The session with the group file whole: every member.
+    whole: Seen,
+    /// The session with the group file damaged after its head: exactly what it held before the group.
+    none: Seen,
 }
 
+impl GroupFile {
+    /// Over the group file `bytes` at `path` of `env`'s `s1`, whose records before it are `rows_before` and whose member
+    /// records are `members`. The layout is checked from the bytes; the two expected views are built from what the test
+    /// wrote, the states from an open of the head alone (checked against the segment's own state) and of the file whole.
+    async fn of(env: Env, path: PathBuf, bytes: Vec<u8>, rows_before: Vec<serde_json::Value>, members: Vec<serde_json::Value>) -> GroupFile {
+        use crate::schema::frame::*;
+        let ordinal = first_ordinal(&bytes);
+        let head_len = crate::framing::check_header(&bytes[..HEADER_LEN], ordinal).unwrap().expect("a whole header") + FRAME_OVERHEAD;
+        let head = crate::framing::check_frame(&bytes[..head_len], ordinal).expect("the head frame");
+        assert!(head.starts_with(GROUP_FILE_HEAD) && head[GROUP_MARKER_LEN] == b' ', "the file starts with a group file head");
+        let fields = std::str::from_utf8(&head[..GROUP_MARKER_LEN]).unwrap();
+        let named = (u64::from_str_radix(&fields[7..15], 16).unwrap(), u64::from_str_radix(&fields[16..32], 16).unwrap());
+        assert_eq!(named, (members.len() as u64, (bytes.len() - head_len) as u64), "the head names its members; nothing follows them");
+        let checkpoint = head[GROUP_MARKER_LEN + 1..].to_vec();
+        assert!(is_anchor_payload(&checkpoint), "the head carries the checkpoint of the state before the group");
+        let scan = crate::framing::scan(&bytes, 0, 0, ordinal);
+        assert_eq!(scan.end, ScanEnd::Clean);
+        assert!(scan.frames.iter().all(|f| !is_anchor_payload(f.payload(&bytes))), "no frame of a group file is an anchor on its own");
+
+        // Without the group file the segment before it is the newest file: the state before the group, but for the
+        // head's own ordinal.
+        std::fs::remove_file(&path).unwrap();
+        let mut segment = state_of(&env.reopen("s1").await);
+        segment["covers_ordinal"] = json!(ordinal + 1);
+        let damage = Damage { file_no: 2, offset: 0, ordinal };
+        std::fs::write(&path, &bytes[..head_len]).unwrap();
+        let before = env.reopen("s1").await;
+        assert_eq!((state_of(&before), before.status), (segment, LogStatus::Damaged(damage)), "the head alone: the group is missing");
+        std::fs::write(&path, &bytes).unwrap();
+        let after = env.reopen("s1").await;
+        assert_eq!((after.status, after.fold.rows), (LogStatus::Clean, before.fold.rows + members.len() as u64));
+        let mut rows_after = rows_before.clone();
+        rows_after.push(as_read(&checkpoint));
+        rows_after.extend(members);
+        let whole = Seen {
+            opened: Some((state_of(&after), LogStatus::Clean)),
+            rows: rows_after,
+            read: ForwardEnd::Done { file_no: 2, end: bytes.len() as u64, torn: false },
+        };
+        let none = Seen { opened: Some((state_of(&before), LogStatus::Damaged(damage))), rows: rows_before, read: ForwardEnd::Damaged(damage) };
+        GroupFile { env, path, bytes, head_len, ordinal, checkpoint, whole, none }
+    }
+
+    /// The session with a group file that has no head: it does not open; a forward read stops at the file.
+    fn no_anchor(&self) -> Seen {
+        Seen { opened: None, ..self.none.clone() }
+    }
+
+    /// The session with the group file replaced by `file`.
+    async fn seen_with(&self, file: &[u8]) -> Seen {
+        std::fs::write(&self.path, file).unwrap();
+        let opened = self.env.try_reopen("s1").await.ok().map(|o| (state_of(&o), o.status));
+        let (rows, read) = recovered(&self.env, "s1");
+        std::fs::write(&self.path, &self.bytes).unwrap();
+        Seen { opened, rows, read }
+    }
+}
+
+/// A session whose last write is a group file: one item, then `members` big items in one write.
 async fn group_file_session(members: usize) -> GroupFile {
-    use crate::schema::frame::*;
     let env = Env::new();
     let w = env.create("s1", None).await;
     let (w, _) = env.commit(w, vec![item("x")]).await;
     let batch: Vec<Encoded> = (0..members).map(|i| big_item(&format!("i{i}"))).collect();
+    let member_rows = batch.iter().map(|e| as_read(&e.payload)).collect();
     let (w, ack) = env.append(w, batch).await;
     let ack = ack.unwrap();
     assert!(ack.positions.iter().all(|p| p.file_no == 2), "a group over GROUP_IN_PLACE_MAX is a group file, after a gap");
-    let marker_at = ack.positions[0].offset as usize - (GROUP_MARKER_LEN + FRAME_OVERHEAD);
+    let acked: Vec<(u64, u64)> = ack.positions.iter().map(|p| (p.ordinal, p.offset)).collect();
     env.store.project(ack.projection).await.unwrap();
     drop(w);
     assert_eq!(list_logs(&env.dir("s1")).unwrap(), [0, 2]);
     let path = env.dir("s1").join(log_name(2));
     let bytes = std::fs::read(&path).unwrap();
-    let scan = crate::framing::scan(&bytes, 0, 0, first_ordinal(&bytes));
-    assert_eq!(scan.end, ScanEnd::Clean);
-    let anchors: Vec<usize> = scan.frames.iter().filter(|f| is_anchor_payload(f.payload(&bytes))).map(|f| f.start).collect();
-    assert_eq!(anchors, [0], "a group file holds no anchor but its first frame");
-    assert_eq!(scan.frames.last().unwrap().end(), bytes.len(), "nothing follows the group");
-    assert_eq!(marker_at, scan.frames[0].end(), "the marker is the file's second frame");
-    std::fs::write(&path, &bytes[..marker_at]).unwrap();
-    let before = env.reopen("s1").await;
-    assert_eq!((before.status, before.fold.rows), (LogStatus::Clean, 1));
-    std::fs::write(&path, &bytes).unwrap();
-    let after = env.reopen("s1").await;
-    assert_eq!((after.status, after.fold.rows), (LogStatus::Clean, 1 + members as u64));
-    let (before, after) = (state_of(&before), state_of(&after));
-    GroupFile { env, path, bytes, marker_at, before, after }
+    let rows_before = vec![as_read(&session("s1", None).payload), as_read(&item("x").payload)];
+    let g = GroupFile::of(env, path, bytes, rows_before, member_rows).await;
+    let scan = crate::framing::scan(&g.bytes, 0, 0, g.ordinal);
+    assert_eq!(acked, scan.frames[1..].iter().map(|f| (f.ordinal, f.start as u64)).collect::<Vec<_>>(), "the acknowledged positions are the members' frames");
+    g
 }
 
-impl GroupFile {
-    /// Opens the session with the group file replaced by `file`: the whole state, and the damage offset if damaged.
-    async fn open_with(&self, file: &[u8]) -> Result<(serde_json::Value, LogStatus), String> {
-        std::fs::write(&self.path, file).unwrap();
-        let opened = self.env.try_reopen("s1").await;
-        std::fs::write(&self.path, &self.bytes).unwrap();
-        opened.map(|o| (state_of(&o), o.status))
-    }
-
-    fn damaged_at_marker(&self) -> LogStatus {
-        LogStatus::Damaged(Damage { file_no: 2, offset: self.marker_at as u64, ordinal: first_ordinal(&self.bytes) + 1 })
-    }
-}
-
-/// A group file (FORMAT.md §3.6 invariant G): it holds no anchor after its group and is never reverse-scanned, so a valid
-/// checkpoint line inside its members (stale or forged) is never used, wherever it lies relative to the reverse-scan
-/// windows (inside the first, across its start, between them, across the second's start, before it, before the lookback
-/// beyond it), and the group is used only whole: as written, cut inside the members, with its marker's checksum broken,
-/// and with that and a member damaged. Each time the open holds exactly the state before the group, damaged at the marker;
-/// whole, exactly the state after it. With a segment after the group file, the open uses that segment's checkpoint
-/// (written once the group file was durable) and a damaged member fails its positioned read.
+/// A group file (FORMAT.md §3.6 invariant G) holds no anchor a reader could use without its group and is never
+/// reverse-scanned, so a valid checkpoint line inside its members (stale or forged) is never used, wherever it lies
+/// relative to the reverse-scan windows (inside the first, across its start, between them, across the second's start,
+/// before it, before the lookback beyond it); and the file is used only whole. Whole, the session holds every member. Cut
+/// anywhere after the head — right after it too, the whole group missing — or with a member damaged, it holds exactly
+/// what it held before the group, record for record, and is damaged. With the head damaged the file has no anchor and the
+/// log does not open. With a segment after the group file the open uses that segment's checkpoint (written once the group
+/// file was durable); a damaged member then fails its positioned read and the forward read stops at the group file.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_group_file_is_used_only_whole_wherever_a_stale_checkpoint_lies() {
     use crate::schema::frame::*;
     // Members past REVERSE_SCAN_MAX + GROUP_LOOKBACK: every window class lies inside them.
     let g = group_file_session(60).await;
-    let marker_at = g.marker_at;
-    let member = (marker_at + g.bytes.len()) / 2;
-    let checkpoint = g.bytes[..marker_at].to_vec();
-    let l = checkpoint.len();
+    let head_len = g.head_len;
+    let member = (head_len + g.bytes.len()) / 2;
+    // A checkpoint line as a segment holds one: a frame of its own with the head's checkpoint record.
+    let mut line = Vec::new();
+    crate::framing::encode_into(&mut line, g.ordinal, &g.checkpoint);
+    let l = line.len();
     let splice = |file: &mut Vec<u8>, q: usize| {
         file[q - 1] = b'\n';
-        file[q..q + l].copy_from_slice(&checkpoint);
+        file[q..q + l].copy_from_slice(&line);
     };
-    let broken_marker = |file: &mut Vec<u8>| file[marker_at + CRC_AT] ^= 0x01;
     let w1 = MAX_FRAME_LEN + 1;
     let w2 = REVERSE_SCAN_MAX as usize + 1;
     let lookback = GROUP_LOOKBACK as usize;
@@ -819,26 +906,30 @@ async fn a_group_file_is_used_only_whole_wherever_a_stale_checkpoint_lies() {
             ("before the lookback beyond it", size - w2 - lookback - l - 10),
         ]
     };
-    assert_eq!(g.open_with(&g.bytes).await.unwrap(), (g.after.clone(), LogStatus::Clean), "whole: after");
-    let mut marker_only = g.bytes.clone();
-    broken_marker(&mut marker_only);
-    let mut marker_and_member = marker_only.clone();
-    marker_and_member[member] ^= 0x01;
-    for (shape, file) in [("the marker's checksum broken", &marker_only), ("the marker's checksum broken and a member damaged", &marker_and_member)] {
-        assert_eq!(g.open_with(file).await.unwrap(), (g.before.clone(), g.damaged_at_marker()), "{shape}");
-    }
-    let shapes: [(&str, Vec<u8>); 4] = [
-        ("as written", g.bytes.clone()),
-        ("cut inside the members", g.bytes[..g.bytes.len() - 5000].to_vec()),
-        ("the marker's checksum broken", marker_only.clone()),
-        ("the marker's checksum broken and a member damaged", marker_and_member.clone()),
+    assert_eq!(g.seen_with(&g.bytes).await, g.whole, "whole: every member");
+    assert_eq!(g.seen_with(&g.bytes[..head_len]).await, g.none, "cut right after the head: the group is missing, not absent");
+    let mut head_broken = g.bytes.clone();
+    head_broken[CRC_AT] ^= 0x01;
+    let mut member_damaged = g.bytes.clone();
+    member_damaged[member] ^= 0x01;
+    let mut both = head_broken.clone();
+    both[member] ^= 0x01;
+    let shapes: [(&str, Vec<u8>, Seen); 5] = [
+        ("as written", g.bytes.clone(), g.none.clone()),
+        ("cut inside the members", g.bytes[..g.bytes.len() - 5000].to_vec(), g.none.clone()),
+        ("a member damaged", member_damaged.clone(), g.none.clone()),
+        ("the head's checksum broken", head_broken, g.no_anchor()),
+        ("the head's checksum broken and a member damaged", both, g.no_anchor()),
     ];
-    for (shape, base) in &shapes {
+    for (shape, base, want) in &shapes {
+        if *shape != "as written" {
+            assert_eq!(&g.seen_with(base).await, want, "{shape}");
+        }
         for (class, q) in classes(base.len()) {
-            assert!(q > marker_at + GROUP_MARKER_LEN + FRAME_OVERHEAD, "{shape}, {class}: inside the members");
+            assert!(q > head_len, "{shape}, {class}: inside the members");
             let mut file = base.clone();
             splice(&mut file, q);
-            assert_eq!(g.open_with(&file).await.unwrap(), (g.before.clone(), g.damaged_at_marker()), "{shape}, {class}");
+            assert_eq!(&g.seen_with(&file).await, want, "{shape}, a checkpoint line {class}");
         }
     }
 
@@ -850,22 +941,31 @@ async fn a_group_file_is_used_only_whole_wherever_a_stale_checkpoint_lies() {
     drop(w);
     assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0, 2, 3]);
     let next = state_of(&g.env.reopen("s1").await);
-    std::fs::write(&g.path, &marker_and_member).unwrap();
+    let (rows, read) = recovered(&g.env, "s1");
+    assert_eq!(rows[..g.whole.rows.len()], g.whole.rows[..], "the group's records, then the segment's");
+    assert_eq!(rows.last(), Some(&as_read(&item("next").payload)));
+    assert!(matches!(read, ForwardEnd::Done { file_no: 3, torn: false, .. }), "{read:?}");
+    std::fs::write(&g.path, &member_damaged).unwrap();
     let opened = g.env.reopen("s1").await;
     assert_eq!((state_of(&opened), opened.status), (next, LogStatus::Clean), "the segment after it opens from its own checkpoint");
-    let pos = crate::schema::checkpoint::FramePos { ordinal: first_ordinal(&g.bytes) + 31, file_no: 2, offset: 0 };
-    let scan = crate::framing::scan(&g.bytes, 0, 0, first_ordinal(&g.bytes));
+    assert_eq!(recovered(&g.env, "s1"), (g.none.rows.clone(), g.none.read), "a forward read stops at the damaged group file: nothing of it, nothing after it");
+    let scan = crate::framing::scan(&g.bytes, 0, 0, g.ordinal);
     let damaged = scan.frames.iter().find(|f| f.start <= member && member < f.end()).copied().unwrap();
     let dir = g.env.dir("s1");
-    let read = on_lane(move |l| read_frame_at(l, &dir, crate::schema::checkpoint::FramePos { ordinal: damaged.ordinal, offset: damaged.start as u64, ..pos })).await;
+    let pos = crate::schema::checkpoint::FramePos { ordinal: damaged.ordinal, file_no: 2, offset: damaged.start as u64 };
+    let read = on_lane(move |l| read_frame_at(l, &dir, pos)).await;
     assert!(read.is_err(), "a damaged member fails its positioned read");
 }
 
-/// Every byte of a group file (a small one: the reader decides the kind from the names, not the size): cut at every offset,
-/// a flipped byte at every offset, zero from every offset. Inside its leading checkpoint the newest file has no anchor and
-/// the open fails; anywhere after, the open holds exactly the state before the group, damaged at the marker; whole, after.
+/// Every byte of a group file (a small one: the reader decides the kind from the names, not the size): cut at every
+/// offset, zero from every offset, one byte changed at every offset. Inside the head the file has no anchor and the log
+/// does not open; anywhere after it — cut right after the head too, the whole group missing — the session holds exactly
+/// what it held before the group and is damaged; only the whole file gives the group. The open's whole state and the
+/// forward read's records (bodies, order) are compared each time: a member folded before the group failed its check is
+/// in neither. The reader o1 shipped opens none of them, the whole file included.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_byte_of_a_group_file_recovers_before_or_after_the_group() {
+    use sha2::Digest;
     let env = Env::new();
     let w = env.create("s1", None).await;
     let (mut w, _) = env.commit(w, vec![item("x")]).await;
@@ -878,49 +978,101 @@ async fn every_byte_of_a_group_file_recovers_before_or_after_the_group() {
     .await;
     drop(closed.0);
     let with_cp = std::fs::read(&log0).unwrap();
-    let checkpoint = with_cp[segment.len()..].to_vec();
     std::fs::write(&log0, &segment).unwrap();
-    let cp_ordinal = first_ordinal(&checkpoint);
+    let cp_frame = &with_cp[segment.len()..];
+    let cp_ordinal = first_ordinal(cp_frame);
+    let checkpoint = crate::framing::check_frame(cp_frame, cp_ordinal).expect("the closing checkpoint").to_vec();
+    let records = [item("a"), item("b"), item("c")];
     let mut members = Vec::new();
-    for (i, iid) in ["a", "b", "c"].iter().enumerate() {
-        crate::framing::encode_into(&mut members, cp_ordinal + 1 + i as u64, &item(iid).payload);
+    for (i, e) in records.iter().enumerate() {
+        crate::framing::encode_into(&mut members, cp_ordinal + 1 + i as u64, &e.payload);
     }
-    let mut bytes = checkpoint.clone();
-    crate::framing::encode_into(&mut bytes, cp_ordinal + 1, &crate::schema::frame::group_marker(3, &members));
+    let digest: String = sha2::Sha256::digest(&members).iter().map(|b| format!("{b:02x}")).collect();
+    let mut head = format!("#gfile {:08x} {:016x} {digest} ", records.len(), members.len()).into_bytes();
+    head.extend_from_slice(&checkpoint);
+    let mut bytes = Vec::new();
+    crate::framing::encode_into(&mut bytes, cp_ordinal, &head);
     bytes.extend_from_slice(&members);
     let path = env.dir("s1").join(log_name(2));
-    std::fs::write(&path, &checkpoint).unwrap();
-    let before = env.reopen("s1").await;
-    assert_eq!((before.status, before.fold.rows), (LogStatus::Clean, 1));
     std::fs::write(&path, &bytes).unwrap();
-    let after = env.reopen("s1").await;
-    assert_eq!((after.status, after.fold.rows), (LogStatus::Clean, 4));
-    let g = GroupFile { env, path, marker_at: checkpoint.len(), before: state_of(&before), after: state_of(&after), bytes };
+    let rows_before = vec![as_read(&session("s1", None).payload), as_read(&item("x").payload)];
+    let g = GroupFile::of(env, path, bytes, rows_before, records.iter().map(|e| as_read(&e.payload)).collect()).await;
     let len = g.bytes.len();
+    let want = |k: usize| if k < g.head_len { g.no_anchor() } else { g.none.clone() };
     for k in 0..=len {
-        let cut = g.open_with(&g.bytes[..k]).await;
         let mut zeroed = g.bytes.clone();
         zeroed[k..].fill(0);
-        let zero = g.open_with(&zeroed).await;
-        for (what, got) in [("cut", cut), ("zero", zero)] {
-            match k {
-                k if k == g.marker_at && what == "cut" => assert_eq!(got.unwrap(), (g.before.clone(), LogStatus::Clean), "cut at the marker"),
-                k if k == len => assert_eq!(got.unwrap(), (g.after.clone(), LogStatus::Clean), "{what} at {k}"),
-                k if k < g.marker_at => assert!(got.is_err(), "{what} at {k}: no anchor"),
-                _ => assert_eq!(got.unwrap(), (g.before.clone(), g.damaged_at_marker()), "{what} at {k}"),
-            }
+        for (what, file) in [("cut at", &g.bytes[..k]), ("zero from", &zeroed[..])] {
+            let want = if k == len { g.whole.clone() } else { want(k) };
+            assert_eq!(g.seen_with(file).await, want, "{what} {k}");
+            assert!(!o1_opens(file), "{what} {k}: the old reader opens no group file");
         }
     }
     for k in 0..len {
-        let mut flipped = g.bytes.clone();
-        flipped[k] ^= 0x01;
-        let got = g.open_with(&flipped).await;
-        if k < g.marker_at {
-            assert!(got.is_err(), "flip at {k}: no anchor");
-        } else {
-            assert_eq!(got.unwrap(), (g.before.clone(), g.damaged_at_marker()), "flip at {k}");
-        }
+        let mut changed = g.bytes.clone();
+        changed[k] ^= 0x01;
+        assert_eq!(g.seen_with(&changed).await, want(k), "byte {k} changed");
+        assert!(!o1_opens(&changed), "byte {k} changed: the old reader opens no group file");
     }
+}
+
+/// The kind of a file is its name's (FORMAT.md §1): a number after a gap is a group file. No writer path leaves a gap
+/// before a segment; a segment found after one (a file removed from outside) is not read as a segment and not taken for
+/// a group: the log does not open and a forward read returns nothing of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_segment_after_a_gap_is_damage_not_a_group() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (mut w, _) = env.commit(w, vec![item("x")]).await;
+    let log0 = env.dir("s1").join(log_name(0));
+    let segment = std::fs::read(&log0).unwrap();
+    let closed = on_lane(move |l| {
+        let ack = w.close(l).unwrap();
+        (w, ack)
+    })
+    .await;
+    drop(closed.0);
+    let with_cp = std::fs::read(&log0).unwrap();
+    std::fs::write(&log0, &segment).unwrap();
+    // A well-formed segment (a checkpoint, then a record) under the number after a gap.
+    let mut rotated = with_cp[segment.len()..].to_vec();
+    let ordinal = first_ordinal(&rotated);
+    crate::framing::encode_into(&mut rotated, ordinal + 1, &item("y").payload);
+    assert!(o1_opens(&rotated), "a segment by its bytes");
+    std::fs::write(env.dir("s1").join(log_name(2)), &rotated).unwrap();
+    assert!(env.try_reopen("s1").await.is_err(), "no group file head: no anchor");
+    let rows_before = vec![as_read(&session("s1", None).payload), as_read(&item("x").payload)];
+    assert_eq!(recovered(&env, "s1"), (rows_before, ForwardEnd::Damaged(Damage { file_no: 2, offset: 0, ordinal })));
+}
+
+/// `session.repair` of a damaged group file (FORMAT.md §3.4, §3.6) moves the file whole to quarantine, wherever in it
+/// the damage is: the session then opens clean with exactly what it held before the group, and its next write goes on
+/// from the segment.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn repairing_a_damaged_group_file_moves_it_whole() {
+    let g = group_file_session(11).await;
+    let mut damaged = g.bytes.clone();
+    damaged[(g.head_len + g.bytes.len()) / 2] ^= 0x01;
+    std::fs::write(&g.path, &damaged).unwrap();
+    let opened = g.env.reopen("s1").await;
+    let LogStatus::Damaged(damage) = opened.status else { panic!("{:?}", opened.status) };
+    let data = g.env.data.clone();
+    let quarantine = on_lane(move |l| repair_damage(l, &data, "s1", damage).unwrap()).await;
+    assert_eq!(std::fs::read(quarantine.join(log_name(2))).unwrap(), damaged, "the whole file, as it was");
+    assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0]);
+    let opened = g.env.reopen("s1").await;
+    // The state before the group, without the head's own ordinal.
+    let mut before = g.none.opened.clone().expect("opened").0;
+    before["covers_ordinal"] = json!(g.ordinal);
+    assert_eq!((state_of(&opened), opened.status), (before, LogStatus::Clean));
+    let (rows, read) = recovered(&g.env, "s1");
+    assert_eq!(rows, g.none.rows);
+    assert!(matches!(read, ForwardEnd::Done { file_no: 0, torn: false, .. }), "{read:?}");
+    let deps = g.env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    let (w, ordinals) = g.env.commit(w, vec![item("next")]).await;
+    drop(w);
+    assert_eq!((ordinals, list_logs(&g.env.dir("s1")).unwrap()), (vec![g.ordinal], vec![0]));
 }
 
 /// Open cost (FORMAT.md §6.3): a log ending in a group file reads it once (in chunks); the next write starts a new
@@ -930,7 +1082,7 @@ async fn every_byte_of_a_group_file_recovers_before_or_after_the_group() {
 async fn the_open_reads_the_last_group_once_and_otherwise_the_window() {
     use crate::schema::frame::*;
     let g = group_file_session(30).await;
-    let group = (g.bytes.len() - g.marker_at) as u64;
+    let group = (g.bytes.len() - g.head_len) as u64;
     let window = MAX_FRAME_LEN as u64 + 1 + GROUP_LOOKBACK + 4096;
     let opened = g.env.reopen("s1").await;
     assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 31));
@@ -960,9 +1112,10 @@ async fn the_open_reads_the_last_group_once_and_otherwise_the_window() {
 }
 
 /// The reader o1 shipped (vendored, `framing_o1`) over EVERY file of logs with groups in every position — in-place groups,
-/// a group file, the segment after it — never misreads them and truncates nothing: up to its first group marker it
-/// returns what this reader returns; there it stops with damage (the first member fails its ordinal; damage, not a torn
-/// tail) and the marker is no record to its record layer; a member read by position reads the same.
+/// a group file, the segment after it — never misreads them and truncates nothing. A segment it opens from its newest
+/// anchor: up to its first group marker it returns what this reader returns; there it stops with damage (the first member
+/// fails its ordinal; damage, not a torn tail) and the marker is no record to its record layer; a member read by position
+/// reads the same. A group file it does not open at all: no line of it is an anchor and its first frame is no record.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_old_reader_never_misreads_a_log_with_groups() {
     use crate::schema::frame::*;
@@ -985,39 +1138,44 @@ async fn an_old_reader_never_misreads_a_log_with_groups() {
         drop(w);
         let files = list_logs(&env.dir("s1")).unwrap();
         assert_eq!(files, want_files, "{layout}");
-        let mut markers = 0;
+        let mut met = 0;
         for &file_no in &files {
             let path = env.dir("s1").join(log_name(file_no));
             let bytes = std::fs::read(&path).unwrap();
-            let what = format!("{layout}, log {file_no}{}", if is_group_file(&files, file_no) { " (group file)" } else { "" });
+            let group_file = is_group_file(&files, file_no);
+            let what = format!("{layout}, log {file_no}{}", if group_file { " (group file)" } else { "" });
             let first = first_ordinal(&bytes);
             let new = crate::framing::scan(&bytes, 0, 0, first);
             assert_eq!(new.end, ScanEnd::Clean, "{what}");
-            let anchors = [Some(crate::framing_o1::Anchor { start: 0, ordinal: first }), crate::framing_o1::reverse_scan(&bytes, true)];
-            for anchor in anchors.into_iter().flatten() {
-                let old = crate::framing_o1::scan(&bytes, 0, anchor.start, anchor.ordinal);
-                let new_from: Vec<(u64, usize)> = new.frames.iter().filter(|f| f.start >= anchor.start).map(|f| (f.ordinal, f.start)).collect();
-                let old_frames: Vec<(u64, usize)> = old.frames.iter().map(|f| (f.ordinal, f.start)).collect();
-                match old.frames.iter().position(|f| f.payload(&bytes).starts_with(GROUP_MARKER)) {
-                    None => assert_eq!((old_frames, &old.end), (new_from, &ScanEnd::Clean), "{what} from {anchor:?}"),
-                    Some(at) => {
-                        markers += 1;
-                        assert_eq!(at, old.frames.len() - 1, "{what}: the old reader stops at its first marker");
-                        assert_eq!(old_frames[..at], new_from[..at], "{what}: the same frames before it");
-                        assert!(matches!(old.end, ScanEnd::Corrupt { cause: CorruptCause::Ordinal, .. }), "{what}: damage, nothing to truncate: {:?}", old.end);
-                        assert!(serde_json::from_slice::<crate::schema::record::Record>(old.frames[at].payload(&bytes)).is_err(), "{what}: the marker is no record");
+            if group_file {
+                assert_eq!(crate::framing_o1::reverse_scan(&bytes, true), None, "{what}: no line of it is an anchor");
+                assert!(!o1_opens(&bytes), "{what}: the old reader does not open it");
+                met += 1;
+            } else {
+                assert!(o1_opens(&bytes), "{what}: a segment opens from its newest anchor");
+                let anchors = [Some(crate::framing_o1::Anchor { start: 0, ordinal: first }), crate::framing_o1::reverse_scan(&bytes, true)];
+                for anchor in anchors.into_iter().flatten() {
+                    let old = crate::framing_o1::scan(&bytes, 0, anchor.start, anchor.ordinal);
+                    let new_from: Vec<(u64, usize)> = new.frames.iter().filter(|f| f.start >= anchor.start).map(|f| (f.ordinal, f.start)).collect();
+                    let old_frames: Vec<(u64, usize)> = old.frames.iter().map(|f| (f.ordinal, f.start)).collect();
+                    match old.frames.iter().position(|f| f.payload(&bytes).starts_with(GROUP_MARKER)) {
+                        None => assert_eq!((old_frames, &old.end), (new_from, &ScanEnd::Clean), "{what} from {anchor:?}"),
+                        Some(at) => {
+                            met += 1;
+                            assert_eq!(at, old.frames.len() - 1, "{what}: the old reader stops at its first marker");
+                            assert_eq!(old_frames[..at], new_from[..at], "{what}: the same frames before it");
+                            assert!(matches!(old.end, ScanEnd::Corrupt { cause: CorruptCause::Ordinal, .. }), "{what}: damage, nothing to truncate: {:?}", old.end);
+                            assert!(serde_json::from_slice::<crate::schema::record::Record>(old.frames[at].payload(&bytes)).is_err(), "{what}: the marker is no record");
+                        }
                     }
                 }
-            }
-            if is_group_file(&files, file_no) {
-                assert_eq!(crate::framing_o1::reverse_scan(&bytes, true), Some(crate::framing_o1::Anchor { start: 0, ordinal: first }), "{what}: its only anchor is its first frame");
             }
             for frame in &new.frames {
                 let line = &bytes[frame.start..frame.end()];
                 assert_eq!(crate::framing_o1::check_frame(line, frame.ordinal).ok(), crate::framing::check_frame(line, frame.ordinal).ok(), "{what}: a positioned read");
             }
         }
-        assert!(markers > 0, "{layout}: the old reader met a marker");
+        assert!(met > 0, "{layout}: the old reader met a group");
     }
 }
 
