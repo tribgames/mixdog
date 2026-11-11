@@ -36,7 +36,7 @@ impl AgentEvidence for NoEvidence {
 
 /// The process seams over an empty saved configuration and an empty environment (the recorder ran
 /// with neither).
-async fn seams() -> (tempfile::TempDir, Arc<ConfigRunSeams>) {
+pub(crate) async fn seams() -> (tempfile::TempDir, Arc<ConfigRunSeams>) {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -54,7 +54,7 @@ async fn seams() -> (tempfile::TempDir, Arc<ConfigRunSeams>) {
     (dir, Arc::new(seams))
 }
 
-struct TextOnly;
+pub(crate) struct TextOnly;
 impl MediaMeter for TextOnly {
     fn part(&self, part: &ContentPart) -> PartMeter {
         match part {

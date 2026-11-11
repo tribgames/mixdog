@@ -46,7 +46,7 @@ mod failed_turn_rewind;
 pub mod assemble;
 pub mod run_approvals;
 pub mod prewarm;
-pub mod message_row;
+pub use mixdog_agent::message_row;
 pub mod rules_lead;
 pub mod deferred_manifest;
 pub mod tool_migration;
@@ -131,6 +131,8 @@ pub mod request_snapshot;
 pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;
+#[cfg(test)]
+mod session_route_state_replay;
 pub mod compact_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;
