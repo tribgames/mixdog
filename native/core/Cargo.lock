@@ -5094,6 +5094,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "trash",
+ "unicode-segmentation",
  "uuid",
  "windows-sys 0.61.2",
 ]

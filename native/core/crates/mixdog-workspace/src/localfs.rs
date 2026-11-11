@@ -834,22 +834,42 @@ fn walk_error(error: &ignore::Error, root: &Path) -> FsError {
     }
 }
 
-/// The match text a stream item keeps: the search server's printer clip (`--max-columns=500 --max-columns-preview`,
-/// grep-printer `write_exceeded_line`), whose mark the renderer adds. A line of 500 bytes or more keeps its first 500
-/// characters, so an item holds at most 2,000 bytes of text however long the line.
+/// The search server's printer clip (`--max-columns=500 --max-columns-preview`, serve_search/matching.rs
+/// `scan_standard`): a line longer than this many bytes with its terminator is printed as its first this many grapheme
+/// clusters and [`LONG_LINE_MARK`].
 const MAX_COLUMNS: usize = 500;
 
-/// A match line's text: `str::lines`, as the resident server does (only the terminator, `\n` or `\r\n`, goes), clipped
-/// at [`MAX_COLUMNS`]. Bytes past the clip are never decoded.
+/// grep-printer `write_exceeded_line`'s mark when no match is coloured.
+const LONG_LINE_MARK: &str = " [... omitted end of long line]";
+
+/// The most bytes of a long line's preview: 500 grapheme clusters are kept unless they take more than this (an average
+/// cluster over 131 bytes, which only a run of combining marks makes), where the preview ends instead, so an item holds
+/// at most `PREVIEW_BYTES` + the mark of text however long the line. Node's printer has no such bound.
+const PREVIEW_BYTES: usize = 64 * 1024;
+
+/// A match line as the search server prints it and splits its output (grep-printer, then `str::lines`), the matcher
+/// having run on the whole line: a line whose bytes with its `\n` are at most [`MAX_COLUMNS`] loses its terminator, `\n`
+/// or `\r\n`; a longer one is its first [`MAX_COLUMNS`] extended grapheme clusters, a `\r` before the `\n` among them
+/// (ripgrep's line ends at the `\n`; the mark that follows keeps the `\r` from `str::lines`), and [`LONG_LINE_MARK`]. A
+/// file's last line without a terminator is long past [`MAX_COLUMNS`] bytes. Bytes past [`PREVIEW_BYTES`] are never
+/// decoded.
 fn match_text(bytes: &[u8]) -> String {
-    let line = bytes.strip_suffix(b"\n").map_or(bytes, |l| l.strip_suffix(b"\r").unwrap_or(l));
-    // 500 characters take at most 2,000 bytes; four more bytes show whether a 501st follows.
-    let head = &line[..line.len().min(MAX_COLUMNS * 4 + 4)];
-    let text = String::from_utf8_lossy(head);
-    if head.len() == line.len() && text.len() < MAX_COLUMNS {
-        return text.into_owned();
+    use unicode_segmentation::UnicodeSegmentation as _;
+    let terminated = bytes.ends_with(b"\n");
+    let line = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    if line.len() + usize::from(terminated) <= MAX_COLUMNS {
+        let line = if terminated { line.strip_suffix(b"\r").unwrap_or(line) } else { line };
+        return String::from_utf8_lossy(line).into_owned();
     }
-    text.chars().take(MAX_COLUMNS).collect()
+    let head = String::from_utf8_lossy(&line[..line.len().min(PREVIEW_BYTES)]);
+    // The decoded preview is held to PREVIEW_BYTES too: a replacement character is longer than the byte it stands for.
+    let mut end = head.grapheme_indices(true).nth(MAX_COLUMNS).map_or(head.len(), |(at, _)| at).min(PREVIEW_BYTES);
+    while !head.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut text = head[..end].to_owned();
+    text.push_str(LONG_LINE_MARK);
+    text
 }
 
 /// One line per match, like ripgrep's standard printer; the column is the first match's byte start. Stops the file
@@ -892,8 +912,8 @@ impl Sink for Collect<'_> {
 }
 
 /// Items a stream holds ahead of its consumer, the capacity of its queue. A search item is one match: its path and at
-/// most 2,000 bytes of text ([`MAX_COLUMNS`]), so a full queue holds at most `QUEUE` × (2,000 bytes + one path) whatever
-/// the files hold; the producer waits while it is full.
+/// most [`PREVIEW_BYTES`] + 31 bytes of text ([`match_text`]), so a full queue holds at most `QUEUE` × (65,567 bytes +
+/// one path), about 16 MiB, whatever the files hold; the producer waits while it is full.
 pub const QUEUE: usize = 256;
 
 /// How long `close` waits for a stopped producer to end (Node's `CANCEL_GRACE_MS`, after which its client ends the
@@ -2062,15 +2082,16 @@ mod tests {
         (listing, open, read)
     }
 
-    /// The memory a search holds ahead of its consumer is its queue: [`QUEUE`] matches, each at most `4 × MAX_COLUMNS`
-    /// (2,000) bytes of text however long its line, so at most 256 × 2,000 bytes = 512,000 bytes of text plus one path per
-    /// match. A consumer that stops reading without dropping the stream holds the producer there.
+    /// The memory a search holds ahead of its consumer is its queue: [`QUEUE`] matches, each at most [`PREVIEW_BYTES`] +
+    /// the mark (65,567) bytes of text however long its line, so at most 256 × 65,567 bytes = 16,785,152 bytes of text
+    /// plus one path per match. A consumer that stops reading without dropping the stream holds the producer there.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_consumer_that_stops_reading_holds_the_producer_at_its_queue() {
         let (_dir, root) = root();
-        // 400 matching lines of 10,007 bytes each.
-        let line = format!("needle {}\n", "\u{e9}".repeat(5_000));
-        std::fs::write(root.join("a.txt").as_path(), line.repeat(400)).unwrap();
+        // 300 matching lines of 80,208 bytes each: 200 clusters of a letter and 200 combining marks, whose 500-cluster
+        // preview would take more than PREVIEW_BYTES.
+        let line = format!("needle {}\n", format!("e{}", "\u{301}".repeat(200)).repeat(200));
+        std::fs::write(root.join("a.txt").as_path(), line.repeat(300)).unwrap();
         let fs = LocalFileService::new();
         let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
         assert!(stream.next().await.unwrap().is_ok());
@@ -2081,10 +2102,12 @@ mod tests {
         let mut queued_bytes = 0;
         for _ in 0..QUEUE {
             let item = stream.next().await.unwrap().unwrap();
-            assert!(item.text.len() <= 4 * MAX_COLUMNS && item.text.chars().count() == MAX_COLUMNS, "{}", item.text.len());
+            assert!(item.text.len() <= PREVIEW_BYTES + LONG_LINE_MARK.len(), "{}", item.text.len());
+            assert!(item.text.ends_with(LONG_LINE_MARK));
             queued_bytes += item.text.len();
         }
-        assert!(queued_bytes <= QUEUE * 4 * MAX_COLUMNS, "{queued_bytes}");
+        assert!(queued_bytes <= QUEUE * (PREVIEW_BYTES + LONG_LINE_MARK.len()), "{queued_bytes}");
+        assert_eq!(QUEUE * (PREVIEW_BYTES + LONG_LINE_MARK.len()), 16_785_152);
         let started = Instant::now();
         stream.close().await;
         assert!(started.elapsed() < CLOSE_GRACE, "{:?} found {}", started.elapsed(), found());

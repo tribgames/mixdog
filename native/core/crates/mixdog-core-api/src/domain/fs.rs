@@ -114,6 +114,7 @@ pub struct SearchMatch {
     pub line: u64,
     /// 1-based byte column.
     pub column: u64,
+    /// The line as Node's search server prints it: without its terminator, a long line clipped and marked.
     pub text: String,
 }
 

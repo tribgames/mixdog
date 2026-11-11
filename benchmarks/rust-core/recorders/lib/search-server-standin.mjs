@@ -11,6 +11,8 @@
 //                      scanned: their lines, cut at the window's collection stop (offset + limit + 1), `complete: false,
 //                      partial: true, timeout: true`.
 //   { silent: true }   the server never answers a search and ignores `{cancel}`: Node's own deadline timer decides.
+//   { compare: true }  a check of the stand-in, not a deadline: the real server answers the request itself, and the
+//                      stand-in's answer under a deadline that never passes is reported beside it (`compare`).
 // Every request, cancel and answer is reported on the control pipe, so the recorder sees what the client did to the
 // server; the pipe closing without a `stdin-end` report means the process was killed.
 import { spawn } from 'node:child_process';
@@ -30,6 +32,13 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
   });
   // Requests the stand-in answers itself, by id: the client's request and the script it is answered under.
   const held = new Map();
+  // Compared requests, by the id of their whole request: the client's request and the answers so far.
+  const COMPARE_ID = 1_000_000_000;
+  const compared = new Map();
+  const reportCompare = (entry) => {
+    if (!entry.real || !entry.whole) return;
+    report({ event: 'compare', real: entry.real, standin: cutAtDeadline(entry.request, entry.whole, Infinity) });
+  };
   const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
   createInterface({ input: real.stdout }).on('line', (line) => {
     let message;
@@ -37,6 +46,17 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
       message = JSON.parse(line);
     } catch {
       process.stdout.write(`${line}\n`);
+      return;
+    }
+    if (!message?.event && compared.has(Number(message?.id))) {
+      const entry = compared.get(Number(message.id));
+      if (Number(message.id) >= COMPARE_ID) {
+        entry.whole = message;
+      } else {
+        entry.real = message;
+        process.stdout.write(`${line}\n`);
+      }
+      reportCompare(entry);
       return;
     }
     const mine = held.get(Number(message?.id));
@@ -52,7 +72,7 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
   createInterface({ input: process.stdin }).on('line', (line) => {
     const message = JSON.parse(line);
     // No deadline set: the real server answers.
-    if (script.afterFiles === undefined && !script.silent) {
+    if (script.afterFiles === undefined && !script.silent && !script.compare) {
       real.stdin.write(`${line}\n`);
       return;
     }
@@ -67,6 +87,14 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
     }
     report({ event: 'request', id: message.id, offset: message.offset, limit: message.limit });
     if (script.silent) return;
+    if (script.compare) {
+      const entry = { request: message };
+      compared.set(Number(message.id), entry);
+      compared.set(COMPARE_ID + Number(message.id), entry);
+      real.stdin.write(`${line}\n`);
+      real.stdin.write(`${JSON.stringify({ ...message, id: COMPARE_ID + Number(message.id), offset: 0, limit: 0 })}\n`);
+      return;
+    }
     // The whole answer, which the deadline then cuts.
     held.set(Number(message.id), { request: message, script });
     real.stdin.write(`${JSON.stringify({ ...message, offset: 0, limit: 0 })}\n`);
