@@ -1,0 +1,537 @@
+{
+  "set": "provider-anthropic-thinking-contract",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-fable-5-1",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:7",
+      "input": {
+        "model": "claude-fable-5-1",
+        "opts": {
+          "thinkingBudgetTokens": 4096,
+          "effort": "high"
+        },
+        "maxTokens": 128000
+      },
+      "result": {
+        "threw": {
+          "name": "TypeError",
+          "message": "claude-fable-5-1 does not support thinkingBudgetTokens; use effort with adaptive thinking instead."
+        },
+        "bodyAfter": {
+          "model": "claude-fable-5-1"
+        }
+      }
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-fable-5.1-20260901",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:7",
+      "input": {
+        "model": "claude-fable-5.1-20260901",
+        "opts": {
+          "thinkingBudgetTokens": 4096,
+          "effort": "high"
+        },
+        "maxTokens": 128000
+      },
+      "result": {
+        "threw": {
+          "name": "TypeError",
+          "message": "claude-fable-5.1-20260901 does not support thinkingBudgetTokens; use effort with adaptive thinking instead."
+        },
+        "bodyAfter": {
+          "model": "claude-fable-5.1-20260901"
+        }
+      }
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-mythos-5-1",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:7",
+      "input": {
+        "model": "claude-mythos-5-1",
+        "opts": {
+          "thinkingBudgetTokens": 4096,
+          "effort": "high"
+        },
+        "maxTokens": 128000
+      },
+      "result": {
+        "threw": {
+          "name": "TypeError",
+          "message": "claude-mythos-5-1 does not support thinkingBudgetTokens; use effort with adaptive thinking instead."
+        },
+        "bodyAfter": {
+          "model": "claude-mythos-5-1"
+        }
+      }
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-opus-4-7",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:7",
+      "input": {
+        "model": "claude-opus-4-7",
+        "opts": {
+          "thinkingBudgetTokens": 4096,
+          "effort": "high"
+        },
+        "maxTokens": 128000
+      },
+      "result": {
+        "threw": {
+          "name": "TypeError",
+          "message": "claude-opus-4-7 does not support thinkingBudgetTokens; use effort with adaptive thinking instead."
+        },
+        "bodyAfter": {
+          "model": "claude-opus-4-7"
+        }
+      }
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-opus-4-8",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:7",
+      "input": {
+        "model": "claude-opus-4-8",
+        "opts": {
+          "thinkingBudgetTokens": 4096,
+          "effort": "high"
+        },
+        "maxTokens": 128000
+      },
+      "result": {
+        "threw": {
+          "name": "TypeError",
+          "message": "claude-opus-4-8 does not support thinkingBudgetTokens; use effort with adaptive thinking instead."
+        },
+        "bodyAfter": {
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-opus-5",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:7",
+      "input": {
+        "model": "claude-opus-5",
+        "opts": {
+          "thinkingBudgetTokens": 4096,
+          "effort": "high"
+        },
+        "maxTokens": 128000
+      },
+      "result": {
+        "threw": {
+          "name": "TypeError",
+          "message": "claude-opus-5 does not support thinkingBudgetTokens; use effort with adaptive thinking instead."
+        },
+        "bodyAfter": {
+          "model": "claude-opus-5"
+        }
+      }
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-sonnet-5",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:7",
+      "input": {
+        "model": "claude-sonnet-5",
+        "opts": {
+          "thinkingBudgetTokens": 4096,
+          "effort": "high"
+        },
+        "maxTokens": 128000
+      },
+      "result": {
+        "threw": {
+          "name": "TypeError",
+          "message": "claude-sonnet-5 does not support thinkingBudgetTokens; use effort with adaptive thinking instead."
+        },
+        "bodyAfter": {
+          "model": "claude-sonnet-5"
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:low",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5-1",
+        "effort": "low",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5-1",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "low"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:high",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5-1",
+        "effort": "high",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5-1",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "high"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:xhigh",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5-1",
+        "effort": "xhigh",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5-1",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "xhigh"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:max",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5-1",
+        "effort": "max",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5-1",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "max"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:low",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5.1-20260901",
+        "effort": "low",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5.1-20260901",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "low"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:high",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5.1-20260901",
+        "effort": "high",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5.1-20260901",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "high"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:xhigh",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5.1-20260901",
+        "effort": "xhigh",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5.1-20260901",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "xhigh"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:max",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-thinking-contract.test.mjs:32",
+      "input": {
+        "model": "claude-mythos-5.1-20260901",
+        "effort": "max",
+        "history": [
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ]
+      },
+      "result": {
+        "body": {
+          "model": "claude-mythos-5.1-20260901",
+          "max_tokens": 65536,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Hello.",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "output_config": {
+            "effort": "max"
+          },
+          "thinking": {
+            "type": "adaptive",
+            "display": "updates"
+          }
+        }
+      }
+    }
+  ]
+}
