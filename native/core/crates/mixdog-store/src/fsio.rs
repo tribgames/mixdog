@@ -284,9 +284,13 @@ pub fn publish_file_with(path: &Path, bytes: &[u8], access: Access) -> Result<()
     result
 }
 
-/// The bytes in two halves, so that the boundary between them is a real partial tmp.
+/// With a hook installed, the bytes in two halves, so that the boundary between them is a real partial tmp. Without
+/// one, the single write of a build without the feature: the feature is in every development build of the core.
 #[cfg(feature = "crash-hook")]
-fn write_body(file: &mut File, tmp: &Path, bytes: &[u8]) -> Result<(), IoError> {
+fn write_body(file: &mut impl Write, tmp: &Path, bytes: &[u8]) -> Result<(), IoError> {
+    if PUBLISH_HOOK.get().is_none() {
+        return file.write_all(bytes).map_err(err(IoOp::Write, tmp));
+    }
     let (first, second) = bytes.split_at(bytes.len() / 2);
     file.write_all(first).map_err(err(IoOp::Write, tmp))?;
     publish_step(PublishStep::Write, tmp, bytes);
@@ -362,6 +366,26 @@ pub fn boot_probe<L: WriteLane>(lane: &InLane<L>, data_dir: &Path) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `crash-hook` is in every development build of the core: with no hook installed the body must go out as the
+    /// one write a build without the feature does.
+    #[cfg(feature = "crash-hook")]
+    #[test]
+    fn without_a_publish_hook_the_body_is_one_write() {
+        struct Counting(Vec<usize>);
+        impl Write for Counting {
+            fn write(&mut self, part: &[u8]) -> io::Result<usize> {
+                self.0.push(part.len());
+                Ok(part.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut file = Counting(Vec::new());
+        write_body(&mut file, Path::new("body.tmp"), b"0123456789").expect("the write succeeds");
+        assert_eq!(file.0, [10]);
+    }
 
     #[test]
     fn tmp_names_round_trip() {

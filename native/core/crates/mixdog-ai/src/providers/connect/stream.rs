@@ -86,4 +86,7 @@ impl ModelStream for DecodedStream {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+
+    /// A leaf: `next` awaits nothing after the wire's terminal event.
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
 }
