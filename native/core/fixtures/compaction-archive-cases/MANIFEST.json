@@ -9,8 +9,128 @@
       "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
     }
   },
-  "fileCount": 14,
+  "fileCount": 38,
   "files": [
+    {
+      "bytes": 4761,
+      "path": "archives/cap-holds-1.jsonl",
+      "sha256": "7b865366db70c1705ccfca4fe6ec4182251336d03abd40c67d899c816054fbd6"
+    },
+    {
+      "bytes": 33387,
+      "path": "archives/cap-holds-10.jsonl",
+      "sha256": "f1509b5daaf8aac49f865175d9e1a96ccec621b7a382a95b8d538e62d2d3bd03"
+    },
+    {
+      "bytes": 16708,
+      "path": "archives/cap-holds-11.jsonl",
+      "sha256": "a066d862c98f70cee94907e9893f318ea758cf3847d03f4272591e85b887b8a1"
+    },
+    {
+      "bytes": 22681,
+      "path": "archives/cap-holds-12.jsonl",
+      "sha256": "01a3922e4b84e92e767942216d4636b4f2adf0868d1d795ed3593586615638b6"
+    },
+    {
+      "bytes": 29854,
+      "path": "archives/cap-holds-13.jsonl",
+      "sha256": "3c9b7cb6e90e64dee3ee3b0e3d7f0267df9de3b14df27a49414a76893dbba07b"
+    },
+    {
+      "bytes": 38227,
+      "path": "archives/cap-holds-14.jsonl",
+      "sha256": "739da5b36451a64480de2d35b717e0234abe8205160601075de65db4a0dd62ed"
+    },
+    {
+      "bytes": 19119,
+      "path": "archives/cap-holds-15.jsonl",
+      "sha256": "e8a8dec57c9d381e1f340f5fb2b6a9e47fcb69f089a37ef94d233d16338115bc"
+    },
+    {
+      "bytes": 23892,
+      "path": "archives/cap-holds-16.jsonl",
+      "sha256": "83a9edac3bb1abde76fa5e02d65122221e1b3d5b1f5eaa88541e199d0e9dab53"
+    },
+    {
+      "bytes": 29865,
+      "path": "archives/cap-holds-17.jsonl",
+      "sha256": "66ba25599c2ff3f477ab6dd5afe975180b8669b95c7519926c1c05def6baa9c7"
+    },
+    {
+      "bytes": 37038,
+      "path": "archives/cap-holds-18.jsonl",
+      "sha256": "4ecae0f1d205875322018ce8538c94c63ba3e292bf5835c80f573cc85d95c126"
+    },
+    {
+      "bytes": 21519,
+      "path": "archives/cap-holds-19.jsonl",
+      "sha256": "8b29b3eb284cd3f63fa324d36e3e13666bdafc94ef079945e46314a2eedce47a"
+    },
+    {
+      "bytes": 10724,
+      "path": "archives/cap-holds-2.jsonl",
+      "sha256": "f73f0dc08e07f1eefb1cfeb5ef6a81494172ef4d25f10b862b71e6006f9ffc1c"
+    },
+    {
+      "bytes": 25092,
+      "path": "archives/cap-holds-20.jsonl",
+      "sha256": "7a358ec2fb0ba0e1ab687dfbff02e52223bce140d74f3b986db4e3f8eca4a153"
+    },
+    {
+      "bytes": 29865,
+      "path": "archives/cap-holds-21.jsonl",
+      "sha256": "f0fde20ef141d421b8f2a7084adcd2fe5357ea6a273f323fd8a4fcff275de520"
+    },
+    {
+      "bytes": 35838,
+      "path": "archives/cap-holds-22.jsonl",
+      "sha256": "edcedfb9390380eb130bd4168f75aab141db85f3446e9871009cd853351a1af0"
+    },
+    {
+      "bytes": 21492,
+      "path": "archives/cap-holds-23.jsonl",
+      "sha256": "de344d5f625675947b47f5ad373f4509ca823757fa6be00f05e12ba6bf5553fb"
+    },
+    {
+      "bytes": 29865,
+      "path": "archives/cap-holds-24.jsonl",
+      "sha256": "d79ab82a6e2889c81380298f4d61bba36706937557d2d9d3ecdf0bec3475a371"
+    },
+    {
+      "bytes": 17887,
+      "path": "archives/cap-holds-3.jsonl",
+      "sha256": "210ce804b63be556afa6b4406fd0f74014e7b926eed8f1bb7b163bcf1ac3c89b"
+    },
+    {
+      "bytes": 26250,
+      "path": "archives/cap-holds-4.jsonl",
+      "sha256": "737646c539f1d5165996b1cb322212393630fdcfd48f132853ec23f5a10fc0c3"
+    },
+    {
+      "bytes": 29813,
+      "path": "archives/cap-holds-5.jsonl",
+      "sha256": "a55c90ddd8ac268d40505fe271483eee1639dba0d9a4a381dab375b26d731b2b"
+    },
+    {
+      "bytes": 34576,
+      "path": "archives/cap-holds-6.jsonl",
+      "sha256": "4920ce499c38dcd479f01c36179bafa56841054fab5df1e9a9bd24fbf0e28981"
+    },
+    {
+      "bytes": 14289,
+      "path": "archives/cap-holds-7.jsonl",
+      "sha256": "9daa26477b6098843cdad890163f38b91c55e54658a46b08866960e02d32b4db"
+    },
+    {
+      "bytes": 21452,
+      "path": "archives/cap-holds-8.jsonl",
+      "sha256": "5240acc98597ea39d35395011c7d0a21bb320f4f25008a897fb3e14443923f6a"
+    },
+    {
+      "bytes": 29815,
+      "path": "archives/cap-holds-9.jsonl",
+      "sha256": "917d861741e997e8e67befd9f3df892189f123d605c897f32cea2d652375ecd0"
+    },
     {
       "bytes": 36667,
       "path": "archives/cap.jsonl",
@@ -77,9 +197,9 @@
       "sha256": "2b3b3f02f5f3af227444e4f883542bf10df9c579f9e4ef7f1404aa93401b679c"
     },
     {
-      "bytes": 562549,
+      "bytes": 2103425,
       "path": "golden.json",
-      "sha256": "56497be421f0ac2c772a8d7c2a5711ebf6e6c0d414676d0ad2c411134e008c07"
+      "sha256": "a29a594dcd3f02362a894ef61b79864ca9536e30841de0ef42ddf25b1ecd182a"
     }
   ],
   "inputs": [
@@ -105,7 +225,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "1ad866793937f0ec91631efb98090cfad3508da5453e21c64a51dc9d8e79db00"
+      "sha256": "f01774e9437804ec261de5fe208d19c472fd1193c4df8b9f202030aaae558676"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -127,7 +247,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs",
-  "recorderSha256": "e34a756b90dfba46f92eaf8068ae4fd7247645bdbdad1a1fa8bcf093f4a0eb5c",
+  "recorderSha256": "fd28ba4903dba187179c96dca3cef70ed7170b5a255aed6cf34652918837eec3",
   "replay": {
     "entry": "mixdog-agent compact::execution_tail (serialize_archive, ensure_archive) + mixdog-store archive writer: replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values",
     "faults": "Node injected fsync failure, short writes, publish/park hooks, read errors through its test hooks; the recording holds what those produced. A replay must inject the same faults in the real writer",
@@ -139,6 +259,13 @@
         "$.cases[7].observed.after[5].message.content",
         "$.cases[7].observed.after[8].message.content",
         "$.cases[7].observed.after[39].message.content",
+        "$.cases[13].observed.restarted.projectionStamp",
+        "$.cases[13].observed.kept[1].content",
+        "$.cases[14].observed.keptMessages[3].content",
+        "$.cases[23].observed.tail.projectionStamp",
+        "$.cases[23].observed.page.projectionStamp",
+        "$.cases[23].observed.all.projectionStamp",
+        "$.cases[23].observed.whole.projectionStamp",
         "$.cases[38].observed.log[0]",
         "$.cases[46].observed.keptNames[0]",
         "$.cases[46].observed.log[0]",
@@ -160,5 +287,5 @@
     "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
   },
   "set": "compaction-archive-cases",
-  "totalBytes": 1600433
+  "totalBytes": 3745318
 }
