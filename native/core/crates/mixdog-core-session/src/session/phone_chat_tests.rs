@@ -591,10 +591,13 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let rig = Rig::new();
         let (directory, handle) = running_on_records(&rig).await;
         let frames = || rig.feeds.frames(handle.id.as_str());
+        // The load's own frame (its agent scope) comes before anything the case does.
+        eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (!frames().is_empty()).then_some(())).await;
+        let loaded = frames().len();
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
             // Its row, its history entry and its turn start: the setup is done when all three were published.
-            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 3).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == loaded + 3).then_some(())).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;

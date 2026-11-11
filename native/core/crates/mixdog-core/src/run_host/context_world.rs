@@ -174,6 +174,10 @@ impl ContextWorld for LiveContextWorld {
         // The daemon addresses every session by thread id; there is no ambient current session.
         let Some(thread) = thread else { return Ok(None) };
         let Ok(header) = self.threads.header(thread).await else { return Ok(None) };
+        self.snapshot_for(thread, header).await
+    }
+
+    async fn snapshot_for(&self, thread: &ThreadId, header: serde_json::Map<String, Value>) -> Result<Option<ContextSnapshot>, CoreError> {
         let route = self.routes.route(thread);
         let live = self.session.live_turn_messages(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
         let rows = if live.is_empty() {

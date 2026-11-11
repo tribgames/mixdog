@@ -352,12 +352,18 @@ impl AgentStatus for AgentToolStatus {
             })));
         }
         // statusFor: a session's agents are scoped to that owner session, else to the hosting process.
-        let agent_scope = match session {
-            Some(session) => json!({ "sessionId": session }),
-            None => json!({ "clientHostPid": pid }),
-        };
-        ThreadAgents { agent_workers: workers, agent_jobs: jobs, agent_scope: Some(agent_scope) }
+        ThreadAgents { agent_workers: workers, agent_jobs: jobs, agent_scope: Some(agent_scope(thread, &handle.cell.header.load())) }
     }
+}
+
+/// statusFor's scope: a session's agents are scoped to that owner session, else to the hosting process
+/// (`clientHostPid: rt.session?.clientHostPid || process.pid`). It needs only the header, so a thread shows it
+/// in the step that seats its header, before the status read fills the rows.
+pub(crate) fn agent_scope(thread: &ThreadId, header: &Map<String, Value>) -> Value {
+    if mixdog_core_ports::ports::route::header_names_session(header) {
+        return json!({ "sessionId": thread.as_str() });
+    }
+    json!({ "clientHostPid": positive_int(header.get("clientHostPid")).unwrap_or_else(|| u64::from(std::process::id())) })
 }
 
 #[cfg(test)]
