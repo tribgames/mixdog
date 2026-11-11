@@ -171,6 +171,8 @@ impl FreshCompactor {
             force: true,
             preview,
             preview_summary,
+            // Node passes the run's inline Goal reminder here; the core's compaction request carries none.
+            latest_user_prefix: String::new(),
         }
     }
 }

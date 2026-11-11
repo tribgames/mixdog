@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6008574,
+      "bytes": 6008570,
       "path": "golden.json",
-      "sha256": "7994ce4daf658a75aa2ab4ac95da7cb5a118f8a23cf39832a50d1b4eb19beaa7"
+      "sha256": "0885f62e2ba39e8e982b1c611ff1abe48d9c16621e09bfb6fe04a28a9fc32d19"
     }
   ],
   "inputs": [
@@ -42,10 +42,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-execution-tail.mjs",
-  "recorderSha256": "1733d836c3f60d02b0ef2d31aa23d4f4f2b72d28c07ab8cc3160dad0d8c40aaa",
+  "recorderSha256": "04873239ffee5197742b9bd5c26e9f2cdd65f40a5021c0a0fd1907049218e5f2",
   "set": "execution-tail",
   "tests": [
     "src/runtime/agent/orchestrator/session/compact/execution-tail.test.mjs (:74, :116, :142, :158, :190, :218, :249, :302, :353, :368, :425, :466, :494, :520, :549, :569, :603, :639, :667, :711, :792, :828, :844, :858)"
   ],
-  "totalBytes": 6008574
+  "totalBytes": 6008570
 }
