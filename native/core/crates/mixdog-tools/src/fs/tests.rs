@@ -197,6 +197,24 @@ fn set_mtime(path: &Path, at: std::time::SystemTime) {
 /// Node's answers in `fixtures/tools-fs-search/<scenario>.json` (`record-tools-fs-search.mjs`), replayed whole, in order,
 /// over the scenario's workspace on disk. As the recorder does, files are dated 2026-01-02T03:04:05Z unless the scenario
 /// dates them, and dated directories are dated after their files are written.
+/// `wait`'s outcome; a wait past a minute (a call that never ends: a replayed search's hard timer only passes for a
+/// call whose server the recording left silent, and the context has no deadline) fails the replay naming `what`.
+async fn within<T>(what: impl FnOnce() -> String, wait: impl Future<Output = T>) -> T {
+    const LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+    match tokio::time::timeout(LIMIT, wait).await {
+        Ok(value) => value,
+        Err(_) => panic!("{} did not end within {LIMIT:?}", what()),
+    }
+}
+
+/// A replayed call that never ends (its hard timer never passes, the context has no deadline) fails the replay after
+/// the wait's limit, naming the call, rather than hanging it.
+#[tokio::test(start_paused = true)]
+#[should_panic(expected = "grep-timeout #6 grep {\"pattern\":\"needle\"} did not end within 60s")]
+async fn a_replayed_call_that_never_ends_fails_naming_it() {
+    within(|| "grep-timeout #6 grep {\"pattern\":\"needle\"}".to_owned(), std::future::pending::<()>()).await;
+}
+
 async fn replay_fs_search(scenario: &str) {
     let fixture: JsonValue = serde_json::from_str(
         &std::fs::read_to_string(
@@ -269,7 +287,7 @@ async fn replay_fs_search(scenario: &str) {
     });
     let local: Arc<dyn FileService> = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
     let files = if listed.is_empty() { local } else { Arc::new(Listed::new(local, listed, at("2026-01-02T03:04:05Z"))) };
-    let mut ctx = context_seeded(&AbsPath::new(&ws).unwrap(), files, Vec::new()).await;
+    let mut ctx = within(|| format!("{scenario}: the tool context"), context_seeded(&AbsPath::new(&ws).unwrap(), files, Vec::new())).await;
     if let Some(cwd) = fixture["cwd"].as_str() {
         ctx.cwd = AbsPath::new(ws.join(cwd)).unwrap();
     }
@@ -307,8 +325,10 @@ async fn replay_fs_search(scenario: &str) {
     let args_of = |input: &JsonValue| -> JsonValue {
         serde_json::from_str(&input.to_string().replace("<ROOT>", &fwd).replace("<ROOTW>", &raw_json[1..raw_json.len() - 1])).unwrap()
     };
-    for call in fixture["warmup"].as_array().cloned().unwrap_or_default() {
-        let _ = tool_of(call["tool"].as_str().unwrap()).call(&ctx, args_of(&call["input"])).await;
+    for (index, call) in fixture["warmup"].as_array().cloned().unwrap_or_default().iter().enumerate() {
+        let tool = call["tool"].as_str().unwrap();
+        let what = || format!("{scenario} warmup #{index} {tool} {}", call["input"]);
+        let _ = within(what, tool_of(tool).call(&ctx, args_of(&call["input"]))).await;
     }
     // As the recorder drained Node's disk cache: the warmup's graphs are written before the calls.
     if fixture["drainAfterWarmup"] == true {
@@ -324,7 +344,8 @@ async fn replay_fs_search(scenario: &str) {
         });
         mixdog_workspace::localfs::deadline_script::set(&ws, script);
         advanced.store(matches!(script, Some(Script::Silent)), std::sync::atomic::Ordering::SeqCst);
-        let (is_error, text) = recorded_form(tool_of(tool).call(&ctx, args_of(&call["input"])).await);
+        let what = || format!("{scenario} #{index} {tool} {}", call["input"]);
+        let (is_error, text) = recorded_form(within(what, tool_of(tool).call(&ctx, args_of(&call["input"]))).await);
         mixdog_workspace::localfs::deadline_script::set(&ws, None);
         // Every search of the call has ended and been joined, a timed-out one included.
         let live = mixdog_workspace::localfs::probe::live_under(&ws);
