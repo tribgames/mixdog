@@ -17,9 +17,15 @@ pub enum JudgeError {
     /// The inference lane refused the job, or the job died before answering.
     #[error("effort judge worker unavailable: {0}")]
     Worker(String),
-    /// The judge's thread already has a judgment waiting behind the running one.
+    /// The judgment waited `QUEUE_WAIT_MS` behind earlier ones and was not sent (Node's `busy`).
     #[error("effort judge is busy")]
     Busy,
+    /// The model was still loading after `COLD_WAIT_MS` (Node's `warming`).
+    #[error("effort judge is warming")]
+    Warming,
+    /// The answer did not come within `WARM_TIMEOUT_MS` of sending (Node's `timeout`).
+    #[error("timeout")]
+    Timeout,
     /// The platform has no ONNX Runtime binding (macOS Intel).
     #[error("effort judge is unsupported on this platform")]
     Unsupported,
