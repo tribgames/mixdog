@@ -4,7 +4,13 @@
   "exclusions": [
     "meta.transcript.messageId of a drained notification (msg_ + 32 hex, random per run), at that path only, is recorded as msg_<id>",
     "object identity (assert.equal(snapshot[i], messages[i])) is recorded as identity flags: sameArray, sameElements; a Rust copy needs only equality",
-    "every other value is recorded whole, encoded at the moment it was returned"
+    "every other value is recorded whole, encoded at the moment it was returned",
+    "replay (lines 66, 96): meta.transcript.messageId of the turn's prompt row (msg_ + 32 hex, random, stamped by the core's turn start) is removed: the recording holds the test's literal prompt row without one",
+    "replay line 66: the recorder drains before the first request with no tool batch; the product drains at the request after a tool batch (send-phase.mjs:53, core mixdog-agent run.rs begin_iteration), so afterDrain is compared as the prompt row and the row that drain appends",
+    "replay line 66: meta.execution and meta.submissionIds of the drained row are removed: they come from the product's queued completion (its execution and queue id); the recorder's hand-built entry {mode, content} has neither",
+    "replay line 66: sentHistory and the literal assistant/tool rows of nextRequest are the recorder's own test literals (recorder lines 98-108), not product values: replayed as the property they assert (the next turn's request starts with every row the previous request sent; its answer and new prompt have the recorded role and content)",
+    "replay line 66: guardFirst, retained, shrunkRequest and shrunk are the state and verdicts of Node's in-memory provider prefix guard (provider-prefix-guard.mjs), which the core does not hold (the migration drops _providerPrefixGuardState, store-migration 11.4.1): the core's rows are append-only, so the shrink it guards against has no product path",
+    "replay line 96: responsePreserved and userTurnPreserved are read as the client sees them: the prompt row is still the conversation's first row, and rows besides the prompt and the restart line remain"
   ],
   "fileCount": 1,
   "files": [
@@ -51,7 +57,7 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-message-sanitize.mjs",
   "recorderSha256": "125f9b0b32bf5f47b2c90626df42760a2a56351ac1d466a1adb1b0d2c0c4b055",
-  "replay": "mixdog-core run_host factory.rs item commit / mixdog-agent project.rs (model rows), mixdog-agent interrupt.rs finalize_interrupted_turn and the provider prefix guard: build the same messages (texts as recorded) and compare the snapshot (element-wise identity flags aside: a Rust snapshot is a copy), the steering-drained row, guard verdicts with their error text, and the interrupted-turn messages whole.",
+  "replay": "Lines 32, 50: the rows appended with thread/inheritedRows/append and read back with thread/modelMessages/list (mixdog-core-session session/message_sanitize_replay.rs). Line 96: a turn's rows committed by the run, the process gone mid-turn, the thread reopened over the same store and read with thread/modelMessages/list (same file). Line 66: turn/start on the run host's real agent loop, the completion through TaskNotifier::finished, the conversation read with thread/modelMessages/list at each provider request (mixdog-core run_host/session_message_sanitize_replay.rs).",
   "set": "session-message-sanitize",
   "testFile": "src/runtime/agent/orchestrator/session/manager/message-sanitize.test.mjs",
   "totalBytes": 35099,

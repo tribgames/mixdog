@@ -84,7 +84,12 @@ pub(crate) async fn read_context(
             .map_err(|_| dropped())??;
         match step {
             ContextStep::More(next) => read = Some(next),
-            ContextStep::Done(rows) => return Ok(rows),
+            ContextStep::Done(mut rows) => {
+                for (_, body) in &mut rows {
+                    mixdog_protocol::message_class::without_display_facts(body);
+                }
+                return Ok(rows);
+            }
         }
     }
 }
