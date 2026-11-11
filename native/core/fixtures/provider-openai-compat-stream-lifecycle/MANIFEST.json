@@ -19,7 +19,7 @@
     {
       "bytes": 176935,
       "path": "cases.json",
-      "sha256": "07be69810597527051d4377eac1bcd1c9cac56be9b68b4e3a63fc169b2d15f9b"
+      "sha256": "31592c794bc9c893882831a80519a8ae9a416b8e2ef95a944ff11fe70735c1ff"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-compat-stream-lifecycle.mjs",
-  "recorderSha256": "b67cd8e3f5b159d1910a13a35643a007611d1f920ddad075fc32828ead556717",
+  "recorderSha256": "7e26b77c6d190ad5d22a3729594551c5b640e125481e491fda3c8a67016c298b",
   "replay": "Rust entry (pub, on o1): the compat adapter driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079) (CompatAdapter, compat/adapter.rs:63) and mixdog_ai::retry::classify::kind_of (retry/classify.rs:142) for the classification.",
   "set": "provider-openai-compat-stream-lifecycle",
   "totalBytes": 176935,

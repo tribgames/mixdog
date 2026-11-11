@@ -3911,7 +3911,7 @@
     },
     {
       "id": "responses-unresolved-call-then-completed-carries-partial-usage",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:268",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:284",
       "input": {},
       "result": {
         "events": [
@@ -4150,7 +4150,7 @@
     },
     {
       "id": "chat-cancel-releases-pending-read-and-signal-listener",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:312",
       "input": {
         "firstEvent": {
           "choices": [
@@ -4353,7 +4353,7 @@
     },
     {
       "id": "chat-idle-releases-pending-read-and-signal-listener",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:312",
       "input": {
         "firstEvent": {
           "choices": [
@@ -4601,7 +4601,7 @@
     },
     {
       "id": "responses-cancel-releases-pending-read-and-signal-listener",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:312",
       "input": {
         "firstEvent": {
           "type": "response.output_text.delta",
@@ -4792,7 +4792,7 @@
     },
     {
       "id": "responses-idle-releases-pending-read-and-signal-listener",
-      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:312",
       "input": {
         "firstEvent": {
           "type": "response.output_text.delta",
