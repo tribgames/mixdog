@@ -196,6 +196,9 @@ journal entries use `ItemKey` = `Text<4096>` and fit as well.
   damage point to the end of that file, and every newer log file, to
   `quarantine/session_damage/<escaped "damage/<id>/<file_no>/<offset>">/`, truncate at the
   damage point, `sync_file`, then append `meta{set:{repairedAt, repairCutOrdinal}}`.
+  A place repaired before (the folder holds a `reason.json`) is repaired into
+  `damage/<id>/<file_no>/<offset>/<n>`, n = 2, 3, …: no repair replaces another's files. A
+  folder without `reason.json` is the same repair, interrupted, and is finished.
   A damaged group file (§3.6) is moved whole, wherever in it the damage was found: it is used
   whole or not at all, and the file before it becomes the newest
   (`store_tests::repairing_a_damaged_group_file_moves_it_whole`).

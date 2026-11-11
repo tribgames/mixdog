@@ -1375,11 +1375,19 @@ pub fn repair_damage(
 ) -> Result<PathBuf, IoError> {
     use crate::schema::migration::*;
     let dir = data_dir.join("sessions").join(session);
-    let key = format!("damage/{session}/{}/{}", damage.file_no, damage.offset);
-    let qdir = data_dir
-        .join(QUARANTINE_DIR)
-        .join("session_damage")
-        .join(escape_key(&key));
+    // The same place can be damaged again after a repair (a group file's number is free once the file is moved away; a
+    // cut file is written again from the cut): each repair keeps its own evidence. A folder with no reason file is this
+    // repair, interrupted (the reason is written last), and is finished; one with a reason is an earlier repair's.
+    let place = format!("damage/{session}/{}/{}", damage.file_no, damage.offset);
+    let quarantined = data_dir.join(QUARANTINE_DIR).join("session_damage");
+    let (key, qdir) = (1u32..)
+        .map(|nth| if nth == 1 { place.clone() } else { format!("{place}/{nth}") })
+        .map(|key| {
+            let qdir = quarantined.join(escape_key(&key));
+            (key, qdir)
+        })
+        .find(|(_, qdir)| !qdir.join(REASON_FILE).exists())
+        .expect("a place has a free quarantine key");
     let files = list_logs(&dir).map_err(|e| match e {
         OpenError::Io(e) => e,
         other => IoError {
