@@ -1,6 +1,7 @@
 {
   "set": "provider-admin-dev-providers",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "dev-oauth-providers-follow-developer-flags",
@@ -29,12 +30,40 @@
               "openai": true,
               "mixdog-local": true
             },
+            "statusOauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth"
+            ],
             "statusDevIds": [],
             "listAccountsError": {
-              "mimo-oauth": "Unknown OAuth provider.",
-              "cursor-oauth": "Unknown OAuth provider.",
-              "devin-oauth": "Unknown OAuth provider.",
-              "antigravity-oauth": "Unknown OAuth provider."
+              "mimo-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "cursor-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "devin-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "antigravity-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              }
             }
           },
           {
@@ -61,14 +90,38 @@
               "openai": true,
               "mixdog-local": true
             },
+            "statusOauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "cursor-oauth"
+            ],
             "statusDevIds": [
               "cursor-oauth"
             ],
             "listAccountsError": {
-              "mimo-oauth": "Unknown OAuth provider.",
+              "mimo-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
               "cursor-oauth": null,
-              "devin-oauth": "Unknown OAuth provider.",
-              "antigravity-oauth": "Unknown OAuth provider."
+              "devin-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "antigravity-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              }
             }
           },
           {
@@ -95,14 +148,38 @@
               "openai": true,
               "mixdog-local": true
             },
+            "statusOauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "mimo-oauth"
+            ],
             "statusDevIds": [
               "mimo-oauth"
             ],
             "listAccountsError": {
               "mimo-oauth": null,
-              "cursor-oauth": "Unknown OAuth provider.",
-              "devin-oauth": "Unknown OAuth provider.",
-              "antigravity-oauth": "Unknown OAuth provider."
+              "cursor-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "devin-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "antigravity-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              }
             }
           },
           {
@@ -135,6 +212,18 @@
               "openai": true,
               "mixdog-local": true
             },
+            "statusOauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "mimo-oauth",
+              "cursor-oauth",
+              "devin-oauth",
+              "antigravity-oauth"
+            ],
             "statusDevIds": [
               "mimo-oauth",
               "cursor-oauth",
@@ -174,13 +263,37 @@
               "openai": true,
               "mixdog-local": true
             },
+            "statusOauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "antigravity-oauth"
+            ],
             "statusDevIds": [
               "antigravity-oauth"
             ],
             "listAccountsError": {
-              "mimo-oauth": "Unknown OAuth provider.",
-              "cursor-oauth": "Unknown OAuth provider.",
-              "devin-oauth": "Unknown OAuth provider.",
+              "mimo-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "cursor-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "devin-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
               "antigravity-oauth": null
             }
           },
@@ -209,16 +322,691 @@
               "openai": true,
               "mixdog-local": true
             },
+            "statusOauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth"
+            ],
             "statusDevIds": [],
             "listAccountsError": {
-              "mimo-oauth": "Unknown OAuth provider.",
-              "cursor-oauth": "Unknown OAuth provider.",
-              "devin-oauth": "Unknown OAuth provider.",
-              "antigravity-oauth": "Unknown OAuth provider."
+              "mimo-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "cursor-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "devin-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              },
+              "antigravity-oauth": {
+                "$exact": "error",
+                "name": "TypeError",
+                "message": "Unknown OAuth provider.",
+                "props": {}
+              }
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerSetup",
+          "args": [
+            {},
+            {
+              "checkSecrets": false,
+              "detectLocal": false
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "muse-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "command-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mixdog-local"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/config.mjs.updateSection",
+          "args": [
+            "agent",
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerSetup",
+          "args": [
+            {},
+            {
+              "checkSecrets": false,
+              "detectLocal": false
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "muse-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "command-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mixdog-local"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/config.mjs.updateSection",
+          "args": [
+            "agent",
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerSetup",
+          "args": [
+            {},
+            {
+              "checkSecrets": false,
+              "detectLocal": false
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "muse-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "command-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mixdog-local"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/config.mjs.updateSection",
+          "args": [
+            "agent",
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerSetup",
+          "args": [
+            {},
+            {
+              "checkSecrets": false,
+              "detectLocal": false
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "muse-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "command-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mixdog-local"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/config.mjs.updateSection",
+          "args": [
+            "agent",
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerSetup",
+          "args": [
+            {},
+            {
+              "checkSecrets": false,
+              "detectLocal": false
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "muse-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "command-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mixdog-local"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/config.mjs.updateSection",
+          "args": [
+            "agent",
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.listProviderAccounts",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerSetup",
+          "args": [
+            {},
+            {
+              "checkSecrets": false,
+              "detectLocal": false
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mimo-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "cursor-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "devin-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "antigravity-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "muse-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "command-code-oauth"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "openai"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.isKnownProvider",
+          "args": [
+            "mixdog-local"
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/session-runtime/services/provider-admin.mjs.providerStatus",
+          "args": [
+            {}
+          ]
+        }
+      ]
     }
   ]
 }
