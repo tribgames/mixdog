@@ -8,9 +8,18 @@ import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from '../lib/common.mjs';
 import { answered, killTree, startCore } from '../lib/phone-files-replay.mjs';
 import { holdPorts, stopCore } from '../new-task-dedupe/replay.mjs';
-import { caseRoot, createModel, prepareData, runSteps } from './cases.mjs';
+import { caseRoot, createModel, eachAtOnce, prepareData, runSteps } from './cases.mjs';
 
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
+
+// A core's database takes the first port nothing answers on (memory/pg/cluster.rs `free_port`): two cores starting at once could both
+// take one port, so the cases running at once start their cores one after another.
+let starting = Promise.resolve();
+const oneStartAtATime = (start) => {
+  const started = starting.then(start);
+  starting = started.catch(() => {});
+  return started;
+};
 
 /** The core's side of a case's driver: the desktop's service lane over a protocol client, the thread folds kept as the window keeps them. */
 function coreApp(exe, coreRoot, model) {
@@ -53,7 +62,7 @@ function coreApp(exe, coreRoot, model) {
     side: 'core',
     async open() {
       releasePort();
-      core = await startCore(exe, coreRoot, null, false, {});
+      core = await oneStartAtATime(() => startCore(exe, coreRoot, null, false, {}));
       cores.push(core);
       folds.clear();
       await connectApp();
@@ -63,8 +72,8 @@ function coreApp(exe, coreRoot, model) {
       releasePort = await stopCore(exe, core);
     },
     openHome: async (agentId) => (await call('openAgentHome', [agentId])).sessionId,
-    newTask: async (prompt) => {
-      const answer = await call('submitNewTask', [prompt, { displayText: prompt }, { route: { provider: 'custom-harness', model: 'harness-model' } }]);
+    newTask: async (prompt, id) => {
+      const answer = await call('submitNewTask', [prompt, { displayText: prompt, id }, { route: { provider: 'custom-harness', model: 'harness-model' } }]);
       return answer.sessionId ?? answer.thread?.id;
     },
     say: (sessionId, prompt, options = {}) => call('submitToSession', [sessionId, prompt, { displayText: prompt, ...options }]),
@@ -115,17 +124,17 @@ export async function replayCase(exe, c) {
   }
 }
 
-export async function replayAll({ exe, cases }) {
+export async function replayAll({ exe, cases, jobs }) {
   const release = await holdPorts();
   try {
     const out = {};
-    for (const c of cases) {
+    await eachAtOnce(cases, jobs, async (c) => {
       try {
         out[c.name] = await replayCase(exe, c);
       } catch (error) {
         out[c.name] = { failure: String(error?.stack ?? error), requests: error?.requests ?? null };
       }
-    }
+    });
     return out;
   } finally {
     release();

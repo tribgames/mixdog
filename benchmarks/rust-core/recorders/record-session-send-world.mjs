@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { nodeTreeIdentity, parseArgs, REPO_ROOT, resolveTree, sha256, stableStringify } from './lib/common.mjs';
 import { withJob } from './lib/process-job.mjs';
-import { CASES, caseRoot, normalized } from './session-send-world/cases.mjs';
+import { CASES, caseRoot, eachAtOnce, normalized } from './session-send-world/cases.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const SUPERVISOR = 'D:\\mixdog-build\\tmp\\real-turn-harness\\cache\\supervisor-v0.1.1\\mixdog-supervisor-win32-x64.exe';
@@ -22,6 +22,10 @@ const args = parseArgs(process.argv.slice(2));
 const tree = resolveTree(args);
 const only = args.get('only');
 const chosen = CASES.filter((c) => !only || only.split(',').includes(c.name));
+if (only && chosen.length !== only.split(',').length) throw new Error(`--only names a case that is not in cases.mjs: ${only}`);
+// The cases share nothing (each its own folder, daemon or core, ports and model endpoint): `--jobs` of them run at once (default 5).
+const JOBS = Number(args.get('jobs') ?? 5);
+if (!Number.isInteger(JOBS) || JOBS < 1) throw new Error(`--jobs takes a whole number of at least 1, not ${args.get('jobs')}`);
 
 /** One case on Node in its own process (the app's main process), its daemon and every process it starts ended with the job. */
 async function recordCase(c, run) {
@@ -47,20 +51,22 @@ async function recordCase(c, run) {
 
 async function recordAll(run) {
   const out = {};
-  for (const c of chosen) out[c.name] = await recordCase(c, run);
+  await eachAtOnce(chosen, JOBS, async (c) => {
+    out[c.name] = await recordCase(c, run);
+  });
   return out;
 }
 
 if (args.get('once')) {
   // A look at Node's answers while a case is written: one run, normalized, beside the case's raw recording.
-  for (const c of chosen) {
+  await eachAtOnce(chosen, JOBS, async (c) => {
     try {
       writeFileSync(join(caseRoot(c), 'node-normalized.json'), JSON.stringify(await recordCase(c, 'run-1'), null, 2));
       console.log(`recorded ${c.name}`);
     } catch (error) {
       console.log(`FAILED ${c.name}: ${error.message.slice(0, 3000)}`);
     }
-  }
+  });
 } else if (!args.get('replay')) {
   const identity = nodeTreeIdentity(args, tree, args.get('commit') ?? COMMIT);
   const first = await recordAll('run-1');
@@ -76,13 +82,46 @@ if (args.get('once')) {
   }
   mkdirSync(SET_DIR, { recursive: true });
   const previous = only ? JSON.parse(readFileSync(join(SET_DIR, 'golden.json'), 'utf8')).cases : {};
-  const golden = `${stableStringify({ cases: { ...previous, ...first } }, 2)}\n`;
+  const cases = { ...previous, ...first };
+  const golden = `${stableStringify({ cases }, 2)}\n`;
   writeFileSync(join(SET_DIR, 'golden.json'), golden);
+  const hashed = (path) => ({ path, sha256: sha256(readFileSync(join(REPO_ROOT, path))) });
+  const manifest = {
+    set: 'session-send-world',
+    command: 'node --import tsx benchmarks/rust-core/recorders/record-session-send-world.mjs --tree <tree> --service <daemon.cjs>   (cwd <tree>/apps/desktop)',
+    exclusions: [
+      'The model endpoint is the one stand-in: a scripted OpenAI-chat endpoint (session-send-world/cases.mjs createModel) answering by the mark in the last user message. Every other step is the tree run unchanged: the app main process (DesktopServiceClient over SessionTransport), its daemon (the tree desktop service built by apps/desktop/scripts/build-daemon.mjs) and the supervisor, stopped and started again at a case step.',
+      'Scripted at the source: the window submission ids (desktop-submit-<alias>-<n>, as the renderer passes them), and in the daemon (session-send-world/daemon-clock.mjs, its execArgv) Date.now as virtual time along each causal chain (a start instant per daemon start; a timer of 1 s or more moves its callback chain by its delay) and crypto.randomUUID numbered within each call site. The memory daemon keeps the real clock.',
+      'Normal form (cases.mjs normalized): session ids by alias, other minted ids (atask, msg, sess_desktop, call, it, uuids) numbered by first appearance, padding runs named.',
+    ],
+    cases: Object.keys(cases).length,
+    files: [{ path: 'golden.json', bytes: Buffer.byteLength(golden), sha256: sha256(Buffer.from(golden)) }],
+    product: identity,
+    provenance: {
+      nodeVersion: process.version,
+      recorder: 'benchmarks/rust-core/recorders/record-session-send-world.mjs',
+      recorderSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
+      inputs: [
+        'benchmarks/rust-core/recorders/lib/common.mjs',
+        'benchmarks/rust-core/recorders/lib/phone-files-replay.mjs',
+        'benchmarks/rust-core/recorders/lib/phone-files-script.mjs',
+        'benchmarks/rust-core/recorders/lib/phone-relay-core.mjs',
+        'benchmarks/rust-core/recorders/lib/process-job.mjs',
+        'benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs',
+        'benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs',
+        'benchmarks/rust-core/recorders/session-send-world/cases.mjs',
+        'benchmarks/rust-core/recorders/session-send-world/daemon-clock.mjs',
+        'benchmarks/rust-core/recorders/session-send-world/replay.mjs',
+        'benchmarks/rust-core/recorders/session-send-world/world.mjs',
+      ].map(hashed),
+    },
+  };
+  writeFileSync(join(SET_DIR, 'MANIFEST.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`recorded ${chosen.length} cases twice, identical; golden sha256 ${sha256(Buffer.from(golden))}; tree ${identity.commit}`);
 } else {
   const { replayAll } = await import('./session-send-world/replay.mjs');
   const golden = JSON.parse(readFileSync(join(SET_DIR, 'golden.json'), 'utf8')).cases;
-  const got = await replayAll({ exe: args.get('replay'), cases: chosen });
+  const got = await replayAll({ exe: args.get('replay'), cases: chosen, jobs: JOBS });
   let failed = 0;
   for (const c of chosen) {
     const mine = got[c.name].failure ? got[c.name] : normalized(got[c.name].recorded);

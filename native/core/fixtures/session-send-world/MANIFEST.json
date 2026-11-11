@@ -1,16 +1,17 @@
 {
+  "set": "session-send-world",
   "command": "node --import tsx benchmarks/rust-core/recorders/record-session-send-world.mjs --tree <tree> --service <daemon.cjs>   (cwd <tree>/apps/desktop)",
   "exclusions": [
-    "The model endpoint is the one stand-in: a scripted OpenAI-chat endpoint (cases.mjs createModel) answering by the mark in the last user message; every other step is the real app main process, its daemon (the tree desktop service built by apps/desktop/scripts/build-daemon.mjs) and the supervisor, with a stop and restart of the process at the named step.",
-    "Normal form (cases.mjs normalized): session ids by alias, minted ids (atask, msg, sess_desktop, call, it, desktop-submit, uuids) numbered by first appearance, padding runs named, and a compaction handoff hash (messages=N sha256=<16 hex>, a hash over the compacted messages and their minted ids and times) kept as <hash>, its count and roles kept.",
-    "Both runs were recorded with this recorder before its normal form named the handoff hash and desktop-submit ids; the two raw runs were normalized again with the final normal form and are identical, golden.json is run-1 in that form."
+    "The model endpoint is the one stand-in: a scripted OpenAI-chat endpoint (session-send-world/cases.mjs createModel) answering by the mark in the last user message. Every other step is the tree run unchanged: the app main process (DesktopServiceClient over SessionTransport), its daemon (the tree desktop service built by apps/desktop/scripts/build-daemon.mjs) and the supervisor, stopped and started again at a case step.",
+    "Scripted at the source: the window submission ids (desktop-submit-<alias>-<n>, as the renderer passes them), and in the daemon (session-send-world/daemon-clock.mjs, its execArgv) Date.now as virtual time along each causal chain (a start instant per daemon start; a timer of 1 s or more moves its callback chain by its delay) and crypto.randomUUID numbered within each call site. The memory daemon keeps the real clock.",
+    "Normal form (cases.mjs normalized): session ids by alias, other minted ids (atask, msg, sess_desktop, call, it, uuids) numbered by first appearance, padding runs named."
   ],
-  "fileCount": 1,
+  "cases": 15,
   "files": [
     {
-      "bytes": 142785,
       "path": "golden.json",
-      "sha256": "47c3accb0d4c8414cc5faeed27107238eab3878a82eab24daa1f6977a1c099cd"
+      "bytes": 140533,
+      "sha256": "5b9f0db57113919f8a681c879c7fd24f440691b37998b398bea623f42162521c"
     }
   ],
   "product": {
@@ -31,6 +32,9 @@
     "exact": true
   },
   "provenance": {
+    "nodeVersion": "v22.20.0",
+    "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
+    "recorderSha256": "618adf9e2052fbcc2ae24afabdf09f13dc07fa30b8425b42c4abb5cf7ae7f63b",
     "inputs": [
       {
         "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -62,23 +66,20 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/cases.mjs",
-        "sha256": "48232859c32104f7d2051bac75d60b36bdf307e0bfc02a07afd2315b05fa0c4a"
+        "sha256": "ee41cda28b8722cbd21b386e13c143116d7db709ebb6c661473df4c630ef6a33"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/session-send-world/daemon-clock.mjs",
+        "sha256": "4254a7d86b95d2a23383ea0c15877a6cf045ee1f6d60d5b7cc9779886d325ef8"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/replay.mjs",
-        "sha256": "973ed448f738816e05ee2e2b41e8148bbb932fb86458c90c8c087e735ca0cc2a"
+        "sha256": "c73634c815291193e908ca52e3fc52eec14d9073b17e909e74e2a4e92a4db4d4"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/world.mjs",
-        "sha256": "96ae6d8fc8343838b5439b7f6b288041a15a13f2bd52cc632c5eda1d3206f68c"
+        "sha256": "196b9648741ce533aa399350bfb1032159ec64e367b1aa25e6a64b78201e82b0"
       }
-    ],
-    "nodeVersion": "v22.20.0",
-    "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
-    "recorderSha256": "dfca648b7d978a3f14b5b2ca7b81ad8585c00d7c5a9cad343fe08147b79ec085"
-  },
-  "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
-  "cases": 15,
-  "set": "session-send-world",
-  "totalBytes": 142785
+    ]
+  }
 }

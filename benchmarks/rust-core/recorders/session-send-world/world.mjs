@@ -64,7 +64,8 @@ const load = (path) => import(pathToFileURL(join(exportDir, path)).href);
 const { DesktopServiceClient } = await load('apps/desktop/src/main/desktop-service-client.ts');
 const { SessionTransport } = await load('apps/desktop/src/main/session-transport.ts');
 const { DESKTOP_DAEMON_STOP_TIMEOUT_MS } = await load('apps/desktop/src/main/quit-sequence.ts');
-process.execArgv = [];
+// The daemon inherits these flags (session-client.mjs `execArgv`): its clock and uuids are the case's script (daemon-clock.mjs).
+process.execArgv = ['--import', pathToFileURL(join(import.meta.dirname, 'daemon-clock.mjs')).href];
 const moduleUrl = pathToFileURL(c.serviceModule).href;
 
 /** The daemon's pid, from its discovery file in the runtime root (the kill ends its process tree). */
@@ -117,7 +118,7 @@ function nodeApp() {
       for (const pid of outcome.stopped ? [] : outcome.inTree) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { timeout: 60_000, windowsHide: true });
     },
     openHome: async (agentId) => (await client.openAgentHome(agentId)).sessionId,
-    newTask: async (prompt) => (await client.submitNewTask(prompt, { displayText: prompt }, { route: { provider: 'custom-harness', model: 'harness-model' } })).sessionId,
+    newTask: async (prompt, id) => (await client.submitNewTask(prompt, { displayText: prompt, id }, { route: { provider: 'custom-harness', model: 'harness-model' } })).sessionId,
     say: (sessionId, prompt, options = {}) => client.submitToSession(sessionId, prompt, { displayText: prompt, ...options }),
     watch: (ids) => client.setVisibleSessions(ids),
     busy: (sessionId) => states.get(sessionId)?.busy === true,
