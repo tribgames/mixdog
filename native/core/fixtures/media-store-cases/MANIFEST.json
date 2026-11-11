@@ -85,6 +85,9 @@
   "recorderSha256": "46932434f6cb9f7fa34226506b6110fdf87dd94d4745238e72d07615edee8a23",
   "replay": {
     "compare": "mixdog-store media: write the case's start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock",
+    "declared": {
+      "index cache signature precision": "Node's indexSignature (src/runtime/media/store.mjs:61-65) is `${mtimeMs}:${ctimeMs}:${size}` with the times as float milliseconds; the core compares the same three fields as integer nanoseconds (mixdog-services/src/media/store.rs IndexSignature, from mixdog-workspace/src/ident.rs:110 stat_version). Two changes of index.json inside one millisecond are a re-read in the core where Node serves its cached catalog: the core reads the newer catalog, nothing a user sees is older. No recorded case changes the index twice inside one millisecond, so thumbnailBurst and every other result compare whole."
+    },
     "entry": "The media/* protocol methods of mixdog-services/src/media/service.rs MediaService (listMediaAssets, resolveMediaFile, readMediaAsset, cacheMediaThumbnail, deleteMediaAsset, deleteMediaAssets, createMediaBoard, renameMediaBoard, setMediaAssetBoard, deleteMediaBoard, listMediaBoards) over a real data dir; a save through MediaStore::save_asset (the store a media job saves through); mediaOpenCommand through service.rs open_command; mediaStoreCacheStats through MediaStore::cache_stats (test builds only). Replayed by mixdog-services/src/media/replay_k1_tests.rs.",
     "existsButNotPublicOnO1": [],
     "inputs": {
