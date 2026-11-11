@@ -554,7 +554,11 @@ impl HttpSend for ReqwestLink {
         request: WireRequest,
         exchange: Exchange,
     ) -> Result<HttpResponse, ProviderError> {
-        settle(exchange, self.hops(request, exchange)).await
+        let answered = settle(exchange, self.hops(request, exchange));
+        // A turn waiting on the model's answer waits on a replay's input (feature `replay-bytes`).
+        #[cfg(feature = "replay-bytes")]
+        let answered = super::replay_bytes::parked(answered);
+        answered.await
     }
 }
 
