@@ -716,7 +716,8 @@ impl super::call::ChannelCallHandler for Observed {
 /// record-channel-remote-restore.mjs (b6f10295a with node-fix-restore-deleted-session.patch): the boot restore of a
 /// pinned session through the daemon's real dispatch (`BridgeCalls` over `ToolDispatch` over the runtime, as compose
 /// wires `channel/call`), for a stored session that exists, one that was deleted and one whose record cannot be read
-/// (kept and restored); then the bot's send and the Remote state a client is shown.
+/// (kept and restored); then the Remote binding as a client reads it back. Node has no inbound delivery to a session
+/// and no bot send to replay (the recording's manifest).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores_it() {
     let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/channel-remote-restore/golden.json")).unwrap();
@@ -759,10 +760,6 @@ async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores
         let (enabled, session) = shown.lock().unwrap().clone();
         let remote = &case["list"]["remoteSession"];
         assert_eq!((json!(enabled), json!(session)), (remote["enabled"].clone(), remote["sessionId"].clone()), "{name}: remote session shown");
-        // The bot's send through the same dispatch.
-        let client = super::call::ChannelClient { token: "connection:1".into(), lead_pid: None };
-        let sent = calls.dispatch(client, super::call::CallRequest { name: case["send"]["calls"][0]["name"].as_str().unwrap().into(), args: case["send"]["calls"][0]["args"].clone(), call_id: None }).await;
-        assert_eq!(sent.unwrap(), case["send"]["body"]["result"], "{name}: send");
         e.runtime.stop_owned_runtime("test").await.unwrap();
     }
 }
