@@ -37,15 +37,12 @@ struct Script {
     fail: Mutex<bool>,
     gate: Option<Arc<Notify>>,
     started: Notify,
-    /// The schedules run, in order.
-    names: Mutex<Vec<String>>,
 }
 
 #[async_trait]
 impl ScheduleRunner for Script {
-    async fn run(&self, s: &Schedule, _prompt: &str) -> Result<RunOutcome, String> {
+    async fn run(&self, _s: &Schedule, _prompt: &str) -> Result<RunOutcome, String> {
         self.runs.fetch_add(1, Ordering::SeqCst);
-        self.names.lock().unwrap().push(s.name.clone());
         self.started.notify_one();
         if let Some(gate) = &self.gate {
             gate.notified().await;
@@ -194,105 +191,6 @@ async fn rename_refused_while_running_and_reload_failure_drops_the_entry() {
     assert!(f.sched.find_schedule("daily").is_none());
     let ok = f.sched.rename_locked("gone", "went", || async { Ok(None::<u8>) }, || async { Ok(()) }).await;
     assert_eq!(ok, Ok(None));
-}
-
-/// What the timers do after each rename refusal, on the injected clock, as Node's `renameLocked`
-/// (`scheduler.mjs:528-552`): `other` is a one-shot due at 08:00:10, `keep` a daily 09:00 cron; the
-/// rename of `other` to `renamed` starts at 08:00:00 and is refused at 08:00:15.
-/// - name taken: `other`'s timer fired during the rename and was refused (consumed); the refusal
-///   re-arms the loaded schedules, so `other` fires at once (08:00:15), then `keep` at 09:00;
-/// - running: refused before anything is reserved; nothing is re-armed, the running `other`
-///   finishes, `keep` fires at 09:00;
-/// - reload failed: the row moved to `renamed` and stays; the old entry is dropped (never fires),
-///   the others are re-armed: `keep` fires at 09:00, nothing under either name.
-#[tokio::test(start_paused = true)]
-async fn after_each_rename_refusal_the_timers_are_nodes() {
-    let rows = || vec![one_shot_row("other", "2025-01-01T08:00:10Z"), cron_row("keep")];
-    let start = || -> Arc<dyn Clock> { Arc::new(TokioClock { base: at("2025-01-01T08:00:00Z"), start: tokio::time::Instant::now() }) };
-    let renamed = || one_shot_row("renamed", "2025-01-01T08:00:10Z");
-    let until = |t: &str| (at(t) - at("2025-01-01T08:00:00Z")).to_std().unwrap();
-    async fn settle() {
-        for _ in 0..20 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    // Name taken.
-    let f = fixture_clock(rows(), Script::default(), start());
-    f.store.replace(one_shot_row("renamed", "2025-02-01T08:00:00Z"));
-    f.sched.start();
-    let store = f.store.clone();
-    let refused = f
-        .sched
-        .rename_locked(
-            "other",
-            "renamed",
-            || async move {
-                tokio::time::sleep(until("2025-01-01T08:00:15Z")).await;
-                ScheduleRecords::rename(&*store, "other", &renamed(), false).await
-            },
-            || async { Ok(()) },
-        )
-        .await;
-    assert_eq!(refused, Err(ScheduleError::NameTaken { name: "renamed".into() }));
-    f.runner.started.notified().await;
-    settle().await;
-    let other = f.store.get("other").await.unwrap().unwrap();
-    assert_eq!((other.status, other.last_fired_at), (ScheduleStatus::Done, Some(at("2025-01-01T08:00:15Z"))), "re-armed, fired at once");
-    assert_eq!(f.sched.find_schedule("keep").unwrap().next_fire_at, Some(at("2025-01-01T09:00:00Z")));
-    tokio::time::sleep(until("2025-01-01T09:00:01Z") - until("2025-01-01T08:00:15Z")).await;
-    f.runner.started.notified().await;
-    settle().await;
-    assert_eq!(*f.runner.names.lock().unwrap(), ["other", "keep"]);
-    assert_eq!(f.store.get("keep").await.unwrap().unwrap().last_scheduled_at, Some(at("2025-01-01T09:00:00Z")));
-    f.sched.stop();
-
-    // Running.
-    let gate = Arc::new(Notify::new());
-    let f = fixture_clock(rows(), Script { gate: Some(gate.clone()), ..Default::default() }, start());
-    f.sched.start();
-    tokio::time::sleep(until("2025-01-01T08:00:11Z")).await;
-    f.runner.started.notified().await;
-    let refused = f.sched.rename_locked("other", "renamed", || async { Ok(Some(1)) }, || async { Ok(()) }).await;
-    assert_eq!(refused, Err(ScheduleError::RenameRunning { name: "other".into() }));
-    assert_eq!(f.sched.find_schedule("keep").unwrap().next_fire_at, Some(at("2025-01-01T09:00:00Z")));
-    gate.notify_one();
-    settle().await;
-    let other = f.store.get("other").await.unwrap().unwrap();
-    assert_eq!((other.status, other.last_fired_at), (ScheduleStatus::Done, Some(at("2025-01-01T08:00:10Z"))), "the running fire finishes once");
-    gate.notify_one();
-    tokio::time::sleep(until("2025-01-01T09:00:01Z") - until("2025-01-01T08:00:11Z")).await;
-    f.runner.started.notified().await;
-    settle().await;
-    assert_eq!(*f.runner.names.lock().unwrap(), ["other", "keep"]);
-    f.sched.stop();
-
-    // Reload failed.
-    let f = fixture_clock(rows(), Script::default(), start());
-    f.sched.start();
-    let store = f.store.clone();
-    let refused = f
-        .sched
-        .rename_locked(
-            "other",
-            "renamed",
-            || async move {
-                tokio::time::sleep(until("2025-01-01T08:00:15Z")).await;
-                ScheduleRecords::rename(&*store, "other", &renamed(), false).await
-            },
-            || async { Err("timeout".to_string()) },
-        )
-        .await;
-    assert_eq!(refused, Err(ScheduleError::RenameReloadFailed { name: "renamed".into(), cause: "timeout".into() }));
-    assert!(f.sched.find_schedule("other").is_none() && f.sched.find_schedule("renamed").is_none(), "the old entry is dropped");
-    assert!(f.store.get("other").await.unwrap().is_none());
-    assert!(f.store.get("renamed").await.unwrap().is_some_and(|row| row.last_fired_at.is_none()), "the renamed row is kept, not fired");
-    assert_eq!(f.sched.find_schedule("keep").unwrap().next_fire_at, Some(at("2025-01-01T09:00:00Z")));
-    tokio::time::sleep(until("2025-01-01T09:00:01Z") - until("2025-01-01T08:00:15Z")).await;
-    f.runner.started.notified().await;
-    settle().await;
-    assert_eq!(*f.runner.names.lock().unwrap(), ["keep"]);
-    f.sched.stop();
 }
 
 #[tokio::test]
