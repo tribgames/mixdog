@@ -41,15 +41,22 @@ export async function storedSessionAsync(dir, id, ensureLifecycle = true) {
 
 /** storedSessionAsync as `{ session, logLegacy }`: `logLegacy` the base
  *  `legacy` of the log the session was read from (null for a log built from
- *  no json), undefined when the record is not a log. */
-export async function storedSessionRecordAsync(dir, id, ensureLifecycle = true) {
+ *  no json), undefined when the record is not a log. `facts`, `checkpoints`:
+ *  see readSessionRecord. */
+export async function storedSessionRecordAsync(dir, id, ensureLifecycle = true, { facts = null, checkpoints = null } = {}) {
   if (!isSessionRecordId(id)) return { session: null, logLegacy: undefined };
   let outcome;
   try {
-    outcome = await readSessionRecord(dir, id, { loadLegacy: legacyLoader(ensureLifecycle) });
+    outcome = await readSessionRecord(dir, id, { loadLegacy: legacyLoader(ensureLifecycle), facts, checkpoints });
   } catch (err) {
     return { session: isAbsentReadError(err) ? null : STORED_SESSION_UNREADABLE, logLegacy: undefined };
   }
   const session = storedOf(outcome, id, ensureLifecycle);
-  return { session, logLegacy: session && isLogRecord(outcome) ? outcome.log.legacy : undefined };
+  return {
+    session,
+    logLegacy: session && isLogRecord(outcome) ? outcome.log.legacy : undefined,
+    // `facts` asked for and the record is a log: its session has no messages,
+    // the facts of its messages are here (messageFacts, store-summary-index.mjs).
+    ...(session && isLogRecord(outcome) && outcome.log.facts ? { facts: outcome.log.facts } : {}),
+  };
 }

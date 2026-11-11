@@ -51,20 +51,24 @@ const NEWLINE = 0x0a;
  *   damage       {offset,expectedSeq,foundSeq|null,reason} where replay stopped, or null
  *   replayFrom   sequence number of the `compacted` record the transcript starts at
  */
-export function parseSessionLog(bytes, { messages: wantMessages = true } = {}) {
-  const replay = newReplay(wantMessages);
+export function parseSessionLog(bytes, { messages: wantMessages = true, facts = null } = {}) {
+  const replay = newReplay(wantMessages, facts);
   replayBytes(replay, bytes, 0);
   return replayResult(replay, bytes.length);
 }
 
-// A replay in progress: what the records read so far amount to.
-function newReplay(wantMessages) {
+// A replay in progress: what the records read so far amount to. `facts`
+// (`{ project(message), version }`): the transcript is kept as what `project`
+// makes of each message (the result's `facts`, no `messages`), a transcript
+// too large to hold as it is.
+function newReplay(wantMessages, facts = null) {
   return {
     base: null,
     count: 0,
     length: 0,
     lastCompacted: -1,
-    messages: wantMessages ? [] : undefined,
+    project: facts?.project ?? null,
+    messages: wantMessages || facts ? [] : undefined,
     skipped: [],
     damage: null,
     tornTail: null,
@@ -124,7 +128,12 @@ function replayBytes(replay, bytes, at) {
     // so a patch or a message record only ever follows a valid opening.
     if (replay.count === 0) replay.base = record;
     else if (record.t === RECORD.PATCH) applyPatch(replay.base.header, record);
-    else if (replay.messages && isMessageRecord(record)) applyMessageRecord(replay.messages, record);
+    else if (replay.messages && isMessageRecord(record)) {
+      applyMessageRecord(
+        replay.messages,
+        replay.project && record.messages ? { ...record, messages: record.messages.map(replay.project) } : record
+      );
+    }
     replay.count += 1;
     pos = nl + 1;
   }
@@ -144,7 +153,7 @@ function replayResult(replay, size, kept = false) {
     legacy: null,
     seq: -1,
     header: null,
-    messages: replay.messages,
+    messages: replay.project ? undefined : replay.messages,
     messageCount: 0,
     size,
     tornTail: replay.tornTail,
@@ -152,6 +161,8 @@ function replayResult(replay, size, kept = false) {
     damage: replay.damage,
     replayFrom: -1,
   };
+  // Facts are never changed once made: a copy of the list is all that is not shared.
+  if (replay.project) result.facts = kept ? replay.messages.slice() : replay.messages;
   if (count < 2) {
     if (!result.damage && count) {
       result.damage = { offset: size, expectedSeq: 1, foundSeq: null, reason: 'no-history' };
@@ -244,7 +255,7 @@ function provesPlace(held, first, guard) {
 // started at) and the `applied` bytes of `read` that follow.
 function firstAt(before, read, applied) {
   if (before.length >= SCAN_GUARD_BYTES) return before;
-  return Buffer.from(Buffer.concat([before, read.subarray(0, applied)]).subarray(0, SCAN_GUARD_BYTES));
+  return Buffer.concat([before, read.subarray(0, Math.min(applied, SCAN_GUARD_BYTES - before.length))]);
 }
 
 // The last bytes before `offset`, of `before` (the guard of the offset the
@@ -256,66 +267,147 @@ function guardAt(before, read, applied) {
 
 const NO_BYTES = Buffer.alloc(0);
 
-function readAtSync(fd, length, position) {
-  const bytes = Buffer.allocUnsafe(length);
+// Reads up to `length` bytes at file `position` into `target` from `at`; how many arrived.
+function readIntoSync(fd, target, at, length, position) {
   let got = 0;
   while (got < length) {
-    const n = readSync(fd, bytes, got, length - got, position + got);
+    const n = readSync(fd, target, at + got, length - got, position + got);
     if (n === 0) break;
     got += n;
   }
+  return got;
+}
+
+async function readInto(handle, target, at, length, position) {
+  let got = 0;
+  while (got < length) {
+    const { bytesRead } = await handle.read(target, at + got, length - got, position + got);
+    if (bytesRead === 0) break;
+    got += bytesRead;
+  }
+  return got;
+}
+
+function readAtSync(fd, length, position) {
+  const bytes = Buffer.allocUnsafe(length);
+  const got = readIntoSync(fd, bytes, 0, length, position);
   return got === length ? bytes : bytes.subarray(0, got);
 }
 
 async function readAt(handle, length, position) {
   const bytes = Buffer.allocUnsafe(length);
-  let got = 0;
-  while (got < length) {
-    const { bytesRead } = await handle.read(bytes, got, length - got, position + got);
-    if (bytesRead === 0) break;
-    got += bytesRead;
-  }
+  const got = await readInto(handle, bytes, 0, length, position);
   return got === length ? bytes : bytes.subarray(0, got);
 }
 
-// `{ result, save }`: the scan's result, and the place to leave in the
-// checkpoint directory (null: none is due).
-function scanned(path, st, held, bytes) {
-  const replay = held ? held.replay : newReplay(false);
+const SCAN_BLOCK_BYTES = 8 * 1024 * 1024;
+
+// A scan's table key and checkpoint kind: a scan that keeps facts is another
+// scan of the same log than one that keeps its header only.
+const scanKey = (path, facts) => (facts ? `facts-${facts.version}:${path}` : path);
+const checkpointKind = (facts) => (facts ? `facts-${facts.version}` : '');
+
+// A scan being applied block by block: a log of hundreds of megabytes is
+// never held as one buffer.
+function beginScan(held, facts) {
+  const replay = held ? held.replay : newReplay(false, facts);
+  // A replay taken from a checkpoint has no projection yet.
+  replay.project = facts?.project ?? null;
+  replay.tornTail = null;
   const from = held ? held.offset : 0;
-  const offset = replayBytes(replay, bytes, from);
-  const entry = {
-    offset,
-    guard: guardAt(held ? held.guard : NO_BYTES, bytes, offset - from),
-    first: firstAt(held ? held.first : NO_BYTES, bytes, offset - from),
-    persisted: held ? held.persisted : 0,
+  return {
     replay,
+    offset: from,
+    end: from,
+    guard: held ? held.guard : NO_BYTES,
+    first: held ? held.first : NO_BYTES,
   };
-  const save = wantsScanCheckpoint(replay, offset, entry.persisted) ? { ino: st.ino, ...entry } : null;
-  if (save) entry.persisted = offset;
-  keepScan(path, st, entry);
-  return { result: replayResult(replay, from + bytes.length, true), save };
 }
 
-function scanSessionLogSync(path, checkpoints) {
-  let result;
-  let save;
+// The block `block` (the file's bytes from `scan.end`) ends in `whole` bytes of
+// finished lines (all of it when `final`: its own unfinished line is a torn
+// tail; none when the block holds no line end). The bytes a replay applies are
+// those from `scan.offset`: the unfinished line the last blocks ended in, then
+// these.
+//
+// An unfinished line is never kept: only how long it is (`scan.end -
+// scan.offset`). Its end is looked for in the new block alone, and when it
+// arrives the line is read again from the file straight into the one buffer
+// that holds it (`joinedLines`), so a line of hundreds of megabytes costs that
+// buffer once, never its pieces beside their join, and never a search or a
+// copy per block (that was quadratic: one very long record, a large compacted
+// history, took minutes).
+const wholeLinesOf = (block, final) => (final ? block.length : block.lastIndexOf(NEWLINE) + 1);
+
+// `bytes`: the finished lines from `scan.offset`, as `joinedLines` made them;
+// false when the replay stopped on damage.
+function applyBlock(scan, block, whole, bytes) {
+  const at = scan.offset;
+  scan.end += block.length;
+  if (whole === 0) return true;
+  scan.offset = replayBytes(scan.replay, bytes, at);
+  const applied = bytes.subarray(0, scan.offset - at);
+  scan.guard = guardAt(scan.guard, applied, applied.length);
+  scan.first = firstAt(scan.first, applied, applied.length);
+  return !scan.replay.damage;
+}
+
+// The finished lines of `block` after the unfinished one before it: `block`'s
+// own bytes when nothing is carried, else one buffer filled from the file.
+function joinedLines(scan, block, whole, read) {
+  const carried = scan.end - scan.offset;
+  if (whole === 0 || carried === 0) return block.subarray(0, whole);
+  const bytes = Buffer.allocUnsafe(carried + whole);
+  const got = read(bytes, carried, scan.offset);
+  if (got instanceof Promise) return got.then((n) => joined(bytes, n, carried, block, whole));
+  return joined(bytes, got, carried, block, whole);
+}
+
+// null: the file ended before the carried bytes did (it shrank under the scan).
+function joined(bytes, got, carried, block, whole) {
+  if (got < carried) return null;
+  block.copy(bytes, carried, 0, whole);
+  return bytes;
+}
+// `{ result, save }`: the scan's result, and the place to leave in the
+// checkpoint directory (null: none is due). `size`: the log's length at the
+// scan's stat.
+function finishScan(key, st, held, scan, checkpoints) {
+  const entry = {
+    offset: scan.offset,
+    guard: scan.guard,
+    first: scan.first,
+    persisted: held ? held.persisted : 0,
+    replay: scan.replay,
+  };
+  const save = checkpoints && wantsScanCheckpoint(scan.replay, scan.offset, entry.persisted) ? { ino: st.ino, ...entry } : null;
+  if (save) entry.persisted = scan.offset;
+  keepScan(key, st, entry);
+  const size = scan.replay.damage ? Number(st.size) : scan.end;
+  return { result: replayResult(scan.replay, size, true), save };
+}
+
+function scanSessionLogSync(path, { checkpoints = null, facts = null } = {}) {
+  const key = scanKey(path, facts);
   let fd;
   try {
     fd = openSync(path, 'r');
   } catch (err) {
-    _scans.delete(path);
+    _scans.delete(key);
     if (absent(err)) {
-      if (checkpoints) dropScanCheckpoint(checkpoints, path);
+      if (checkpoints) dropScanCheckpoint(checkpoints, path, checkpointKind(facts));
       return null;
     }
     throw err;
   }
+  let done;
   try {
     const st = fstatSync(fd, { bigint: true });
-    let held = takeScan(path, st);
+    let held = takeScan(key, st);
     const fromCheckpoint = !held && checkpoints;
-    if (fromCheckpoint) held = adoptCheckpoint(loadScanCheckpointSync(checkpoints, path), st);
+    if (fromCheckpoint) {
+      held = adoptCheckpoint(loadScanCheckpointSync(checkpoints, path, checkpointKind(facts)), st);
+    }
     if (
       held &&
       !provesPlace(
@@ -329,36 +421,46 @@ function scanSessionLogSync(path, checkpoints) {
     // A checkpoint of another file (or of the same file before it was
     // rewritten) holds what it kept of that one: it goes now, not when a later
     // scan of this one overwrites it.
-    if (fromCheckpoint && !held) dropScanCheckpoint(checkpoints, path);
-    const from = held ? held.offset : 0;
-    ({ result, save } = scanned(path, st, held, readAtSync(fd, Number(st.size) - from, from)));
+    if (fromCheckpoint && !held) dropScanCheckpoint(checkpoints, path, checkpointKind(facts));
+    const scan = beginScan(held, facts);
+    const size = Number(st.size);
+    while (scan.end < size) {
+      const block = readAtSync(fd, Math.min(SCAN_BLOCK_BYTES, size - scan.end), scan.end);
+      if (block.length === 0) break;
+      const whole = wholeLinesOf(block, scan.end + block.length >= size);
+      const bytes = joinedLines(scan, block, whole, (target, length, position) => readIntoSync(fd, target, 0, length, position));
+      if (!bytes || !applyBlock(scan, block, whole, bytes)) break;
+    }
+    done = finishScan(key, st, held, scan, checkpoints);
   } finally {
     closeSync(fd);
   }
-  // Published with the log closed, and only if it is still the one read (session-scan-checkpoint.mjs).
-  if (save) saveScanCheckpointSync(checkpoints, path, save);
-  return result;
+  // Published with the log closed, and only if the log is still the one read (session-scan-checkpoint.mjs).
+  if (done.save) saveScanCheckpointSync(checkpoints, path, done.save, checkpointKind(facts));
+  return done.result;
 }
 
-async function scanSessionLog(path, checkpoints) {
-  let result;
-  let save;
+async function scanSessionLog(path, { checkpoints = null, facts = null } = {}) {
+  const key = scanKey(path, facts);
   let handle;
   try {
     handle = await open(path, 'r');
   } catch (err) {
-    _scans.delete(path);
+    _scans.delete(key);
     if (absent(err)) {
-      if (checkpoints) dropScanCheckpoint(checkpoints, path);
+      if (checkpoints) dropScanCheckpoint(checkpoints, path, checkpointKind(facts));
       return null;
     }
     throw err;
   }
+  let done;
   try {
     const st = await handle.stat({ bigint: true });
-    let held = takeScan(path, st);
+    let held = takeScan(key, st);
     const fromCheckpoint = !held && checkpoints;
-    if (fromCheckpoint) held = adoptCheckpoint(await loadScanCheckpoint(checkpoints, path), st);
+    if (fromCheckpoint) {
+      held = adoptCheckpoint(await loadScanCheckpoint(checkpoints, path, checkpointKind(facts)), st);
+    }
     if (
       held &&
       !provesPlace(
@@ -372,20 +474,27 @@ async function scanSessionLog(path, checkpoints) {
     // A checkpoint of another file (or of the same file before it was
     // rewritten) holds what it kept of that one: it goes now, not when a later
     // scan of this one overwrites it.
-    if (fromCheckpoint && !held) dropScanCheckpoint(checkpoints, path);
-    const from = held ? held.offset : 0;
-    ({ result, save } = scanned(path, st, held, await readAt(handle, Number(st.size) - from, from)));
+    if (fromCheckpoint && !held) dropScanCheckpoint(checkpoints, path, checkpointKind(facts));
+    const scan = beginScan(held, facts);
+    const size = Number(st.size);
+    while (scan.end < size) {
+      const block = await readAt(handle, Math.min(SCAN_BLOCK_BYTES, size - scan.end), scan.end);
+      if (block.length === 0) break;
+      const whole = wholeLinesOf(block, scan.end + block.length >= size);
+      const bytes = await joinedLines(scan, block, whole, (target, length, position) => readInto(handle, target, 0, length, position));
+      if (!bytes || !applyBlock(scan, block, whole, bytes)) break;
+    }
+    done = finishScan(key, st, held, scan, checkpoints);
   } finally {
     await handle.close();
   }
-  // Published with the log closed, and only if it is still the one read (session-scan-checkpoint.mjs).
-  if (save) saveScanCheckpointSync(checkpoints, path, save);
-  return result;
+  // Published with the log closed, and only if the log is still the one read (session-scan-checkpoint.mjs).
+  if (done.save) saveScanCheckpointSync(checkpoints, path, done.save, checkpointKind(facts));
+  return done.result;
 }
-
 /** Replay `path`; null when the log does not exist. */
 export async function readSessionLog(path, options) {
-  if (options?.messages === false) return scanSessionLog(path, options.checkpoints);
+  if (options?.messages === false) return scanSessionLog(path, options);
   let bytes;
   try {
     bytes = await readFile(path);
@@ -397,7 +506,7 @@ export async function readSessionLog(path, options) {
 }
 
 export function readSessionLogSync(path, options) {
-  if (options?.messages === false) return scanSessionLogSync(path, options.checkpoints);
+  if (options?.messages === false) return scanSessionLogSync(path, options);
   let bytes;
   try {
     bytes = readFileSync(path);
@@ -511,9 +620,10 @@ export async function resolveSessionRecord({
   messages = true,
   stamp = null,
   checkpoints = null,
+  facts = null,
 }) {
   const stamped = stamp === null ? null : parseSessionRecordStamp(stamp);
-  const log = stamped && !stamped.log ? null : await readSessionLog(logPath, { messages, checkpoints });
+  const log = stamped && !stamped.log ? null : await readSessionLog(logPath, { messages, checkpoints, facts });
   const readJson = () => (stamped && !stamped.json ? null : readJsonFile(jsonPath, stamped));
   let outcome;
   if (!log) outcome = resolveLegacy(jsonPath, loadLegacy, await readJson());
@@ -532,9 +642,10 @@ export function resolveSessionRecordSync({
   messages = true,
   stamp = null,
   checkpoints = null,
+  facts = null,
 }) {
   const stamped = stamp === null ? null : parseSessionRecordStamp(stamp);
-  const log = stamped && !stamped.log ? null : readSessionLogSync(logPath, { messages, checkpoints });
+  const log = stamped && !stamped.log ? null : readSessionLogSync(logPath, { messages, checkpoints, facts });
   const readJson = () => (stamped && !stamped.json ? null : readJsonFileSync(jsonPath, stamped));
   let outcome;
   if (!log) outcome = resolveLegacy(jsonPath, loadLegacy, readJson());

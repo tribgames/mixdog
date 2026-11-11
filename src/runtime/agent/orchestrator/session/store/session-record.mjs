@@ -104,8 +104,22 @@ export function readSessionRecordSync(dir, id, { loadLegacy = loadLegacySession,
   return resolveSessionRecordSync({ ...sessionRecordFiles(dir, id), loadLegacy, messages, stamp });
 }
 
-export function readSessionRecord(dir, id, { loadLegacy = loadLegacySession, messages = true, stamp = null } = {}) {
-  return resolveSessionRecord({ ...sessionRecordFiles(dir, id), loadLegacy, messages, stamp });
+/** `facts`, `checkpoints`: a log is read as the facts of its messages
+ *  (session-log-reader.mjs resolveSessionRecord), the place of the last scan
+ *  taken from, and left in, `checkpoints`. */
+export function readSessionRecord(
+  dir,
+  id,
+  { loadLegacy = loadLegacySession, messages = true, stamp = null, facts = null, checkpoints = null } = {}
+) {
+  return resolveSessionRecord({
+    ...sessionRecordFiles(dir, id),
+    loadLegacy,
+    messages: facts ? false : messages,
+    stamp,
+    facts,
+    checkpoints,
+  });
 }
 
 /** readSessionRecord as a store-read step (store/fs-steps.mjs). */

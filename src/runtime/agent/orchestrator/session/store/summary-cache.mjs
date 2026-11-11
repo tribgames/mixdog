@@ -1,6 +1,6 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { getPluginData } from '../../config.mjs';
-import { getStoreDir, storeRecordDir } from './session-paths.mjs';
+import { getStoreDir, sessionScanCheckpointDir, storeRecordDir } from './session-paths.mjs';
 import { probePathAsync, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
 import { STORED_SESSION_UNREADABLE } from './serialize.mjs';
 import {
@@ -9,11 +9,16 @@ import {
   parseSessionRecordStamp,
   recordStampFingerprint,
   sessionIdsOfNames,
+  sessionRecordFiles,
   sessionRecordStampOf,
   sessionRecordStampOfSync,
 } from './session-record.mjs';
 import { storedSessionRecordAsync } from './stored-session.mjs';
+import { scanEpoch } from './session-scan-checkpoint.mjs';
 import {
+  MESSAGE_FACTS_VERSION,
+  messageFacts,
+  projectionOfFacts,
   _sessionSummary,
   _normalizeSummaryIndex,
   _upsertSessionSummaryRow,
@@ -257,7 +262,35 @@ export function _openSummaryScanWindow() {
   };
 }
 
-export async function _scanStoredSessionSummaryRowsAsync() {
+/**
+ * `resumable`: a log is read as the facts its summary is made of, a block at a
+ * time (never held whole, as a transcript or as bytes), from the place the last
+ * scan of it left in the checkpoint directory, which this one leaves its own
+ * in; a log scanned before costs what was appended to it since. For the
+ * rebuild worker, which starts with nothing in memory and, with no index to
+ * go by, reads every log: with a 205 MB log in the store it ran past its heap
+ * and took the daemon with it (2026-11-10), and each start tried again. A log
+ * under RESUMABLE_MIN_BYTES is read whole, as it always was: it holds little,
+ * and reading it that way is faster than reading it as facts.
+ */
+const RESUMABLE_MIN_BYTES = 32 * 1024 * 1024;
+let resumableMinBytes = RESUMABLE_MIN_BYTES;
+
+/** Tests: the size of log the resumable scan reads as facts. */
+export function _setResumableMinBytesForTest(bytes) {
+  resumableMinBytes = bytes ?? RESUMABLE_MIN_BYTES;
+}
+
+export async function _scanStoredSessionSummaryRowsAsync({ resumable = false } = {}) {
+  const factsOptions = {
+    facts: { project: messageFacts, version: MESSAGE_FACTS_VERSION },
+    checkpoints: sessionScanCheckpointDir(),
+  };
+  const readOptionsOf = async (dir, storageId) => {
+    if (!resumable) return undefined;
+    const log = await stat(sessionRecordFiles(dir, storageId).logPath).catch(() => null);
+    return log && log.size >= resumableMinBytes ? factsOptions : undefined;
+  };
   // The scan only reads: an absent directory is answered below.
   const dir = storeRecordDir();
   const scanCache = _summaryScanCacheFor(getPluginData());
@@ -317,7 +350,17 @@ export async function _scanStoredSessionSummaryRowsAsync() {
       keepRow(storageId, cached.row);
       continue;
     }
-    const { session, logLegacy } = await storedSessionRecordAsync(dir, storageId);
+    // A row built from a log that was rewritten or deleted while it was read
+    // holds previews of what is gone: it is read again, never kept.
+    const logPath = sessionRecordFiles(dir, storageId).logPath;
+    const checkpoints = sessionScanCheckpointDir();
+    let record;
+    for (let attempt = 0; ; attempt++) {
+      const epoch = await scanEpoch(checkpoints, logPath);
+      record = await storedSessionRecordAsync(dir, storageId, true, await readOptionsOf(dir, storageId));
+      if (epoch === (await scanEpoch(checkpoints, logPath)) || attempt >= 3) break;
+    }
+    const { session, logLegacy, facts } = record;
     if (session === STORED_SESSION_UNREADABLE) {
       // Stat said PRESENT, the READ failed: identical contract to an
       // unreadable stat. Retain the last known row, leave `changed`
@@ -326,7 +369,7 @@ export async function _scanStoredSessionSummaryRowsAsync() {
       keepRow(storageId, scanCache.get(storageId)?.row);
       continue;
     }
-    const summary = session ? _sessionSummary(session) : null;
+    const summary = session ? _sessionSummary(session, facts ? projectionOfFacts(facts, session.id) : null) : null;
     const row = summary ? durableSummaryRow(summary, stamp, logLegacy) : null;
     scanCache.set(storageId, { stamp, row });
     changed = true;

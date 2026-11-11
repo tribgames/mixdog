@@ -22,7 +22,8 @@
  * too, and the session is opened again from its record, the json.
  */
 import { existsSync } from 'node:fs';
-import { sessionLogPath, sessionPath } from './session-paths.mjs';
+import { sessionLogPath, sessionPath, sessionScanCheckpointDir } from './session-paths.mjs';
+import { withScanCheckpointsRetired, withScanCheckpointsRetiredSync } from './session-scan-checkpoint.mjs';
 import {
   sessionWriterHeldHere,
   sessionWriterHeldStrictlyHere,
@@ -320,7 +321,11 @@ export function redactionDue(id) {
 export async function redactSessionFiles(recorder, session) {
   const id = session.id;
   const version = sensitiveValuesVersion(id);
-  const acked = await recorder.rewrite(session, { redaction: redactionOf(id) });
+  // A scan of the old log kept facts and a header of it: they go before the
+  // rewrite starts and none can be published until it has ended (session-scan-checkpoint.mjs).
+  const acked = await withScanCheckpointsRetired(sessionScanCheckpointDir(), sessionLogPath(id), () =>
+    recorder.rewrite(session, { redaction: redactionOf(id) })
+  );
   _redactedVersions.set(id, version);
   return acked;
 }
@@ -329,7 +334,9 @@ export async function redactSessionFiles(recorder, session) {
 export function redactSessionFilesSync(recorder, session) {
   const id = session.id;
   const version = sensitiveValuesVersion(id);
-  recorder.rewriteSync(session, { redaction: redactionOf(id) });
+  withScanCheckpointsRetiredSync(sessionScanCheckpointDir(), sessionLogPath(id), () =>
+    recorder.rewriteSync(session, { redaction: redactionOf(id) })
+  );
   _redactedVersions.set(id, version);
 }
 
