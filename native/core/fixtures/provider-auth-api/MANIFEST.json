@@ -1,0 +1,57 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-provider-auth-api.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "entry": "src/session-runtime/provider-auth-api.mjs createProviderAuthApi(deps) over stubbed ./services/provider-admin.mjs, providers/admission-scheduler.mjs, providers/registry.mjs, providers/oauth-usage.mjs (loader hook; the stubs record every call into `calls`). The test flushes with timers/promises setImmediate (one event-loop turn), as the recorder does; no timer is waited on.",
+  "exclusions": [
+    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
+    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 16340,
+      "path": "cases.json",
+      "sha256": "181d27fa1c4c5fa5e9afc93a9cee83aaacca6077aacf89137317f8db1866f9c6"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-auth-api.mjs",
+  "recorderSha256": "80674485d6f4572ed30859dd4c44195a260de0a146fc466f5cded9d3fbd57316",
+  "replay": "mixdog-core-domains ai_account/provider_changes.rs:128,229 and ai_admin/account_actions.rs:121-164: perform the same API call against the Rust domain with recording collaborators and compare `calls` (ordered effects) and `result`. K1 gaps G8: the catalog refresh after a key save is OPEN in the core (dec:828), so the first case is expected to differ.",
+  "set": "provider-auth-api",
+  "totalBytes": 16340
+}
