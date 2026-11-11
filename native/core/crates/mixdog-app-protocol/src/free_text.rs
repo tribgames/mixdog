@@ -205,7 +205,11 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     ),
     // A patch's text (file content), given to `git apply`.
     (Kind::Request, "git/applyPatch", &["/patch"]),
-    // Values a person types into a form: a workflow's inputs, a provider's or a server's header values and extra body fields.
+    // Values a person types into a form: a workflow's inputs (a JSON body), a provider's extra body fields (their size is
+    // measured as Node measures it, mixdog-core-domains ai_account/custom_config.rs `normalize_request_body`) and header
+    // values, which the provider check refuses outside Latin-1 with Node's message (`normalize_headers`); a probed server's
+    // header values, which the probe never sends (any header is configured authentication). Recorded,
+    // native/core/fixtures/lone-surrogate-wire.
     (Kind::Request, "github/request", &["/input/inputs/*"]),
     (Kind::Request, "account/saveCustomProvider", &["/input/headers/*", "/input/requestBody/*"]),
     (Kind::Request, "account/testCustomProvider", &["/input/headers/*", "/input/requestBody/*"]),

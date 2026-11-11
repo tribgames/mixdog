@@ -2326,7 +2326,7 @@
   },
   {
    "class": "free",
-   "reason": "Values a person types into a form: a workflow's inputs, a provider's or a server's header values and extra body fields.",
+   "reason": "Values a person types into a form. A workflow's inputs: a JSON body. A custom provider's extra body fields: a JSON body, whose size the core measures as Node's JSON.stringify does, each lone unit as its six-character escape (mixdog-core-domains ai_account/custom_config.rs normalize_request_body). A custom provider's header values: Node's check refuses a value outside Latin-1 with `[custom-provider] headers.<name> has an invalid value`, and the core's check refuses U+FFFD with the same text before anything is sent (normalize_headers). A probed MCP server's header values: never sent, any header is configured authentication, Node and the core answer {auth: configured}. Recorded: native/core/fixtures/lone-surrogate-wire (custom-*-header-lone, custom-*-body-*, mcp-probe-header-lone).",
    "fields": [
     "request account/discoverCustomProviderModels /input/headers/*",
     "request account/discoverCustomProviderModels /input/requestBody/*",
