@@ -290,7 +290,7 @@ async fn line_198_deleting_the_open_session_deletes_only_it() {
 
 /// The context target, recording Node's two invalidations under their recorded names.
 #[derive(Default)]
-struct Target(std::sync::Mutex<Vec<Value>>);
+pub(super) struct Target(pub(super) std::sync::Mutex<Vec<Value>>);
 
 impl ContextTarget for Target {
     fn invalidate(&self, _: &ThreadId) {
