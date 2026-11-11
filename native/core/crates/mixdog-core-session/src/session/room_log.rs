@@ -68,11 +68,15 @@ impl SessionRoomLog {
 #[async_trait]
 impl RoomLog for SessionRoomLog {
     async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<usize, CoreError> {
-        let ctx = CallContext::internal("room-log");
-        let thread = ThreadId::from(session_id);
-        let handle = self.directory.open_handle(&thread, &ctx).await.map_err(|error| unavailable(session_id, error))?;
-        post(&handle, messages, ctx).await
+        let handle = open_for_post(&self.directory, session_id).await?;
+        post(&handle, messages, CallContext::internal("room-log")).await
     }
+}
+
+/// The room log opened for a post: one that is gone or closing is refused as `session <id> is not available`.
+pub async fn open_for_post(directory: &SessionDirectory, session_id: &str) -> Result<Arc<super::SessionHandle>, CoreError> {
+    let thread = ThreadId::from(session_id);
+    directory.open_handle(&thread, &CallContext::internal("room-log")).await.map_err(|error| unavailable(session_id, error))
 }
 
 /// `session <id> is not available`: a log that is gone or closing (Node's `commit`, and the refusal of a save its

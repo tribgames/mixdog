@@ -75,9 +75,9 @@ impl RoomDaemon for DirectoryRoomDaemon {
     async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<(), String> {
         #[cfg(test)]
         if let Some(hook) = &self.between_open_and_post {
-            let thread = ThreadId::from(session_id);
-            let handle = self.directory.open_handle(&thread, &mixdog_core_api::call::CallContext::internal("room-log")).await.map_err(node_error)?;
-            hook(thread).await;
+            // The product's own open and post, in its two steps, with the hook between them.
+            let handle = mixdog_core_session::session::room_log::open_for_post(&self.directory, session_id).await.map_err(node_error)?;
+            hook(ThreadId::from(session_id)).await;
             return mixdog_core_session::session::room_log::post_on_opened(&handle, messages).await.map(drop).map_err(node_error);
         }
         self.log.append_rows(session_id, messages).await.map(drop).map_err(node_error)
