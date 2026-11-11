@@ -162,55 +162,172 @@
           {
             "text": "@Bench what do you think?",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": "bench"
           },
           {
             "text": "Good point. @Bench lead, can you check?",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": "bench-lead"
           },
           {
             "text": "(@bench) and @bench-lead",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": "bench"
           },
           {
             "text": "@GitHub 감시 me again",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": ""
           },
           {
             "text": "@gh then @bench",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": "bench"
           },
           {
             "text": "mail me@bench.dev",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": ""
           },
           {
             "text": "@Benchmark it",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": ""
           },
           {
             "text": "Use `@bench` here\n```\n@bench\n```",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": ""
           },
           {
             "text": "> @bench said so\nThey wrote \"@bench go\" and “@bench”",
             "self": "gh",
-            "members": "MEMBERS",
+            "members": [
+              {
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "id": "bench-lead",
+                "name": "Bench lead"
+              },
+              {
+                "id": "gh",
+                "name": "GitHub 감시"
+              }
+            ],
             "result": ""
           },
           {
@@ -4560,22 +4677,67 @@
           }
         ],
         "row": {
+          "id": "ask_1",
+          "kind": "user",
           "fromSession": "sess_home_rel",
           "fromAgent": "rel",
-          "fromName": "Release"
+          "fromName": "Release",
+          "to": [
+            "gh"
+          ],
+          "toName": [
+            "gh"
+          ],
+          "text": "status?"
         },
         "botItem": {
           "kind": "user",
-          "fromAgent": "rel",
-          "sender": null
+          "id": "ask_1",
+          "text": "status?",
+          "room": {
+            "kind": "user",
+            "fromSession": "sess_home_rel",
+            "fromAgent": "rel",
+            "fromName": "Release",
+            "to": [
+              "gh"
+            ],
+            "toName": [
+              "gh"
+            ],
+            "id": "ask_1",
+            "at": 1800000000000
+          },
+          "messageId": "ask_1",
+          "at": 1800000000000,
+          "fromAgent": "rel"
         },
         "leadItem": {
-          "sender": "lead",
-          "fromName": "Lead"
+          "kind": "user",
+          "id": "ask_2",
+          "text": "hi",
+          "room": {
+            "kind": "user",
+            "fromSession": "sess_lead_1",
+            "fromName": "Lead",
+            "id": "ask_2",
+            "at": 1800000000000
+          },
+          "messageId": "ask_2",
+          "at": 1800000000000,
+          "sender": "lead"
         },
         "ownItem": {
-          "sender": null,
-          "fromAgent": null
+          "kind": "user",
+          "id": "u1",
+          "text": "mine",
+          "room": {
+            "kind": "user",
+            "id": "u1",
+            "at": 1800000000000
+          },
+          "messageId": "u1",
+          "at": 1800000000000
         },
         "onlyExchange": {
           "spec": {
@@ -4586,7 +4748,10 @@
             "to": [
               "gh"
             ],
-            "only": true
+            "only": true,
+            "choose": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "outcome": "done",
@@ -4712,10 +4877,32 @@
         ],
         "calls": [
           {
-            "cursor": null,
+            "cursor": {
+              "$exact": "undefined"
+            },
             "self": "gh",
             "handedId": "s1",
-            "rows": "ROWS",
+            "rows": [
+              {
+                "id": "u1",
+                "kind": "user",
+                "text": "usage stats?",
+                "at": 1
+              },
+              {
+                "id": "s1",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "stats",
+                "at": 2
+              },
+              {
+                "id": "u2",
+                "kind": "user",
+                "text": "next",
+                "at": 5
+              }
+            ],
             "result": [
               {
                 "id": "u1",
@@ -4744,7 +4931,27 @@
             "cursor": "u1",
             "self": "gh",
             "handedId": "s1",
-            "rows": "ROWS",
+            "rows": [
+              {
+                "id": "u1",
+                "kind": "user",
+                "text": "usage stats?",
+                "at": 1
+              },
+              {
+                "id": "s1",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "stats",
+                "at": 2
+              },
+              {
+                "id": "u2",
+                "kind": "user",
+                "text": "next",
+                "at": 5
+              }
+            ],
             "result": [
               {
                 "id": "s1",
@@ -4766,7 +4973,27 @@
             "cursor": "gone",
             "self": "gh",
             "handedId": "s1",
-            "rows": "ROWS",
+            "rows": [
+              {
+                "id": "u1",
+                "kind": "user",
+                "text": "usage stats?",
+                "at": 1
+              },
+              {
+                "id": "s1",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "stats",
+                "at": 2
+              },
+              {
+                "id": "u2",
+                "kind": "user",
+                "text": "next",
+                "at": 5
+              }
+            ],
             "result": [
               {
                 "id": "u2",
@@ -4780,7 +5007,21 @@
             "cursor": "gone",
             "self": "gh",
             "handedId": "s1",
-            "rows": "ROWS[0..2]",
+            "rows": [
+              {
+                "id": "u1",
+                "kind": "user",
+                "text": "usage stats?",
+                "at": 1
+              },
+              {
+                "id": "s1",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "stats",
+                "at": 2
+              }
+            ],
             "result": []
           }
         ],
@@ -5294,9 +5535,14 @@
               }
             ],
             "model": "small",
-            "tools": null,
+            "tools": {
+              "$exact": "undefined"
+            },
             "options": {
-              "signal": {},
+              "signal": {
+                "class": "AbortSignal",
+                "aborted": false
+              },
               "effort": "low",
               "fast": false,
               "maxOutputTokens": 400,
@@ -5321,9 +5567,14 @@
               }
             ],
             "model": "small",
-            "tools": null,
+            "tools": {
+              "$exact": "undefined"
+            },
             "options": {
-              "signal": {},
+              "signal": {
+                "class": "AbortSignal",
+                "aborted": false
+              },
               "effort": "low",
               "fast": false,
               "maxOutputTokens": 400,
@@ -6200,7 +6451,31 @@
         ],
         "calls": [
           {
-            "rows": "rows",
+            "rows": [
+              {
+                "id": "1",
+                "kind": "user",
+                "text": "q"
+              },
+              {
+                "id": "2",
+                "kind": "speech",
+                "speaker": "gh",
+                "text": "mine"
+              },
+              {
+                "id": "3",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "theirs"
+              },
+              {
+                "id": "4",
+                "kind": "pass",
+                "speaker": "bench",
+                "text": ""
+              }
+            ],
             "cursor": "2",
             "result": [
               {
@@ -6212,8 +6487,34 @@
             ]
           },
           {
-            "rows": "rows",
-            "cursor": null,
+            "rows": [
+              {
+                "id": "1",
+                "kind": "user",
+                "text": "q"
+              },
+              {
+                "id": "2",
+                "kind": "speech",
+                "speaker": "gh",
+                "text": "mine"
+              },
+              {
+                "id": "3",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "theirs"
+              },
+              {
+                "id": "4",
+                "kind": "pass",
+                "speaker": "bench",
+                "text": ""
+              }
+            ],
+            "cursor": {
+              "$exact": "undefined"
+            },
             "result": [
               {
                 "id": "1",
@@ -6229,7 +6530,37 @@
             ]
           },
           {
-            "rows": "longer",
+            "rows": [
+              {
+                "id": "0",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "old"
+              },
+              {
+                "id": "1",
+                "kind": "user",
+                "text": "q"
+              },
+              {
+                "id": "2",
+                "kind": "speech",
+                "speaker": "gh",
+                "text": "mine"
+              },
+              {
+                "id": "3",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "theirs"
+              },
+              {
+                "id": "4",
+                "kind": "pass",
+                "speaker": "bench",
+                "text": ""
+              }
+            ],
             "cursor": "gone",
             "result": [
               {
@@ -6246,7 +6577,14 @@
             ]
           },
           {
-            "rows": "longer[0]",
+            "rows": [
+              {
+                "id": "0",
+                "kind": "speech",
+                "speaker": "rel",
+                "text": "old"
+              }
+            ],
             "cursor": "gone",
             "result": [
               {
@@ -6601,7 +6939,6 @@
             }
           }
         },
-        "uploadBytesInLog": false,
         "itemFromRow": {
           "kind": "user",
           "id": "sub-1",
@@ -6979,10 +7316,12 @@
             }
           }
         ],
-        "sessionHoldsPngBase64": false,
         "notices": [
           {
             "text": "see [Image #1], [Pasted text #2 +1 lines] and [File #3: plan.docx]",
+            "tone": {
+              "$exact": "undefined"
+            },
             "room": {
               "kind": "user",
               "to": [
@@ -7134,7 +7473,9 @@
           },
           "text": ""
         },
-        "badUsage": null
+        "badUsage": {
+          "$exact": "undefined"
+        }
       }
     }
   ]

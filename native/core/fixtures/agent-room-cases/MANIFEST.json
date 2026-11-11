@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 236243,
+      "bytes": 244571,
       "path": "golden.json",
-      "sha256": "24e4c5d592159995ceee5a3cfa87098a00fabf4ed10f799a4352ab43f86be15d"
+      "sha256": "58a81fab14d9ad57ed165065ea2b89bfd48622f66bc06632928cbe42d7c0d4b0"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "ce9c896ef37bd5ad6f3706b6dd74afd6eea3b1fea0b3b59f74f754a3c8f8c1fc"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,15 +63,70 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-room-cases.mjs",
-  "recorderSha256": "b6460332a5f053336d3830c6e5d4e2de6e71f642d3d9ee2ebfdf6c3267a3e708",
+  "recorderSha256": "4605a295be76ddcc4b8221eeaec1303a0bbcba4b9a35f974071be21188074eab",
   "replay": {
-    "entry": "mixdog-core-rooms (config, exchange, live, calls): parse_room_ask, mention, row/prompt builders, run_room_exchange (feed spec.plan / spec.choose; compare result, spoken, every turn handed to speak and every step shown to decide), supervisor parser/prompt, completion request, delivery append",
+    "compare": "mixdog-core-rooms (config, exchange, live, calls): parse_room_ask, mention, row/prompt builders, run_room_exchange (feed spec.plan / spec.choose; compare result, spoken, every turn handed to speak and every step shown to decide), supervisor parser/prompt, completion request, delivery append",
+    "entry": "Drive these public items on o1: mixdog-core-rooms/src/rooms/config.rs:157 parse_room_ask; mixdog-core-rooms/src/rooms/config.rs:206 room_mention_of; mixdog-core-rooms/src/rooms/row_message.rs:228 room_row_message; mixdog-core-rooms/src/rooms/turn_prompt.rs:296 room_turn_prompt; mixdog-core-rooms/src/rooms/exchange.rs:302 run_room_exchange; mixdog-core-rooms/src/rooms/supervisor.rs:115 supervisor_prompt; mixdog-core-rooms/src/rooms/supervisor.rs:100 supervisor_rows; mixdog-core-rooms/src/rooms/supervisor.rs:300 parse_room_decision; mixdog-core-rooms/src/rooms/turn_post.rs:137 post_speech.",
+    "missingOnO1": [
+      "the supervisor completion request (room-supervisor-completion.mjs): maintainer.rs only cites it in a doc comment",
+      "the log intake (agent-room-delivery.mjs): no public function; post_speech is the nearest and is a different step"
+    ],
     "normalised": {
       "randomness": "the budget cases give roomMessageBudget the recorded random values or the recorded seeded generator",
       "supervisorElapsed": "the ms= figure of the completion log line is <n>"
     },
-    "note": "exchange cases hold the scripted behaviour as data (plan.byId/byTurn/default, mention, choose list or rule, supersededAfterStep, stopWhenSpoken); a decision {throws} makes decide fail with that message; an array element null is a decision that returned null, a missing element is undefined"
+    "note": "exchange cases hold the scripted behaviour as data (plan.byId/byTurn/default, mention, choose list or rule, supersededAfterStep, stopWhenSpoken); a decision {throws} makes decide fail with that message; an array element null is a decision that returned null, a missing element is undefined",
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 157,
+        "name": "parse_room_ask",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/config.rs"
+      },
+      {
+        "line": 206,
+        "name": "room_mention_of",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/config.rs"
+      },
+      {
+        "line": 228,
+        "name": "room_row_message",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/row_message.rs"
+      },
+      {
+        "line": 296,
+        "name": "room_turn_prompt",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/turn_prompt.rs"
+      },
+      {
+        "line": 302,
+        "name": "run_room_exchange",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/exchange.rs"
+      },
+      {
+        "line": 115,
+        "name": "supervisor_prompt",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/supervisor.rs"
+      },
+      {
+        "line": 100,
+        "name": "supervisor_rows",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/supervisor.rs"
+      },
+      {
+        "line": 300,
+        "name": "parse_room_decision",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/supervisor.rs"
+      },
+      {
+        "line": 137,
+        "name": "post_speech",
+        "path": "native/core/crates/mixdog-core-rooms/src/rooms/turn_post.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "agent-room-cases",
-  "totalBytes": 236243
+  "totalBytes": 244571,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

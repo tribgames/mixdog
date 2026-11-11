@@ -44,14 +44,14 @@ async function exchange(spec) {
   let stop = false;
   const speak = async (id, turn) => {
     turnCount += 1;
-    turns.push({ id, turn: JSON.parse(JSON.stringify(turn)) });
+    turns.push({ id, turn: structuredClone(turn) });
     if (spec.stopWhenSpoken === id) stop = true;
     let reply = spec.plan?.byTurn?.[turnCount - 1] ?? spec.plan?.byId?.[id] ?? spec.plan?.default ?? 'speech';
     if (spec.mention?.[id]) reply = { result: 'speech', mention: spec.mention[id] };
     return reply;
   };
   const decide = async (step) => {
-    steps.push(JSON.parse(JSON.stringify(step)));
+    steps.push(structuredClone(step));
     const n = steps.length;
     if (spec.supersededAfterStep === n) pending = true;
     const c = spec.choose;
@@ -90,7 +90,7 @@ await set.run('/ask names several members, in order, each once', () => ({
 }));
 await set.run('a peer @mention: leading or delimited, one target, never self, code, quotes or unknown', () => {
   const twins = [{ id: 'a', name: 'Sam' }, { id: 'b', name: 'Sam' }, { id: 'c', name: 'Cy' }];
-  const of = (text, self = 'gh', members = MEMBERS) => ({ text, self, members: members === MEMBERS ? 'MEMBERS' : members, result: roomMentionOf(text, members, self) });
+  const of = (text, self = 'gh', members = MEMBERS) => ({ text, self, members, result: roomMentionOf(text, members, self) });
   return {
     members: MEMBERS,
     mentions: [
@@ -198,10 +198,7 @@ await set.run('a member is named exactly by id or name; a row from another sessi
   const only = await exchange({ members: ['bench', 'gh'], to: ['gh'], only: true, choose: undefined });
   return {
     named: ['bench lead', 'Bench', 'Ben', ''].map((text) => ({ text, id: roomMemberNamed(text, MEMBERS) })),
-    row: { fromSession: row.fromSession, fromAgent: row.fromAgent, fromName: row.fromName },
-    botItem: { kind: bot.kind, fromAgent: bot.fromAgent, sender: bot.sender ?? null },
-    leadItem: { sender: lead.sender, fromName: lead.room.fromName },
-    ownItem: { sender: own.sender ?? null, fromAgent: own.fromAgent ?? null },
+    row, botItem: bot, leadItem: lead, ownItem: own,
     onlyExchange: only,
   };
 });
@@ -222,7 +219,7 @@ await set.run('rows a member was already handed never come back as new', () => {
   const item = roomRowItem(roomRowMessage({ id: 'u9', kind: 'user', text: 'hi', at: 7 }), 'h9');
   return {
     rows,
-    calls: [[undefined, 'gh', 's1', rows], ['u1', 'gh', 's1', rows], ['gone', 'gh', 's1', rows], ['gone', 'gh', 's1', rows.slice(0, 2)]].map(([cursor, self, handed, r]) => ({ cursor: cursor ?? null, self, handedId: handed, rows: r === rows ? 'ROWS' : 'ROWS[0..2]', result: rowsSinceCursor(r, cursor, self, handed) })),
+    calls: [[undefined, 'gh', 's1', rows], ['u1', 'gh', 's1', rows], ['gone', 'gh', 's1', rows], ['gone', 'gh', 's1', rows.slice(0, 2)]].map(([cursor, self, handed, r]) => ({ cursor, self, handedId: handed, rows: r, result: rowsSinceCursor(r, cursor, self, handed) })),
     rowAtFromTranscript: roomRowsOfItems([item])[0].at,
   };
 });
@@ -281,7 +278,7 @@ await set.run('a supervisor step runs once on the Maintainer route with no promp
     loadConfig: () => ({ providers: { p: {} } }),
     resolveMaintenanceRoute: ({ agent, includeDefault }) => { routeCalls.push({ agent, includeDefault }); return agent === 'cycle1-agent' && includeDefault === false ? { provider: 'p', model: 'small' } : null; },
     initProviders: async () => {},
-    getProvider: () => ({ send: async (messages, model, tools, options) => { sent.push({ messages, model, tools: tools ?? null, options }); return { content: replies[sent.length - 1] }; } }),
+    getProvider: () => ({ send: async (messages, model, tools, options) => { sent.push({ messages, model, tools, options: { ...options, signal: options.signal ? { class: 'AbortSignal', aborted: options.signal.aborted } : options.signal } }); return { content: replies[sent.length - 1] }; } }),
     log: (line) => logged.push(line),
   });
   const members = [{ id: 'gh', name: 'GitHub' }, { id: 'rel', name: 'Release' }];
@@ -357,7 +354,7 @@ await set.run("rows since the cursor leave out the member's own words", () => {
   const longer = [{ id: '0', kind: 'speech', speaker: 'rel', text: 'old' }, ...rows];
   return {
     rows, longer,
-    calls: [['rows', '2'], ['rows', undefined], ['longer', 'gone'], ['longer[0]', 'gone']].map(([which, cursor]) => ({ rows: which, cursor: cursor ?? null, result: rowsSinceCursor(which === 'rows' ? rows : which === 'longer' ? longer : [longer[0]], cursor, 'gh') })),
+    calls: [['rows', '2'], ['rows', undefined], ['longer', 'gone'], ['longer[0]', 'gone']].map(([which, cursor]) => ({ rows: which === 'rows' ? rows : which === 'longer' ? longer : [longer[0]], cursor, result: rowsSinceCursor(which === 'rows' ? rows : which === 'longer' ? longer : [longer[0]], cursor, 'gh') })),
   };
 });
 await set.run('stored rows restore as a user bubble or a room notice and read back', () => {
@@ -394,7 +391,7 @@ await set.run('a user row keeps its stored files through the log and a restore; 
   const speech = normalizeRoomRow({ id: 's1', kind: 'speech', speaker: 'gh', text: 'x', parts, attachments, images });
   const pass = normalizeRoomRow({ id: 'p1', kind: 'pass', speaker: 'gh', text: '', parts, attachments });
   return {
-    rowInput, message, uploadBytesInLog: JSON.stringify(message).includes('cG5nIGJ5dGVz'),
+    rowInput, message,
     itemFromRow: roomRowItem(message), restored, rowsOfRestored: roomRowsOfItems([restored]),
     speechRow: speech, speechMessage: roomRowMessage(speech), speechItemAttachments: roomRowItem(roomRowMessage(speech)).attachments,
     passRow: pass,
@@ -420,7 +417,7 @@ await set.run("the log's intake stores a user row's files as a chat prompt's and
   return {
     input, added, rows,
     storedBytes: { image: read('image'), file: read('file'), text: read('text') },
-    sessionMessages: session.messages, sessionHoldsPngBase64: JSON.stringify(session.messages).includes(b64('png bytes')), notices,
+    sessionMessages: session.messages, notices,
   };
 });
 await set.run('a usage limit reads off a failed turndone like the Lead banner: descriptor first, quota alone as a quota stop', () => {
@@ -434,7 +431,7 @@ await set.run('a usage limit reads off a failed turndone like the Lead banner: d
       { status: 'failed', quota: { provider: 'openai' } }, { status: 'failed', errorKind: { kind: 'rate_limit' } }, { status: 'done', quota: { provider: 'openai' } },
     ].map((done) => ({ done, result: roomUsageLimit(done, route) })),
     reasons: { length: reasons.length, text: reasons },
-    limitRow, badUsage: normalizeRoomRow({ id: 'c2', kind: 'cap', limit: 'usage', usage: { kind: 'x' } }).usage ?? null,
+    limitRow, badUsage: normalizeRoomRow({ id: 'c2', kind: 'cap', limit: 'usage', usage: { kind: 'x' } }).usage,
   };
 });
 
