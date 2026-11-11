@@ -14,3 +14,68 @@ index 4618631..dfd1392 100644
    writeFileSync(outFile, JSON.stringify({ sessionId, bodies, changes }));
    process.stdout.write('READY\n');
    return new Promise(() => {});
+diff --git a/src/runtime/agent/orchestrator/session/restart-prefix-settle.test.mjs b/src/runtime/agent/orchestrator/session/restart-prefix-settle.test.mjs
+new file mode 100644
+index 0000000..39ef796
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/restart-prefix-settle.test.mjs
+@@ -0,0 +1,58 @@
++// The restart-prefix fixture reports READY (the turn checkpoint is durable, then the parent kills the process) once the
++// checkpoint writes have settled: the header and the journal are on disk when READY is printed, and the fixture waits on
++// that event, not on a fixed pause. Fails when the fixture sleeps before READY.
++import assert from 'node:assert/strict';
++import { spawn } from 'node:child_process';
++import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { fileURLToPath, pathToFileURL } from 'node:url';
++
++const FIXTURE = fileURLToPath(new URL('./restart-prefix-parity.fixture.mjs', import.meta.url));
++
++test('READY follows the settled checkpoint writes, with no fixed pause in the fixture', async () => {
++  const root = mkdtempSync(join(tmpdir(), 'restart-prefix-settle-'));
++  try {
++    const dataDir = join(root, 'data');
++    mkdirSync(dataDir, { recursive: true });
++    const sleeps = join(root, 'fixture-sleeps.txt');
++    // Records every timer of 100 ms or more armed directly by the fixture file (its caller frame); product timers are not its own.
++    const preload = join(root, 'preload.mjs');
++    writeFileSync(
++      preload,
++      `import { appendFileSync } from 'node:fs';
++const real = globalThis.setTimeout;
++globalThis.setTimeout = function (fn, delay, ...rest) {
++  if (Number(delay) >= 100 && new Error().stack.split('\\n')[2].includes('restart-prefix-parity.fixture.mjs')) appendFileSync(${JSON.stringify(sleeps)}, String(delay) + '\\n');
++  return real.call(this, fn, delay, ...rest);
++};
++`
++    );
++    const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href, FIXTURE, 'killtool', dataDir, join(root, 'out.json')], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
++    let stderr = '';
++    child.stderr.on('data', (chunk) => { stderr += chunk; });
++    const ready = await new Promise((resolve, reject) => {
++      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`no READY within 60 s: ${stderr.slice(-1000)}`)); }, 60_000);
++      let seen = '';
++      child.stdout.on('data', (chunk) => {
++        seen += chunk;
++        if (/^READY\r?$/m.test(seen)) { clearTimeout(timer); child.kill('SIGKILL'); resolve(true); }
++      });
++      child.once('exit', () => { clearTimeout(timer); resolve(false); });
++    });
++    assert.equal(ready, true, stderr.slice(-1000));
++    await new Promise((resolve) => child.once('close', resolve));
++    const dir = join(dataDir, 'turn-checkpoints');
++    assert.ok(existsSync(dir), 'the checkpoint directory exists at READY');
++    const files = readdirSync(dir);
++    const header = files.find((name) => name.endsWith('.json'));
++    const journal = files.find((name) => name.endsWith('.jsonl'));
++    assert.ok(header && journal, `header and journal are on disk at READY: ${files.join(', ')}`);
++    assert.ok(JSON.parse(readFileSync(join(dir, header), 'utf8')).turnToken, 'the header is whole');
++    assert.ok(readFileSync(join(dir, journal), 'utf8').trim().split('\n').every((line) => JSON.parse(line)), 'every journal line is whole');
++    assert.equal(existsSync(sleeps) ? readFileSync(sleeps, 'utf8') : '', '', 'the fixture arms no timer of 100 ms or more');
++  } finally {
++    rmSync(root, { recursive: true, force: true });
++  }
++});
+\ No newline at end of file
