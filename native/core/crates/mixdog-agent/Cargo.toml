@@ -30,6 +30,10 @@ tokio-util = { workspace = true }
 url = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+[features]
+# Test-only: gates in the streamed dispatch of edits (`test_hooks`). No normal build enables it.
+test-support = []
+
 [dev-dependencies]
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
@@ -46,3 +50,4 @@ mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", 
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-protocol = { workspace = true, features = ["codegen"] }
+mixdog-agent = { path = ".", features = ["test-support"] }
