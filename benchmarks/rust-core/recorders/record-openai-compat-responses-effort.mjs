@@ -55,7 +55,7 @@ const attempt = async (promise) => {
   }
 };
 
-await rec.run('mode-resolution-by-model-and-options', `${SRC}:75`, {}, () => {
+await rec.run('mode-resolution-by-model-and-options', `${SRC}:105`, {}, () => {
   const responses = { protocol: 'openai-responses' };
   return {
     responses: ['gpt-6-sol', 'gpt-6.1-sol', 'openai/gpt-6.1-sol', 'vendor/openai/gpt-7', 'OpenAI/GPT-6.2-luna', 'openai/gpt-5.6-sol', 'gpt-5.5', 'openai/o4-mini', 'gpt-6-sol/other'].map((m) => [m, effortConfigurationMode('custom-g', m, responses)]),
@@ -146,7 +146,7 @@ await rec.run('custom-session-identity-key-headers-hook', `${SRC}:232`, {}, asyn
   await send(SESSION, hooked.provider);
   return { sends, gateway: gateway.requests.at(-1), hooked: hooked.requests[0] };
 });
-await rec.run('pre-gpt6-and-builtin-gateways-keep-per-request-shape', `${SRC}:268`, {}, async () => {
+await rec.run('pre-gpt6-and-builtin-gateways-keep-per-request-shape', `${SRC}:273`, {}, async () => {
   const model = 'openai/gpt-5.6-sol';
   const { provider, requests } = fixture('custom-g', model);
   const session = newSession(provider, model);
