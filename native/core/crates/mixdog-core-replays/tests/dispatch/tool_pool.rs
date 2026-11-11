@@ -456,8 +456,8 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         bots: Arc::new(Bots(vec!["ann"])),
         suggestions: suggested.clone(),
         listing: Arc::new(replay::Fixture::default()),
-        send: Arc::new(super::session_send::LateSend::default()),
-        bot_sources: Arc::new(super::session_bots::LateBotSources::default()),
+        send: Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default()),
+        bot_sources: Arc::new(mixdog_core::run_host::tool_pool::session_bots::LateBotSources::default()),
         io: mixdog_rt::testing::tokens().interactive_io,
     });
     Port { port, threads, requests, suggested }

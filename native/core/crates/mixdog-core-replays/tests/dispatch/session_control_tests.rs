@@ -10,16 +10,16 @@ use mixdog_store::sqlite::lead::decode_catalog_cursor;
 use mixdog_store::sqlite::lead::encode_catalog_cursor;
 use mixdog_tools::orch::session::SessionTool;
 
-use super::super::session_bots::BotSources;
-use super::super::session_bots::LateBotSources;
-use super::super::session_control::ListedRow;
-use super::super::session_control::ListingPage;
-use super::super::session_control::LiveSources;
-use super::super::session_control::SessionListing;
+use mixdog_core::run_host::tool_pool::session_bots::BotSources;
+use mixdog_core::run_host::tool_pool::session_bots::LateBotSources;
+use mixdog_core::run_host::tool_pool::session_control::ListedRow;
+use mixdog_core::run_host::tool_pool::session_control::ListingPage;
+use mixdog_core::run_host::tool_pool::session_control::LiveSources;
+use mixdog_core::run_host::tool_pool::session_control::SessionListing;
 use super::*;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/session-tool-control/golden.json")).expect("golden")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-tool-control/golden.json")).expect("golden")
 }
 
 /// The scenario's catalog, in the order the store lists it.
@@ -164,7 +164,7 @@ fn tool_over(
     bots: &[&'static str],
     listing: Arc<dyn SessionListing>,
     requests: Arc<dyn ThreadRequests>,
-    send: Arc<super::super::session_send::LateSend>,
+    send: Arc<mixdog_core::run_host::tool_pool::session_send::LateSend>,
     bot_sources: Arc<dyn BotSources>,
 ) -> SessionTool {
     let callers = || Arc::new(ThreadCallers::new(threads.clone(), HeartbeatSessions::new(), UnattendedRunRegistry::new(Arc::new(NoStamps))));
@@ -209,7 +209,7 @@ async fn answer(scenario: &Value, bots: &[&'static str]) -> (bool, String, Vec<S
     let surface = if scenario["callerSessionId"].is_string() { SurfaceKind::Agent } else { SurfaceKind::Lead };
     let transcripts = scenario["transcripts"].as_object().expect("transcripts").clone();
     let known: Vec<String> = transcripts.keys().cloned().collect();
-    let listing: Arc<dyn SessionListing> = if scenario["noService"] == true { Arc::new(super::super::session_control::LateListing::default()) } else { Arc::new(Fixture::of(scenario)) };
+    let listing: Arc<dyn SessionListing> = if scenario["noService"] == true { Arc::new(mixdog_core::run_host::tool_pool::session_control::LateListing::default()) } else { Arc::new(Fixture::of(scenario)) };
     let requests = Arc::new(Transcripts(transcripts, Mutex::default()));
     let bot_sources: Arc<dyn BotSources> = match scenario.get("bots") {
         Some(data) => Arc::new(BotRecords(data.clone())),
@@ -413,7 +413,7 @@ impl mixdog_services::task_reports::host::AgentRegistry for NothingPending {
 struct Named(Vec<Value>);
 
 #[async_trait]
-impl super::super::session_send::AgentNames for Named {
+impl mixdog_core::run_host::tool_pool::session_send::AgentNames for Named {
     async fn name(&self, agent_id: &str) -> String {
         self.0.iter().find(|bot| bot["id"] == agent_id).and_then(|bot| bot["name"].as_str()).unwrap_or(agent_id).to_owned()
     }
@@ -422,7 +422,7 @@ impl super::super::session_send::AgentNames for Named {
 struct Rows(Vec<Value>);
 
 #[async_trait]
-impl super::super::session_send::ModelRows for Rows {
+impl mixdog_core::run_host::tool_pool::session_send::ModelRows for Rows {
     async fn rows(&self) -> Result<Vec<Value>, String> {
         Ok(self.0.clone())
     }
@@ -433,7 +433,7 @@ impl super::super::session_send::ModelRows for Rows {
 struct Efforts(Mutex<Vec<Value>>);
 
 #[async_trait]
-impl super::super::session_send::SessionEffort for Efforts {
+impl mixdog_core::run_host::tool_pool::session_send::SessionEffort for Efforts {
     async fn set_effort(&self, thread: &ThreadId, level: Option<&str>) -> Result<(), String> {
         self.0.lock().expect("efforts").push(json!({ "sessionId": thread.as_str(), "action": "setEffort", "args": [level, { "sessionOnly": true }] }));
         Ok(())
@@ -443,7 +443,7 @@ impl super::super::session_send::SessionEffort for Efforts {
 struct NoRebind;
 
 #[async_trait]
-impl super::super::session_send::Rebind for NoRebind {
+impl mixdog_core::run_host::tool_pool::session_send::Rebind for NoRebind {
     async fn rebind(&self, _: &str, _: &str) -> Result<(), String> {
         Ok(())
     }
@@ -462,7 +462,7 @@ struct CreateRecords {
 }
 
 #[async_trait]
-impl super::super::session_create::CreateHost for CreateRecords {
+impl mixdog_core::run_host::tool_pool::session_create::CreateHost for CreateRecords {
     /// The registry document Node's `listProjects` read (`golden.projectsFile`), read by the core's own registry
     /// (`Registry::list`, as the daemon's `RegistryProjects` reads it).
     async fn projects(&self) -> Vec<mixdog_tools::orch::session::ProjectRow> {
@@ -516,13 +516,13 @@ impl super::super::session_create::CreateHost for CreateRecords {
         *self.watched.lock().expect("watched") = Some((runtime, changes));
         Ok(id.as_str().to_owned())
     }
-    async fn request_worktree(&self, session_id: &str, input: Value) -> Result<Value, super::super::session_create::CreateFailure> {
+    async fn request_worktree(&self, session_id: &str, input: Value) -> Result<Value, mixdog_core::run_host::tool_pool::session_create::CreateFailure> {
         self.configured.lock().expect("configured").push(masked_value(&json!({ "sessionId": session_id, "action": "requestWorktree", "args": [input] })));
         let outcome = &self.golden["worktree"][self.scenario["worktree"].as_str().expect("a worktree outcome")];
         if let Some(value) = outcome.get("value") {
             return Ok(value.clone());
         }
-        Err(super::super::session_create::CreateFailure {
+        Err(mixdog_core::run_host::tool_pool::session_create::CreateFailure {
             code: outcome["code"].as_str().map(str::to_owned),
             message: outcome["message"].as_str().expect("message").to_owned(),
             details: outcome.get("details").cloned(),
@@ -596,7 +596,7 @@ async fn session_create_answers_as_node() {
 /// follows the turn (Node passes an id only with `onSettled`), `mode` is a prompt's, and `transcriptMeta`
 /// is the sender's meta with the chain's hop and bots (`chainedOrigin`'s transcript meta).
 struct Submits {
-    inner: super::super::session_send::DirectorySubmit,
+    inner: mixdog_core::run_host::tool_pool::session_send::DirectorySubmit,
     seen: Mutex<Vec<Value>>,
 }
 
@@ -830,7 +830,7 @@ async fn replay_sends(prefix: &str) {
         ));
         let host = TaskReportHost::new(
             home.clone(),
-            Arc::new(crate::run_host::task_report_store::DirectoryReportSessions {
+            Arc::new(mixdog_core::run_host::task_report_store::DirectoryReportSessions {
                 directory: directory.clone(),
                 queue,
                 completions: Arc::new(mixdog_core_session::session::agent_registry::flow::SessionCompletions::new(directory.clone())),
@@ -842,7 +842,7 @@ async fn replay_sends(prefix: &str) {
             Arc::new(mixdog_services::task_reports::host::BotWork::new(Arc::new(|_: &str| {}))),
             Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
         );
-        let submits = Arc::new(Submits { inner: super::super::session_send::DirectorySubmit(directory.clone()), seen: Mutex::default() });
+        let submits = Arc::new(Submits { inner: mixdog_core::run_host::tool_pool::session_send::DirectorySubmit(directory.clone()), seen: Mutex::default() });
         let tasks = TaskSends::with_timing(
             host,
             submits.clone(),
@@ -879,12 +879,12 @@ async fn replay_sends(prefix: &str) {
             );
             rooms.register_host(Arc::new(NoRelay), Some(Arc::new(asks)))
         });
-        let late = Arc::new(super::super::session_send::LateSend::default());
-        late.bind(Arc::new(super::super::session_send::SessionSend {
+        let late = Arc::new(mixdog_core::run_host::tool_pool::session_send::LateSend::default());
+        late.bind(Arc::new(mixdog_core::run_host::tool_pool::session_send::SessionSend {
             rooms: rooms.clone(),
             directory: directory.clone(),
             tasks,
-            chains: super::super::session_send::CallerChains {
+            chains: mixdog_core::run_host::tool_pool::session_send::CallerChains {
                 record: Arc::new(move |id: &str| (id == record_of).then(|| record.clone())),
                 turn: Arc::new(move |id: &str| if id == turn_of { (turn_hop, turn_bots.clone()) } else { (0, Vec::new()) }),
             },
