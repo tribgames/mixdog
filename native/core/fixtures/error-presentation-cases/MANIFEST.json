@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "328447ed2c094b8abc839f44612c61353568502315cc575feaa176c354d5e945"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-error-presentation-cases.mjs",
-  "recorderSha256": "b037086cf248a11688b5f1a5084ffc75b19bb1dc9686ce6098ae3ff69536d5d3",
+  "recorderSha256": "4c441a9d3079a75796d657cdfbe245d7ed1371fcc62d15bda7d3d25f3b1fdb22",
   "replay": {
     "compare": "mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe",
     "declaredExclusions": [
@@ -104,7 +104,7 @@
         "reason": "the recording's time zone, an input (manifest inputs.timeZone)"
       }
     ],
-    "entry": "mixdog-ai/src/service/error_presentation_replay_tests.rs: E/T probes as the ProviderError an adapter classifies (retry::classify::kind_of over the typed fields, mixdog-ai/src/retry/classify.rs:142), Q probes as the cache warm's refused POST (providers/anthropic/errors.rs classify_response + quota_error_text, now pub(crate)), S probes as a bare string; each through present_error_text (service/error_text.rs:174), safe_error_details (:346) and Descriptor::of (the errorKind failure_record persists); deterministicKinds through ErrorKind::is_deterministic.",
+    "entry": "Drive these public items on o1: mixdog-ai/src/service/error_text.rs:174 present_error_text; mixdog-ai/src/service/error_text.rs:346 safe_error_details; mixdog-ai/src/retry/classify.rs:142 kind_of (classifies Facts (status, code, scope) into an ErrorKind; `pub mod retry`, `pub mod classify`; the nearest to providerErrorKind, whose input is an error object).",
     "existsButNotPublicOnO1": [
       "describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private",
       "anthropicQuotaError: mixdog-ai/src/providers/anthropic/errors.rs:103 `quota_error_text` is pub(super)"
@@ -118,8 +118,8 @@
       "providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds"
     ],
     "normalised": {
-      "socketErrors": "Node's errno text is the core's typed TransportFault: an E probe with code ECONNRESET is fault_from_io(ConnectionReset, after connect); EPIPE, ETIMEDOUT and ECONNREFUSED are an I/O or connect fault carrying the OS error of that name (taken from the platform's own error numbers); the T probe (undici `TypeError: fetch failed`, which hides the errno) is fault_from_io(ConnectionRefused, connecting) with no OS error (mixdog-ai/src/transport/fault.rs); kind_of reads the fault, never the code text",
       "secretShapedInput": "sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)",
+      "socketErrors": "Node's errno text is the core's typed TransportFault: an E probe with code ECONNRESET is fault_from_io(ConnectionReset, after connect); EPIPE, ETIMEDOUT and ECONNREFUSED are an I/O or connect fault carrying the OS error of that name (taken from the platform's own error numbers); the T probe (undici `TypeError: fetch failed`, which hides the errno) is fault_from_io(ConnectionRefused, connecting) with no OS error (mixdog-ai/src/transport/fault.rs); kind_of reads the fault, never the code text",
       "timeZone": "recorded with TZ=UTC (the reset wording is local time); resetAt = the fixed clock + 1 h"
     },
     "protocolMethods": [],
