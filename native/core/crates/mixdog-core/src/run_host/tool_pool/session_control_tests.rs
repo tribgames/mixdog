@@ -239,6 +239,10 @@ async fn session_fork_answers_as_node() {
             text = text.replace(&minted, heir["id"].as_str().expect("heir id"));
         }
         assert_eq!((ok, text.as_str()), (expected["ok"].as_bool().expect("ok"), expected["text"].as_str().expect("text")), "{name}");
+        // A refused fork leaves no session behind: Node persists the cold heir only after its carry.
+        if !ok {
+            assert_eq!(rig.store.log_ids(), [source.clone()], "{name}: a refused fork leaves only the source");
+        }
         replayed += 1;
     }
     assert!(replayed > 0, "no fork- scenario recorded");

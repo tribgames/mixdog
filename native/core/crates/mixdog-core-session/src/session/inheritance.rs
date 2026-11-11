@@ -19,6 +19,12 @@ use serde_json::json;
 
 use super::SessionDirectory;
 
+/// A carry decided and checked, not yet written: the rows the heir takes and whether the compactor made them.
+pub(super) struct Carry {
+    rows: Vec<Value>,
+    compacted: bool,
+}
+
 /// The heir's route (`inheritanceRouteTarget`): only a route naming a provider and a model has one.
 pub struct InheritTarget {
     pub provider: String,
@@ -57,7 +63,7 @@ pub trait InheritanceFit: Send + Sync {
     async fn compaction_budget(&self, target: &InheritTarget) -> Option<u64>;
 }
 
-fn clean(value: Option<&Value>) -> String {
+pub(super) fn clean(value: Option<&Value>) -> String {
     value.and_then(Value::as_str).map(|text| mixdog_js::js_trim(text).to_owned()).unwrap_or_default()
 }
 
@@ -109,12 +115,6 @@ impl SessionDirectory {
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
-        let mut carried = inheritable(self.rows_of(source.as_str()).await?);
-        if !super::route_session::has_user_conversation(&carried) {
-            return Err(refused("inheritFrom: the source session has no conversation to carry"));
-        }
-        // Decided before anything moves, on the heir's own scale (`inheritanceFit` over the heir): an explicit `compact`
-        // summarizes whatever the size, otherwise only a conversation that cannot fit is compacted.
         let held = handle.cell.header.load_full();
         let target = InheritTarget {
             provider: clean(held.get("provider")),
@@ -124,6 +124,22 @@ impl SessionDirectory {
             tools_of: Some(heir.clone()),
             source: Some(source.clone()),
         };
+        let carry = self.plan_carry(source, &target, compact).await?;
+        self.commit_carry(source, heir, carry).await
+    }
+
+    /// `carryConversation` up to the point anything is written: the source's conversation (or the compactor's, when
+    /// `compact` asks for it or the conversation cannot fit `target`), checked as Node checks it. A refusal here leaves
+    /// nothing behind, so a heir not created yet is created only for a carry that will land (`inheritToNewSession`
+    /// builds the cold heir in memory and persists it after the carry).
+    pub(super) async fn plan_carry(&self, source: &ThreadId, target: &InheritTarget, compact: bool) -> Result<Carry, CoreError> {
+        let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
+        let mut carried = inheritable(self.rows_of(source.as_str()).await?);
+        if !super::route_session::has_user_conversation(&carried) {
+            return Err(refused("inheritFrom: the source session has no conversation to carry"));
+        }
+        // Decided before anything moves, on the heir's own scale (`inheritanceFit` over the heir): an explicit `compact`
+        // summarizes whatever the size, otherwise only a conversation that cannot fit is compacted.
         let fit_of = |basis: Option<FitBasis>| basis.filter(|basis| basis.limit > 0);
         let fit = fit_of(self.deps().inherit.basis(&target, &carried).await);
         // `carryConversation`'s `compacted`: the heir takes the compactor's conversation instead of the source's.
@@ -153,6 +169,16 @@ impl SessionDirectory {
                 return Err(refused(&fit_message(&target.provider, &target.model, fit.used, fit.limit)));
             }
         }
+        Ok(Carry { rows: carried, compacted: was_compacted })
+    }
+
+    /// The rest of `carryConversation`: the planned rows land in `heir` with their inheritance boundary, and the heir
+    /// takes the source's title when it has none.
+    pub(super) async fn commit_carry(&self, source: &ThreadId, heir: &ThreadId, carry: Carry) -> Result<Reply, CoreError> {
+        let Carry { rows: mut carried, compacted: was_compacted } = carry;
+        let ctx = CallContext::internal("inheritance");
+        let handle = self.open_handle(heir, &ctx).await?;
+        let held = handle.cell.header.load_full();
         let source_title = clean(self.read_of(source, "thread/header/read").await?.pointer("/header/title"));
         let mut set = Map::new();
         set.insert("inheritedFromSessionId".into(), json!(source.as_str()));

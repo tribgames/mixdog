@@ -273,6 +273,11 @@ impl MemStore {
             .unwrap_or_default()
     }
 
+    /// Every thread a log was created for.
+    pub fn log_ids(&self) -> Vec<ThreadId> {
+        lock(&self.logs).keys().cloned().collect()
+    }
+
     fn log(&self, id: &ThreadId) -> Log {
         lock(&self.logs).entry(id.clone()).or_default().clone()
     }
