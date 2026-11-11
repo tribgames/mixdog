@@ -74,10 +74,16 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
         "opencode-go-gemini-raises-the-ladder-stage" => (2, Some((0, 1))),
         // Cursor draws one `Math.random` of its own (not a retry sample: the server's advice is waited in full).
         "cursor-raises-the-stage" => (1, None),
+        // The one backoff sample of the retry the server's error (no advice) asks for, then the draw of its own.
+        "cursor-end-frame-error-surfaces-the-server-error" => (2, Some((0, 0))),
         "vertex-gemini-retries-its-stream-without-the-stage"
         | "anthropic-oauth-raises-the-stage"
         | "anthropic-oauth-redacts-an-echoed-credential"
         | "anthropic-oauth-redacts-an-echoed-credential-in-a-429"
+        | "anthropic-oauth-redacts-an-opaque-credential-in-a-400"
+        | "anthropic-oauth-redacts-an-opaque-credential-in-a-429"
+        | "anthropic-oauth-refreshes-a-revoked-token-403"
+        | "anthropic-oauth-a-policy-403-is-terminal"
         | "vertex-claude-raises-the-stage"
         | "devin-surfaces-the-first-failure" => (0, None),
         other => panic!("{other}: no draw shape for this case"),
@@ -88,7 +94,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 15, "the recorded cases");
+    assert_eq!(set.cases.len(), 20, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,
