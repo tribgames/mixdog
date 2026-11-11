@@ -123,6 +123,9 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
   private disposed = false;
   /** Bumped by toLive: a page read under an older one never applies. */
   private generation = 0;
+  /** The rows held when the page read that 'moved' was asked: the window to read again is that many rows plus a page, not one
+   *  grown from the rows held after the movement. */
+  movedFrom = 0;
 
   constructor(
     readonly sessionId: string,
@@ -202,8 +205,9 @@ export class TranscriptHistoryPager<T extends HistoryItem> {
     if (page.reset) return this.toLive();
     const current = this.window ?? { items: this.live().items, hasOlder: true, hasNewer: false };
     // The rows moved while the page was on its way (the held rows lost their first, or the session changed after the newest): the
-    // page no longer fits, and the reader's window is read again whole from the live tail, as Node's host answered it.
+    // page no longer fits, and the window the request was made for is read again whole from the live tail, as Node's host answered it.
     if (current.items[0]?.id !== boundary || current.items.at(-1)?.id !== newest) {
+      this.movedFrom = base.items.length;
       this.toLive();
       return 'moved';
     }
