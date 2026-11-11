@@ -10,8 +10,8 @@ import { join } from 'node:path';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-text-cache-budget.mjs';
-const common = 'benchmarks/rust-core/recorders/lib/common.mjs';
-const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { recorderProvenance } = await import('./lib/provenance.mjs');
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
@@ -42,7 +42,7 @@ writeSetManifest(stage, {
   command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
   identity,
   extra: {
-    ...recordingProvenance(recorder, [common]),
+    ...recorderProvenance(import.meta.url),
     tests: [`${S}/cache/text-cache-budget.test.mjs:5`, `${S}/cache/text-cache-budget.test.mjs:22`],
     exclusions: {},
   },

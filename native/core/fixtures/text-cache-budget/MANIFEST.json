@@ -13,6 +13,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -34,7 +38,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-text-cache-budget.mjs",
-  "recorderSha256": "723ef8365a5a7dfbeaada7ed23bee0ec350ecb83a0f50f57e291368e166dc734",
+  "recorderSha256": "3c7d5be686acfffa2140c507f18c8a1cfeed6530c6ddb790b1361b64a2ae4897",
   "set": "text-cache-budget",
   "tests": [
     "src/runtime/agent/orchestrator/session/cache/text-cache-budget.test.mjs:5",

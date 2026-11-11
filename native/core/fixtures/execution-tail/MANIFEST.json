@@ -10,13 +10,17 @@
     {
       "bytes": 6008574,
       "path": "golden.json",
-      "sha256": "b2eb4a319efc9104580a1dc9dbd051cd5f3fc21dbe75307d0b78a337eb0c10ff"
+      "sha256": "7994ce4daf658a75aa2ab4ac95da7cb5a118f8a23cf39832a50d1b4eb19beaa7"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -38,7 +42,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-execution-tail.mjs",
-  "recorderSha256": "900d2ac7bcbdecb9176be9bb6780588b12aa43ed7ef0c7d6f5a2450d489d8b03",
+  "recorderSha256": "1733d836c3f60d02b0ef2d31aa23d4f4f2b72d28c07ab8cc3160dad0d8c40aaa",
   "set": "execution-tail",
   "tests": [
     "src/runtime/agent/orchestrator/session/compact/execution-tail.test.mjs (:74, :116, :142, :158, :190, :218, :249, :302, :353, :368, :425, :466, :494, :520, :549, :569, :603, :639, :667, :711, :792, :828, :844, :858)"
