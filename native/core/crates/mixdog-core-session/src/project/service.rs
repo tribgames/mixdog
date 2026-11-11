@@ -78,7 +78,8 @@ impl Registry for mixdog_workspace::service::WorkspaceService {
         use mixdog_workspace::error::Reason;
         match self.catalog().resolve(path).await {
             Ok(found) => Ok(Some(found.to_string_lossy().into_owned())),
-            Err(error) if error.reason == Reason::PermissionDenied => Ok(None),
+            // No registered project at the path (`resolve`'s refusal): Node's `findRegisteredProject` answered `null`.
+            Err(error) if matches!(error.reason, Reason::PermissionDenied | Reason::Coded("PROJECT_UNAVAILABLE")) => Ok(None),
             Err(error) => Err(error.message),
         }
     }
@@ -166,14 +167,15 @@ impl ProjectService {
         Self { projects, worktrees, workspaces, sessions, live, connectors, ops }
     }
 
-    /// `WORKTREE_PROJECT_UNKNOWN` unless `value` is a registered Project.
+    /// `WORKTREE_PROJECT_UNKNOWN` unless `value` is a registered Project; with no details, as Node's
+    /// `projectScopedArgs` refused it (session-host-lifecycle.ts:1232-1243 at b6f10295a).
     async fn registered_project(&self, value: Option<&Value>) -> Result<String, ScmFailure> {
         let path = require_text(value, "projectPath")?;
         match self.projects.registered(&path).await.map_err(plain)? {
             Some(registered) => Ok(registered),
             None => Err(ScmFailure::coded(
                 errors::WORKTREE_PROJECT_UNKNOWN,
-                DomainErrorDetail::WorktreeProjectUnknown { project_path: Some(path), reason: None },
+                DomainErrorDetail::WorktreeProjectUnknown { project_path: None, reason: None },
             )),
         }
     }

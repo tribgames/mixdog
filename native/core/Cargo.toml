@@ -2,11 +2,14 @@
 # Crate list and layering: SPEC §3.2. Edition 2024, one [[bin]] `mixdogd` in `mixdog-cli`.
 #
 # The existing native tools (native/mixdog-spawn, -patch, -graph, -computer,
-# -secure-desktop) are NOT members yet: each is a standalone edition-2021 package with its
+# -secure-desktop) are NOT members: each is a standalone edition-2021 package with its
 # own Cargo.lock, `--locked --manifest-path` CI/release builds and per-crate target/ dirs
-# (see .github/workflows/{spawn,patch,graph}-release.yml, release-gate.yml). Joining them
-# would move their lockfile, target dir and release profile. They are linked into the core
-# by path dependency when their owning packages (WP-PROC, WP-TOOLS-*, WP-DESKTOP) land.
+# (see .github/workflows/{spawn,patch,graph}-release.yml, release-gate.yml). The core links
+# the libraries of four of them through packages inside this root that build their sources
+# (crates/mixdog-{spawn,patch,graph,secure-desktop}): a path package outside the root is
+# identified by its absolute path, which made every crate above it named differently in
+# each checkout, so no checkout could reuse another's compiled libraries. Every package of
+# the core's build stays inside this root.
 [workspace]
 resolver = "3"
 members = [
@@ -44,14 +47,26 @@ members = [
     "crates/mixdog-core-run",
     "crates/mixdog-core-agents",
     "crates/mixdog-core-session",
+    "crates/mixdog-core-session-replays",
     "crates/mixdog-core-prompt",
     "crates/mixdog-core",
+    "crates/mixdog-core-replays",
     "crates/mixdog-app-server",
     "crates/mixdog-app-server-transport",
     "crates/mixdog-app-server-daemon",
     "crates/mixdog-app-server-client",
     "crates/mixdog-cli",
     "crates/mixdog-workspace-hack",
+]
+# Inside the root but not members, as the tools were before (see the header): a member is selected by `--workspace`
+# with its default features (mixdog-patch's `resource`, which the core turns off), so a workspace build and a `-p`
+# build would compile it, and every crate above it, twice. Cargo names a path package by its path relative to the root
+# whether or not it is a member.
+exclude = [
+    "crates/mixdog-spawn",
+    "crates/mixdog-patch",
+    "crates/mixdog-graph",
+    "crates/mixdog-secure-desktop",
 ]
 
 [workspace.package]
@@ -101,7 +116,12 @@ mixdog-js = { path = "crates/mixdog-js" }
 mixdog-trace = { path = "crates/mixdog-trace" }
 # The patch engine Node runs, linked as a library (WP-TOOLS-FS apply_patch). Default features off:
 # the Windows version resource belongs to the standalone helper executable, not to the core.
-mixdog-patch = { path = "../mixdog-patch", default-features = false }
+mixdog-patch = { path = "crates/mixdog-patch", default-features = false }
+# The process manager, PTY and terminal tabs (WP-PROC), the resident search engine (WP-GRAPH-GIT) and the secure-desktop
+# bridge (WP-COMPUTER): the core's builds of native/mixdog-{spawn,graph,secure-desktop} (see `exclude` above).
+mixdog-spawn = { path = "crates/mixdog-spawn" }
+mixdog-graph = { path = "crates/mixdog-graph" }
+mixdog-secure-desktop = { path = "crates/mixdog-secure-desktop" }
 mixdog-statefile = { path = "crates/mixdog-statefile" }
 mixdog-store = { path = "crates/mixdog-store" }
 mixdog-ledger = { path = "crates/mixdog-ledger" }

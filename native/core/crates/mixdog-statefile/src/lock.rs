@@ -481,6 +481,8 @@ struct Line {
 struct LineState {
     next: u64,
     serving: u64,
+    /// Tickets whose request gave up waiting; the line steps over them.
+    abandoned: HashSet<u64>,
 }
 
 fn line_of(lock: &Path) -> Arc<Line> {
@@ -495,24 +497,45 @@ struct Turn(Arc<Line>);
 impl Drop for Turn {
     fn drop(&mut self) {
         let mut guard = self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.serving += 1;
+        let state = &mut *guard;
+        state.serving += 1;
+        while state.abandoned.remove(&state.serving) {
+            state.serving += 1;
+        }
         self.0.advanced.notify_all();
     }
 }
 
-/// Waits for this request's turn; `None` for a try-once request when somebody is ahead.
-fn take_turn(line: &Arc<Line>, try_once: bool) -> Option<Turn> {
+/// How a request for a turn ended without one.
+enum NoTurn {
+    /// A try-once request found somebody ahead.
+    Contended,
+    /// The request's deadline passed in the line.
+    TimedOut,
+}
+
+/// Waits for this request's turn, until `until` when given; a try-once request does not wait.
+fn take_turn(line: &Arc<Line>, try_once: bool, until: Option<std::time::Instant>) -> Result<Turn, NoTurn> {
     let mut state = line.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if try_once && state.next != state.serving {
-        return None;
+        return Err(NoTurn::Contended);
     }
     let ticket = state.next;
     state.next += 1;
     crate::trace::queued();
     while state.serving != ticket {
-        state = line.advanced.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(until) = until else {
+            state = line.advanced.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+            continue;
+        };
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            state.abandoned.insert(ticket);
+            return Err(NoTurn::TimedOut);
+        }
+        state = line.advanced.wait_timeout(state, left).unwrap_or_else(std::sync::PoisonError::into_inner).0;
     }
-    Some(Turn(Arc::clone(line)))
+    Ok(Turn(Arc::clone(line)))
 }
 
 /// Runs `body` holding the lock at `lock`.
@@ -534,6 +557,19 @@ pub(crate) fn locked_on<P: WriteProof, R>(
     opts: &LockOpts,
     body: impl FnOnce() -> R,
 ) -> Result<R, LockError> {
+    locked_in(clock, proof, lock, opts, false, body)
+}
+
+/// [`locked_on`]; with `one_deadline` the wait budget starts at the request and covers the line as well as the
+/// file (`withFileLockSync`: no queue, one deadline from the call), where otherwise it starts at the front of the line.
+fn locked_in<P: WriteProof, R>(
+    clock: &impl LockClock,
+    proof: &P,
+    lock: &Path,
+    opts: &LockOpts,
+    one_deadline: bool,
+    body: impl FnOnce() -> R,
+) -> Result<R, LockError> {
     // `Date.now()`: the clock in whole milliseconds, read before any subtraction from a file's fractional time.
     let date_now = || clock.now_ns().div_euclid(1_000_000) * 1_000_000;
     if HELD.with(|held| held.borrow().contains(lock)) {
@@ -543,12 +579,16 @@ pub(crate) fn locked_on<P: WriteProof, R>(
     if let Some(dir) = lock.parent() {
         mixdog_fsio::create_dir_all(proof, dir)?;
     }
-    let Some(_turn) = take_turn(&line_of(lock), timeout.is_zero()) else {
-        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock, date_now()) });
+    let requested = date_now();
+    let until = one_deadline.then(|| std::time::Instant::now() + timeout);
+    let _turn = match take_turn(&line_of(lock), timeout.is_zero(), until) {
+        Ok(turn) => turn,
+        Err(NoTurn::Contended) => return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock, date_now()) }),
+        Err(NoTurn::TimedOut) => return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(proof, lock, date_now()) }),
     };
-    // The budget is for the file: it starts at the front of the line (`acquireLock` runs after
+    // Otherwise the budget is for the file: it starts at the front of the line (`acquireLock` runs after
     // `lockQueue` hands over), not when the request joins it.
-    let deadline = date_now() + timeout.as_nanos() as i128;
+    let deadline = if one_deadline { requested } else { date_now() } + timeout.as_nanos() as i128;
     let owner = LockOwner::process();
     let mut attempt = 0;
     while try_take(proof, lock, opts, &owner, Access::Inherit, date_now())? == Attempt::Held {
@@ -697,6 +737,15 @@ impl Drop for LockHold {
 
 /// Starts [`LockHold`]'s thread for `lock_file`.
 pub fn hold_lock(lock_file: &Path, opts: &LockOpts, acquired: impl FnOnce(Result<(), LockError>) + Send + 'static) -> LockHold {
+    hold_lock_in(lock_file, opts, false, acquired)
+}
+
+/// [`hold_lock`] with one wait deadline over the line and the file, as `withFileLockSync` waits.
+pub fn hold_lock_one_deadline(lock_file: &Path, opts: &LockOpts, acquired: impl FnOnce(Result<(), LockError>) + Send + 'static) -> LockHold {
+    hold_lock_in(lock_file, opts, true, acquired)
+}
+
+fn hold_lock_in(lock_file: &Path, opts: &LockOpts, one_deadline: bool, acquired: impl FnOnce(Result<(), LockError>) + Send + 'static) -> LockHold {
     let (release, released) = std::sync::mpsc::channel::<()>();
     let (lock, opts) = (lock_file.to_owned(), *opts);
     let taken = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -706,7 +755,7 @@ pub fn hold_lock(lock_file: &Path, opts: &LockOpts, acquired: impl FnOnce(Result
         .spawn(move || {
             let mut acquired = Some(acquired);
             // The hold's own thread, outside every lane: the case `Unlaned` exists for.
-            let outcome = locked(&Unlaned, &lock, &opts, || {
+            let outcome = locked_in(&WallClock, &Unlaned, &lock, &opts, one_deadline, || {
                 taken_in.store(true, std::sync::atomic::Ordering::SeqCst);
                 if let Some(acquired) = acquired.take() {
                     acquired(Ok(()));

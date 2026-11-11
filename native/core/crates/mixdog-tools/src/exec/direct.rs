@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 use mixdog_js::JsRegex;
 use mixdog_js::is_js_space;
 use mixdog_rt::LaneToken;
-use mixdog_rt::MaintenanceIo;
+use mixdog_rt::SpawnIo;
 use tokio_util::sync::CancellationToken;
 
 macro_rules! lazy_re {
@@ -296,9 +296,10 @@ pub fn disabled_by_env() -> bool {
         .is_ok_and(|raw| lazy_re!(r"^(0|false|no|off)$", "i").is_match(mixdog_js::js_trim(&raw)))
 }
 
-/// `planDirectExeSpawn`: resolves the head on a lane job.
+/// `planDirectExeSpawn`: resolves the head on a lane job. Not kept between calls: a program
+/// installed or a shim added in a PATH directory changes the answer, as Node resolves it each time.
 pub async fn plan_direct_exe(
-    lane: MaintenanceIo,
+    lane: SpawnIo,
     cancel: &CancellationToken,
     command: &str,
     windows: bool,

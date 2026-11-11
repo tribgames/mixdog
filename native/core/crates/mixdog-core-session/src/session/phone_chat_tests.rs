@@ -405,6 +405,8 @@ fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
     assert_eq!(transcript["attemptId"], json!("<uuid>"));
     transcript["at"] = json!(clock);
     transcript["attemptId"] = json!("<random>");
+    // Node persists the message's meta through `persistedUserTranscriptMetadata`, which keeps no `completionVerb` (the turn's).
+    transcript.as_object_mut().unwrap().remove("completionVerb");
     // Node keeps the shown text only as the row's `text`; Rust's record also holds it when it differs from the prompt.
     if asked["content"] != row["text"] {
         transcript["displayText"] = row["text"].clone();
@@ -591,10 +593,13 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let rig = Rig::new();
         let (directory, handle) = running_on_records(&rig).await;
         let frames = || rig.feeds.frames(handle.id.as_str());
+        // The load's own frame (its agent scope) comes before anything the case does.
+        eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (!frames().is_empty()).then_some(())).await;
+        let loaded = frames().len();
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
             // Its row, its history entry and its turn start: the setup is done when all three were published.
-            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 3).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == loaded + 3).then_some(())).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;

@@ -45,7 +45,7 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

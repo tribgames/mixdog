@@ -22,7 +22,8 @@ pub struct RoomPublication {
     pub summaries: Arc<RoomSummaries>,
     pub host: Arc<SessionRoomHost>,
     /// The index writes' publisher (a test waits for it to have published every write so far).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     edges: Arc<ThreadEdges>,
 }
 
@@ -53,12 +54,12 @@ where
     };
     let sessions = Arc::new(RenameLists { sessions, summaries: summaries.clone() });
     let host = Arc::new(SessionRoomHost::new(agents, sessions, republish));
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     drop(edges);
     Ok(RoomPublication {
         summaries,
         host,
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         edges,
     })
 }

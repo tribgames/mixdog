@@ -23,6 +23,10 @@ impl SessionNotices for SessionDesktopNotices {
     fn save_failed(&self) {
         self.0.conversation_save_failed();
     }
+
+    fn offload_prune_blocked(&self, session: &str) {
+        self.0.offload_prune_blocked(session);
+    }
 }
 
 /// `McpHub::set_sign_in_notices` over the process's notices.

@@ -152,6 +152,32 @@ work_mem = 4MB
 maintenance_work_mem = 64MB
 ";
 
+/// The setting a sensitive scrub relies on (`session_search/db.rs` `scrub`): a WAL segment past
+/// the redo point is deleted, never renamed for reuse with its old bytes. Appended once to the
+/// configuration of a cluster made before it (as Node's `ensureConfV2` appends its versioned
+/// blocks at every start); a cluster made here has it from `CLUSTER_CONF` and `init`.
+const SCRUB_CONF_MARKER: &str = "# mixdog overrides v5 — no WAL segment reuse";
+const SCRUB_CONF: &str = "
+# mixdog overrides v5 — no WAL segment reuse
+wal_recycle = off
+";
+
+/// Appends `SCRUB_CONF` to `postgresql.conf` when it lacks it (before the postmaster reads it).
+async fn ensure_scrub_conf(lane: DurabilityIo, data_dir: &Path) -> Result<()> {
+    let conf = data_dir.join("postgresql.conf");
+    // No configuration file: nothing to append to, the postmaster's own start reports it.
+    if !fsio::exists(lane, &conf).await? {
+        return Ok(());
+    }
+    let mut text = fsio::read_to_string(lane, &conf).await?;
+    if text.contains(SCRUB_CONF_MARKER) {
+        return Ok(());
+    }
+    text.push_str(SCRUB_CONF);
+    fsio::write(lane, &conf, text.into_bytes()).await?;
+    Ok(())
+}
+
 /// The port line (fourth) of `postmaster.pid`, when a postmaster recorded one.
 async fn read_postmaster_pid(lane: DurabilityIo, data_dir: &Path) -> Option<u32> {
     let text = fsio::read_to_string(lane, &data_dir.join("postmaster.pid")).await.ok()?;
@@ -579,6 +605,7 @@ impl PgCluster {
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
+        ensure_scrub_conf(lane, &data_dir).await?;
         let port = free_port(preferred_port).await?;
         // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began (a cancelled start begins no
         // postmaster: nothing would own it). An admitted start the stop gives up on at 6 s goes on as Node's does.
@@ -696,6 +723,7 @@ impl PgCluster {
         let conf = data_dir.join("postgresql.conf");
         let mut text = fsio::read_to_string(lane, &conf).await?;
         text.push_str(CLUSTER_CONF);
+        text.push_str(SCRUB_CONF);
         fsio::write(lane, &conf, text.into_bytes()).await?;
         Ok(())
     }

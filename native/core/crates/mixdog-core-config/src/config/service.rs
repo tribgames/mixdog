@@ -431,7 +431,15 @@ impl DomainService for ConfigService {
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let relay = req.ctx.origin == mixdog_protocol::Origin::Relay;
-        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params, relay).await?))
+        let value = self.dispatch(req.method.as_str(), &req.params, relay).await?;
+        // A change this call wrote reaches the threads' state before the answer, as Node's synchronous announcement did.
+        self.config.shown().await.map_err(|message| CoreError::DomainError {
+            domain: "config".into(),
+            code: Some("settingsNotShown".into()),
+            message: Some(message.into()),
+            detail: None,
+        })?;
+        Ok(Reply::Value(value))
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

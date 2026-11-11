@@ -70,14 +70,26 @@
   "recorder": "benchmarks/rust-core/recorders/record-remote-transcript-window-cases.mjs",
   "recorderSha256": "84bda72337f3c470996ad2161c1c8494a5d471f4865ffd9c95a10f7f21e88037",
   "replay": {
-    "compare": "mixdog-app-server thread/items/list paging and the phone transcript window: feed each case's rows and page requests; compare ids, byte counts, truncation fields, notes and wires (whole)",
-    "entry": "Drive these public items on o1: thread/items/list (mixdog-app-protocol/src/methods.rs:185).",
+    "compare": "what the phone holds of each delivered state, whole: its rows (items) and transcriptHasOlder; with the byte counts, page counts, staleness answers and full-output read-backs each case records. Node's delta-wire text is Node's transport, not K1's",
+    "entry": "In K1 the phone resumes a thread (thread/resume with phone-view.ts VIEW_WINDOW) and pages it with thread/items/list (mixdog-app-protocol methods.rs:185; mixdog-core-session reads.rs items_list), folds the feed into rows (packages/protocol-client session-state.ts, rows.ts), and shows them through its own transcript window, implemented on this branch: apps/desktop/src/main/remote-phone-transcript.ts createPhoneTranscript over remote-transcript-window.ts phoneTranscriptView (first page within REMOTE_TRANSCRIPT_TAIL_ITEMS / REMOTE_TRANSCRIPT_TAIL_BYTES, oversized tool outputs cut, pages of at most 512 rows within DESKTOP_TRANSCRIPT_PAGE_BYTES, Show full output through remoteToolOutput). Not yet on the product's path: the K1 phone's router claims no prefetchSession/readTranscriptItem (apps/desktop/src/renderer/remote-shim-protocol.ts, remote-shim-adapters.ts), so the window is to move into the core's answer to a phone connection (open). Replay: benchmarks/rust-core/recorders/replay-remote-transcript-window.mjs, run by mixdog-core-session src/session/client_chain_replay_tests.rs, which stores each case's rows in a thread of a SessionDirectory (the product's RecordTranscript) and answers the phone's resume, feed and items/list reads in one chain.",
+    "cases": {
+      "a page revealed above a short first page arrives as history, the rows the phone opened on stay its tail": "replayed through the phone's window over the recorded rows as its fold (tool rows: the K1 fold merges a run of finished tool rows into one aggregate card, rows.ts mergeToolRows, so 16 separate shell rows are no fold a thread's feed gives); the older page is read through the window's `older` read",
+      "a phone's first page stays within its byte budget however wide the shared window is": "replayed through the core chain (rows stored in a thread, resumed, folded, windowed)",
+      "live rows append past the first page; older rows reveal only on the phone request, within the page": "replayed through the core chain, with viewIsStale (apps/desktop/src/main/remote-view-staleness.ts) over the core's newest rows. Declared: staleWhenNewDesktopRow. The recorded `true` comes from a text-less row handed to Node's window ready-made; Node's product shows no row for an empty prompt (src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs:519 `if (!text) return [];`; a live empty prompt is refused, submission.mjs), and the core stores the row as recorded and shows none either (transcript_rows.rs user_rows), so the phone's view is not stale: the replay asserts false",
+      "a phone page reveals at most 512 rows a request, whatever limit it names, and pages on to the first row": "replayed through the core chain (pages read with thread/items/list)",
+      "an oversized newest tool row goes with its outputs cut to fit, readable whole through Show full output": "replayed through the phone's window over the recorded aggregate row as its fold (a hand-made aggregate is no fold of a thread's feed), the full outputs read back through the window's output read (remoteToolOutput)",
+      "a compacted live session whose runtime spilled rows pages back on the phone to its first row": "replayed through the core chain: the 701 recorded rows stored in one post, resumed and paged with thread/items/list; steps before the spill seam compared whole, then each step's hasOlder and the step count, and the final held state whole. Declared: `archived` of a row (Node's compaction archive flag: the K1 fold has none, rows.ts); `hostRows`, `hostWindowGrew` (Node's host live window, none in K1); `limit` and `heldRows` from the spill seam on (Node's host read live and spilled rows separately, loadLiveTranscriptHead, so its seam page stopped short; the core pages its whole log). Not driven: a real compaction before the paging, so its divider row (kind statusdone, status compacted, id it_div) is left out of the stored rows and of the compared held state",
+      "an oversized message row is sent whole, so a first page with it is over the budget (as HEAD)": "replayed through the core chain"
+    },
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the phone transcript window (encodePhoneSessionState, requestPhoneTranscriptPage, remoteToolOutput): no counterpart found"
-    ],
-    "normalised": {},
+    "missingOnO1": [],
+    "normalised": {
+      "live rows append past the first page; older rows reveal only on the phone request, within the page": "the new desktop row for staleWhenNewDesktopRow carries text: Node's row had none, and the core shows no empty prompt row; viewIsStale reads only a row's id, kind and device",
+      "a phone page reveals at most 512 rows a request, whatever limit it names, and pages on to the first row": "the 2000 rows are posted 50 at a time: one thread/inheritedRows/append of 2000 rows fails the thread StorageIndeterminate (one plan over the 64-record durability window, actor.rs pump) — a core limit reported to Lead, not a value of the case",
+      "a compacted live session whose runtime spilled rows pages back on the phone to its first row": "steps compared whole up to Node's spill seam (the page crossing from live rows into spilled ones stopped short of its limit, loadLiveTranscriptHead); after it each K1 page must reveal the 64 rows asked for or reach the first row; the final state is compared whole"
+    },
     "protocolMethods": [
+      "thread/resume",
       "thread/items/list (mixdog-app-protocol/src/methods.rs:185)"
     ],
     "rustTargets": [],

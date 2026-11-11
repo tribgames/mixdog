@@ -7,6 +7,7 @@ import { blankSnapshot, remoteSessionIdOf, START_CALLS, startFolder } from '../.
 import type { StartCall } from '../../shared/blank-snapshot';
 import type { SessionSnapshot } from '../../shared/contract';
 import { DESKTOP_TRANSCRIPT_TAIL_ITEMS } from '../desktop-support';
+import { requiredVisibleSessionVersion } from '../desktop-state';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';
 
@@ -218,6 +219,10 @@ export function createServiceLane({
     }
   });
   const searching = new Map<string, string>();
+  // The newest `setVisibleSessions` version this process sent (desktop-service-client.ts numbers them): an older or equal one
+  // that arrives after it (a retried call) changes nothing (Node's desktop-service-state-sync.ts `setDeliveryFilter` fence).
+  // It is this process's own counter: a restarted desktop starts over at 1 on its own connection.
+  let shownVersion: number | undefined;
   return {
     async call<T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> {
       if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('Request aborted.');
@@ -226,7 +231,12 @@ export function createServiceLane({
         return undefined as T;
       }
       if (method === 'setVisibleSessions') {
-        const [ids] = args as [string[]];
+        const [ids, version] = args as [string[], unknown];
+        if (version !== undefined) {
+          const next = requiredVisibleSessionVersion(version);
+          if (shownVersion !== undefined && next <= shownVersion) return true as T;
+          shownVersion = next;
+        }
         const visible = new Set(ids);
         for (const threadId of [...resumed.keys()]) {
           if (visible.has(threadId)) continue;
