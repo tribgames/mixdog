@@ -1,16 +1,19 @@
 {
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-local-context-settings.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "entry": "src/runtime/local-provider/context-settings.mjs localContextSettings / saveLocalContext, catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir }), server.mjs runLocalProviderRequest / setLocalProviderContext(modelId, tokens, { dataDir }). The queue gate is a promise the recorder resolves (no timer); one event-loop turn (setImmediate) shows the apply has not run, as the test does.",
+  "compare": "mixdog-services local_provider context.rs:94-106, request_queue.rs:124-144 and gguf.rs (agent minimum): compare the settings rows and thrown errors whole, the context files written (`files`: an object keyed by the path relative to the case data dir (directory-walk order, not a claim), value the file text) and, for the gate case, the ordered `steps`.",
+  "entry": "src/runtime/local-provider/context-settings.mjs localContextSettings / saveLocalContext, catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir }), server.mjs runLocalProviderRequest / setLocalProviderContext(modelId, tokens, { dataDir }). The queue gate is a promise the recorder resolves (no timer); after 1 ms of virtual time (due timers run, microtasks drained) the apply has not run.",
   "exclusions": [
-    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
-    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6383,
+      "bytes": 40173,
       "path": "cases.json",
-      "sha256": "935876476f913b815f4c6009924827ab0be8af4d129a7b19257997d8dc5ae501"
+      "sha256": "9fda6b164f5db09bff26187ef1e491843c3cd4e23158e58e7c4e461da4d2657b"
     }
   ],
   "inputs": [
@@ -23,12 +26,16 @@
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -50,8 +57,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-local-context-settings.mjs",
-  "recorderSha256": "f9f6be3cec5af26ad5ea8bd1e3b8a7339b1e4471e9f5c1be00bcf8677f87d746",
-  "replay": "mixdog-services local_provider context.rs:94-106, request_queue.rs:124-144 and gguf.rs (agent minimum): compare the settings rows and thrown errors whole, the context files written (`files`: path relative to the case data dir, bytes) and, for the gate case, the ordered `steps`.",
+  "recorderSha256": "3529ffb247080d9b4d35539eb4d62da0e78fce3b39549449e7261932b5572dc9",
+  "replay": "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
   "set": "provider-local-context-settings",
-  "totalBytes": 6383
+  "totalBytes": 40173,
+  "valueTags": {
+    "{\"$bigint\":\"<digits>\"}": "bigint",
+    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
+    "{\"$cycle\":true}": "a reference back to an ancestor object",
+    "{\"$date\":\"<ISO>\"}": "Date",
+    "{\"$function\":\"<name>\"}": "a function",
+    "{\"$map\":[[k,v]...]}": "Map, insertion order",
+    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
+    "{\"$set\":[v...]}": "Set, insertion order",
+    "{\"$symbol\":\"<text>\"}": "a symbol",
+    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
+  }
 }

@@ -11,8 +11,9 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-local-context-settings',
   net: false,
-  entry: 'src/runtime/local-provider/context-settings.mjs localContextSettings / saveLocalContext, catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir }), server.mjs runLocalProviderRequest / setLocalProviderContext(modelId, tokens, { dataDir }). The queue gate is a promise the recorder resolves (no timer); one event-loop turn (setImmediate) shows the apply has not run, as the test does.',
-  replay: 'mixdog-services local_provider context.rs:94-106, request_queue.rs:124-144 and gguf.rs (agent minimum): compare the settings rows and thrown errors whole, the context files written (`files`: path relative to the case data dir, bytes) and, for the gate case, the ordered `steps`.',
+  entry: 'src/runtime/local-provider/context-settings.mjs localContextSettings / saveLocalContext, catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir }), server.mjs runLocalProviderRequest / setLocalProviderContext(modelId, tokens, { dataDir }). The queue gate is a promise the recorder resolves (no timer); after 1 ms of virtual time (due timers run, microtasks drained) the apply has not run.',
+  compare: 'mixdog-services local_provider context.rs:94-106, request_queue.rs:124-144 and gguf.rs (agent minimum): compare the settings rows and thrown errors whole, the context files written (`files`: an object keyed by the path relative to the case data dir (directory-walk order, not a claim), value the file text) and, for the gate case, the ordered `steps`.',
+  replay: "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
 });
 const SRC = 'src/runtime/local-provider/context-settings.test.mjs';
 const { localContextSettings, saveLocalContext } = await rec.P('local-provider/context-settings.mjs');
@@ -25,10 +26,10 @@ const caseDir = (name) => {
   return dir;
 };
 const filesOf = (dir) => {
-  const out = [];
-  const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else out.push({ path: relative(dir, p).split('\\').join('/'), text: readFileSync(p, 'utf8') }); } };
+  const out = {};
+  const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else out[relative(dir, p).split('\\').join('/')] = readFileSync(p, 'utf8'); } };
   walk(dir);
-  return out.sort((a, b) => a.path.localeCompare(b.path));
+  return out;
 };
 const attempt = (fn) => {
   try {
@@ -74,8 +75,8 @@ await rec.run('apply-waits-for-inference-then-exposes-capacity', `${SRC}:55`, {}
   const gate = new Promise((resolve) => { finish = resolve; });
   const inference = runLocalProviderRequest(async (signal) => { await gate; steps.push({ inferenceSignalAborted: signal.aborted }); });
   const change = setLocalProviderContext(entry.id, 16384, { dataDir });
-  await new Promise((resolve) => setImmediate(resolve));
-  steps.push({ afterOneTurnConfigured: localContextSettings(entry, dataDir).configuredContextWindow });
+  await rec.clock.advance(1);
+  steps.push({ afterOneMsConfigured: localContextSettings(entry, dataDir).configuredContextWindow });
   finish();
   await Promise.all([inference, change]);
   steps.push({ afterApplyRuntimeContextWindow: localContextSettings(entry, dataDir).runtimeContextWindow });
