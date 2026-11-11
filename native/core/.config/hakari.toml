@@ -27,8 +27,9 @@ platforms = [
 # exact-versions = true
 
 # The vendored fancy-regex's `probe` feature is a test hook (tests and the dev build only): never unified into
-# product builds.
-[final-excludes]
+# product builds. A traversal exclude, not a final one: `cargo hakari verify` fails for fancy-regex and its four
+# dependencies when the crate is only removed after unification.
+[traversal-excludes]
 third-party = [
     { name = "fancy-regex", path = "../vendor/fancy-regex" },
 ]
