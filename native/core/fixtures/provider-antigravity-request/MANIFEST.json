@@ -2,6 +2,12 @@
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-antigravity-request.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
   "entry": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test's asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is the input, and every declaration the Claude path produces is recorded whole. Ajv (the tree's own dependency) answers the validity / validate() checks.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
@@ -35,7 +41,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7af794122bfbb318bc6e920e13f654f5596962f285d5e574e233a7a6163ee979"
+      "sha256": "63adcb5d76e695bb42da73234cd5758961bf40d8e5833c7edf636b6d4c1ef6e0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -57,20 +67,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-antigravity-request.mjs",
-  "recorderSha256": "f9f49b910b4f41de5f823dcb8f7588b70c724adde9e81317c2e54a6258b29b38",
-  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:71) and build_request (google/request.rs:638), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  "recorderSha256": "3aedad4357cbcb05c535329e348073fe69dc8930b8354ada458b2b8b723085aa",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "set": "provider-antigravity-request",
   "totalBytes": 870588,
-  "valueTags": {
-    "{\"$bigint\":\"<digits>\"}": "bigint",
-    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
-    "{\"$cycle\":true}": "a reference back to an ancestor object",
-    "{\"$date\":\"<ISO>\"}": "Date",
-    "{\"$function\":\"<name>\"}": "a function",
-    "{\"$map\":[[k,v]...]}": "Map, insertion order",
-    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
-    "{\"$set\":[v...]}": "Set, insertion order",
-    "{\"$symbol\":\"<text>\"}": "a symbol",
-    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
-  }
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
