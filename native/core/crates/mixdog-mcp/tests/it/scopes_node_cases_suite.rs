@@ -114,6 +114,10 @@ fn every_recorded_extension_scope_answer_is_nodes() {
                     .collect();
                 json!({ "steps": steps })
             }
+            "unknownKind" => {
+                let error = plan_extension_scope(&json!({}), &json!("agents"), &json!("x"), &json!([]), &[]).unwrap_err();
+                json!({ "error": error.to_string() })
+            }
             other => panic!("{}: kind {other} has no replay and no exclusion", case["case"]),
         };
         replayed += 1;

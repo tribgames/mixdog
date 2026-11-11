@@ -245,7 +245,7 @@
       "case": "withExtensionScope replaces one entry and clears it with an empty list: unknown kind",
       "kind": "unknownKind",
       "recorded": {
-        "error": "unknown extension scope kind: agents"
+        "error": "extension scope kind must be one of skills, mcp, plugins"
       }
     }
   ]

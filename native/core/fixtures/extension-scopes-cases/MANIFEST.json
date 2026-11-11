@@ -3,15 +3,14 @@
   "compared": "normalize: the whole normalized scopes and each lookup's roots; within: each answer; skills: each answer; set: each step's whole config and the unknown-kind error",
   "excluded": {
     "MCP tools filter by server scope intersected with the owning plugin scope": "GAP (gaps-rest.md section 2): the MCP tool filter by owner metadata is a listed gap, not part of this replay",
-    "a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata": "GAP (gaps-rest.md section 2): the live registry cascade is a listed gap, not part of this replay",
-    "withExtensionScope replaces one entry and clears it with an empty list: unknown kind": "DIFFERENCE: Node refuses \"agents\" with \"unknown extension scope kind: agents\"; the core (plan_extension_scope) answers \"extension scope kind must be one of skills, mcp, plugins\""
+    "a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata": "GAP (gaps-rest.md section 2): the live registry cascade is a listed gap, not part of this replay"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5872,
+      "bytes": 5892,
       "path": "golden.json",
-      "sha256": "74e09e75ad1021075e52e92056bf44363e11e291d7b071f8692a392d51dfb679"
+      "sha256": "2fc2cc38a254876cffb709f8ec9768a70ebf894685115a2a5307592016045233"
     }
   ],
   "inputs": [
@@ -43,7 +42,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-extension-scopes-cases.mjs",
-  "recorderSha256": "6ccb93fc221ff835010f42a943e677492ec913cab0af49cc0cd34ca35050293b",
+  "recorderSha256": "f380bcc509a9709b365b73d1979c80e938527cd220c04147eb737957d0d5b17d",
   "set": "extension-scopes-cases",
-  "totalBytes": 5872
+  "totalBytes": 5892
 }

@@ -23,17 +23,10 @@ const { normalizeExtensionScopes, extensionScopeProjects, cwdWithinProjects, ski
   tree,
   'src/runtime/agent/orchestrator/runtime-core/extension-scopes.mjs'
 );
+const { createResourceApi } = await importFrom(tree, 'src/session-runtime/resource-api.mjs');
 
 const A = resolve('/work/alpha');
 const B = resolve('/work/beta');
-const errorOf = (fn) => {
-  try {
-    fn();
-    return null;
-  } catch (error) {
-    return error.message;
-  }
-};
 const cases = [];
 
 {
@@ -86,14 +79,13 @@ const cases = [];
   cases.push({
     case: 'withExtensionScope replaces one entry and clears it with an empty list: unknown kind',
     kind: 'unknownKind',
-    recorded: { error: errorOf(() => withExtensionScope(config, 'agents', 'x', [A])) },
+    // The client reaches the kind check through the runtime API's setExtensionScope, which refuses before it calls
+    // withExtensionScope; the helper's own message ("unknown extension scope kind: agents") is reached by no call.
+    recorded: { error: await createResourceApi({}).setExtensionScope('agents', 'x', [A]).then(() => null, (error) => error.message) },
   });
 }
 
 const excluded = {
-  'withExtensionScope replaces one entry and clears it with an empty list: unknown kind':
-    'DIFFERENCE: Node refuses "agents" with "unknown extension scope kind: agents"; the core (plan_extension_scope) ' +
-    'answers "extension scope kind must be one of skills, mcp, plugins"',
   'MCP tools filter by server scope intersected with the owning plugin scope':
     'GAP (gaps-rest.md section 2): the MCP tool filter by owner metadata is a listed gap, not part of this replay',
   'a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata':
