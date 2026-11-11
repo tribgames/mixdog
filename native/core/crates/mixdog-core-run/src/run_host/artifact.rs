@@ -324,6 +324,32 @@ mod tests {
         assert!(ToolResultArtifacts::new(io(), data.path(), "").persist("x").await.is_none());
     }
 
+    /// `pruneOffloadSession` (taken over from `replay-k1-tools-scm` d43b635b38): an old sidecar the transcript names
+    /// (by path or name), or that an archive it names names, stays; an old unnamed one goes; a young one stays whatever
+    /// names it.
+    #[tokio::test]
+    async fn a_compaction_prunes_the_old_sidecars_the_live_transcript_no_longer_reaches() {
+        let data = tempfile::tempdir().unwrap();
+        let store = ToolResultArtifacts::new(io(), data.path(), "sess_p");
+        let dir = data.path().join("tool-results/sess_p");
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = |c: char| format!("{}.txt", c.to_string().repeat(64));
+        let (shown, chained, gone, young) = (name('a'), name('b'), name('c'), name('d'));
+        std::fs::write(dir.join(&shown), format!("see {chained}")).unwrap();
+        std::fs::write(dir.join(&chained), "end").unwrap();
+        std::fs::write(dir.join(&gone), "old").unwrap();
+        std::fs::write(dir.join(&young), "new").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60);
+        for file in [&shown, &chained, &gone] {
+            std::fs::File::options().write(true).open(dir.join(file)).unwrap().set_modified(old).unwrap();
+        }
+        let haystack = serde_json::json!([{"content": format!("[tool output offloaded: {}]", display(&dir.join(&shown)))}]).to_string();
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        store.prune(store.prune_candidates().await, haystack, now_ms).await;
+        let left: Vec<bool> = [&shown, &chained, &gone, &young].iter().map(|file| dir.join(file).exists()).collect();
+        assert_eq!(left, [true, true, false, true]);
+    }
+
     #[test]
     fn line_counts_follow_the_split_rule() {
         assert_eq!(split_lines(""), 0);
