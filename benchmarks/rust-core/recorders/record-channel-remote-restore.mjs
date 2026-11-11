@@ -3,12 +3,12 @@
 // `handleCall`, `onRemoteStateChange` and (patched tree) `sessionExists` daemon.mjs gives it
 // (`createChannelsRuntimeLoader(...).handleCall` over the real channels runtime, whose `activate_channel_bridge` is
 // runtime/channels/lib/tool-dispatch.mjs; the stored-session views over the real session store), then
-// `restoreRemoteIntent()` as daemon.mjs calls it after ready. Two pins: a stored session that exists, and one whose
-// session record was deleted while the pin stayed. After each restore, what the user then gets:
-//   inbound  — a channel message, through the router daemon.mjs installs as the notify sink (`createChannelSessionRouter`);
-//   send     — the bot's send (`reply`) over the transport's own `/call`;
-//   list     — the client's session list (`session.list` of the real `createSessionService` over the stored views, whose
-//              `remoteSession` is the state `onRemoteStateChange` published).
+// `restoreRemoteIntent()` as daemon.mjs calls it after ready. Three pins: a stored session that exists (the control),
+// one whose session record was deleted while the pin stayed, and one whose record cannot be read. The restore's whole
+// visible effect in b6f10295a is the binding (no process delivers a channel's inbound message to a session, and there
+// is no bot send: see the manifest), so after each restore the binding is read back as a client reads it: the intent
+// file, the transport's pin, and `session.list` of the real `createSessionService` over the stored views, whose
+// `remoteSession` is the state `onRemoteStateChange` published.
 // Date.now is frozen; nothing sleeps or polls.
 //
 //   node benchmarks/rust-core/recorders/record-channel-remote-restore.mjs --tree <b6f10295a export with node_modules> [--patch <file>] [--out <file>]
@@ -41,7 +41,6 @@ Date.now = () => FROZEN;
 
 const { createChannelTransport } = await importFrom(tree, 'src/standalone/channel-transport.mjs');
 const { createChannelsRuntimeLoader } = await importFrom(tree, 'src/standalone/daemon-channels-loader.mjs');
-const { createChannelSessionRouter } = await importFrom(tree, 'src/session-runtime/services/channel-session-router.mjs');
 const { createDesktopRuntime } = await importFrom(tree, 'src/standalone/daemon-desktop-runtime.mjs');
 const { createStoredSessionViews } = await importFrom(tree, 'src/standalone/daemon-stored-session-views.mjs');
 const { createSessionService } = await importFrom(tree, 'src/standalone/session-service.mjs');
@@ -60,15 +59,6 @@ const writeSession = (id) =>
     join(sessionsDir, `${id}.json`),
     JSON.stringify({ id, owner: 'user', agent: 'lead', closed: false, generation: 1, updatedAt: 1, title: `Session ${id}`, provider: 'p', model: 'm', messages: [{ role: 'user', content: 'hello' }] })
   );
-
-async function post(endpoint, path, body) {
-  const response = await within(`POST ${path}`, fetch(`http://127.0.0.1:${endpoint.port}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-mixdog-daemon-token': endpoint.token },
-    body: JSON.stringify(body),
-  }));
-  return { status: response.status, body: await response.json() };
-}
 
 async function restoreCase(name, sessionId, record) {
   const dir = fs.mkdtempSync(join(work, 'case-'));
@@ -100,24 +90,6 @@ async function restoreCase(name, sessionId, record) {
   const restored = await within('restore', transport.restoreRemoteIntent());
   const after = checkpoint('restored');
 
-  // inbound: the channel message the worker emits, through the daemon's notify sink.
-  const routerLog = [];
-  const submitted = [];
-  const route = createChannelSessionRouter({
-    getSessionService: () => ({ submitSession: async (request) => { submitted.push(request); return { accepted: true }; } }),
-    getSessionId: () => null,
-    log: (line) => routerLog.push(line),
-  });
-  const params = { content: 'hello from the channel', meta: { chat_id: 'c1', user: 'u1' } };
-  const inbound = { routed: route('notifications/claude/channel', params), submitted, log: routerLog };
-
-  // send: the bot's reply over the transport's /call, from a registered channels client.
-  const endpoint = await within('transport start', transport.start());
-  const client = await post(endpoint, '/client/register', { leadPid: process.pid, passive: true });
-  const callsBefore = calls.length;
-  const reply = await post(endpoint, '/call', { token: client.body.token, name: 'reply', args: { chat_id: 'c1', text: 'hi back' } });
-  const send = { status: reply.status, body: reply.body, calls: calls.slice(callsBefore) };
-
   // list: the client's session list.
   const service = createSessionService({
     createSessionRuntime: async () => { throw new Error('the list never materializes a session'); },
@@ -135,11 +107,9 @@ async function restoreCase(name, sessionId, record) {
     sessionId,
     record,
     restored,
-    calls: calls.slice(0, callsBefore),
+    calls,
     logs: logs.filter((line) => /^(channel )?remote intent /.test(line)),
     checkpoints: [boot, after],
-    inbound,
-    send,
     list,
   };
 }
@@ -168,9 +138,9 @@ if (out) {
       exclusions: [
         'logs keeps only the lines starting "remote intent " or "channel remote intent ", as channel-remote-intent does',
         'calls keeps the name, arguments and answer of handleCall, not its third argument (the HTTP client registry context)',
-        'inbound: the router is wired as daemon.mjs wires it (daemon.mjs:924-929, getSessionId always null: channel-remote session pinning is retired) and the sink it is installed in returns once it routed (daemon.mjs:930-933), so in b6f10295a no channel notification reaches any session through the daemon, a live one included: the live case shows that (`submitted` empty, "session=none"); it is the same for every case, not a consequence of the restore',
-        'send: the HTTP status and body of the transport /call, which the core answers over its own channel/call wire instead. b6f10295a has no bot send: the channels runtime dispatches only activate_channel_bridge, reload_config and rename_schedule (runtime/channels/lib/tool-dispatch.mjs:1-3,29-96), so `reply` is "unknown tool" for every case, the live one included',
-        'what differs by the restore is the Remote binding itself: the checkpoints, the logs and session.list remoteSession (a binding to a session the list does not show is the defect the patch removes)',
+        'no inbound delivery is recorded: in b6f10295a no process delivers a channel inbound message to a session. The channels runtime runs only in the daemon, whose notify sink hands the channel method to createChannelSessionRouter (standalone/daemon.mjs:924-933) with getSessionId always null; the router then logs "unavailable" and returns true (session-runtime/services/channel-session-router.mjs:10-18), so transport.notify (standalone/channel-transport/remote-notify.mjs:24), the SSE path to a session runtime\'s onNotify (session-runtime/boot/tools.mjs:161-169), is never reached for it',
+        'no bot send is recorded: b6f10295a has none; the channels runtime dispatches only activate_channel_bridge, reload_config and rename_schedule (runtime/channels/lib/tool-dispatch.mjs:29-96; session-runtime/services/channel-worker.mjs:21)',
+        'so the restore\'s whole visible effect is the binding: the checkpoints, the logs and session.list remoteSession (a binding to a session the list does not show is the defect the patch removes)',
         'list: the session ids and remoteSession of session.list; remoteSession keeps enabled, sessionId and cwd (daemonPid and updatedAt are the process and the clock)',
       ],
     },

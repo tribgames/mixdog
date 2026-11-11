@@ -3,17 +3,17 @@
   "exclusions": [
     "logs keeps only the lines starting \"remote intent \" or \"channel remote intent \", as channel-remote-intent does",
     "calls keeps the name, arguments and answer of handleCall, not its third argument (the HTTP client registry context)",
-    "inbound: the router is wired as daemon.mjs wires it (daemon.mjs:924-929, getSessionId always null: channel-remote session pinning is retired) and the sink it is installed in returns once it routed (daemon.mjs:930-933), so in b6f10295a no channel notification reaches any session through the daemon, a live one included: the live case shows that (`submitted` empty, \"session=none\"); it is the same for every case, not a consequence of the restore",
-    "send: the HTTP status and body of the transport /call, which the core answers over its own channel/call wire instead. b6f10295a has no bot send: the channels runtime dispatches only activate_channel_bridge, reload_config and rename_schedule (runtime/channels/lib/tool-dispatch.mjs:1-3,29-96), so `reply` is \"unknown tool\" for every case, the live one included",
-    "what differs by the restore is the Remote binding itself: the checkpoints, the logs and session.list remoteSession (a binding to a session the list does not show is the defect the patch removes)",
+    "no inbound delivery is recorded: in b6f10295a no process delivers a channel inbound message to a session. The channels runtime runs only in the daemon, whose notify sink hands the channel method to createChannelSessionRouter (standalone/daemon.mjs:924-933) with getSessionId always null; the router then logs \"unavailable\" and returns true (session-runtime/services/channel-session-router.mjs:10-18), so transport.notify (standalone/channel-transport/remote-notify.mjs:24), the SSE path to a session runtime's onNotify (session-runtime/boot/tools.mjs:161-169), is never reached for it",
+    "no bot send is recorded: b6f10295a has none; the channels runtime dispatches only activate_channel_bridge, reload_config and rename_schedule (runtime/channels/lib/tool-dispatch.mjs:29-96; session-runtime/services/channel-worker.mjs:21)",
+    "so the restore's whole visible effect is the binding: the checkpoints, the logs and session.list remoteSession (a binding to a session the list does not show is the defect the patch removes)",
     "list: the session ids and remoteSession of session.list; remoteSession keeps enabled, sessionId and cwd (daemonPid and updatedAt are the process and the clock)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7069,
+      "bytes": 4468,
       "path": "golden.json",
-      "sha256": "f7b2635421db4221b010847eb071bb7cc39b0cf2128f314bbde3def35acec308"
+      "sha256": "da79b40e62525a2573a8fd424fdc308eabbde03d4771f9586ae33f9fafad4782"
     }
   ],
   "inputs": [
@@ -58,7 +58,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channel-remote-restore.mjs",
-  "recorderSha256": "28c619bc775d4f315ee02a6bd41536811555df619def950e52e2f0e6a1e48d3c",
+  "recorderSha256": "0ade884049b2551db5bb702a37cb16649fa033dd0206cf046897e8f6434af11e",
   "set": "channel-remote-restore",
-  "totalBytes": 7069
+  "totalBytes": 4468
 }

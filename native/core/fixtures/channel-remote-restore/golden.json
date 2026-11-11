@@ -48,45 +48,6 @@
           }
         }
       ],
-      "inbound": {
-        "routed": true,
-        "submitted": [],
-        "log": [
-          "channel session delivery unavailable session=none"
-        ]
-      },
-      "send": {
-        "status": 200,
-        "body": {
-          "result": {
-            "content": [
-              {
-                "type": "text",
-                "text": "unknown tool: reply"
-              }
-            ],
-            "isError": true
-          }
-        },
-        "calls": [
-          {
-            "name": "reply",
-            "args": {
-              "chat_id": "c1",
-              "text": "hi back"
-            },
-            "answer": {
-              "content": [
-                {
-                  "type": "text",
-                  "text": "unknown tool: reply"
-                }
-              ],
-              "isError": true
-            }
-          }
-        ]
-      },
       "list": {
         "sessions": [
           "sess_live"
@@ -127,45 +88,6 @@
           }
         }
       ],
-      "inbound": {
-        "routed": true,
-        "submitted": [],
-        "log": [
-          "channel session delivery unavailable session=none"
-        ]
-      },
-      "send": {
-        "status": 200,
-        "body": {
-          "result": {
-            "content": [
-              {
-                "type": "text",
-                "text": "unknown tool: reply"
-              }
-            ],
-            "isError": true
-          }
-        },
-        "calls": [
-          {
-            "name": "reply",
-            "args": {
-              "chat_id": "c1",
-              "text": "hi back"
-            },
-            "answer": {
-              "content": [
-                {
-                  "type": "text",
-                  "text": "unknown tool: reply"
-                }
-              ],
-              "isError": true
-            }
-          }
-        ]
-      },
       "list": {
         "sessions": [
           "sess_live"
@@ -225,45 +147,6 @@
           }
         }
       ],
-      "inbound": {
-        "routed": true,
-        "submitted": [],
-        "log": [
-          "channel session delivery unavailable session=none"
-        ]
-      },
-      "send": {
-        "status": 200,
-        "body": {
-          "result": {
-            "content": [
-              {
-                "type": "text",
-                "text": "unknown tool: reply"
-              }
-            ],
-            "isError": true
-          }
-        },
-        "calls": [
-          {
-            "name": "reply",
-            "args": {
-              "chat_id": "c1",
-              "text": "hi back"
-            },
-            "answer": {
-              "content": [
-                {
-                  "type": "text",
-                  "text": "unknown tool: reply"
-                }
-              ],
-              "isError": true
-            }
-          }
-        ]
-      },
       "list": {
         "sessions": [
           "sess_live"
