@@ -1,0 +1,293 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a stored-attachment reference from a server never reads this PC’s attachment store",
+      "observed": {
+        "storedDigestExists": true,
+        "attachmentRef": "52a7f0fa9717cc0d9b34d3d2243142a5a2de56dc3eedebb67f2837623f6fa3c4",
+        "storedReadsBackHere": true,
+        "pcSecretBase64": "dGhpcyBQQyBvbmx5",
+        "request": {
+          "provider": "openai",
+          "method": "send",
+          "model": "gpt",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "what is this?"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "52a7f0fa9717cc0d9b34d3d2243142a5a2de56dc3eedebb67f2837623f6fa3c4",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "tool_result",
+                  "content": [
+                    {
+                      "type": "file",
+                      "attachmentRef": "52a7f0fa9717cc0d9b34d3d2243142a5a2de56dc3eedebb67f2837623f6fa3c4",
+                      "filename": "C:\\x\\a.pdf"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "options": {}
+        },
+        "providerSaw": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "what is this?"
+              },
+              {
+                "type": "text",
+                "text": "[attachment unavailable: image/png]"
+              },
+              {
+                "type": "tool_result",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "[attachment unavailable: a.pdf]"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "textHasAttachmentRef": false,
+        "textHasSecret": false
+      }
+    },
+    {
+      "case": "inline attachment data passes untouched, and nesting is bounded",
+      "observed": {
+        "inlineMessages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "data": "AAAA",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ],
+        "inlineReturnedSameObject": true,
+        "nestingDepth": 500,
+        "deepThrew": {
+          "name": "Error",
+          "code": "MODEL_PROXY_REQUEST_INVALID",
+          "message": "The model call is nested too deeply."
+        }
+      }
+    },
+    {
+      "case": "1,000 advertised ids never produce more claims than one snapshot may name",
+      "observed": {
+        "maxSnapshotEntries": 4,
+        "advertised": 1000,
+        "rounds": 3,
+        "claims": [
+          "call-0",
+          "call-1",
+          "call-2",
+          "call-3"
+        ],
+        "normalized": "the test waited 10 ms; the recording yields five event-loop turns"
+      }
+    },
+    {
+      "case": "payloads past the aggregate in-flight limit are refused, and so are oversized event replies",
+      "observed": {
+        "maxInflightBytes": 3000,
+        "payloadChars": 2000,
+        "secondCall": {
+          "rejected": {
+            "name": "Error",
+            "code": "MODEL_PROXY_BUSY",
+            "message": "This PC is already holding as much model-call data for this server as it accepts; try again shortly."
+          }
+        },
+        "oversizedReply": {
+          "resolveArgs": [
+            "r1",
+            false,
+            null,
+            "{\"name\":\"Error\",\"message\":\"The remote daemon answered the model call events with an oversized reply.\",\"props\":{}}"
+          ],
+          "ok": false,
+          "error": "{\"name\":\"Error\",\"message\":\"The remote daemon answered the model call events with an oversized reply.\",\"props\":{}}",
+          "errorNamesOversizedReply": true
+        },
+        "hostOperations": [
+          "modelProxyClaim",
+          "modelProxyEvent",
+          "modelProxyResolve"
+        ]
+      }
+    },
+    {
+      "case": "a burst of sends all run, with no rate or concurrency refusal",
+      "observed": {
+        "sends": 30,
+        "results": [
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          },
+          {
+            "content": "ok"
+          }
+        ],
+        "hostRunningAfter": 0
+      }
+    },
+    {
+      "case": "callbacks reach the server only allowlisted and projected; account ids stay on this PC",
+      "observed": {
+        "result": {
+          "content": "ok",
+          "secretHookKnown": false
+        },
+        "stages": [
+          [
+            "account-changed",
+            {
+              "provider": "openai",
+              "at": 7
+            }
+          ],
+          [
+            "reconnecting",
+            {
+              "attempt": 2,
+              "max": 3,
+              "message": "retry with key [redacted]"
+            }
+          ]
+        ],
+        "deltas": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ],
+        "excluded": [
+          {
+            "name": "bad_tool",
+            "index": 3,
+            "pointer": "/properties/x/type",
+            "reason": "invalid type",
+            "message": "gemini tool \"bad_tool\" excluded; key [redacted]"
+          }
+        ],
+        "secretHookCalled": false,
+        "allowlistedCallbacks": [
+          "onReasoningDelta",
+          "onStageChange",
+          "onStreamDelta",
+          "onStreamItemStart",
+          "onTextDelta",
+          "onTextReset",
+          "onToolCall",
+          "onToolExcluded"
+        ],
+        "normalized": "the secret-shaped test string carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-abc… shape); the redactor treats both alike"
+      }
+    }
+  ]
+}
