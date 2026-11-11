@@ -22,6 +22,7 @@
 //   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-history-core.mjs --only <case>[,<case>]
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { ServerResponse } from 'node:http';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -272,6 +273,8 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   let settleServer;
   let settle;
   let settleWhy = null;
+  const TRACE = process.env.HISTORY_TRACE;
+  const trace = (line) => { if (TRACE) writeFileSync(TRACE, `${line}\n`, { flag: 'a' }); };
   const settleSockets = new Set();
   let handledAll;
   let watcher;
@@ -298,7 +301,23 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     writeFileSync(join(paths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
     // A model listing is answered when asked: it reaches the model catalog (its fields are hw-phone-worktree-args's), not the turn, and
     // the core lists on its own cadence (Node listed again after deleteSession, at 10 s of running-runtime-turn; the core does not).
-    provider = await deadline.race(startAbortProvider({ gated: true, answered: (key) => key.startsWith('GET /v1/models') }), 'the model endpoint to listen');
+    provider = await deadline.race(startAbortProvider({ gated: true }), 'the model endpoint to listen');
+    // The endpoint's module is pinned by the recordings' manifest: a listing's writes are released here as soon as they queue.
+    provider.onQueued(() => {
+      while (provider.release('GET /v1/models'));
+    });
+    // The response body bytes the model endpoint wrote (what the core's barrier counts: mixdog-ai replay_bytes.rs), counted here: the
+    // endpoint's module is pinned by the recordings' manifest, so its responses are counted from outside it.
+    const providerPort = Number(new URL(provider.baseURL).port);
+    let written = 0;
+    provider.bodyBytes = () => written;
+    for (const op of ['write', 'end']) {
+      const own = ServerResponse.prototype[op];
+      ServerResponse.prototype[op] = function counted(data, ...rest) {
+        if (this.socket?.localPort === providerPort && data !== undefined && data !== null && typeof data !== 'function') written += Buffer.byteLength(data);
+        return own.call(this, data, ...rest);
+      };
+    }
     writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
     seedPgRuntime(paths.dataDir);
     hasSeeded = true;
@@ -342,7 +361,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     // scans (cluster.rs DEFAULT_PORT + PORT_SPAN): a core beside this one, scanning, could take a scanned port between the probe and
     // the bind, and the loser's cluster would be started again when a turn needed it, its readiness polls waiting on the frozen clock.
     const pgPort = await assignedPort();
-    // The core's barrier on the model's bytes (mixdog-ai replay_bytes.rs): a line `bytes <total>` after each response chunk it handled.
+    // The core's barrier on the model's bytes (mixdog-ai replay_bytes.rs): a line `bytes <origin> <total>` after each response chunk it handled.
     // Bytes on a socket are outside the core's clock until the core admits them, so an advance after a scripted write waits for them.
     bytesServer = createServer();
     let bytesBuffer = '';
@@ -358,9 +377,10 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       socket.on('data', (chunk) => {
         bytesBuffer += chunk;
         for (let at = bytesBuffer.indexOf('\n'); at >= 0; at = bytesBuffer.indexOf('\n')) {
-          const total = Number(/^bytes (\d+)$/.exec(bytesBuffer.slice(0, at).trim())?.[1]);
+          // Per origin: only the model endpoint's bytes are this barrier's; the core's other fetches are not.
+          const [, origin, total] = /^bytes (\S+) (\d+)$/.exec(bytesBuffer.slice(0, at).trim()) ?? [];
           bytesBuffer = bytesBuffer.slice(at + 1);
-          if (Number.isFinite(total)) bytesHandled = total;
+          if (origin === new URL(provider.baseURL).host) { bytesHandled = Number(total); trace(`core bytes ${total} (written ${provider.bodyBytes()})`); }
         }
         bytesSeen();
       });
@@ -400,6 +420,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
           const line = settleBuffer.slice(0, at).trim();
           settleBuffer = settleBuffer.slice(at + 1);
           const n = Number(/^settled (\d+)$/.exec(line)?.[1]);
+          trace(`core ${line}`);
           if (Number.isFinite(n)) {
             settleAnswered = n;
             settleWhy = null;
@@ -413,6 +434,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     settle = (after) => {
       if (!settleSocket) return Promise.reject(new Error(`${name}: the core never connected its settled signal (a mixdogd built with --features replay-settled)`));
       const n = (settleAsked += 1);
+      trace(`ask settle ${n} after ${after}`);
       settleSocket.write(`settle ${n}\n`);
       return deadline.race(new Promise((resolve, reject) => {
         const waiter = () => {
@@ -512,6 +534,10 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         random: Math.random,
       }), `the client of ${title} to connect`);
       clients.push(client);
+      if (TRACE && viewing) {
+        const heard = client.onNotification.bind(client);
+        client.onNotification = (n) => { trace(`note ${n.method} ${JSON.stringify(n.params).slice(0, 160)}`); heard(n); };
+      }
       // The phone shows the thread's states as Node's frames published them (one per `thread/frame`).
       if (viewing) {
         subscribeFramedSessionStates(client, () => threadId || (submitting ? undefined : '\0none'), (id, state) => {
@@ -570,6 +596,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         // The model's bytes read, and what they started settled, before the clock moves: Node handled them at the clock they came at.
         await handledAll();
         await settle(`the model's bytes before the clock moved to ${input.clock}`);
+        trace(`advance to ${input.clock}`);
         await clock(`advance ${input.clock - clockAt}`);
       }
       clockAt = Math.max(clockAt, input.clock);
@@ -581,6 +608,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         // nothing of it reaches the state; the core keeps no such warm-up and has no request to release.
         if (kindOf(input.key).startsWith('HEAD / ') || kindOf(input.key).startsWith('GET /v1/models')) continue;
         await until(() => provider.release(kindOf(input.key)), `the core to ask the model endpoint for ${kindOf(input.key)} (Node's write ${input.step})`);
+        trace(`released ${kindOf(input.key).slice(0, 40)} step ${input.step}; written ${provider.bodyBytes()}`);
         continue;
       }
       if (input.input === 'host.startProject') continue;
