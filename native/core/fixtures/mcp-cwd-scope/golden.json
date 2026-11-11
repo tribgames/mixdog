@@ -148,9 +148,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 0
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "player",
+                "step": 0
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -160,6 +170,10 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 1
+          },
           "result": "Error: MCP tool \"mcp__plugin-unity-tools__build\" is unavailable in the current session catalog; no call was sent.",
           "ran": [],
           "mcpNames": [
@@ -169,9 +183,19 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__demo__ping",
+          "arguments": {
+            "message": "hello",
+            "step": 2
+          },
           "result": "ran demo ping",
           "ran": [
-            "mcp__demo__ping"
+            {
+              "name": "mcp__demo__ping",
+              "arguments": {
+                "message": "hello",
+                "step": 2
+              }
+            }
           ],
           "mcpNames": [
             "mcp__demo__ping"
@@ -180,9 +204,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "editor",
+            "step": 3
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "editor",
+                "step": 3
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -304,9 +338,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 0
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "player",
+                "step": 0
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -316,6 +360,10 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 1
+          },
           "result": "Error: MCP tool \"mcp__plugin-unity-tools__build\" is unavailable in the current session catalog; no call was sent.",
           "ran": [],
           "mcpNames": [
@@ -325,9 +373,19 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__demo__ping",
+          "arguments": {
+            "message": "hello",
+            "step": 2
+          },
           "result": "ran demo ping",
           "ran": [
-            "mcp__demo__ping"
+            {
+              "name": "mcp__demo__ping",
+              "arguments": {
+                "message": "hello",
+                "step": 2
+              }
+            }
           ],
           "mcpNames": [
             "mcp__demo__ping"
@@ -336,9 +394,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "editor",
+            "step": 3
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "editor",
+                "step": 3
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -448,9 +516,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 0
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "player",
+                "step": 0
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -460,9 +538,19 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 1
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "player",
+                "step": 1
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -472,9 +560,19 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__demo__ping",
+          "arguments": {
+            "message": "hello",
+            "step": 2
+          },
           "result": "ran demo ping",
           "ran": [
-            "mcp__demo__ping"
+            {
+              "name": "mcp__demo__ping",
+              "arguments": {
+                "message": "hello",
+                "step": 2
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -484,9 +582,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "editor",
+            "step": 3
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "editor",
+                "step": 3
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -599,9 +707,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 0
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "player",
+                "step": 0
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -611,6 +729,10 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 1
+          },
           "result": "Error: MCP tool \"mcp__plugin-unity-tools__build\" is unavailable in the current session catalog; no call was sent.",
           "ran": [],
           "mcpNames": [
@@ -620,9 +742,19 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__demo__ping",
+          "arguments": {
+            "message": "hello",
+            "step": 2
+          },
           "result": "ran demo ping",
           "ran": [
-            "mcp__demo__ping"
+            {
+              "name": "mcp__demo__ping",
+              "arguments": {
+                "message": "hello",
+                "step": 2
+              }
+            }
           ],
           "mcpNames": [
             "mcp__demo__ping"
@@ -631,9 +763,19 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "editor",
+            "step": 3
+          },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "editor",
+                "step": 3
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -755,16 +897,29 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 0
+          },
           "wire": {
             "name": "call_tool",
             "arguments": {
               "name": "mcp__plugin-unity-tools__build",
-              "arguments": {}
+              "arguments": {
+                "target": "player",
+                "step": 0
+              }
             }
           },
           "result": "ran plugin-unity-tools build",
           "ran": [
-            "mcp__plugin-unity-tools__build"
+            {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {
+                "target": "player",
+                "step": 0
+              }
+            }
           ],
           "mcpNames": [
             "mcp__plugin-unity-tools__build",
@@ -774,11 +929,18 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "player",
+            "step": 1
+          },
           "wire": {
             "name": "call_tool",
             "arguments": {
               "name": "mcp__plugin-unity-tools__build",
-              "arguments": {}
+              "arguments": {
+                "target": "player",
+                "step": 1
+              }
             }
           },
           "result": "Error: TOOL_NOT_FOUND: no tool named \"mcp__plugin-unity-tools__build\" is available in this session; find tools with load_tool {names: keyword}.",
@@ -790,16 +952,29 @@
         {
           "cwd": "<SANDBOX>\\project-b",
           "call": "mcp__demo__ping",
+          "arguments": {
+            "message": "hello",
+            "step": 2
+          },
           "wire": {
             "name": "call_tool",
             "arguments": {
               "name": "mcp__demo__ping",
-              "arguments": {}
+              "arguments": {
+                "message": "hello",
+                "step": 2
+              }
             }
           },
           "result": "ran demo ping",
           "ran": [
-            "mcp__demo__ping"
+            {
+              "name": "mcp__demo__ping",
+              "arguments": {
+                "message": "hello",
+                "step": 2
+              }
+            }
           ],
           "mcpNames": [
             "mcp__demo__ping"
@@ -808,11 +983,18 @@
         {
           "cwd": "<SANDBOX>\\project-a",
           "call": "mcp__plugin-unity-tools__build",
+          "arguments": {
+            "target": "editor",
+            "step": 3
+          },
           "wire": {
             "name": "call_tool",
             "arguments": {
               "name": "mcp__plugin-unity-tools__build",
-              "arguments": {}
+              "arguments": {
+                "target": "editor",
+                "step": 3
+              }
             }
           },
           "result": "Error: TOOL_NOT_FOUND: no tool named \"mcp__plugin-unity-tools__build\" is available in this session; find tools with load_tool {names: keyword}.",
@@ -842,9 +1024,19 @@
   "hook": {
     "cwd": "<SANDBOX>\\project-b",
     "name": "mcp__plugin-unity-tools__build",
+    "arguments": {
+      "session_id": "session-b",
+      "cwd": "<SANDBOX>\\project-b"
+    },
     "result": "ran plugin-unity-tools build",
     "ran": [
-      "mcp__plugin-unity-tools__build"
+      {
+        "name": "mcp__plugin-unity-tools__build",
+        "arguments": {
+          "session_id": "session-b",
+          "cwd": "<SANDBOX>\\project-b"
+        }
+      }
     ]
   }
 }

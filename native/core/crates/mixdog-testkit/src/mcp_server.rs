@@ -1,9 +1,9 @@
 //! A real stdio MCP server for replays that must observe which servers and tools a route reaches. The test binary runs
 //! itself as the server (the way a test of a crash runs the test executable as the crashing process): a test function of
 //! the crate, `scripted_server`, calls [`serve_if_asked`], which does nothing unless the process was started as a server
-//! ([`launch`] sets the environment). A server answers `initialize`, `tools/list` and `tools/call`; a call appends
-//! `<server> <tool>` to its reach log before it answers `ran <server> <tool>`, so what reached a server is read from the
-//! log, never from what the test supplied. The harness prints its own lines on stdout; the client skips lines that are not JSON.
+//! ([`launch`] sets the environment). A server answers `initialize`, `tools/list` and `tools/call`; a call appends its
+//! tool name and the arguments it carried to its reach log before it answers `ran <server> <tool>`, so what reached a
+//! server is read from the log, never from what the test supplied. The harness prints its own lines on stdout; the client skips lines that are not JSON.
 
 use std::io::BufRead;
 use std::io::Write;
@@ -37,9 +37,10 @@ pub fn launch(test: &str, server: &str, tools: &[&str], reach: &Path) -> Launch 
     }
 }
 
-/// What reached the server so far, one `<server> <tool>` per call, in order.
-pub fn reached(reach: &Path) -> Vec<String> {
-    std::fs::read_to_string(reach).map(|text| text.lines().map(str::to_owned).collect()).unwrap_or_default()
+/// What reached the servers logging to `reach` so far, one `{"name": "mcp__<server>__<tool>", "arguments": …}` per call, in
+/// the order the calls arrived (servers started with the same log share one order).
+pub fn reached(reach: &Path) -> Vec<Value> {
+    std::fs::read_to_string(reach).map(|text| text.lines().map(|line| serde_json::from_str(line).expect("a reach line")).collect()).unwrap_or_default()
 }
 
 /// Serves MCP over stdio until the client closes it, when this process was started by [`launch`]; returns at once otherwise.
@@ -73,8 +74,12 @@ pub fn serve_if_asked() {
                     send(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "unknown tool"}}));
                     continue;
                 }
+                let arguments = message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                let mut line = json!({"name": format!("mcp__{server}__{tool}"), "arguments": arguments}).to_string();
+                line.push('\n');
                 let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&reach).expect("the reach log");
-                writeln!(log, "{server} {tool}").unwrap();
+                // One write per line: servers sharing a log keep the order their calls arrived in.
+                log.write_all(line.as_bytes()).unwrap();
                 drop(log);
                 send(json!({"jsonrpc": "2.0", "id": id, "result": {"content": [{"type": "text", "text": format!("ran {server} {tool}")}]}}));
             }

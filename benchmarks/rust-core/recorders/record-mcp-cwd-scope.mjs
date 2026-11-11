@@ -73,7 +73,7 @@ try {
     _registerMcpServerForTest(SCOPE, server, tools, {
       ...(pluginId ? { cfg: { _mixdogPlugin: { id: pluginId } } } : {}),
       callTool: async (params) => {
-        ran.push(`mcp__${server}__${params.name}`);
+        ran.push({ name: `mcp__${server}__${params.name}`, arguments: params.arguments ?? {} });
         return { content: [{ type: 'text', text: `ran ${server} ${params.name}` }] };
       },
     });
@@ -101,11 +101,12 @@ try {
   };
   const BUILD = 'mcp__plugin-unity-tools__build';
   const PING = 'mcp__demo__ping';
+  // Each call carries arguments of its own, so a call that reaches a server with other arguments differs.
   const STEPS = [
-    ['a', BUILD],
-    ['b', BUILD],
-    ['b', PING],
-    ['a', BUILD],
+    ['a', BUILD, { target: 'player', step: 0 }],
+    ['b', BUILD, { target: 'player', step: 1 }],
+    ['b', PING, { message: 'hello', step: 2 }],
+    ['a', BUILD, { target: 'editor', step: 3 }],
   ];
   const CASES = [
     ['a native session', session('anthropic-oauth')],
@@ -135,13 +136,13 @@ try {
     // Each request the loop sends first refreshes the snapshot for the cwd as it then is (`request-boundary.mjs:77`); the
     // model's next call moves the cwd after that.
     refreshDeferredMcpToolCatalog(current);
-    for (const [n, [project, call]] of STEPS.entries()) {
+    for (const [n, [project, call, args]] of STEPS.entries()) {
       current.cwd = project === 'a' ? projectA : projectB;
       ran.length = 0;
       let result;
       let wire;
       if (viaCallTool) {
-        wire = { name: 'call_tool', arguments: { name: call, arguments: {} } };
+        wire = { name: 'call_tool', arguments: { name: call, arguments: args } };
         const wireCall = { id: `c${n}`, ...wire };
         const run = (projected) => executeTool(projected.name, projected.arguments, current.cwd, current.id, current, { bridgeWireCall: projected.wireCall });
         // The streamed call is projected and its target started at once (`eager-dispatch.mjs:63`); the run refreshes the
@@ -153,10 +154,10 @@ try {
         const projected = resolveExecutionToolCall(wireCall, current);
         result = preDispatchDenyForSession(current, projected) ?? eagerResult ?? (await run(projected));
       } else {
-        result = await executeTool(call, {}, current.cwd, current.id, current, {});
+        result = await executeTool(call, args, current.cwd, current.id, current, {});
       }
       refreshDeferredMcpToolCatalog(current);
-      steps.push({ cwd: current.cwd, call, ...(wire ? { wire } : {}), result: json(result), ran: [...ran], mcpNames: json(current.deferredMcpToolNames ?? null) });
+      steps.push({ cwd: current.cwd, call, arguments: args, ...(wire ? { wire } : {}), result: json(result), ran: [...ran], mcpNames: json(current.deferredMcpToolNames ?? null) });
     }
     cases.push({ name, before, turnStart, steps });
   }
@@ -166,10 +167,13 @@ try {
   const channelCall = { name: BUILD, args: {}, result: json(await handleToolCall(BUILD, {})), ran: [...ran] };
   // An `mcp_tool` hook of a session whose cwd is project B (outside the plugin's scope).
   ran.length = 0;
+  // The hook's tool arguments are the hook payload (`hook-bus/handlers.mjs` `args: payload`).
+  const hookArguments = { session_id: 'session-b', cwd: projectB };
   const hook = {
     cwd: projectB,
     name: BUILD,
-    result: json(await executeMcpTool(BUILD, {}, { scopeId: SCOPE, ownerKey: `hook:${BUILD}` })),
+    arguments: hookArguments,
+    result: json(await executeMcpTool(BUILD, hookArguments, { scopeId: SCOPE, ownerKey: `hook:${BUILD}` })),
     ran: [...ran],
   };
   await disconnectAll({ scopeId: SCOPE });
@@ -194,7 +198,7 @@ try {
         'hook: `executeMcpTool(name, {}, { scopeId, ownerKey: "hook:<name>" })`, the call `boot/infrastructure.mjs` mcpToolRunner makes',
       ],
       normalisations: { sandboxPath: 'the sandbox folder (and its forward-slash form) in every string becomes <SANDBOX>' },
-      keptWhole: 'per step: the cwd, the call, what executeTool returned, the server calls, the session MCP snapshot at the next request (after its boundary refresh, `request-boundary.mjs:77`, before the next call moves the cwd)',
+      keptWhole: 'per step: the cwd, the call and its arguments, what executeTool returned, the server calls (name and arguments, in the one order every server received them), the session MCP snapshot at the next request (after its boundary refresh, `request-boundary.mjs:77`, before the next call moves the cwd)',
     },
   });
   commitStage(stage, finalDir);
