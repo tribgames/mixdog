@@ -11,7 +11,7 @@
   "entry": "src/session-runtime/services/provider-admin.mjs providerSetup({}, { checkSecrets: false, detectLocal: false }).oauth / providerStatus({}) / isKnownProvider / listProviderAccounts, with src/runtime/shared/config.mjs updateSection(\"agent\", ...) over the recording data dir (MIXDOG_CONFIG_READ_TTL_MS=0).",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
@@ -41,11 +41,18 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "dev-oauth-providers-follow-developer-flags",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,8 +74,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-admin-dev-providers.mjs",
-  "recorderSha256": "e20fc621a02aaa7aa2a1372e39aaae27de9064bc643347eab9c2b040cd7e5e28",
-  "replay": "Rust entry (pub, on o1): mixdog_ai::service::admin_models developer_option_for_provider (service/admin_models.rs:427), developer_option_enabled (:438) and provider_available (:445) over the stored `developer` section (`pub mod admin_models`, service/mod.rs:5): replay `provider_available(name, client_mode, stored_developer)` per option state; the provider setup list that the Node test also reads (`oauth` rows) is the registry listing built over it (registry/effective.rs:31-33).",
+  "recorderSha256": "f09f55753f35f5f2f4988a8da152e0386da8383fc07ace1cb87e78bfe4a34bb9",
+  "replay": "PURE, per output: (1) availability per option state: mixdog_ai::service::admin_models developer_option_for_provider (service/admin_models.rs:427), developer_option_enabled (:438) and provider_available (:445) (`pub mod admin_models`, service/mod.rs:5); (2) the provider setup rows (`setup`, the oauth rows): mixdog-core-domains/src/domains/ai_account/provider_setup.rs:451 `pub fn provider_setup(world: &dyn SetupWorld, config: &Value, options: SetupOptions) -> Value` (`pub mod provider_setup`, ai_account/mod.rs:19); (3) the account-listing error for an unknown OAuth provider: mixdog-core-domains/src/domains/ai_account/admin.rs:379 `list_provider_accounts(&self, provider)` (`pub mod admin`, ai_account/mod.rs:4). (4) `status` (providerStatus rows): RUST WORK - looked for a public provider_status / providers_status function in mixdog-core-domains ai_account, mixdog-ai service and registry: none; the closest, registry/effective.rs:31-33, builds the listing but is not a status function.",
   "set": "provider-admin-dev-providers",
   "totalBytes": 116882,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
