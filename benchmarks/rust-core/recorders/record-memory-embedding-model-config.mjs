@@ -18,7 +18,7 @@ const env = (patch, fn) => {
   for (const [k, v] of Object.entries(patch)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   try { return fn(); } finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
 };
-const label = (v) => (v === undefined ? { absent: true } : v);
+const label = (v) => v;
 
 const defaults = [];
 for (const patch of [{}, { MIXDOG_EMBED_MODEL: GRANITE }, { MIXDOG_EMBED_MODEL: ' ' }, { MIXDOG_EMBED_MODEL: 'custom/x' }, { MIXDOG_EMBED_DTYPE: 'q4' }, { MIXDOG_EMBED_MODEL: 'Xenova/bge-m3', MIXDOG_EMBED_DTYPE: 'fp16' }]) {
@@ -68,9 +68,9 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'every export of embedding-model-config.mjs, with MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE set per probe (restored after)', notRun: 'the model load and the worker that uses these answers' },
-    replay: 'mixdog-services memory: mem/embed/config.rs (DEFAULT_MODEL_ID, known_dims, normalize_dtype, graph_file, pooling, prepare_input, profile, identity; the daemon takes the model from compose.rs:241 / tool_modules/host.rs); every answer is compared exactly, none is skipped. The `defaults` list (case 1, the six env settings of MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE: configured model id, dims, default dtype, default device, graph file, pooling) has NO Rust counterpart: Rust reads neither variable (grep of native/core/crates finds only DEFAULT_MODEL_ID). Those five of six env settings are work for the Rust side (an env override, or a decision that the core ignores it); only the unset row (default model) maps today',
+    replay: "mixdog-services memory/embed/config.rs (all pub): DEFAULT_MODEL_ID (:6), profile (:85), known_dims (:89), normalize_dtype (:106), graph_file (:119), pooling (:130), prepare_input (:136); the daemon takes the model from compose.rs:241 / tool_modules/host.rs. Every answer is compared exactly, none is skipped. The `defaults` list (case 1: the six env settings of MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE) has NO Rust counterpart: Rust reads neither variable (grep of native/core/crates finds only DEFAULT_MODEL_ID). Five of the six env settings are work for the Rust side (an env override, or a decision that the core ignores it); only the unset row (default model) maps today",
     exclusions: 'the final case holds probes the test file does not run; no environment-driven answer is left out of the recording (list for the Rust side: see replay)',
-    normalised: { 'undefined arguments': 'written as {"absent":true}' },
+    normalised: { 'values': 'every value is stored through exact (lib/exact.mjs): an explicit undefined, NaN, -0, Date, Error are tagged; an omitted argument is absent' },
   },
 });
 process.exit(0);

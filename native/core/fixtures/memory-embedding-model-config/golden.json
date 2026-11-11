@@ -241,7 +241,7 @@
           },
           {
             "dtype": {
-              "absent": true
+              "$exact": "undefined"
             },
             "normalized": {
               "result": "q8"
@@ -567,7 +567,7 @@
         {
           "model": "Xenova/multilingual-e5-small",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "Windows 음성 런타임의 메모리 사용량",
           "type": {
@@ -580,7 +580,7 @@
         {
           "model": "Xenova/multilingual-e5-small",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "",
           "type": {
@@ -593,7 +593,7 @@
         {
           "model": "Xenova/multilingual-e5-small",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "  spaced  ",
           "type": {
@@ -606,7 +606,7 @@
         {
           "model": "Xenova/multilingual-e5-small",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": null,
           "type": {
@@ -770,7 +770,7 @@
           },
           {
             "dtype": {
-              "absent": true
+              "$exact": "undefined"
             },
             "normalized": {
               "result": "fp32"
@@ -1093,7 +1093,7 @@
         {
           "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "Windows 음성 런타임의 메모리 사용량",
           "type": {
@@ -1106,7 +1106,7 @@
         {
           "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "",
           "type": {
@@ -1119,7 +1119,7 @@
         {
           "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "  spaced  ",
           "type": {
@@ -1132,7 +1132,7 @@
         {
           "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": null,
           "type": {
@@ -1288,7 +1288,7 @@
           },
           {
             "dtype": {
-              "absent": true
+              "$exact": "undefined"
             },
             "normalized": {
               "result": "q4"
@@ -1397,7 +1397,7 @@
           },
           {
             "dtype": {
-              "absent": true
+              "$exact": "undefined"
             },
             "normalized": {
               "result": "fp32"
@@ -1510,7 +1510,7 @@
             },
             {
               "dtype": {
-                "absent": true
+                "$exact": "undefined"
               },
               "normalized": {
                 "result": "fp32"
@@ -1619,7 +1619,7 @@
             },
             {
               "dtype": {
-                "absent": true
+                "$exact": "undefined"
               },
               "normalized": {
                 "result": "q4"
@@ -1728,7 +1728,7 @@
             },
             {
               "dtype": {
-                "absent": true
+                "$exact": "undefined"
               },
               "normalized": {
                 "result": "fp32"
@@ -2052,7 +2052,7 @@
         {
           "model": "Xenova/bge-m3",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "Windows 음성 런타임의 메모리 사용량",
           "type": {
@@ -2065,7 +2065,7 @@
         {
           "model": "Xenova/bge-m3",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "",
           "type": {
@@ -2078,7 +2078,7 @@
         {
           "model": "Xenova/bge-m3",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "  spaced  ",
           "type": {
@@ -2091,7 +2091,7 @@
         {
           "model": "Xenova/bge-m3",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": null,
           "type": {
@@ -2456,7 +2456,7 @@
         {
           "model": "custom/embedding",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "Windows 음성 런타임의 메모리 사용량",
           "type": {
@@ -2469,7 +2469,7 @@
         {
           "model": "custom/embedding",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "",
           "type": {
@@ -2482,7 +2482,7 @@
         {
           "model": "custom/embedding",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": "  spaced  ",
           "type": {
@@ -2495,7 +2495,7 @@
         {
           "model": "custom/embedding",
           "inputType": {
-            "absent": true
+            "$exact": "undefined"
           },
           "text": null,
           "type": {
