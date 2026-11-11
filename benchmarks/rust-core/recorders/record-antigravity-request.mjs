@@ -4,7 +4,6 @@
 // messages, tools and replays. Each case records the request pieces the test asserts on (tools, toolConfig, declarations, warnings, contents).
 // Not recordable: "Ajv resolves from the root package dependency" (a package.json / node_modules layout check, no product behaviour).
 //   node benchmarks/rust-core/recorders/record-antigravity-request.mjs --tree <exact export of b6f10295a>
-import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { startRecording } from './lib/provider-case-recorder.mjs';
@@ -13,8 +12,9 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-antigravity-request',
   net: false,
-  entry: 'src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test\'s asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is recorded per tool as the declaration\'s sha256 (the declarations are the product\'s own schemas), `computer` and the Gemini projection in full. Ajv (the tree\'s own dependency) answers the validity / validate() checks.',
-  replay: 'mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.',
+  entry: 'src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test\'s asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is the input, and every declaration the Claude path produces is recorded whole. Ajv (the tree\'s own dependency) answers the validity / validate() checks.',
+  compare: 'mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:71) and build_request (google/request.rs:638), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const treeRequire = createRequire(join(rec.tree, 'package.json'));
 const Ajv2020 = treeRequire('ajv/dist/2020.js');
@@ -26,7 +26,6 @@ const { TOOL_SEARCH_TOOL, TOOL_BRIDGE_TOOLS, SKILL_TOOL, SESSION_TOOL } = await 
 const { CODE_GRAPH_TOOL_DEFS } = await rec.P('agent/orchestrator/tools/code-graph-tool-defs.mjs');
 const { TOOL_DEFS: COMPUTER_TOOL_DEFS } = await rec.P('computer-bridge/tool-defs.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs';
-const sha = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const meta = () => new Ajv2020({ strict: false, validateFormats: false });
 
 const tools = [{ name: 'read', description: 'Read a file.', inputSchema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } }];
@@ -36,7 +35,7 @@ const toolConfig = (opts) => buildAntigravityRequest(messages, 'gemini-3.8-flash
 await rec.run('hosted-google-search-ahead-of-declarations', `${SRC}:31`, { nativeTools: [{ type: 'google_search' }], tools }, () => {
   const nativeTools = [{ type: 'google_search' }];
   const build = (toolList, opts) => buildAntigravityRequest(messages, 'gemini-3.8-flash', toolList, opts, 'proj').request;
-  return { searchOnly: build(undefined, { nativeTools }), both: build(tools, { nativeTools }), noNative: build(undefined, {}).tools ?? '<absent>' };
+  return { searchOnly: build(undefined, { nativeTools }), both: build(tools, { nativeTools }), noNative: build(undefined, {}).tools };
 });
 await rec.run('function-calling-mode-default-env-and-tool-choice', `${SRC}:42`, {}, () => {
   const previous = process.env.MIXDOG_ANTIGRAVITY_FC_MODE;
@@ -78,17 +77,18 @@ const schemaCase = (id, line, source, extra = () => ({})) => rec.run(id, `${SRC}
   return out;
 });
 
-await rec.run('full-builtin-bridge-surface-sent-as-authored', `${SRC}:84`, { surface: 'BUILTIN_TOOLS + CODE_GRAPH_TOOL_DEFS + COMPUTER_TOOL_DEFS + TOOL_BRIDGE_TOOLS + SKILL_TOOL + SESSION_TOOL', models: ['claude-sonnet-4-6', 'claude-opus-4-6-thinking'] }, () => {
-  const surface = [...BUILTIN_TOOLS, ...CODE_GRAPH_TOOL_DEFS, ...COMPUTER_TOOL_DEFS, ...TOOL_BRIDGE_TOOLS, SKILL_TOOL, SESSION_TOOL];
+const SURFACE = [...BUILTIN_TOOLS, ...CODE_GRAPH_TOOL_DEFS, ...COMPUTER_TOOL_DEFS, ...TOOL_BRIDGE_TOOLS, SKILL_TOOL, SESSION_TOOL];
+await rec.run('full-builtin-bridge-surface-sent-as-authored', `${SRC}:84`, { surface: SURFACE, models: ['claude-sonnet-4-6', 'claude-opus-4-6-thinking'] }, () => {
+  const surface = SURFACE;
   const before = structuredClone(surface);
   const sonnet = claudeRequest(surface, 'claude-sonnet-4-6');
   const opus = claudeRequest(surface, 'claude-opus-4-6-thinking');
   const validator = meta();
   const rows = sonnet.declarations.map((declaration, i) => {
     const schema = declaration.parametersJsonSchema;
-    return { name: declaration.name, sha256: sha(declaration), hasParameters: declaration.parameters !== undefined, equalsActionInputUnion: JSON.stringify(schema) === JSON.stringify(actionInputUnionFor(surface[i].inputSchema)), valid2020: validator.validateSchema(schema) === true, rootType: schema.type, rootCombinators: ['anyOf', 'oneOf', 'allOf', 'not'].filter((key) => schema[key] !== undefined) };
+    return { declaration, authoredSchemaUnion: actionInputUnionFor(surface[i].inputSchema), hasParameters: declaration.parameters !== undefined, equalsActionInputUnion: JSON.stringify(schema) === JSON.stringify(actionInputUnionFor(surface[i].inputSchema)), valid2020: validator.validateSchema(schema) === true, rootType: schema.type, rootCombinators: ['anyOf', 'oneOf', 'allOf', 'not'].filter((key) => schema[key] !== undefined) };
   });
-  return { surfaceHasUnion: hasUnion(surface.map((tool) => tool.inputSchema)), sonnetWarnings: sonnet.warnings, sonnetEqualsOpus: JSON.stringify(sonnet.declarations) === JSON.stringify(opus.declarations), names: sonnet.declarations.map((d) => d.name), surfaceNames: surface.map((t) => t.name), rows, surfaceUnchanged: JSON.stringify(surface) === JSON.stringify(before) };
+  return { surfaceHasUnion: hasUnion(surface.map((tool) => tool.inputSchema)), sonnetWarnings: sonnet.warnings, sonnetEqualsOpus: JSON.stringify(sonnet.declarations) === JSON.stringify(opus.declarations), opusDeclarations: opus.declarations, opusWarnings: opus.warnings, rows, surfaceUnchanged: JSON.stringify(surface) === JSON.stringify(before) };
 });
 await schemaCase('standard-2020-12-forms-sent-as-written', 115, {
   $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'urn:example:tool', type: 'object',
@@ -125,7 +125,7 @@ await schemaCase('draft-07-definitions-reachable-from-ref-node', 236, {
 await rec.run('invalid-tool-left-out-with-warning-request-proceeds-in-order', `${SRC}:248`, {}, () => {
   const good = (name) => mcp(name, { type: 'object', properties: { x: { type: 'string' } } });
   const { request, warnings, declarations } = claudeRequest([good('first'), mcp('badtype', { type: 'object', properties: { a: { type: 'bogus-type' } } }), good('second'), mcp('missing', { type: 'object', properties: { value: { $ref: '#/$defs/Absent' } } }), good('third')], 'claude-sonnet-4-6', { nativeTools: [{ type: 'google_search' }] });
-  return { declarationNames: declarations.map((d) => d.name), firstTool: request.tools[0], toolConfig: request.toolConfig, warnings };
+  return { declarations, firstTool: request.tools[0], toolConfig: request.toolConfig, warnings };
 });
 const branch = { type: 'object', properties: { a: { type: 'string' } } };
 await rec.run('provider-forbidden-roots-exclude-the-tool', `${SRC}:279`, {}, () => Object.fromEntries([
@@ -136,7 +136,7 @@ await rec.run('schemas-invalid-under-their-dialect-excluded', `${SRC}:292`, {}, 
   ['duplicateRequired', { type: 'object', required: ['a', 'a'] }], ['bogusType', { type: 'object', properties: { a: { type: 'bogus-type' } } }], ['remoteRef', { type: 'object', properties: { a: { $ref: 'https://example.invalid/a.json' } } }],
   ['draft07TupleBoth', { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', properties: { a: { items: [{}], prefixItems: [{}] } } }],
 ].map(([name, schema]) => [name, excluded(schema)])));
-await rec.run('every-tool-invalid-request-carries-no-tools', `${SRC}:312`, {}, () => { const { request, warnings } = claudeRequest([mcp('bad', { anyOf: [] })]); return { warnings, tools: request.tools ?? '<absent>', toolConfig: request.toolConfig ?? '<absent>' }; });
+await rec.run('every-tool-invalid-request-carries-no-tools', `${SRC}:312`, {}, () => { const { request, warnings } = claudeRequest([mcp('bad', { anyOf: [] })]); return { warnings, tools: request.tools, toolConfig: request.toolConfig }; });
 await rec.run('default-warning-channel-console-warn-once-per-problem', `${SRC}:319`, {}, () => {
   const originalWarn = console.warn;
   const warned = [];
@@ -150,11 +150,11 @@ await rec.run('default-warning-channel-console-warn-once-per-problem', `${SRC}:3
   }
   return { warned };
 });
-await rec.run('missing-schema-excludes-tool-order-kept', `${SRC}:329`, {}, () => ({ names: claudeDeclarations([mcp('b', { type: 'object', properties: {} }), mcp('a', { type: 'object', properties: { x: { type: 'string' } } })]).map((d) => d.name) }));
-await rec.run('gemini-declarations-unchanged-by-claude-normalization', `${SRC}:340`, { tools: realTools.map((t) => t.name) }, () => {
+await rec.run('missing-schema-excludes-tool-order-kept', `${SRC}:329`, {}, () => ({ declarations: claudeDeclarations([mcp('b', { type: 'object', properties: {} }), mcp('a', { type: 'object', properties: { x: { type: 'string' } } })]) }));
+await rec.run('gemini-declarations-unchanged-by-claude-normalization', `${SRC}:340`, { tools: realTools }, () => {
   const expected = toGeminiRequestTools(realTools, undefined).at(-1).functionDeclarations;
   const actual = claudeDeclarations(realTools, 'gemini-3.8-flash');
-  return { equal: JSON.stringify(actual) === JSON.stringify(expected), hasUnion: hasUnion(actual), declarations: actual };
+  return { equal: JSON.stringify(actual) === JSON.stringify(expected), hasUnion: hasUnion(actual), declarations: actual, geminiProjection: expected };
 });
 await rec.run('computer-per-action-alternatives-claude-flat-for-gemini', `${SRC}:355`, {}, () => {
   const computer = realToolsByName.get('computer');
