@@ -407,10 +407,14 @@ fn files_under(dir: &Path) -> usize {
     })
 }
 
-/// What Node's recording asserts beyond the replayed output: its diagnostics.
-fn without_diagnostics(output: &Value) -> Value {
-    let mut output = output.clone();
-    if let Some(o) = output.as_object_mut() {
+/// A recorded step's output as the core produces it: a `fresh` step's `diagnostics`, which the core's
+/// `fresh_context_compact_messages` does not return, is declared in the set's manifest (`exclusions.diagnostics`) and
+/// left out; nothing else is.
+fn without_diagnostics(step: &Value) -> Value {
+    let mut output = step["output"].clone();
+    if step["op"] == "fresh"
+        && let Some(o) = output.as_object_mut()
+    {
         o.remove("diagnostics");
     }
     output
@@ -448,7 +452,7 @@ async fn replay(case: &Value) -> (Value, Value) {
     for step in case["steps"].as_array().unwrap() {
         got.push(run.step(step["op"].as_str().unwrap(), &step["input"], &step["options"]).await);
     }
-    let want_steps: Vec<Value> = case["steps"].as_array().unwrap().iter().map(|s| without_diagnostics(&s["output"])).collect();
+    let want_steps: Vec<Value> = case["steps"].as_array().unwrap().iter().map(without_diagnostics).collect();
     let recorded = case["files"].as_object().unwrap();
     let want = canonical(Canon::new(None), &want_steps, |p| recorded.get(p).and_then(Value::as_str).map(str::to_owned), recorded.len());
     let data = dir.path().to_path_buf();
