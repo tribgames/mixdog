@@ -2718,7 +2718,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             })
         })),
         inbox: session_completions.clone(),
-        owner_notify: session_completions,
+        owner_notify: session_completions.clone(),
         admission: agent_admission.clone(),
         starts: Arc::new(mixdog_core_session::session::agent_registry::flow::AgentTaskStarts::default()),
         workers: Arc::new(mixdog_core_session::session::agent_registry::workers::AgentWorkers::new(directory.clone(), threads.clone(), agent_registry.clone(), shell_jobs.clone(), clock.clone())),

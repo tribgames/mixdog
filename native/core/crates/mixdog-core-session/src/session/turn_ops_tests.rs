@@ -318,7 +318,7 @@ async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_wai
     let handle = start_thread(&directory).await;
     turn(&handle, "work", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
-    assert_eq!(call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("answered"), json!({}));
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
     assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing compacts while the turn runs");
 
     let hold = Arc::new(tokio::sync::Notify::new());
@@ -328,18 +328,13 @@ async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_wai
     eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
     assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false"]);
 
+    let holds = handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst);
     let next = {
         let handle = handle.clone();
         tokio::spawn(async move { turn(&handle, "next", "op-2").await })
     };
-    // The spawned turn gets every chance to run: time moves only by this explicit advance.
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
-    tokio::time::advance(std::time::Duration::from_secs(5)).await;
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
+    // The actor took the turn and the compaction's gate held it.
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst) > holds).then_some(())).await;
     assert!(!next.is_finished() && idle(&handle), "the next turn waits for the compaction");
     hold.notify_one();
     super::testing::awaiting(|| "the next turn to be taken once the compaction ended".to_owned(), next).await.expect("joined");
@@ -361,9 +356,10 @@ async fn a_prioritised_queued_prompt_waits_for_the_scheduled_compaction() {
     turn(&handle, "work", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
-    assert_eq!(turn(&handle, "queued", "op-2").await["kind"], json!("queued"));
+    let answer = turn(&handle, "queued", "op-2").await;
     eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 1).then_some(())).await;
     let qid = handle.cell.queue.load()[0].qid.clone();
+    assert_eq!(answer["queuedId"].as_str(), Some(qid.as_str()), "the prompt is the queued entry");
 
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
@@ -371,10 +367,10 @@ async fn a_prioritised_queued_prompt_waits_for_the_scheduled_compaction() {
     gate.notify_one();
     eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
 
+    let holds = handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst);
     handle.cell.steer(None, mixdog_core_api::ids::QueuedId::from(qid.as_str())).expect("prioritised");
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
+    // The prioritising drain consulted the compaction's gate and was held.
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst) > holds).then_some(())).await;
     assert!(idle(&handle) && handle.cell.queued.load().len() == 1, "the prioritised prompt waits for the compaction");
     hold.notify_one();
     eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;

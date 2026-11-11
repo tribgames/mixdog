@@ -241,6 +241,11 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// How many times the scheduled compaction held work back (a request it parked, or a queue it
+    /// kept from draining), counted in the step that held it: a test that shows nothing started
+    /// waits on this, so the gate was consulted before it asserts.
+    #[cfg(any(test, feature = "test-support"))]
+    pub gate_holds: std::sync::atomic::AtomicU64,
 }
 
 impl ControlCell {

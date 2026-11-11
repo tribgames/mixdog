@@ -685,7 +685,10 @@ async fn replay_sends(prefix: &str) {
             // The turn's start and its end, each one change.
             tokio::time::timeout(std::time::Duration::from_secs(10), async {
                 let mut seen = 0;
-                while changes.recv().await.is_some() {
+                loop {
+                    if changes.recv().await.is_none() {
+                        panic!("{name}: the runtime of {target:?} closed before the turn sent to it ended");
+                    }
                     seen += 1;
                     if seen >= 2 && !runtime.busy() && runtime.queued_ids().is_empty() {
                         break;
@@ -702,7 +705,8 @@ async fn replay_sends(prefix: &str) {
             let sent: Map<String, Value> = ["sender", "fromAgent", "hop", "botChain"].iter().filter_map(|key| meta.get(*key).map(|v| ((*key).to_owned(), v.clone()))).collect();
             assert_eq!(Value::Object(sent), submitted["options"]["transcriptMeta"], "{name}: the transcript meta of the turn in {target:?}");
             if let Some(id) = submitted["options"].get("id") {
-                assert_eq!(masked_value(&meta["submissionIds"]), json!([id]), "{name}: the turn takes the send's submission");
+                // The turn's only submission is the recorded send's id.
+                assert_eq!(masked_value(&meta["submissionIds"]).as_array().map(Vec::as_slice), Some(std::slice::from_ref(id)), "{name}: the turn takes the send's submission");
             }
         }
         // A reporting turn's end is delivered (or, reporting nothing, its record dropped) after the turn settles.
