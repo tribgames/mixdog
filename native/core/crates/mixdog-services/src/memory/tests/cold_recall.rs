@@ -1,7 +1,8 @@
 //! A recall while the embedding model is still loading, replayed from Node's public memory tool
 //! (`record-memory-cold-recall.mjs`, `fixtures/memory-cold-recall`): the recorded entries in a real PostgreSQL, the recall
 //! through `LocalMemory`'s `recall` tool with the provider's load held (the recording's embedding-worker seam), the
-//! clock paused and moved only by explicit advances.
+//! clock paused and moved only by explicit advances. The provider is asked as the product's recall asks it
+//! (`RecallEmbedder`, memory/recall/readiness.rs, the one bounded cold wait).
 
 use std::sync::Arc;
 use std::time::Duration;

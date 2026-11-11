@@ -1,9 +1,8 @@
 //! The embedding model as recall sees it. Three defined states give a vector or none:
 //!
-//! - ready: the query is embedded; a recall that finds the model still loading
-//!   waits for it at most `MIXDOG_RECALL_COLD_EMBED_WAIT_MS` (3 s,
-//!   `recall-embedding-readiness.mjs`), then runs on its text lanes while the
-//!   load goes on;
+//! - ready: the query is embedded; a recall that finds the model cold warms it
+//!   within its bounded wait (`recall/readiness.rs` `RecallEmbedder`, the one
+//!   cold wait), then runs on its text lanes while the load goes on;
 //! - not installed: no vector, so the recall runs on its text lanes. Installing
 //!   is a separate, progress-driven step ([`EmbeddingProvider::install`]) the
 //!   host starts; a recall never waits for a download;
@@ -14,30 +13,21 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 
 use mixdog_js::{js_trim};
-use async_trait::async_trait;
 use serde_json::{Value, json};
 use mixdog_rt::Gate;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
-use crate::memory::embed::config::{self, InputType};
+use crate::memory::embed::config;
 use crate::memory::embed::engine::{EmbedConfig, Embedder};
 use crate::memory::embed::{compress, install};
-use crate::memory::recall::QueryEmbedder;
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
 
 type Loaded = Arc<OnceCell<Result<Embedder, String>>>;
 type Load = Arc<dyn Fn(EmbedConfig) -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync>;
-
-/// `envNonNegativeInt('MIXDOG_RECALL_COLD_EMBED_WAIT_MS', 3_000)`.
-fn cold_embed_wait() -> Duration {
-    let ms = std::env::var("MIXDOG_RECALL_COLD_EMBED_WAIT_MS").ok().map(|raw| mixdog_js::string_to_number(&raw).floor()).filter(|ms| ms.is_finite() && *ms >= 0.0);
-    Duration::from_millis(ms.map_or(3_000, |ms| ms as u64))
-}
 
 pub struct EmbeddingProvider {
     config: EmbedConfig,
@@ -49,7 +39,6 @@ pub struct EmbeddingProvider {
     /// dispose included.
     compress_started: Arc<std::sync::atomic::AtomicBool>,
     load: Load,
-    cold_wait: Duration,
     /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
     installing: Gate,
     tick: StateTick,
@@ -70,7 +59,6 @@ impl EmbeddingProvider {
             loaded: std::sync::Mutex::default(),
             compress_started: Arc::default(),
             load: Arc::new(|config| Box::pin(async move { Embedder::load(config).await.map_err(|e| e.message()) })),
-            cold_wait: cold_embed_wait(),
             installing: Gate::new(),
             tick,
             compact: None,
@@ -177,19 +165,6 @@ impl EmbeddingProvider {
         }
     }
 
-    /// The model for a recall: loaded already, or the load started (or joined) in its own task and
-    /// waited for at most the cold wait. `None` sends the recall to its text lanes.
-    async fn recall_embedder(&self) -> Option<Embedder> {
-        if let Some(loaded) = self.current().get() {
-            return loaded.clone().ok();
-        }
-        if !self.is_installed().await.ok()? {
-            return None;
-        }
-        let load = mixdog_rt::spawn("embedding-model-load", mixdog_rt::TaskClass::Work, self.load_future());
-        tokio::time::timeout(self.cold_wait, load).await.ok()?.ok()?.ok()
-    }
-
     /// Downloads whatever is missing or damaged, reporting bytes as they
     /// arrive. A model that is already loaded keeps its files. Needs no timer:
     /// bytes arriving drive it, and `cancel` ends it.
@@ -211,15 +186,6 @@ impl EmbeddingProvider {
     /// The change tick this provider bumps.
     pub fn tick(&self) -> &StateTick {
         &self.tick
-    }
-}
-
-#[async_trait]
-impl QueryEmbedder for EmbeddingProvider {
-    async fn query_vector(&self, text: &str) -> Option<Vec<f32>> {
-        let embedder = self.recall_embedder().await?;
-        let vector = embedder.embed(text, InputType::Query).await.ok()?;
-        (!vector.is_empty()).then(|| vector.to_vec())
     }
 }
 

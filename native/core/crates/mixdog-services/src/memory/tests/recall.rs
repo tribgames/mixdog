@@ -85,12 +85,13 @@ pub(super) async fn load_seed(db: &Db, seed: &Value) {
     }
 }
 
+/// The provider as the product's recall asks it: through `RecallEmbedder` (memory/boot.rs), its bounded cold wait.
 pub(super) struct Provider(pub(super) Arc<EmbeddingProvider>);
 
 #[async_trait]
 impl QueryEmbedder for Provider {
     async fn query_vector(&self, text: &str) -> Option<Vec<f32>> {
-        self.0.query_vector(text).await
+        crate::memory::recall::readiness::RecallEmbedder::new(self.0.clone(), false).query_vector(text).await
     }
 }
 
