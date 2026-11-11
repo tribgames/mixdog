@@ -23,7 +23,8 @@ const recorder = 'benchmarks/rust-core/recorders/record-turn-durability.mjs';
 const child = 'benchmarks/rust-core/recorders/lib/turn-durability-child.mjs';
 const CHILD_DEADLINE_MS = 60_000;
 
-const { FIXTURES_ROOT, REPO_ROOT, commitStage, exactProductIdentity, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, REPO_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { recorderProvenance } = await import('./lib/provenance.mjs');
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, NODE_COMMIT);
@@ -109,7 +110,8 @@ writeSetManifest(stage, {
   extra: {
     exact: true,
     cases: cases.length,
-    ...recordingProvenance(recorder, [child, 'benchmarks/rust-core/recorders/lib/common.mjs']),
+    // The child is spawned by path, not imported: it is listed as an input.
+    ...recorderProvenance(import.meta.url, [child]),
     // What the replay (`mixdog-core` `run_host::turn_durability_replay`) leaves out of each compared step, and why.
     exclusions: [
       'minted ids (message, attempt, session ids, also inside texts) are compared as <id:N> by first appearance: each side mints its own',

@@ -267,8 +267,8 @@ fn hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
     fault.map_or(Ok(()), |fault| Err(std::io::Error::other(fault)))
 }
 
-/// `crash-sealed-unsaved`: from the answer on, every save of the session fails (`EIO: injected`) while the turn's draft
-/// still lands, as Node's session-log writes failed while its checkpoint journal was written.
+/// `crash-sealed-unsaved`: from the seal on, every save of the session fails (`EIO: injected`), as Node's session saves
+/// failed after its checkpoint journal held the sealed answer; the one log keeps the seal and nothing after it.
 static SESSION_SAVES_FAIL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Node's kill points as the boundaries of the session log's barriers.
@@ -276,17 +276,16 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
     let Some((case, _)) = CASE.get() else { return Ok(()) };
     let case = case.as_str();
     let die = || kill(&format!("{step:?}"));
+    lock(&STEPS).push(format!(
+        "{step:?} {}",
+        records.iter().map(|record| format!("{record:?}").chars().take(45).collect::<String>()).collect::<Vec<_>>().join(" + ")
+    ));
     match step {
         AppendStep::Write => match case {
             // The finished message and its seal were not written: what streamed of it is the draft's.
             "crash-answer-streamed" if has_role(records, "assistant") || drafts(records).any(|body| body.get("sealed").is_some()) => die(),
-            // The sealed turn's saves fail; the process dies at its terminal save.
-            "crash-sealed-unsaved" if SESSION_SAVES_FAIL.load(Ordering::SeqCst) && drafts(records).next().is_none() => {
-                if has_run(records, RunPhase::Completed) {
-                    die();
-                }
-                return Err(std::io::Error::other("EIO: injected"));
-            }
+            // Once the seal is on disk the session's saves fail; the process dies once the turn has ended (`crash_child`).
+            "crash-sealed-unsaved" if SESSION_SAVES_FAIL.load(Ordering::SeqCst) => return Err(std::io::Error::other("EIO: injected")),
             _ => {}
         },
         AppendStep::Synced => {
@@ -304,6 +303,10 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
                 "crash-mid-stream" if seen.2 == "partial streamed answer" => die(),
                 "crash-tool-wire" if follow_up_on_wire => die(),
                 "crash-saved-uncleared" if has_run(records, RunPhase::Completed) => die(),
+                "crash-sealed-unsaved" if drafts(records).any(|body| body.get("sealed").is_some()) => {
+                    assert!(!has_role(records, "assistant"), "the seal is written before the answer's row");
+                    SESSION_SAVES_FAIL.store(true, Ordering::SeqCst);
+                }
                 _ => {}
             }
         }
@@ -353,11 +356,7 @@ async fn crash_child() {
                 }
             })
         }),
-        "crash-sealed-unsaved" => Arc::new(|_| {
-            SESSION_SAVES_FAIL.store(true, Ordering::SeqCst);
-            Box::pin(async { answer("answer") })
-        }),
-        "crash-answer-streamed" | "crash-saved-uncleared" => Arc::new(|_| Box::pin(async { answer("answer") })),
+        "crash-answer-streamed" | "crash-saved-uncleared" | "crash-sealed-unsaved" => Arc::new(|_| Box::pin(async { answer("answer") })),
         other => panic!("unknown case {other}"),
     };
     let rig = Rig::new();
@@ -368,8 +367,13 @@ async fn crash_child() {
     let handle = start(&directory, &workspace).await;
     std::fs::write(dir.join("id"), ThreadHandle::id(&*handle).as_str()).unwrap();
     ask(&handle, "do the task", "op-1").await.expect("turn/start");
+    // Node's `settleThenKill`: the turn ended with its terminal save failed, then the process dies.
+    if case == "crash-sealed-unsaved" {
+        until(&handle, "the sealed turn ends", async || SESSION_SAVES_FAIL.load(Ordering::SeqCst) && !handle.turn_busy()).await;
+        kill("the turn's end");
+    }
     let _ = tokio::time::timeout(Duration::from_secs(60), std::future::pending::<()>()).await;
-    panic!("{case}: the case's kill point was not reached within 60 s");
+    panic!("{case}: the case's kill point was not reached within 60 s; sends {}; barrier steps:\n{}", SENDS.load(Ordering::SeqCst), lock(&STEPS).join("\n"));
 }
 
 async fn real_store(data: &Path) -> Arc<dyn mixdog_core_session::session::ThreadStore> {

@@ -257,7 +257,7 @@ impl DurabilityTask {
         let failed = matches!(msg, FromDurability::Failed { .. });
         let sent = self.tx.send(msg).await.is_ok();
         #[cfg(test)]
-        if failed && let Some(told) = lock(&FAILURE_SENT).take() {
+        if failed && let Some(told) = FAILURE_SENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
             let _ = told.send(());
         }
         sent

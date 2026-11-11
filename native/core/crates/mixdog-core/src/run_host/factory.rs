@@ -1595,11 +1595,12 @@ mod tests {
         let later: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
         let (committer, pending) = (jobs.clone(), later.clone());
         *lock(&jobs.taken) = Some(Box::new(move || {
+            let free = jobs_free(&committer);
             let commit = move || {
                 let item = ItemCommit { iid: ItemId::from("row"), role: Some("assistant".into()), model: true, visible: true, body: json!({ "content": "reading" }), prompt: None };
                 committer.row(true, None, item);
             };
-            if jobs_free(&committer) {
+            if free {
                 commit();
             } else {
                 *lock(&pending) = Some(std::thread::spawn(commit));

@@ -23,12 +23,16 @@
   ],
   "inputs": [
     {
-      "path": "benchmarks/rust-core/recorders/lib/turn-durability-child.mjs",
-      "sha256": "8cdc07ea7f1c749eca83e2ee2d15fe0c1335a3a22f989cbcd999ec87e86be37c"
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/turn-durability-child.mjs",
+      "sha256": "8cdc07ea7f1c749eca83e2ee2d15fe0c1335a3a22f989cbcd999ec87e86be37c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -50,7 +54,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-durability.mjs",
-  "recorderSha256": "0a2cb5370064400a9d52c12bcea941e29bbf1b1388fe4c4d140e9229dc9d87b5",
+  "recorderSha256": "0e238a06a49408a294e0e8c1133294660a136929ae032ccbe57feab4a445eca1",
   "set": "turn-durability",
   "totalBytes": 451639
 }
