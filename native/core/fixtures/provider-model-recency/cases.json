@@ -1,0 +1,435 @@
+{
+  "set": "provider-model-recency",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "window-range-default",
+      "source": "src/session-runtime/model-recency.test.mjs:11",
+      "input": [
+        [
+          "anthropic-oauth",
+          {
+            "contextWindow": 1000000
+          }
+        ],
+        [
+          "gemini",
+          {
+            "contextWindow": 1048576
+          }
+        ]
+      ],
+      "result": [
+        {
+          "provider": "anthropic-oauth",
+          "row": {
+            "id": "m",
+            "provider": "anthropic-oauth",
+            "display": "m",
+            "created": null,
+            "releaseDate": null,
+            "contextWindow": 500000,
+            "maxContextWindow": 1000000,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          }
+        },
+        {
+          "provider": "gemini",
+          "row": {
+            "id": "m",
+            "provider": "gemini",
+            "display": "m",
+            "created": null,
+            "releaseDate": null,
+            "contextWindow": 500000,
+            "maxContextWindow": 1048576,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "window-left-as-stated",
+      "source": "src/session-runtime/model-recency.test.mjs:24",
+      "input": [
+        [
+          "grok-oauth",
+          {
+            "contextWindow": 256000
+          }
+        ],
+        [
+          "openai-oauth",
+          {
+            "contextWindow": 272000,
+            "maxContextWindow": 872000
+          }
+        ],
+        [
+          "mixdog-local",
+          {
+            "contextWindow": 1000000
+          }
+        ],
+        [
+          "fixture",
+          {}
+        ]
+      ],
+      "result": [
+        {
+          "provider": "grok-oauth",
+          "row": {
+            "id": "m",
+            "provider": "grok-oauth",
+            "display": "m",
+            "created": null,
+            "releaseDate": null,
+            "contextWindow": 256000,
+            "maxContextWindow": null,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          }
+        },
+        {
+          "provider": "openai-oauth",
+          "row": {
+            "id": "m",
+            "provider": "openai-oauth",
+            "display": "m",
+            "created": null,
+            "releaseDate": null,
+            "contextWindow": 272000,
+            "maxContextWindow": 872000,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          }
+        },
+        {
+          "provider": "mixdog-local",
+          "row": {
+            "id": "m",
+            "provider": "mixdog-local",
+            "display": "m",
+            "created": null,
+            "releaseDate": null,
+            "contextWindow": 1000000,
+            "maxContextWindow": null,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          }
+        },
+        {
+          "provider": "fixture",
+          "row": {
+            "id": "m",
+            "provider": "fixture",
+            "display": "m",
+            "created": null,
+            "releaseDate": null,
+            "maxContextWindow": null,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "custom-row-effective-fields",
+      "source": "src/session-runtime/model-recency.test.mjs:46",
+      "input": {
+        "provider": "custom-1",
+        "row": {
+          "id": "m",
+          "name": "Model",
+          "hidden": false,
+          "manual": true,
+          "supportsReasoning": false,
+          "reasoningLevels": [],
+          "customReasoning": {
+            "wireFormat": "deepseek",
+            "wireValues": {
+              "high": "max"
+            },
+            "replay": true
+          },
+          "reasoningContentField": "reasoning_content"
+        }
+      },
+      "result": {
+        "row": {
+          "id": "m",
+          "provider": "custom-1",
+          "display": "Model",
+          "created": null,
+          "releaseDate": null,
+          "maxContextWindow": null,
+          "outputTokens": null,
+          "family": null,
+          "tier": null,
+          "latest": false,
+          "description": "",
+          "supportsVision": false,
+          "supportsFunctionCalling": false,
+          "supportsWebSearch": false,
+          "supportsPromptCaching": false,
+          "supportsReasoning": false,
+          "reasoningLevels": [],
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "serviceTiers": [],
+          "additionalSpeedTiers": [],
+          "defaultServiceTier": null,
+          "fastCapable": false,
+          "modelParameterOptions": [],
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "defaultEffort": null,
+          "defaultFast": false,
+          "supportsMaxMode": false,
+          "mode": null,
+          "name": "Model",
+          "hidden": false,
+          "manual": true,
+          "customReasoning": {
+            "wireFormat": "deepseek",
+            "wireValues": {
+              "high": "max"
+            },
+            "replay": true
+          }
+        },
+        "hiddenOnly": {
+          "id": "m",
+          "provider": "custom-1",
+          "display": "m",
+          "created": null,
+          "releaseDate": null,
+          "maxContextWindow": null,
+          "outputTokens": null,
+          "family": null,
+          "tier": null,
+          "latest": false,
+          "description": "",
+          "supportsVision": false,
+          "supportsFunctionCalling": false,
+          "supportsWebSearch": false,
+          "supportsPromptCaching": false,
+          "supportsReasoning": false,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "serviceTiers": [],
+          "additionalSpeedTiers": [],
+          "defaultServiceTier": null,
+          "hidden": true,
+          "fastCapable": false,
+          "modelParameterOptions": [],
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "defaultEffort": null,
+          "defaultFast": false,
+          "supportsMaxMode": false,
+          "mode": null
+        }
+      }
+    },
+    {
+      "id": "first-party-row-unchanged-by-custom-fields",
+      "source": "src/session-runtime/model-recency.test.mjs:69",
+      "input": {},
+      "result": {
+        "row": {
+          "id": "m",
+          "provider": "openai",
+          "display": "M",
+          "created": null,
+          "releaseDate": null,
+          "maxContextWindow": null,
+          "outputTokens": null,
+          "family": null,
+          "tier": null,
+          "latest": false,
+          "description": "",
+          "supportsVision": false,
+          "supportsFunctionCalling": false,
+          "supportsWebSearch": false,
+          "supportsPromptCaching": false,
+          "supportsReasoning": false,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "serviceTiers": [],
+          "additionalSpeedTiers": [],
+          "defaultServiceTier": null,
+          "hidden": true,
+          "fastCapable": false,
+          "modelParameterOptions": [],
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "defaultEffort": null,
+          "defaultFast": false,
+          "supportsMaxMode": false,
+          "mode": null
+        },
+        "bare": {
+          "id": "m",
+          "provider": "openai",
+          "display": "m",
+          "created": null,
+          "releaseDate": null,
+          "maxContextWindow": null,
+          "outputTokens": null,
+          "family": null,
+          "tier": null,
+          "latest": false,
+          "description": "",
+          "supportsVision": false,
+          "supportsFunctionCalling": false,
+          "supportsWebSearch": false,
+          "supportsPromptCaching": false,
+          "supportsReasoning": false,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "serviceTiers": [],
+          "additionalSpeedTiers": [],
+          "defaultServiceTier": null,
+          "fastCapable": false,
+          "modelParameterOptions": [],
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "defaultEffort": null,
+          "defaultFast": false,
+          "supportsMaxMode": false,
+          "mode": null
+        }
+      }
+    }
+  ]
+}
