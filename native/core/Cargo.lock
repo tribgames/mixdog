@@ -4894,6 +4894,7 @@ dependencies = [
  "mixdog-spawn",
  "mixdog-statefile",
  "mixdog-store",
+ "mixdog-testkit",
  "mixdog-tools",
  "mixdog-trace",
  "mixdog-workspace",
@@ -4993,7 +4994,9 @@ dependencies = [
 name = "mixdog-testkit"
 version = "1.4.5"
 dependencies = [
+ "base64 0.22.1",
  "mixdog-workspace-hack",
+ "serde_json",
 ]
 
 [[package]]

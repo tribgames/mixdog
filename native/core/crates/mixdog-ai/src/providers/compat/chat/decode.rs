@@ -184,6 +184,9 @@ pub struct ChatDecoder {
     listed_finish: bool,
     /// One dispatch per call across the recovered and the streamed path.
     dedupe: Dedupe,
+    /// The model the chunks name (`chunk-events.mjs:56`, the last non-empty one wins), which the turn reports as the one
+    /// that answered (Node's result `model: response.model || useModel`, openai-compat-chat-send.mjs:321).
+    served: String,
 }
 
 impl ChatDecoder {
@@ -213,6 +216,7 @@ impl ChatDecoder {
             normal_finish: false,
             listed_finish: false,
             dedupe: Dedupe::default(),
+            served: String::new(),
         }
     }
 
@@ -228,7 +232,7 @@ impl ChatDecoder {
         for recovered in calls {
             let call = leak::openai_call(recovered);
             self.leaked.push(call.clone());
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::Progress(ProgressKind::Tool));
             // Held until a normal finish confirms the turn ended (`drainLeakedCalls`).
             if self.normal_finish {
@@ -273,13 +277,22 @@ impl ChatDecoder {
         self.error(err)
     }
 
+    /// Visible output (`text`, `reasoning` or `tool`, `isVisibleStreamProgress`): the first starts the generation
+    /// (`reportProgress`, stream-state.mjs:72).
+    fn progress(&mut self, out: &mut Vec<StreamEvent>) {
+        if !self.progressed {
+            out.push(StreamEvent::OutputStarted);
+        }
+        self.progressed = true;
+    }
+
     fn emit_text(&mut self, text: &str, out: &mut Vec<StreamEvent>) {
         if text.is_empty() {
             return;
         }
         self.content.push_str(text);
         self.text_emitted = true;
-        self.progressed = true;
+        self.progress(out);
         out.push(StreamEvent::TextDelta(text.to_owned()));
     }
 
@@ -287,7 +300,7 @@ impl ChatDecoder {
         self.reasoning_source = Some(source);
         self.reasoning.push_str(text);
         if !text.is_empty() {
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::ReasoningDelta(text.to_owned()));
         }
     }
@@ -391,7 +404,7 @@ impl ChatDecoder {
             .filter(|d| !d.is_empty())
         {
             self.details.extend(details.iter().cloned());
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::Progress(ProgressKind::Reasoning));
         }
         // These provider fields are aliases, never independent segments.
@@ -407,7 +420,7 @@ impl ChatDecoder {
         }
         if let Some(calls) = delta.and_then(|d| d.get("tool_calls")).and_then(JsonValue::as_array) {
             if !calls.is_empty() {
-                self.progressed = true;
+                self.progress(out);
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
             self.merge_tool_calls(calls, out);
@@ -422,6 +435,9 @@ impl ChatDecoder {
         }
         if let Some(usage) = chunk.get("usage").filter(|u| u.is_object()) {
             self.usage = Some(usage.clone());
+        }
+        if let Some(model) = chunk.get("model").and_then(JsonValue::as_str).filter(|m| !m.is_empty()) {
+            model.clone_into(&mut self.served);
         }
     }
 
@@ -546,6 +562,9 @@ impl ChatDecoder {
                 details,
             )));
         }
+        if !self.served.is_empty() {
+            out.push(StreamEvent::ServedModel(self.served.clone()));
+        }
         out.push(StreamEvent::Completed {
             pricing_model: None,
             request_ms: None,
@@ -575,7 +594,9 @@ impl WireDecoder for ChatDecoder {
             };
             if let Err(err) = step {
                 self.failure = Some(err.clone());
-                return Err(err);
+                // The events decoded before the error in this unit reach the caller first (Node relays each chunk
+                // before it parses the next); the stored failure ends the stream on the next call.
+                return if out.is_empty() { Err(err) } else { Ok(out) };
             }
         }
         Ok(out)

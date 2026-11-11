@@ -1,0 +1,99 @@
+{
+  "provider": "antigravity-oauth",
+  "config": {},
+  "credential": {
+    "file": "antigravity-oauth.json",
+    "document": {
+      "access_token": "fixture-access-token",
+      "refresh_token": "fixture-refresh-token",
+      "expires_at": 4000000000000,
+      "account_id": "acct-fixture",
+      "email": "fixture@example.invalid",
+      "project_id": "fixture-project"
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "claude-sonnet-4-6",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "earlier"
+    },
+    {
+      "role": "assistant",
+      "content": "earlier answer",
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "thought": true,
+            "text": "old",
+            "thoughtSignature": "sig-old"
+          },
+          {
+            "text": "earlier answer"
+          }
+        ],
+        "requestContext": {
+          "model": "claude-opus-4-6-thinking"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "go"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "toolu_9",
+          "name": "glob",
+          "arguments": {
+            "pattern": "*"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "toolu_9",
+      "content": "ok"
+    }
+  ],
+  "tools": [
+    {
+      "name": "glob",
+      "description": "Find files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  ],
+  "opts": {
+    "effort": "high"
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}

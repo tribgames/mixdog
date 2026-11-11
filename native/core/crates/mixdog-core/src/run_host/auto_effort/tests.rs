@@ -13,7 +13,10 @@ use mixdog_core_config::config::ConfigLanes;
 type EnvCell = Arc<Mutex<HashMap<String, String>>>;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/desktop/settings/turn-auto-effort-twin.json")).unwrap()
+    // Read at run time: a 4 MB `include_str!` made every test build of the crate expand, codegen and link it.
+    #[allow(clippy::disallowed_methods)] // test fixture loading
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/settings/turn-auto-effort-twin.json")).unwrap();
+    serde_json::from_str(&text).unwrap()
 }
 
 /// A config over one file the test rewrites per case, and an environment it sets per case.
