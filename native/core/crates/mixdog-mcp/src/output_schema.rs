@@ -20,8 +20,12 @@ use serde_json::Value;
 
 use crate::rpc::RpcError;
 
-/// fancy-regex's bound on the backtracking steps of one match (its default, which jsonschema keeps).
-const BACKTRACK_LIMIT: usize = 1_000_000;
+/// The bound on the backtracking steps of one `pattern` match (fancy-regex's own default is 1,000,000). V8 has none: a
+/// repetition holding a lookaround on 24 characters that fail takes Node about a second, and each more character doubles
+/// it. This is far past what Node answers in minutes (about 32 such characters; some 2 minutes of the engine's steps in a
+/// release build), and a match that runs out of it has no verdict: the call fails as a validator that threw
+/// (`fixtures/mcp-output-schema/MANIFEST.json`).
+const BACKTRACK_LIMIT: usize = 10_000_000_000;
 
 /// The `$id` schemas registered so far, which a schema's references resolve against.
 struct Registered(Arc<HashMap<String, Value>>);
@@ -95,6 +99,7 @@ fn build(
 ) -> Result<jsonschema::Validator, ValidationError<'static>> {
     jsonschema::options()
         .with_draft(jsonschema::Draft::Draft7)
+        .with_pattern_options(jsonschema::PatternOptions::fancy_regex().backtrack_limit(BACKTRACK_LIMIT))
         .with_keyword("format", crate::ajv_formats::format_keyword)
         .with_keyword("uniqueItems", crate::ajv_formats::unique_items_keyword)
         .with_keyword("multipleOf", crate::ajv_formats::multiple_of_keyword)
