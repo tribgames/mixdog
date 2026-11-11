@@ -413,70 +413,53 @@ async fn a_queued_submission_keeps_its_id_across_a_restart() {
     assert_eq!(stop["result"]["restoreText"], text, "{stop}");
 }
 
-/// steering-recovery case 139: a stop sent while 64 reads of the same thread are in flight is answered at once, and every
-/// read is answered, as Node answered them. The core holds at most its in-flight limit of one connection's C1 calls and
-/// refuses the rest with `inflightLimit`; the shipped client (`packages/protocol-client/src/client.ts` `run` and
-/// `awaitRetryTrigger`, SPEC R7) never shows that refusal: it resends the call once a C1 answer has arrived since it was
-/// sent. The replay is that client: what its caller sees is every read answered.
+/// steering-recovery case 139: a stop sent while 64 reads of the same thread are in flight is answered, and every read is
+/// answered with no refusal, as Node admitted and answered all 64. The core runs 16 reads of one connection at a time; the
+/// rest wait their turn in arrival order (`Connection::admit_or_queue`, bound `READ_WAIT_BOUND` in server.rs), so the client
+/// sends each read once and never sees `inflightLimit`.
 #[tokio::test(start_paused = true)]
 async fn a_stop_is_answered_while_reads_are_in_flight() {
     let node = case("session-transport-steering-recovery", 139);
     let reads = node["result"]["startedBeforeAbort"].as_u64().unwrap() as i64;
-    assert_eq!(node["result"]["readOutcomes"].as_array().unwrap().iter().filter(|read| read.get("ok").is_some()).count() as i64, reads, "Node answered every read");
+    let outcomes = node["result"]["readOutcomes"].as_array().unwrap();
+    assert_eq!(outcomes.len() as i64, reads);
+    assert!(outcomes.iter().all(|read| read.get("ok").is_some()), "Node answered every read");
     let options = &node["result"]["abortOptions"][0];
     let world = World::idle(&[(options["submissionId"].as_str().unwrap(), "queued prompt")]).await;
     let client = world.client(1);
-    let read = |n: i64| client.client.request(n, "thread/read", json!({ "threadId": world.id }));
-    // Each read's request id and the C1 answers seen when it was (re)sent.
-    let mut pending: Vec<(i64, usize)> = (0..reads).map(|n| (100 + n, 0)).collect();
-    for (id, _) in &pending {
-        read(*id);
+    for n in 0..reads {
+        client.client.request(100 + n, "thread/read", json!({ "threadId": world.id }));
     }
     let mut stop = options.clone();
     stop["threadId"] = json!(world.id);
     client.client.request(1, "turn/interrupt", stop);
-    let mut next = 1000;
-    let mut answered_reads = Vec::new();
-    let mut refused = 0;
-    let mut seen = 0;
-    for _ in 0..5_000 {
-        let frames = client.sent();
-        for frame in &frames[seen..] {
-            let Some(id) = frame["id"].as_i64() else { continue };
-            if id == 1 || frame.get("method").is_some() {
-                continue;
-            }
-            let at = pending.iter().position(|(sent, _)| *sent == id).expect("an answer to a pending read");
-            if frame.get("error").is_some() {
-                assert_eq!(reason(frame), "inflightLimit", "{frame}");
-                refused += 1;
-                pending[at].0 = -1 - pending[at].0;
-            } else {
-                answered_reads.push(frame.clone());
-                pending.remove(at);
-            }
+    let frames = sent_until(&client, |frames| {
+        let answered = |id: i64| frames.iter().any(|frame| frame["id"] == id && frame.get("method").is_none());
+        answered(1) && (0..reads).all(|n| answered(100 + n))
+    })
+    .await;
+    let answers: Vec<&Value> = frames.iter().filter(|frame| frame.get("method").is_none() && frame["id"].as_i64().is_some_and(|id| id >= 100)).collect();
+    assert_eq!(answers.len() as i64, reads, "each read answered once: {answers:?}");
+    // The stop lands while reads are still waiting, as in Node: a read answered before it reads the queued prompt, one answered
+    // after it reads the queue emptied; in the order the client receives them, never the queue back once it was emptied.
+    let mut stopped = false;
+    for answer in &answers {
+        assert!(answer.get("error").is_none(), "no read is refused: {answer}");
+        let queued = answer["result"]["state"]["queued"].as_array().expect("the queue").len();
+        stopped |= queued == 0;
+        assert_eq!(queued, usize::from(!stopped), "{answer}");
+        let mut same = answer["result"].clone();
+        let mut first = answers[0]["result"].clone();
+        for read in [&mut same, &mut first] {
+            let state = read["state"].as_object_mut().unwrap();
+            state.remove("queued");
+            state.remove("promptRestore");
         }
-        seen = frames.len();
-        // The client's trigger: a C1 answer arrived since the refused call was sent.
-        let answers = answered_reads.len();
-        for entry in pending.iter_mut().filter(|(sent, _)| *sent < 0) {
-            if answers > entry.1 {
-                next += 1;
-                *entry = (next, answers);
-                read(next);
-            }
-        }
-        if pending.is_empty() && frames.iter().any(|frame| frame["id"] == 1) {
-            break;
-        }
-        tokio::task::yield_now().await;
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        assert_eq!(same, first, "every read reads the same idle thread but for the stop's queue");
     }
-    let frames = client.sent();
+    assert_eq!(answers[0]["result"]["thread"]["id"], json!(world.id));
     let stop = frames.iter().find(|frame| frame["id"] == 1).expect("the stop is answered");
     assert!(stop.get("error").is_none(), "{stop}");
-    assert_eq!(answered_reads.len() as i64, reads, "every read answered ({refused} refusals resent by the client)");
-    assert!(answered_reads.iter().all(|read| read["result"]["thread"]["id"] == json!(world.id)));
     assert_eq!(node["result"]["abortCalls"], 1);
 }
 
