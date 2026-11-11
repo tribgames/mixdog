@@ -702,6 +702,9 @@ const SCENARIOS = [
       // Unicode 15.1, two to bstr), and a last line without a terminator at 500 bytes.
       'clip2/bytes.ts': `hit ${'é'.repeat(247)}\nhit ${'é'.repeat(247)}x\nhit ${'é'.repeat(248)}\nhit ${'é'.repeat(247)}\r\nhit ${'é'.repeat(247)}x\r\n`,
       'clip2/marks.ts': `hit ${'e\u0301'.repeat(165)}x\nhit ${'a'.repeat(495)}e\u0301\u0302bc\nhit ${'a'.repeat(494)}\u0915\u094D\u0937zz\nhit ${'é'.repeat(248)}`,
+      // Carriage returns at short lines' ends: one before a CRLF (kept), a CRLF, and a last line without a terminator
+      // that ends in one (the printer adds a terminator, and `str::lines` drops the CR with it).
+      'clip2/cr.ts': 'hit one\r\r\nhit two\r\nhit three\r',
     };
     const mtimes = {};
     for (const d of ['f1', 'f2', 'f3', 'f4', 'f5']) {
@@ -767,7 +770,7 @@ const SCENARIOS = [
         ...both({ pattern: 'hit', context: 1 }, ['long', 'edge'], 'long'),
         ...both({ pattern: 'hit', context: 0 }, ['wide', 'edge'], 'wide'),
         ...both({ pattern: ['zed', 'www'], context: 0 }, ['wide', 'edge'], 'wide'),
-        ...['clip2/bytes.ts', 'clip2/marks.ts', 'clip2/bad.ts'].map((path) => ({ tool: 'grep', input: { pattern: 'hit', context: 0, path } })),
+        ...['clip2/bytes.ts', 'clip2/marks.ts', 'clip2/bad.ts', 'clip2/cr.ts'].map((path) => ({ tool: 'grep', input: { pattern: 'hit', context: 0, path } })),
         ...both({ pattern: ['hit', 'pad'] }),
         ...both({ pattern: ['hit', 'pad'], context: 0, limit: 5 }),
         ...both({ pattern: ['edge', 'middle'] }, ['edge', 'm'], 'edge'),
