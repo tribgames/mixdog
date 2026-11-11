@@ -851,3 +851,7 @@ fn iso(ms: f64) -> Option<String> {
         fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second, fields.millisecond
     ))
 }
+
+#[cfg(test)]
+#[path = "pool_list_usage_tests.rs"]
+mod usage_tests;

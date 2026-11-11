@@ -170,7 +170,7 @@ impl StatuslineWarmup {
         let this = self.clone();
         state.task = Some(mixdog_rt::spawn("statusline-usage-warmup", mixdog_rt::TaskClass::Work, async move {
             if !delay.is_zero() {
-                let sleep = tokio::time::sleep_until(deadline);
+                let sleep = mixdog_rt::time::sleep_until(deadline);
                 tokio::pin!(sleep);
                 #[cfg(test)]
                 {

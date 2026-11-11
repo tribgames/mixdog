@@ -30,6 +30,9 @@ export interface PhoneProtocolAdapter {
   readonly calls?: Readonly<Record<string, NodeCall>>;
   /** Calls the page does not wait for; a method only in `calls` is also accepted here. */
   readonly fires?: Readonly<Record<string, (params: unknown[], host: PhoneProtocolHost) => void | Promise<void>>>;
+  /** `invokeCapability` calls this group answers, keyed by the capability the request names (`params[0].capability`); a request
+   *  naming any other capability goes to the group whose `calls` hold `invokeCapability`. */
+  readonly capabilities?: Readonly<Record<string, NodeCall>>;
   /** Wires the group's pushed events into the context's listener sets (`ctx.fanOut(ctx.termListeners, ...)`); returns its teardown. */
   install?(host: PhoneProtocolHost): (() => void) | undefined;
 }
@@ -114,15 +117,31 @@ export function createProtocolRouter(
   const owners = new Map<string, string>();
   const calls = new Map<string, NodeCall>();
   const fires = new Map<string, (params: unknown[], host: PhoneProtocolHost) => void | Promise<void>>();
+  const capabilities = new Map<string, NodeCall>();
   for (const adapter of adapters) {
-    for (const name of new Set([...Object.keys(adapter.calls ?? {}), ...Object.keys(adapter.fires ?? {})])) {
+    const names = [
+      ...Object.keys(adapter.calls ?? {}),
+      ...Object.keys(adapter.fires ?? {}),
+      ...Object.keys(adapter.capabilities ?? {}).map((capability) => `invokeCapability:${capability}`),
+    ];
+    for (const name of new Set(names)) {
       const owner = owners.get(name);
       if (owner !== undefined) throw new Error(`phone: Node method '${name}' is claimed by both '${owner}' and '${adapter.group}'`);
       owners.set(name, adapter.group);
     }
     for (const [name, handler] of Object.entries(adapter.calls ?? {})) calls.set(name, handler);
     for (const [name, handler] of Object.entries(adapter.fires ?? {})) fires.set(name, handler);
+    for (const [name, handler] of Object.entries(adapter.capabilities ?? {})) capabilities.set(name, handler);
   }
+  /** The handler of a call: a capability call by the capability it names, when a group claims that capability. */
+  const handlerOf = (method: string, params: unknown[]): NodeCall | undefined => {
+    if (method === 'invokeCapability') {
+      const capability = (params[0] as { capability?: unknown } | null | undefined)?.capability;
+      const claimed = typeof capability === 'string' ? capabilities.get(capability) : undefined;
+      if (claimed) return claimed;
+    }
+    return calls.get(method);
+  };
   const waiting = new Map<number, true>();
   let nextId = 1;
   const bootReads = new Map<string, Promise<unknown>>();
@@ -136,7 +155,7 @@ export function createProtocolRouter(
   };
 
   const dispatch = <T>(method: string, params: unknown[], gated: boolean, onGate?: () => void): Promise<T> => {
-      const handler = calls.get(method);
+      const handler = handlerOf(method, params);
       if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
       return new Promise<T>((resolve, reject) => {
         // What the queue and the adapter read is what Node's PC read: the arguments after the relay's JSON (a failure rejects the call).
@@ -216,7 +235,7 @@ export function createProtocolRouter(
     fire(method: string, params: unknown[]): void {
       // A call the page does not wait for is still one call of the connection's queue, as in Node. Node's fire() waits for the connection,
       // not for the sync (remote-shim-calls.ts:354-359), and a failure is nobody's to hear.
-      const handler = fires.get(method) ?? calls.get(method);
+      const handler = fires.get(method) ?? handlerOf(method, params);
       if (!handler) throw new UnclaimedNodeMethodError(method);
       let args: unknown[];
       try {

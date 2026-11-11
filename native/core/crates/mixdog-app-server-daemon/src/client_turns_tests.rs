@@ -440,7 +440,7 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
                 sends += 1;
                 // The outcome is the resolution the actor produced for this request, as it published it; the end of the wait is the
                 // actor's own signal, and on the paused clock the deadline only fires if the actor never publishes it.
-                tokio::time::timeout(Duration::from_secs(1), published.resolved_arrived.acquire()).await.expect("the actor published the resolution").expect("the sink").forget();
+                mixdog_rt::time::timeout(Duration::from_secs(1), published.resolved_arrived.acquire()).await.expect("the actor published the resolution").expect("the sink").forget();
                 let resolution = published.resolved_frames.lock().unwrap().last().cloned().expect("a resolved frame")["params"]["resolution"].clone();
                 outcome = json!({
                     "approved": resolution["decision"]["approved"],

@@ -222,7 +222,7 @@ where
             }
             tokio::select! {
                 () = shutdown.cancelled() => return,
-                () = tokio::time::sleep(reconnect_delay(attempt, server_retry)) => {}
+                () = mixdog_rt::time::sleep(reconnect_delay(attempt, server_retry)) => {}
             }
         }
         match open(resume.clone()).await {

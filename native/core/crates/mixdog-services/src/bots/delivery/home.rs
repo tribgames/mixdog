@@ -159,6 +159,32 @@ pub struct AgentHomeDelivery {
     held_shown: Mutex<HashSet<String>>,
     /// Per thread, one posting turn at a time.
     posting: Mutex<HashMap<String, Arc<Semaphore>>>,
+    /// The process's sensitive values: a task's or routine run's reply leaves its session with them as the marker.
+    marks: std::sync::OnceLock<Arc<crate::memory::sensitive::SensitiveStore>>,
+    /// The calls of `drain` so far: a test waits for the one a settled wake's task makes.
+    #[cfg(test)]
+    drain_calls: watch::Sender<u64>,
+}
+
+#[cfg(test)]
+impl AgentHomeDelivery {
+    /// The calls of `drain`, from now on.
+    pub(super) fn drain_calls(&self) -> watch::Receiver<u64> {
+        self.drain_calls.subscribe()
+    }
+
+    /// Resolves once no pass runs in any home, the passes those passes started included.
+    pub(super) async fn idle(&self) {
+        loop {
+            let running: Vec<watch::Receiver<()>> = lock(&self.book).running.values().cloned().collect();
+            if running.is_empty() {
+                return;
+            }
+            for pass in running {
+                Drained(pass).wait().await;
+            }
+        }
+    }
 }
 
 impl AgentHomeDelivery {
@@ -188,7 +214,20 @@ impl AgentHomeDelivery {
             wait_logged: Mutex::default(),
             held_shown: Mutex::default(),
             posting: Mutex::default(),
+            marks: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            drain_calls: watch::channel(0).0,
         })
+    }
+
+    /// Binds the process's sensitive values the replies queued from now on are redacted with; `false` when bound.
+    pub fn redact_with(&self, marks: Arc<crate::memory::sensitive::SensitiveStore>) -> bool {
+        self.marks.set(marks).is_ok()
+    }
+
+    /// `redactSensitiveText(sessionId, text)`.
+    fn redacted(&self, session_id: &str, text: &str) -> String {
+        self.marks.get().map_or_else(|| text.to_owned(), |marks| marks.redact_text(session_id, text))
     }
 
     pub(super) fn now_ms(&self) -> i64 {
@@ -280,7 +319,8 @@ impl AgentHomeDelivery {
         row.insert("kind".into(), json!(if item.kind == RoutineKind::Webhook { "webhook" } else { "schedule" }));
         row.insert("name".into(), json!(name));
         row.insert("ok".into(), json!(item.ok));
-        row.insert("text".into(), json!(routine_summary(&item.text)));
+        let run_session = item.run_session_id.as_deref().unwrap_or_default();
+        row.insert("text".into(), json!(routine_summary(&self.redacted(run_session, &item.text))));
         row.insert("runSessionId".into(), item.run_session_id.as_ref().filter(|s| !s.is_empty()).map_or(Value::Null, |s| json!(s)));
         if let Some(reason) = item.reason.as_ref().filter(|r| !r.is_empty()) {
             row.insert("reason".into(), json!(reason));
@@ -319,6 +359,7 @@ impl AgentHomeDelivery {
         if report.run_id.is_empty() || report.task_session_id.is_empty() {
             return Err("task report: runId and taskSessionId required".into());
         }
+        let report = &TaskReport { text: self.redacted(&report.task_session_id, &report.text), ..report.clone() };
         let item = task_report_item(report, self.now_ms());
         let mut unwatch: Vec<String> = Vec::new();
         for id in std::iter::once(&report.watch_id).chain(report.watch_ids.iter()) {
@@ -587,6 +628,8 @@ impl AgentHomeDelivery {
 
     /// The single drainer of `home`; a call during a pass runs one more pass.
     pub fn drain(self: &Arc<Self>, home: &str) -> Drained {
+        #[cfg(test)]
+        self.drain_calls.send_modify(|calls| *calls += 1);
         let (signal, done) = {
             let mut book = lock(&self.book);
             if let Some(running) = book.running.get(home) {

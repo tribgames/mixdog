@@ -125,7 +125,7 @@ impl SetupWarmup {
         let deadline = tokio::time::Instant::now() + delay;
         let this = self.clone();
         mixdog_rt::spawn("provider-setup-warmup", TaskClass::Work, async move {
-            tokio::time::sleep_until(deadline).await;
+            mixdog_rt::time::sleep_until(deadline).await;
             this.marks.running(SLOT, true);
             this.pending.store(false, Ordering::SeqCst);
             if !this.closing()

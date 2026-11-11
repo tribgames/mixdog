@@ -88,7 +88,7 @@ impl UserActivity {
             let this = Arc::clone(self);
             let wait = APP_INPUT_WRITE_MS.min(APP_INPUT_WRITE_MS - waited) as u64;
             mixdog_rt::spawn("services.heartbeat.app-input", TaskClass::Work, async move {
-                tokio::time::sleep(Duration::from_millis(wait)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(wait)).await;
                 let mut writes = this.writes.lock().unwrap_or_else(PoisonError::into_inner);
                 writes.timer = false;
                 if this.app_input_at() > writes.at {

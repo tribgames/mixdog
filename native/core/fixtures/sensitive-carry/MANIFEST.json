@@ -1,0 +1,123 @@
+{
+  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-sensitive-carry.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the patches applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-side-writes.patch,benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-header-summary.patch,benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-memory-scrub.patch,benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-carry.patch",
+  "compared": "per provider call (ordered by conversation and place, the conversations run at once): the plain presence of each code and the number of markers; the scan of the profile for every spelling of the codes (lib/sensitive-writes-files.mjs scanSecrets)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 5514,
+      "path": "golden.json",
+      "sha256": "8a22578c3caa2eff477bd7592f239abbc8d0d30a404804a23c6f754185e360ad"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
+      "sha256": "aa280d5707f3dc1f0bd8b3cc43539262194a917c861e7070cf7b647f2aaccbf4"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/sensitive-carry-scenario.mjs",
+      "sha256": "7ecf6dbf88c4af9ed15f2bd9bcc8a6ed71e8ebec7b9553a8682600bc1a966acf"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/sensitive-writes-files.mjs",
+      "sha256": "f6de77b13f44f8a564d900bfe8802547f00e43c997f433bf3c1702560dd84047"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-carry.patch",
+      "sha256": "438d856f31cbef218b0790d3809658c59969720706e5b4ef5e79ef8695d1f205"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-header-summary.patch",
+      "sha256": "0d2e3a136463b48f0e83c9bdf79f11770039e4efd78605c303b085608517acd6"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-memory-scrub.patch",
+      "sha256": "f25c1bcf15e3519f36584cf07ad7f7c89703444c4d0cb3884460d721fff39b5d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/node-patches/node-fix-sensitive-side-writes.patch",
+      "sha256": "b99ef291a1e9cfb82859d66b1105a5851087fa18894136e7f21be9cb40f35577"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9143,
+    "patches": [
+      {
+        "file": "node-fix-sensitive-side-writes.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/agent-trace-format.mjs",
+          "src/runtime/agent/orchestrator/session/compact/execution-tail.mjs",
+          "src/runtime/agent/orchestrator/session/sensitive-side-writes.test.mjs",
+          "src/session-runtime/lifecycle/memory-ingest.mjs",
+          "src/session-runtime/resource-recall-api.mjs"
+        ],
+        "sha256": "b99ef291a1e9cfb82859d66b1105a5851087fa18894136e7f21be9cb40f35577"
+      },
+      {
+        "file": "node-fix-sensitive-header-summary.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/sensitive-header-summary.test.mjs",
+          "src/runtime/agent/orchestrator/session/store/serialize.mjs",
+          "src/runtime/agent/orchestrator/session/store-summary-index.mjs",
+          "src/runtime/agent/orchestrator/session/store.mjs"
+        ],
+        "sha256": "0d2e3a136463b48f0e83c9bdf79f11770039e4efd78605c303b085608517acd6"
+      },
+      {
+        "file": "node-fix-sensitive-memory-scrub.patch",
+        "paths": [
+          "src/runtime/memory/lib/pg/process.mjs",
+          "src/runtime/session-search/session-search-db.mjs",
+          "src/runtime/session-search/session-search-scrub.test.mjs",
+          "src/runtime/shared/pg-schema-db.mjs"
+        ],
+        "sha256": "f25c1bcf15e3519f36584cf07ad7f7c89703444c4d0cb3884460d721fff39b5d"
+      },
+      {
+        "file": "node-fix-sensitive-carry.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/manager/ask-turn-state.mjs",
+          "src/runtime/agent/orchestrator/session/sensitive-carry.test.mjs",
+          "src/runtime/agent/orchestrator/session/sensitive-values.mjs",
+          "src/session-runtime/lifecycle/inheritance.mjs",
+          "src/session-runtime/lifecycle/inheritance.test.mjs",
+          "src/session-runtime/services/agent-tool/send-flow.mjs",
+          "src/session-runtime/services/agent-tool/spawn-flow/spawn-run.mjs"
+        ],
+        "sha256": "438d856f31cbef218b0790d3809658c59969720706e5b4ef5e79ef8695d1f205"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 20
+    },
+    "srcSha256": "49028ece672db170f4e8af8d092314256e4bb1fd72016fed341c943de5214d12",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorded": {
+    "scenario": "lib/sensitive-carry-scenario.mjs",
+    "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-sensitive-side-writes.patch (sha256 b99ef291a1e9cfb82859d66b1105a5851087fa18894136e7f21be9cb40f35577), then node-fix-sensitive-header-summary.patch (sha256 0d2e3a136463b48f0e83c9bdf79f11770039e4efd78605c303b085608517acd6), then node-fix-sensitive-memory-scrub.patch (sha256 f25c1bcf15e3519f36584cf07ad7f7c89703444c4d0cb3884460d721fff39b5d), then node-fix-sensitive-carry.patch (sha256 438d856f31cbef218b0790d3809658c59969720706e5b4ef5e79ef8695d1f205) applied"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-sensitive-carry.mjs",
+  "recorderSha256": "c711669fcad84cde2e6940ff24f8122012cc305d71337202794b212ed71ce6bf",
+  "set": "sensitive-carry",
+  "totalBytes": 5514
+}

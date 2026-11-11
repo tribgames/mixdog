@@ -22,9 +22,9 @@
       "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
     },
     {
-      "bytes": 1885000,
+      "bytes": 1885004,
       "path": "golden.json",
-      "sha256": "aa13df3bfaf5b67944697db75d10f6e8ee639c7e4cca68ef54de7e5e1746521b"
+      "sha256": "4a8be0ef640c80a4e2565df823d18495fdaba309a506a2dc1476ed9d935b98b9"
     }
   ],
   "groups": {
@@ -49,7 +49,7 @@
   "notes": {
     "githubStatusRefresh": "githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop's own calls.",
     "loginOptions": "githubCliLoginOpenBrowser's second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.",
-    "loneSurrogate": "An open difference, not parity. A JSON string holding an escaped lone surrogate (\"\\ud800\") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node's spawn writes it on git's command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.",
+    "loneSurrogate": "A JSON string holding an escaped lone surrogate (\"\\ud800\") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node's spawn writes it on git's command line as U+FFFD, bytes EF BF BD). The core's frame decoder (mixdog-app-protocol rpc.rs decode_inbound_text) reads the escape as U+FFFD and reports where it replaced one, so the call acts on what git got from Node (decisions.md \"frame-lone-surrogate\"); no connection is closed. The case is not replayed over the relay: mixdog-scm input_tests.rs a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it decodes its recorded paramsText with the core's decoder and compares.",
     "posixCwd": "The directory rule is the platform's path.isAbsolute (git-contract.mjs:3), and so is the core's (mixdog-scm input.rs is_absolute): on POSIX only a leading \"/\" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript's on both platforms.",
     "repository": "Each case records the state of the repository its request names (`repository`: the first argument of a call that takes a directory, JavaScript-trimmed and without a verbatim `\\\\?\\` prefix, when it is a folder of the world: a repository is read with git, refs by commit tree, message and history length, and its local origin's refs; another folder is its files by content hash; a call that names none has `null`) and the global git config file (`globalConfig`). A case Node refused before any program ran (the frame is a refusal and the case has no `processes`) cannot have changed either: its state is read once after the run of such cases, before anything else touches the world, and the replay does the same for the core (only when the core also started no program).",
     "requestText": "A case with `paramsText` was given to Node as those bytes (`{\"id\":1,\"method\":<call>,\"params\":<paramsText>}`). Its `request` is the core request the phone's route (shared/scm-operation-route.ts) makes of the same argument texts, each argument kept as spelled (`text`), with the op id the replay gives it; the replay sends those bytes and compares, byte for byte, the params of the frame its socket writer was given.",
@@ -86,11 +86,11 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
-      "sha256": "1bb41466efe27b53b33cf9ddcfb0976371bc5d9d883c9bba37534329a776a24d"
+      "sha256": "e531f2998846b2722f622dcba64f82576450facea00204bfc1eab02fff8bcf99"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "1effe442db273be9927f41e9dcba0e2ceb356dc84d14a57c27aeee4a0bc3aeaa"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-scm-world.mjs",
@@ -785,5 +785,5 @@
       }
     ]
   },
-  "totalBytes": 1910481
+  "totalBytes": 1910485
 }

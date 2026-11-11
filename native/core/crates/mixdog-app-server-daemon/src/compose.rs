@@ -13,6 +13,7 @@ use std::sync::Arc;
 use mixdog_core_base::feed::CoreScopedFeeds;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
+use mixdog_services::effort_judge::JudgeTiming;
 use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
 use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
 use mixdog_services::memory::embed::engine::EmbedConfig;
@@ -196,6 +197,9 @@ pub struct ComposedCore {
     stop: tokio_util::sync::CancellationToken,
     /// Node's text of why the core is stopping (`daemon.mjs:272` `shutdown(reason)`), set once by the release before its first step; the stop steps read it.
     stop_reason: Arc<StopReasonCell>,
+    /// Replay-only: the service of `replay/storesSettled`.
+    #[cfg(feature = "replay-controls")]
+    stores_settled: crate::replay_stores_settled::StoresSettled,
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -251,8 +255,9 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
     };
     let effort_judge = EffortJudgeModel::with_options(
         ModelConfig::in_data_dir(data_dir, ort_library),
-        tokens.cpu_bulk,
-        JudgeOptions { tick: tick.clone(), manifest: None, progress: None },
+        mixdog_services::effort_judge::JudgeLanes::of(tokens),
+        // A step's judgment waits as a turn's: Node's step path calls `judgeTurn` too.
+        JudgeOptions { tick: tick.clone(), manifest: None, progress: None, timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()) },
     )
     .map_err(ComposeError::EffortJudge)?;
     Ok(Models { tick, embeddings, effort_judge })
@@ -500,6 +505,10 @@ impl CoreHandle for ComposedCore {
     }
 
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        #[cfg(feature = "replay-controls")]
+        if method == mixdog_app_server::REPLAY_STORES_SETTLED {
+            return Some(&self.stores_settled);
+        }
         self.real.domains.get(method)
     }
 
@@ -753,7 +762,6 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         stop.clone(),
     );
     let core = ComposedCore {
-        real,
         state: watch::Sender::new(LifecycleState::Serving),
         host_media,
         sections,
@@ -769,6 +777,9 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),
+        #[cfg(feature = "replay-controls")]
+        stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone(), real.replay_writers.clone(), real.gateway_usage.clone(), real.ledgers.clone()),
+        real,
         log,
         stop,
         stop_reason,
@@ -968,6 +979,32 @@ mod tests {
             assert!(stop.is_cancelled());
             let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap();
             assert!(text.contains("[daemon] closing"), "{text}");
+        });
+    }
+
+    /// Case 9 of Node's K1 recording `fixtures/github-cases`: `isBuiltinTool('github')`, read from the recording. The `github` tool a session
+    /// gets from the composed registry (the core's pool, resolved for a session of the default tool spec as `session_tools::resolve` resolves
+    /// it, held as `session_doc` holds it) is a built-in exactly when it is held as Node's built-in definition whole: an internal tool would be
+    /// held projected, without its title. The rest of the case is replayed in mixdog-tools (`github::k1_replay`).
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "reads the recorded fixture")]
+    fn the_github_tool_a_session_gets_is_nodes_builtin_one() {
+        crate::compose_test_support::in_child(module_path!(), "the_github_tool_a_session_gets_is_nodes_builtin_one", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            use mixdog_core::run_host::session_tools;
+            let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/github-cases/golden.json")).unwrap()).unwrap();
+            let case = &golden["cases"][9];
+            assert_eq!(case["case"], "the agent tool is registered and returns the ordinary builtin text/error contract");
+            let recorded = case["observed"]["isBuiltinTool"].as_bool().expect("isBuiltinTool is recorded as a boolean");
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap();
+            let pool = core.real.tool_pool.clone();
+            let request = session_tools::Resolve { tool_spec: None, model: "", skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] };
+            let held = session_tools::resolve(&pool, Vec::new(), &request).iter().find(|tool| tool.spec().name == "github").map(|tool| session_tools::session_doc(&pool, tool));
+            let node = mixdog_js::fixture_tools::definition("github").expect("Node's built-in github definition");
+            assert_eq!(held.as_ref() == Some(&node), recorded, "isBuiltinTool('github'): the session holds {held:#?}");
+            core.set_stop_reason("test");
+            core.run_stop_steps().await;
         });
     }
 }

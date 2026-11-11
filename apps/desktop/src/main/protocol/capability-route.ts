@@ -19,6 +19,7 @@ import type {
   DesktopCapabilityResult,
   SessionSnapshot,
 } from '../../shared/contract';
+import { remoteSessionIdOf, withRemoteSession } from '../../shared/blank-snapshot';
 import { normalizeSessionTitle } from '../../shared/session-title.mjs';
 import { isSessionId } from '../desktop-state';
 import type { ProtocolConnection } from './connection';
@@ -302,17 +303,29 @@ export function createCapabilityLane({
   };
   const stateOf = async (threadId: string): Promise<SessionSnapshot> => {
     const read = await request('thread/read', { threadId, window: { none: true } });
-    const hostShellJobs = protocol.snapshot().entries.find((entry) => entry.section === 'hostShellJobs')?.value;
-    return desktopSessionState(
-      sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
-      pendingApprovals() as Parameters<typeof desktopSessionState>[1],
-      hostShellJobs as Parameters<typeof desktopSessionState>[2]
+    const { entries } = protocol.snapshot();
+    const hostShellJobs = entries.find((entry) => entry.section === 'hostShellJobs')?.value;
+    const remoteSession = entries.find((entry) => entry.section === 'hostState' && entry.key === 'remoteSession')?.value;
+    // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
+    return withRemoteSession(
+      desktopSessionState(
+        sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
+        pendingApprovals() as Parameters<typeof desktopSessionState>[1],
+        hostShellJobs as Parameters<typeof desktopSessionState>[2]
+      ),
+      remoteSessionIdOf(remoteSession)
     ) as unknown as SessionSnapshot;
   };
   return {
     async invoke<T>(capability: DesktopCapability, args: unknown[] = [], sessionId?: string) {
-      const value = (await send(capability, args, sessionId)) as T;
-      return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
+      try {
+        const value = (await send(capability, args, sessionId)) as T;
+        return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
+      } catch (error) {
+        // Node sent a call naming its session to that session (`session-host-lifecycle.ts` `invokeCapability` -> the daemon's
+        // `session-action.mjs`), which answers a session it does not have with its own text; the core answers `threadNotFound`.
+        throw sessionId && isThreadNotFound(error) ? new Error(`session ${sessionId} is not available`) : error;
+      }
     },
     async setSessionFavorite(sessionId, favorite) {
       await request('thread/metadata/update', { threadId: sessionIdOf(sessionId), favorite });

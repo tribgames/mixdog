@@ -397,7 +397,7 @@ mod tests {
             if s["status"] != "running" {
                 return s;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
     }
 

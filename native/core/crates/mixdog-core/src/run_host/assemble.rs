@@ -331,11 +331,17 @@ impl HostRunParts {
         let seams = &s.seams;
         let (thread, header) = (source.thread, source.header);
         let provider_id = text(header, "provider");
-        let provider = s
-            .registry
-            .get(provider_id)
-            .await
-            .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
+        // Node readies the route's provider when a stored session is resumed (`resume.mjs:108` `refreshRouteEffort` ->
+        // `route-resolution.mjs:38` `ensureProvidersReady(ensureProviderEnabled(config, provider))`); a thread opened
+        // after a restart has had no such step here, so the first request readies it the same way.
+        let provider = match s.registry.get(provider_id).await {
+            Some(provider) => Some(provider),
+            None => match seams.hop_host(thread, header) {
+                Some(host) => host.provider(provider_id).await.map_err(refuse)?,
+                None => None,
+            },
+        }
+        .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
         let SessionTools { tools, builtins, agent } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
         let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);

@@ -19,6 +19,8 @@ use std::sync::OnceLock;
 
 #[cfg(all(test, windows))]
 mod tests;
+#[cfg(all(test, windows))]
+mod k1_replay;
 
 /// The wrapper's compile-time MSYSTEM, lower-cased, names its binary directory.
 const MSYSTEM_DIRECTORIES: [&str; 3] = ["mingw64", "clangarm64", "mingw32"];
@@ -115,8 +117,20 @@ fn read_msys_config(root: &Path) -> Vec<String> {
         .collect()
 }
 
-/// `resolveGitLaunch({ platform: 'win32', pathValue })`.
-pub fn resolve_layout(path_value: &str) -> Option<Layout> {
+/// `process.platform` of this build: the platform the product resolves its own git for.
+pub const BUILD_PLATFORM: &str = if cfg!(windows) {
+    "win32"
+} else if cfg!(target_os = "macos") {
+    "darwin"
+} else {
+    "linux"
+};
+
+/// `resolveGitLaunch({ platform, pathValue })`: only Windows has a launcher to bypass.
+pub fn resolve_layout(platform: &str, path_value: &str) -> Option<Layout> {
+    if platform != "win32" {
+        return None;
+    }
     let found = launcher_on_path(path_value)?;
     let launcher = PathBuf::from(native_realpath(&found)?);
     if !launcher.file_name()?.eq_ignore_ascii_case("git.exe") {
@@ -250,11 +264,8 @@ fn resolved() -> &'static Mutex<HashMap<String, Option<Layout>>> {
 }
 
 fn layout_for(path_value: &str) -> Option<Layout> {
-    if !cfg!(windows) {
-        return None;
-    }
     let mut cache = resolved().lock().unwrap_or_else(|e| e.into_inner());
-    cache.entry(path_value.to_owned()).or_insert_with(|| resolve_layout(path_value)).clone()
+    cache.entry(path_value.to_owned()).or_insert_with(|| resolve_layout(BUILD_PLATFORM, path_value)).clone()
 }
 
 /// The environment of this process.

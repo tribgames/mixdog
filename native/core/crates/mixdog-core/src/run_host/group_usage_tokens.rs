@@ -104,7 +104,8 @@ impl GroupUsageTokens {
 
     /// Resolves once no background read is running (every read asked for so far has finished and
     /// woken the pool if its tokens differed).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     async fn idle(&self) {
         loop {
             let notified = self.idle.notified();

@@ -326,7 +326,7 @@ impl ComputerSessionPool {
             }
             entries.iter().filter(|(_, entry)| entry.process.is_bound()).map(|(id, _)| id.clone()).collect()
         };
-        let outcomes = futures::future::join_all(bound.iter().map(|id| async move { tokio::time::timeout(SHUTDOWN_RELEASE, self.release(id)).await.unwrap_or(false) })).await;
+        let outcomes = futures::future::join_all(bound.iter().map(|id| async move { mixdog_rt::time::timeout(SHUTDOWN_RELEASE, self.release(id)).await.unwrap_or(false) })).await;
         outcomes.into_iter().filter(|released| *released).count()
     }
 
@@ -373,7 +373,7 @@ pub struct ReapingShells {
     shells: Arc<dyn OwnedShells>,
     computer: Arc<ComputerSessionPool>,
     /// The releases still running, for the tests to await.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     releases: Mutex<Vec<tokio::task::JoinHandle<bool>>>,
 }
 
@@ -382,13 +382,14 @@ impl ReapingShells {
         Self {
             shells,
             computer,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             releases: Mutex::default(),
         }
     }
 
     /// Returns once every release started so far has ended.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     async fn released(&self) {
         let tasks = std::mem::take(&mut *self.releases.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
@@ -402,7 +403,7 @@ impl OwnedShells for ReapingShells {
         self.shells.cancel_owned(owner);
         let (computer, session) = (self.computer.clone(), owner.as_str().to_owned());
         let _release = tokio::spawn(async move { computer.release(&session).await });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.releases.lock().unwrap_or_else(PoisonError::into_inner).push(_release);
     }
 }
@@ -416,7 +417,7 @@ pub struct SettlingSnapshots {
     snapshots: Arc<dyn TurnSnapshots>,
     computer: Arc<ComputerSessionPool>,
     /// The settlements still running, for the tests to await.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     settlements: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
@@ -425,13 +426,14 @@ impl SettlingSnapshots {
         Self {
             snapshots,
             computer,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             settlements: Mutex::default(),
         }
     }
 
     /// Returns once every settlement started so far has ended.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     async fn settled(&self) {
         let tasks = std::mem::take(&mut *self.settlements.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
@@ -447,7 +449,7 @@ impl TurnSnapshots for SettlingSnapshots {
             computer.end_execution(&session).await;
             computer.defer_release(&session);
         });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.settlements.lock().unwrap_or_else(PoisonError::into_inner).push(_settlement);
         self.snapshots.turn_settled(thread);
     }

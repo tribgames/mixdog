@@ -1,0 +1,30 @@
+# The core's build of `native/mixdog-patch`'s library, inside the workspace root so its package id (and every crate's
+# above it) does not contain the checkout's path; see crates/mixdog-spawn/Cargo.toml. Node's own build of the package is
+# unchanged. [package], [lib] name, [features] and the dependencies must stay those of `native/mixdog-patch/Cargo.toml`
+# (mixdog-testkit `tests/native_mirrors.rs`). No build script: the original's only work is the version resource of its
+# executable, behind the `resource` feature the core turns off.
+[package]
+name = "mixdog-patch"
+version = "0.7.34"
+edition = "2021"
+publish = false
+build = false
+
+[lib]
+name = "mixdog_patch_engine"
+path = "../../../mixdog-patch/src/lib.rs"
+# Its tests run in Node's build of the package.
+test = false
+doctest = false
+
+[features]
+default = ["resource"]
+resource = []
+
+[dependencies]
+memchr = "2"
+sha2 = "0.10"
+unicode-normalization = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_UI_Shell"] }
