@@ -9,7 +9,8 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-mixdog-local-wire',
   entry: 'mixdog-local-wire.mjs toLocalProviderMessages(history); mixdog-local.mjs MixdogLocalProvider({}, { ensureServer }).send(messages, "test-local", tools, { signal, onToolCall }) where ensureServer returns { baseURL: http://127.0.0.1:8080/v1, apiKey: "test-key" } (the OpenAI SDK sends real HTTP to the scripted endpoint, which answers 400 if a system message is not first). Not run: a real llama server.',
-  replay: 'mixdog-ai providers::local (local/mod.rs:109-132) and mixdog-services local_provider provider.rs:231-233: compare the merged messages, the two requests (body incl. the single merged system message and tool_call_id), the results, the dispatched calls and the signal states; a pre-cancelled send never calls ensureServer.',
+  compare: 'mixdog-ai providers::local (local/mod.rs:109-132) and mixdog-services local_provider provider.rs:231-233: compare the merged messages, the two requests (body incl. the single merged system message and tool_call_id), the results, the dispatched calls and the signal states; a pre-cancelled send never calls ensureServer.',
+  replay: "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
 });
 const { MixdogLocalProvider } = await rec.P('agent/orchestrator/providers/mixdog-local.mjs');
 const { toLocalProviderMessages } = await rec.P('agent/orchestrator/providers/mixdog-local-wire.mjs');
