@@ -102,7 +102,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "te
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-app-protocol = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
