@@ -724,21 +724,10 @@ impl FileService for LocalFileService {
     /// [`Streamed`]).
     fn walk(&self, _lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
         let root = request.root.as_path();
-        let mut builder = WalkBuilder::new(root);
-        builder.hidden(!request.include_hidden).sort_by_file_path(|a, b| a.cmp(b));
-        if !request.recursive {
-            builder.max_depth(Some(1));
-        }
-        match overrides_for(root, Vec::new()) {
-            Ok(overrides) => builder.overrides(overrides),
-            Err(error) => return failed(invalid_pattern(&error, root)),
+        let walking = match walking(&request, Box::new(tree::RealDirs::new(root))) {
+            Ok(walking) => Box::new(walking),
+            Err(error) => return failed(error),
         };
-        ignore_rules(&mut builder, request.respect_ignore);
-        let prune: Vec<PathBuf> = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
-        if !prune.is_empty() {
-            builder.filter_entry(move |entry| !prune.iter().any(|p| entry.path() == p));
-        }
-        let walking = Box::new(Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs });
         #[cfg(feature = "replay-controls")]
         let full = request.server.is_some() && deadline_script::queue_full(root);
         #[cfg(not(feature = "replay-controls"))]
@@ -751,31 +740,55 @@ impl FileService for LocalFileService {
     /// The search runs on its own thread, at most [`QUEUE`] matches and [`QUEUE_BYTES`] ahead of the consumer (see
     /// [`Streamed`]).
     fn search_text(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-        let root = request.root.as_path();
-        // ripgrep's rule: later globs win, so the excludes follow the includes.
-        let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
-        let overrides = match overrides_for(root, globs) {
-            Ok(overrides) => overrides,
-            Err(error) => return failed(invalid_pattern(&error, root)),
+        let walked = match text_listing(&request, Box::new(tree::RealDirs::new(request.root.as_path()))) {
+            Ok(walked) => walked,
+            Err(error) => return failed(error),
         };
-        let mut builder = WalkBuilder::new(root);
-        // Siblings in name order, depth first: the walk yields the files in `PathBuf` order, the order Node's server
-        // answers in, so each is searched as the walk reaches it.
-        builder.hidden(!request.include_hidden).overrides(overrides).sort_by_file_path(|a, b| a.cmp(b));
-        ignore_rules(&mut builder, request.respect_ignore);
-        let walk_root = root.to_path_buf();
-        let place = Place::default();
-        let walked = place.clone();
-        let listing: Listing = Box::new(builder.build().map(move |item| match item {
-            Ok(entry) => {
-                let kind = entry.file_type();
-                *locked(&walked) = Some((entry.path().to_path_buf(), kind.is_some_and(|t| t.is_dir())));
-                Ok(kind.is_some_and(|t| t.is_file()).then(|| entry.into_path()))
-            }
-            Err(error) => Err(walk_error(&error, &walk_root)),
-        }));
-        search_with(&PRODUCERS, &request, listing, Box::new(open_to_search), place)
+        search_with(&PRODUCERS, &request, walked, Box::new(open_to_search))
     }
+}
+
+/// A walk request's walk, its entries listed through `dirs` ([`tree`]).
+fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, FsError> {
+    let root = request.root.as_path();
+    let mut builder = WalkBuilder::new(root);
+    builder.overrides(overrides_for(root, Vec::new()).map_err(|error| invalid_pattern(&error, root))?);
+    ignore_rules(&mut builder, request.respect_ignore);
+    let prune = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
+    let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, prune);
+    let max_depth = (!request.recursive).then_some(1);
+    let walk = tree::Tree::new(root, rules.clone(), max_depth, dirs);
+    Ok(Walking { walk, rules, root: root.to_path_buf(), include_dirs: request.include_dirs })
+}
+
+/// A text search's walk, its entries listed through `dirs` ([`tree`]): siblings in name order, depth first, so the
+/// files come in `PathBuf` order, the order Node's server answers in, each searched as the walk reaches it.
+fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walked, FsError> {
+    let root = request.root.as_path();
+    // ripgrep's rule: later globs win, so the excludes follow the includes.
+    let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
+    let mut builder = WalkBuilder::new(root);
+    builder.overrides(overrides_for(root, globs).map_err(|error| invalid_pattern(&error, root))?);
+    ignore_rules(&mut builder, request.respect_ignore);
+    let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, Vec::new());
+    let walk_root = root.to_path_buf();
+    let place = Place::default();
+    let at = place.clone();
+    let listing: Listing = Box::new(tree::Tree::new(root, rules.clone(), None, dirs).map(move |item| match item {
+        Ok(entry) => {
+            *locked(&at) = Some((entry.path.clone(), entry.kind == EntryKind::Dir));
+            Ok((entry.kind == EntryKind::File).then_some(entry.path))
+        }
+        Err(error) => Err(io_error(&error, &walk_root)),
+    }));
+    Ok(Walked { listing, place, rules: Some(rules) })
+}
+
+/// A text search's walk ([`text_listing`]), where it is ([`Place`]) and its exclusion rules ([`Volumes`]).
+struct Walked {
+    listing: Listing,
+    place: Place,
+    rules: Option<tree::SharedRules>,
 }
 
 /// A file opened for its search, as the search server opens it (`File::open`, serve_search/matching.rs:228). On Unix a
@@ -973,16 +986,15 @@ fn search_over(
     listing: Listing,
     open: Opener,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-    search_with(producers, request, listing, open, Place::default())
+    search_with(producers, request, Walked { listing, place: Place::default(), rules: None }, open)
 }
 
-/// [`search_over`], the walk's place kept in `place` ([`Volumes`]).
+/// [`search_over`] of a walk that keeps where it is and its rules ([`Walked`], [`Volumes`]).
 fn search_with(
     producers: &Arc<Producers>,
     request: &SearchRequest,
-    listing: Listing,
+    Walked { listing, place, rules }: Walked,
     open: Opener,
-    place: Place,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
     // A pattern that does not parse is reported with the parser's own text, as Node shows it.
@@ -1013,6 +1025,7 @@ fn search_with(
         first_per_file: request.first_per_file,
         scope: request.root.as_path().to_path_buf(),
         place,
+        rules,
         #[cfg(feature = "count-jobs")]
         root: request.root.as_path().to_path_buf(),
         #[cfg(feature = "count-jobs")]
@@ -1066,13 +1079,6 @@ fn invalid_pattern(error: &ignore::Error, root: &Path) -> FsError {
 fn ignore_rules(builder: &mut WalkBuilder, respect_ignore: bool) {
     if !respect_ignore {
         builder.ignore(false).git_ignore(false).git_global(false).git_exclude(false);
-    }
-}
-
-fn walk_error(error: &ignore::Error, root: &Path) -> FsError {
-    match error.io_error() {
-        Some(io) => io_error(io, root),
-        None => plain(FsErrorKind::Io { os_code: None }, root),
     }
 }
 
@@ -1272,7 +1278,9 @@ pub const MAX_STUCK_PER_VOLUME: usize = 8;
 /// The given-up producer threads the process may hold over every volume: three volumes' worth. Once it holds this many,
 /// a stream is refused with the same answer whatever volume it would read on, one with fewer than
 /// [`MAX_STUCK_PER_VOLUME`] included (a volume at its own bound refuses it anyway), at the same points; the count falls
-/// as the stuck reads return. The threads the process holds never pass [`SchedulerConfig::max_stranded_total`].
+/// as the stuck reads return. The threads the process holds never pass [`SchedulerConfig::max_stranded_total`]
+/// (23 + 8 + 1 + 64 = 96 with the defaults). At 24 stranded threads every search is refused: this protects the process,
+/// and Node's server would be dead in that state.
 pub const MAX_STUCK_TOTAL: usize = 3 * MAX_STUCK_PER_VOLUME;
 
 impl SchedulerConfig {
@@ -2027,7 +2035,8 @@ trait Produce<T>: Send {
 }
 
 struct Walking {
-    walk: ignore::Walk,
+    walk: tree::Tree,
+    rules: tree::SharedRules,
     root: PathBuf,
     include_dirs: bool,
 }
@@ -2040,7 +2049,7 @@ impl Produce<DirEntry> for Walking {
                 out.send(Err(FsError::new(refusal, None)));
             }
         };
-        let mut volumes = Volumes::new(hold.ticket.clone(), &self.root);
+        let mut volumes = Volumes::new(hold.ticket.clone(), &self.root, Some(self.rules));
         if let Err(refusal) = volumes.start() {
             return refused(refusal);
         }
@@ -2055,19 +2064,18 @@ impl Produce<DirEntry> for Walking {
             }
             let Some(item) = walk.next() else { return };
             if let Ok(entry) = &item {
-                last = Some((entry.path().to_path_buf(), entry.file_type().is_some_and(|t| t.is_dir())));
+                last = Some((entry.path.clone(), entry.kind == EntryKind::Dir));
             }
             let sent = match item {
-                Ok(entry) if entry.depth() == 0 => true,
+                Ok(entry) if entry.depth == 0 => true,
                 Ok(entry) => {
-                    let Some(kind) = entry.file_type().map(entry_kind) else { continue };
-                    if kind == EntryKind::Dir && !self.include_dirs {
+                    if entry.kind == EntryKind::Dir && !self.include_dirs {
                         continue;
                     }
-                    let Some(path) = AbsPath::new(entry.into_path()) else { continue };
-                    out.send(Ok(DirEntry { path, kind }))
+                    let Some(path) = AbsPath::new(entry.path) else { continue };
+                    out.send(Ok(DirEntry { path, kind: entry.kind }))
                 }
-                Err(error) => out.send(Err(walk_error(&error, &self.root))),
+                Err(error) => out.send(Err(io_error(&error, &self.root))),
             };
             if !sent {
                 return;
@@ -2213,19 +2221,24 @@ type Place = Arc<Mutex<Option<(PathBuf, bool)>>>;
 
 /// The mount point a walk may enter at its next step, given the entry it gave last (`last`, a folder or not): of
 /// `under` (in path order), the first past `last` whose parent is a folder the walk is in (`last` itself when a folder,
-/// else its parent, and their ancestors). The walk lists each folder's entries in path order and reads a folder as it
-/// reaches it (walkdir `push`, before the folder is given), so its next step reads in no other mount point's folder.
+/// else its parent, and their ancestors) and that the walk's rules let in (`excluded`, by its path and name alone,
+/// [`tree::Rules::excludes_folder`]). The walk lists each folder's entries in path order and reads a folder as it
+/// reaches it, before giving it, so its next step reads in no other mount point's folder.
 ///
-/// The walk's exclusion rules (hidden entries, globs, ignore files, the pruned `.git`) apply first, through `last`: the
-/// walk gives nothing they exclude, so a folder they exclude, and every folder under it, is never one the walk is in,
-/// and a mount point under one is never chosen; the walk never opens it either (ignore's `Walk` skips the excluded
-/// folder before its entries are handled). A mount point the rules exclude itself is chosen: the walk opens it anyway,
-/// as walkdir reads a folder (`IntoIter::push`, walkdir-2.5.0 lib.rs:907) before ignore's rules skip it (`Walk::next`,
-/// ignore-0.4.34 walk.rs:1162), so its read happens, charged to its own volume.
+/// The walk's exclusion rules (hidden entries, globs, ignore files, the pruned `.git`) apply to an entry before
+/// anything reads it ([`tree`]): a folder they exclude, and every folder under it, is never one the walk is in, so a
+/// mount point under one is never chosen, and a mount point they exclude itself is never read, so `excluded` passes it.
 #[cfg_attr(not(unix), allow(dead_code))]
-fn next_crossing<'a>(under: &'a [(PathBuf, String)], last: &Path, last_is_dir: bool) -> Option<&'a (PathBuf, String)> {
+fn next_crossing<'a>(
+    under: &'a [(PathBuf, String)],
+    last: &Path,
+    last_is_dir: bool,
+    mut excluded: impl FnMut(&Path) -> bool,
+) -> Option<&'a (PathBuf, String)> {
     let here = if last_is_dir { last } else { last.parent()? };
-    under.iter().find(|(point, _)| point.as_path() > last && point.parent().is_some_and(|parent| here.starts_with(parent)))
+    under.iter().find(|(point, _)| {
+        point.as_path() > last && point.parent().is_some_and(|parent| here.starts_with(parent)) && !excluded(point)
+    })
 }
 
 /// The volumes a producer reads on, for [`SchedulerConfig::stuck_per_volume`]: a give-up charges the volume of the
@@ -2247,15 +2260,22 @@ struct Volumes {
     root: PathBuf,
     #[cfg(unix)]
     crossings: Option<unix_io::Crossings>,
+    /// The walk's exclusion rules: a mount point they exclude is never read ([`next_crossing`]).
+    #[cfg(unix)]
+    rules: Option<tree::SharedRules>,
 }
 
 impl Volumes {
-    fn new(ticket: Arc<Ticket>, root: &Path) -> Self {
+    fn new(ticket: Arc<Ticket>, root: &Path, rules: Option<tree::SharedRules>) -> Self {
+        #[cfg(not(unix))]
+        let _ = rules;
         Self {
             ticket,
             root: root.to_path_buf(),
             #[cfg(unix)]
             crossings: None,
+            #[cfg(unix)]
+            rules,
         }
     }
 
@@ -2286,7 +2306,8 @@ impl Volumes {
     fn step(&mut self, last: Option<(&Path, bool)>) -> Result<(), Option<FsErrorKind>> {
         #[cfg(unix)]
         if let (Some(crossings), Some((last, last_is_dir))) = (self.crossings.as_mut(), last) {
-            let (crossing, here) = crossings.step(last, last_is_dir);
+            let rules = self.rules.as_ref();
+            let (crossing, here) = crossings.step(last, last_is_dir, &mut |point| rules.is_some_and(|rules| tree::locked(rules).excludes_folder(point)));
             if let Some((point, volume)) = crossing {
                 self.ticket.read_on(&volume)?;
                 let _ = std::fs::metadata(&point);
@@ -2401,6 +2422,7 @@ struct Searching {
     /// The search's root, and where its walk is ([`Volumes`]).
     scope: PathBuf,
     place: Place,
+    rules: Option<tree::SharedRules>,
     #[cfg(feature = "count-jobs")]
     root: PathBuf,
     #[cfg(feature = "count-jobs")]
@@ -2418,12 +2440,13 @@ impl Produce<SearchMatch> for Searching {
             first_per_file,
             scope,
             place,
+            rules,
             #[cfg(feature = "count-jobs")]
             root,
             #[cfg(feature = "count-jobs")]
             _live,
         } = *self;
-        let volumes = Volumes::new(hold.ticket.clone(), &scope);
+        let volumes = Volumes::new(hold.ticket.clone(), &scope, rules);
         let link = Arc::new(IoLink::default());
         let _ = out.ctl.link.set(link.clone());
         let failure = out.clone();
@@ -2968,6 +2991,8 @@ mod cancel_io {
 #[cfg(unix)]
 mod unix_io;
 
+mod tree;
+
 /// What a test can observe of the text searches: per search root, the matches produced and the searches whose
 /// producer is still alive.
 #[cfg(feature = "count-jobs")]
@@ -3192,7 +3217,7 @@ pub mod deadline_script {
     impl super::Produce<mixdog_core_api::domain::fs::SearchMatch> for Held {
         fn run(self: Box<Self>, _out: super::Out<mixdog_core_api::domain::fs::SearchMatch>, hold: super::Hold) {
             // Its root's volume told as a search tells it, so its give-up charges that volume.
-            let _ = super::Volumes::new(hold.ticket.clone(), &self.root).start();
+            let _ = super::Volumes::new(hold.ticket.clone(), &self.root, None).start();
             let mut unstuck = UNSTUCK.0.lock().unwrap_or_else(PoisonError::into_inner);
             while !unstuck.iter().any(|scope| self.root.starts_with(scope)) {
                 unstuck = UNSTUCK.1.wait(unstuck).unwrap_or_else(PoisonError::into_inner);
@@ -4428,7 +4453,7 @@ mod tests {
     #[test]
     fn the_next_crossing_is_the_first_mount_point_past_the_walk_in_a_folder_it_is_in() {
         let under: Vec<(PathBuf, String)> = ["/r/a/m", "/r/b/c/m", "/r/z"].iter().map(|p| (PathBuf::from(p), (*p).to_owned())).collect();
-        let next = |last: &str, dir: bool| next_crossing(&under, Path::new(last), dir).map(|(p, _)| p.to_str().unwrap());
+        let next = |last: &str, dir: bool| next_crossing(&under, Path::new(last), dir, |_| false).map(|(p, _)| p.to_str().unwrap());
         assert_eq!(next("/r", true), Some("/r/z"), "/r/a/m's parent is not open yet");
         assert_eq!(next("/r/a", true), Some("/r/a/m"));
         assert_eq!(next("/r/a/l.txt", false), Some("/r/a/m"));
@@ -4438,18 +4463,117 @@ mod tests {
         assert_eq!(next("/r/z", true), None);
     }
 
-    /// The mount points probed over a walk whose rules exclude the folders `/r/x` and `/r/q/z`: what it gives is its
-    /// entries without those and anything under them. `/r/x/m` and `/r/x/y/m`, under an excluded folder, are never
-    /// probed; `/r/q/z`, a mount point excluded itself, is, as the walk opens it before its rules skip it.
+    /// The mount points probed over a walk whose rules exclude the folders `/r/d`, `/r/x` and `/r/q/z`: what it gives is
+    /// its entries without those and anything under them. `/r/x/m` and `/r/x/y/m`, under an excluded folder, are never
+    /// probed, nor are `/r/d` (directly beneath the root) and `/r/q/z`, mount points excluded themselves.
     #[test]
     fn a_walk_probes_only_the_mount_points_it_opens() {
-        let points = ["/r/a/m", "/r/q/z", "/r/x/m", "/r/x/y/m"];
+        let points = ["/r/a/m", "/r/d", "/r/q/z", "/r/x/m", "/r/x/y/m"];
         let under: Vec<(PathBuf, String)> = points.iter().map(|p| (PathBuf::from(p), (*p).to_owned())).collect();
+        let excluded = |point: &Path| ["/r/d", "/r/x", "/r/q/z"].iter().any(|e| point.starts_with(e));
         let given = [("/r", true), ("/r/a", true), ("/r/a/l.txt", false), ("/r/a/m", true), ("/r/b.txt", false), ("/r/q", true), ("/r/q/w.txt", false), ("/r/y.txt", false)];
-        let mut probed: Vec<&str> = given.iter().filter_map(|(last, dir)| next_crossing(&under, Path::new(last), *dir)).map(|(_, p)| p.as_str()).collect();
+        let mut probed: Vec<&str> =
+            given.iter().filter_map(|(last, dir)| next_crossing(&under, Path::new(last), *dir, excluded)).map(|(_, p)| p.as_str()).collect();
         probed.sort_unstable();
         probed.dedup();
-        assert_eq!(probed, ["/r/a/m", "/r/q/z"]);
+        assert_eq!(probed, ["/r/a/m"]);
+    }
+
+    /// The real filesystem, except that a call on a gated path or under it (a listing, a type, a root) is counted and
+    /// held until the test lets go: a dead mount's folder.
+    struct Gated {
+        real: tree::RealDirs,
+        gated: Vec<PathBuf>,
+        calls: Arc<AtomicUsize>,
+        release: Arc<(Mutex<bool>, std::sync::Condvar)>,
+    }
+
+    impl Gated {
+        fn hold(&self, path: &Path) {
+            if self.gated.iter().any(|gated| path.starts_with(gated)) {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                let (released, changed) = &*self.release;
+                let mut released = released.lock().unwrap();
+                while !*released {
+                    released = changed.wait(released).unwrap();
+                }
+            }
+        }
+    }
+
+    impl tree::Dirs for Gated {
+        fn root(&mut self, root: &Path) -> io::Result<(EntryKind, bool)> {
+            self.hold(root);
+            self.real.root(root)
+        }
+
+        fn list(&mut self, dir: &Path) -> io::Result<Vec<io::Result<Box<dyn tree::Listed>>>> {
+            self.hold(dir);
+            self.real.list(dir)
+        }
+
+        fn kind(&mut self, entry: &dyn tree::Listed) -> io::Result<EntryKind> {
+            self.hold(entry.path());
+            self.real.kind(entry)
+        }
+    }
+
+    fn listing_request(root: &AbsPath, prune: Vec<AbsPath>) -> WalkRequest {
+        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, include_dirs: true, prune, server: None }
+    }
+
+    /// A root whose excluded children, directly beneath it, are folders on a dead mount: every listing, type or open of
+    /// one of them, or of anything under it, never returns. `z` is excluded by the search's glob (the listing's prune),
+    /// `.h` as hidden, `q` by an `.ignore` file. The text search and the file listing each finish with the rest of the
+    /// tree, and nothing ever called on the excluded children (counted: none).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn excluded_children_are_never_listed_typed_or_opened() {
+        let (_dir, root) = root();
+        for (path, text) in [("a.txt", "needle\n"), ("b/c.txt", "needle\n"), ("z/d.txt", "needle\n"), (".h/e.txt", "needle\n"), ("q/f.txt", "needle\n"), (".ignore", "q\n")] {
+            let path = root.join(path).as_path().to_path_buf();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, text).unwrap();
+        }
+        let gated: Vec<PathBuf> = ["z", ".h", "q"].iter().map(|name| root.join(name).as_path().to_path_buf()).collect();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = || Box::new(Gated { real: tree::RealDirs::new(root.as_path()), gated: gated.clone(), calls: calls.clone(), release: release.clone() });
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+
+        let request = SearchRequest { exclude_globs: vec!["z".into()], include_hidden: false, respect_ignore: true, ..needle_request(&root, None) };
+        let opened = Arc::new(AtomicUsize::new(0));
+        let (counted, excluded) = (opened.clone(), gated.clone());
+        let open: Opener = Box::new(move |path| {
+            if excluded.iter().any(|gated| path.starts_with(gated)) {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>)
+        });
+        let mut search = search_with(&producers, &request, text_listing(&request, gate()).unwrap(), open);
+        let mut found = Vec::new();
+        while let Some(hit) = within("the search's matches", search.next()).await {
+            found.push(hit.unwrap().path);
+        }
+        search.close().await;
+        let expected: Vec<PathBuf> = ["a.txt", "b/c.txt"].iter().map(|p| root.join(p).as_path().to_path_buf()).collect();
+        assert_eq!(found.iter().map(|p| p.as_path().to_path_buf()).collect::<Vec<_>>(), expected);
+
+        let prune = vec![root.join("z")];
+        let origin = Origin::new(None, root.as_path(), "file inventory");
+        let walk = walking(&listing_request(&root, prune), gate()).unwrap();
+        let mut walk = streamed(&producers, Box::new(walk), Deadline::default(), origin, false);
+        let mut listed = Vec::new();
+        while let Some(entry) = within("the listing's entries", walk.next()).await {
+            listed.push(entry.unwrap().path.as_path().to_path_buf());
+        }
+        walk.close().await;
+        let expected: Vec<PathBuf> = ["a.txt", "b", "b/c.txt"].iter().map(|p| root.join(p).as_path().to_path_buf()).collect();
+        assert_eq!(listed, expected);
+
+        assert_eq!((calls.load(Ordering::SeqCst), opened.load(Ordering::SeqCst)), (0, 0), "a call on an excluded child");
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        settled(&producers, "every producer ends", ProducerCounts::default()).await;
     }
 
     /// A mapped drive's device target names its share; a network mount point is keyed as `\\server\share\`.
@@ -4605,7 +4729,7 @@ mod tests {
         assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: QUEUE, ..Default::default() });
         assert!(saturated(within("a search past 9 waiting", one_file(SearchClass::Interactive).next()).await));
         assert!(saturated(within("a fuzzy search past 9 waiting", one_file(SearchClass::Fuzzy).next()).await));
-        let walking = Walking { walk: WalkBuilder::new(root.as_path()).build(), root: root.as_path().to_path_buf(), include_dirs: false };
+        let walking = walking(&listing_request(&root, Vec::new()), Box::new(tree::RealDirs::new(root.as_path()))).unwrap();
         let origin = Origin::new(None, root.as_path(), "file inventory");
         let mut walk = streamed(&producers, Box::new(walking), Deadline::default(), origin, false);
         assert_eq!(producers.counts().waiting, QUEUE, "a walk Node does not queue runs at once");

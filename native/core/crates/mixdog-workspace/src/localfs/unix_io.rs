@@ -298,10 +298,14 @@ impl Crossings {
     /// Before the walk's next step from `last`: the mount point it may enter at that step, if not read before, with its
     /// volume (the caller reads it first, on that volume: a dead mount holds that read, not the walk's), and the volume
     /// of the folder the walk reads in.
-    pub fn step(&mut self, last: &Path, last_is_dir: bool) -> (Option<(PathBuf, String)>, String) {
+    /// `excluded` tells, of a mount point as the walk names it, whether the walk's rules leave it out.
+    pub fn step(&mut self, last: &Path, last_is_dir: bool, excluded: &mut dyn FnMut(&Path) -> bool) -> (Option<(PathBuf, String)>, String) {
         let last = self.canonical(last);
         let here = if last_is_dir { last.clone() } else { last.parent().map_or_else(|| last.clone(), Path::to_path_buf) };
-        let crossing = super::next_crossing(&self.under, &last, last_is_dir).filter(|(point, _)| !self.probed.contains(point)).cloned();
+        let (root, canonical) = (&self.root, &self.canonical);
+        let walked = |point: &Path| point.strip_prefix(canonical).map_or_else(|_| point.to_path_buf(), |rel| root.join(rel));
+        let crossing =
+            super::next_crossing(&self.under, &last, last_is_dir, |point| excluded(&walked(point))).filter(|(point, _)| !self.probed.contains(point)).cloned();
         if let Some((point, _)) = &crossing {
             self.probed.insert(point.clone());
         }
