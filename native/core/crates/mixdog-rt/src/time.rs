@@ -273,14 +273,19 @@ mod on_virtual_clock {
                 Inner::Virtual { due, .. } => self.fired_at = Some(*due),
                 Inner::Tokio(sleep) => {
                     let now = Instant::now();
-                    // tokio's `MissedTickBehavior::next_timeout`.
-                    let next = match self.missed {
-                        MissedTickBehavior::Burst => at + self.period,
-                        MissedTickBehavior::Delay => now + self.period,
-                        MissedTickBehavior::Skip => {
-                            let late = now.saturating_duration_since(at).as_nanos();
-                            let period = self.period.as_nanos();
-                            now + self.period - Duration::from_nanos(u64::try_from(late % period).unwrap_or(0))
+                    // tokio's `Interval::poll_tick`: a tick polled at most 5 ms late is not missed, the next one is a period
+                    // after it; past that, `MissedTickBehavior::next_timeout`.
+                    let next = if now <= at + Duration::from_millis(5) {
+                        at + self.period
+                    } else {
+                        match self.missed {
+                            MissedTickBehavior::Burst => at + self.period,
+                            MissedTickBehavior::Delay => now + self.period,
+                            MissedTickBehavior::Skip => {
+                                let late = (now - at).as_nanos();
+                                let period = self.period.as_nanos();
+                                now + self.period - Duration::from_nanos(u64::try_from(late % period).unwrap_or(0))
+                            }
                         }
                     };
                     self.sleep.deadline = next;
