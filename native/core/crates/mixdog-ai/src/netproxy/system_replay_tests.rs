@@ -3,7 +3,7 @@
 //! registry fallback adopted by [`SystemProxy::adopt`], the desktop's resolver attached as a claim attaches it
 //! (`SystemProxyClaims::claimed`: [`SystemProxy::attach_resolver`] over a [`HostResolver`] that asks
 //! `host/systemProxy/resolve`), the per-origin routes, and the fallback again once the claim's handle drops.
-//! Cases 0-2 run the desktop window's own code and are declared in the manifest's `replay.declaredExclusions`.
+//! Cases 0-2 run the desktop's own code and are replayed there by `apps/desktop/src/main/host/system-proxy-replay.test.mjs`.
 
 use std::sync::Arc;
 use std::sync::Mutex;
