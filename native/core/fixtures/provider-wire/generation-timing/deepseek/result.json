@@ -1,0 +1,85 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "deepseek-chat",
+    "stopReason": "stop",
+    "usage": {
+      "inputTokens": 1000,
+      "outputTokens": 5,
+      "cachedTokens": 800,
+      "cacheWriteTokens": 0,
+      "promptTokens": 1000,
+      "raw": {
+        "prompt_tokens": 1000,
+        "completion_tokens": 5,
+        "total_tokens": 1005,
+        "prompt_tokens_details": {
+          "cached_tokens": 800
+        }
+      }
+    },
+    "generationMs": 1300,
+    "requestServiceTier": ""
+  },
+  "committed": {
+    "role": "assistant",
+    "content": "The answer is 42.",
+    "stopReason": "stop"
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer is 42."
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    }
+  ],
+  "rows": [
+    {
+      "ts": 1700000002000,
+      "day": "2023-11-15",
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "kind": "api",
+      "sessionId": "timing-session",
+      "sourceType": "lead",
+      "input": 200,
+      "output": 5,
+      "cacheRead": 800,
+      "cacheWrite": 0,
+      "costUsd": null,
+      "costSource": "unpriced",
+      "rates": "{\"requestedModel\":\"deepseek-chat\",\"pricingModel\":\"deepseek-chat\",\"pricingProvider\":\"deepseek\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+      "responseId": "",
+      "account": "",
+      "origin": "live",
+      "durationMs": 2000,
+      "requestedModel": "",
+      "requestedProvider": "",
+      "status": "completed",
+      "attempts": 1,
+      "ttftMs": null,
+      "elapsedMs": 0,
+      "id": "<req>"
+    }
+  ]
+}
