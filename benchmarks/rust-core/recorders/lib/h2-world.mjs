@@ -12,6 +12,7 @@
 // `destroy` resets the stream.
 import { register } from 'node:module';
 import http2 from 'node:http2';
+import { RecorderError, withinDeadline } from './provider-case-recorder.mjs';
 import { ORIGIN_HEADER } from './world-http2.mjs';
 
 const STAND_IN = new URL('./world-http2.mjs', import.meta.url).href;
@@ -30,7 +31,10 @@ export async function startH2World(rec) {
     stream.on('error', () => {});
     serve(rec, hub, stream, rawHeaders).catch((error) => die(`the h2 hub's stream: ${error?.stack ?? error}`));
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await withinDeadline(new Promise((resolve, reject) => {
+    server.once('error', (error) => reject(new RecorderError(`recorder: the h2 hub could not listen on 127.0.0.1: ${error?.message ?? error}`)));
+    server.listen(0, '127.0.0.1', resolve);
+  }), 'the h2 hub listening on 127.0.0.1');
   globalThis.__worldH2 = { port: server.address().port };
   return { close: () => { server.close(); delete globalThis.__worldH2; } };
 }
