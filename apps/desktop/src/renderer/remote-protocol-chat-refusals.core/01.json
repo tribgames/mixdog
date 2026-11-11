@@ -1,8 +1,8 @@
 {
   "manifest": {
     "binary": "D:\\mixdog-build\\pool\\w5-target\\debug\\mixdogd.exe",
-    "binarySha256": "4037517967d78ece4a6060ccff2f3c7e8b6df1aa04882e24c78009447ec3b3ea",
-    "binaryBuilt": "2026-11-10T16:09:54.041Z",
+    "binarySha256": "16c299138c6cdbbcdf0f8ad6f58ac8c3b06c531ee2be866663012da54122d540",
+    "binaryBuilt": "2026-11-11T02:23:58.707Z",
     "harness": {
       "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
       "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8",
@@ -14,7 +14,7 @@
     },
     "source": "running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol"
   },
-  "thread": "sess_49020_1794328538200_1794328538200_9fb1788b69ca4604885a7b0cf9e339bc",
+  "thread": "sess_34212_1794364479816_1794364479816_f7c715e99a3043be848a68c2ba0a3a25",
   "project": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\a",
   "unregistered": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered",
   "cases": [
@@ -22,13 +22,13 @@
       "name": "abortSession-idle",
       "call": "abortSession",
       "args": [
-        "sess_49020_1794328538200_1794328538200_9fb1788b69ca4604885a7b0cf9e339bc",
+        "sess_34212_1794364479816_1794364479816_f7c715e99a3043be848a68c2ba0a3a25",
         {}
       ],
       "request": {
         "method": "turn/interrupt",
         "params": {
-          "threadId": "sess_49020_1794328538200_1794328538200_9fb1788b69ca4604885a7b0cf9e339bc"
+          "threadId": "sess_34212_1794364479816_1794364479816_f7c715e99a3043be848a68c2ba0a3a25"
         }
       },
       "reply": {
@@ -48,7 +48,7 @@
       "name": "submitToSession-empty",
       "call": "submitToSession",
       "args": [
-        "sess_49020_1794328538200_1794328538200_9fb1788b69ca4604885a7b0cf9e339bc",
+        "sess_34212_1794364479816_1794364479816_f7c715e99a3043be848a68c2ba0a3a25",
         "",
         {
           "id": "refusals-empty"
@@ -57,7 +57,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_49020_1794328538200_1794328538200_9fb1788b69ca4604885a7b0cf9e339bc",
+          "threadId": "sess_34212_1794364479816_1794364479816_f7c715e99a3043be848a68c2ba0a3a25",
           "input": {
             "prompt": "",
             "options": {
@@ -83,7 +83,7 @@
       "name": "submitToSession-blank",
       "call": "submitToSession",
       "args": [
-        "sess_49020_1794328538200_1794328538200_9fb1788b69ca4604885a7b0cf9e339bc",
+        "sess_34212_1794364479816_1794364479816_f7c715e99a3043be848a68c2ba0a3a25",
         "   ",
         {
           "id": "refusals-blank"
@@ -92,7 +92,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_49020_1794328538200_1794328538200_9fb1788b69ca4604885a7b0cf9e339bc",
+          "threadId": "sess_34212_1794364479816_1794364479816_f7c715e99a3043be848a68c2ba0a3a25",
           "input": {
             "prompt": "   ",
             "options": {

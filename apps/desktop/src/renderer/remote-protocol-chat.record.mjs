@@ -181,7 +181,7 @@ await record('readTranscriptItem-not-viewed', 'readTranscriptItem', [S, 'tool1']
 await record('readTranscriptItem-not-held', 'readTranscriptItem', [S, 'nope'], { read: full(S, { items: toolRows }) }, (_h, r) =>
   r.readTranscriptItem([S, 'nope']), { client: clientOf() });
 // A notification's Allow / Deny and the card's pointer-only refusal are recorded from Node's real push notifier over a real daemon
-// (remote-protocol-chat-abort.record.mjs, the `notify-` cases).
+// (remote-protocol-chat-history.record.mjs, the `notify-` cases).
 await record('provideSecretInput-true', 'provideSecretInput', ['req1', 's3cret'], {}, (_h, r) => r.provideSecretInput(['req1', 's3cret']), {
   client: clientOf(), hostReply: true, note: 'hostRequest (the window process) is scripted: the secret slot is not part of the daemon',
 });

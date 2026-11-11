@@ -12,7 +12,6 @@ import { coreErrorForWindow } from '../main/protocol/core-error.ts';
 import { normalizedProviderModels } from '../main/desktop-support.ts';
 import { remoteToolOutput } from '../main/remote-transcript.ts';
 import { ABORT_CASES as CASES } from './remote-protocol-chat-abort-cases.mjs';
-import { verifiedRecordings } from './remote-protocol-chat-abort-fixture.mjs';
 import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 
 const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat.recorded.json', import.meta.url), 'utf8'));
@@ -157,7 +156,7 @@ function adapterFor(script) {
     call: async (method, params) => {
       sent.push({ method, params });
       if (!Object.hasOwn(script, method)) throw new Error(`unscripted request ${method}`);
-      const reply = script[method];
+      const reply = typeof script[method] === 'function' ? script[method](params) : script[method];
       if (reply instanceof Error) throw reply;
       return reply;
     },
@@ -243,20 +242,27 @@ test('the recording is an exact Node b6f10295a manifest', () => {
 });
 
 // A1: a notification's Allow / Deny, replayed through the production adapter against Node's answers (the `notify-` cases of the
-// installed Stop recordings, Node's real push notifier over a real daemon). The thread shows the approval Node's host showed when the
+// installed state histories, Node's real push notifier over a real daemon). The thread shows the approval Node's host showed when the
 // phone answered; the core's pending request is that approval's.
-const abortRecording = verifiedRecordings().recordings[0];
+const histories = verifiedFixture('history').recordings;
 for (const c of CASES.filter((x) => x.notify)) {
   test(`${c.name}: a notification's answers are Node's`, async () => {
-    const { node } = abortRecording.cases.find((x) => x.name === c.name);
-    const firstAnswer = node.hostStream.findIndex((e) => e.kind === 'reply' && e.method === 'answerApprovalNotification');
-    const shown = node.hostStream.slice(0, firstAnswer).findLast((e) => e.kind === 'state').snapshot.toolApproval;
+    const { history } = histories.find((x) => x.name === c.name);
+    const isAnswer = (e) => e.kind === 'reply' && e.input.startsWith('phone.answerApprovalNotification ');
+    const shown = history.slice(0, history.findIndex(isAnswer)).findLast((e) => e.snapshot).snapshot.toolApproval;
     const method = shown.kind === 'question' ? 'item/tool/requestUserInput' : 'item/tool/requestApproval';
     const script = { state: { toolApproval: shown }, pending: [{ id: String(shown.id), method, params: { threadId: S, order: 1 } }] };
+    // The core's answer (approval_notification.rs `answer_approval`): taken while the request is pending, which it then no longer is.
+    script['thread/approval/answer'] = ({ approvalId }) => {
+      const accepted = script.pending.some((p) => p.id === approvalId);
+      script.pending = script.pending.filter((p) => p.id !== approvalId);
+      if (accepted) script.state = { toolApproval: null };
+      return { accepted };
+    };
     const { api } = adapterFor(script);
     const answers = [];
     for (const step of c.notify) answers.push(await api.answerApprovalNotification(S, step.id === 'shown' ? String(shown.id) : step.id, step.action));
-    assert.deepEqual(answers, node.answers);
+    assert.deepEqual(answers, history.filter(isAnswer).map((e) => e.reply));
   });
 }
 

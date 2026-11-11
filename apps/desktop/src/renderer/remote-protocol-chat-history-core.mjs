@@ -374,6 +374,14 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         continue;
       }
       if (input.input === 'host.startProject') continue;
+      if (input.input === 'phone.abortSession twice') {
+        // Both Stops in one tick, as Node's recorder made them; their replies in call order.
+        const [phone, method, args] = argsOf('phone.abortSession');
+        const settled = await Promise.allSettled([0, 1].map(() => deadline.race(phone.router.call(method, args), `the replies to ${input.input}`)));
+        for (const [n, s] of settled.entries()) log.push({ kind: 'reply', input: `${input.input} ${n + 1}`, value: norm(s.status === 'fulfilled' ? { reply: plain(s.value) } : { error: String(s.reason?.message ?? s.reason) }) });
+        wake();
+        continue;
+      }
       const [phone, method, args] = argsOf(input.input);
       if (method === 'submitNewTask') submitting = true;
       let entry;

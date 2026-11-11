@@ -14,13 +14,58 @@
    "<port:daemon>"
   ]
  },
- "name": "notify-allow-unknown-id",
- "id": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+ "name": "running-steering-queued",
+ "id": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
  "inputs": [
+  {
+   "at": 0,
+   "clock": 10,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 50,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 499,
+   "input": "clock"
+  },
+  {
+   "at": 0,
+   "clock": 1000,
+   "input": "clock"
+  },
   {
    "at": 0,
    "clock": 1000,
    "input": "host.startProject"
+  },
+  {
+   "at": 1,
+   "clock": 1001,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1010,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1500,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 1510,
+   "input": "clock"
+  },
+  {
+   "at": 1,
+   "clock": 2000,
+   "input": "clock"
   },
   {
    "at": 1,
@@ -79,112 +124,290 @@
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42530 a9a3ce6e48e76ee9d586820106f966edaf7204a9d5daa0a4f704b2b10c1aa413",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42511 81fe42e95387ca0b77e5ca3deafaeb8a9d59fda2b3bee4239415b40f06a6f0a3",
+   "prompt": "HOLD-EMPTY first prompt",
    "step": 1
   },
   {
    "at": 4,
    "clock": 2000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42530 a9a3ce6e48e76ee9d586820106f966edaf7204a9d5daa0a4f704b2b10c1aa413",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42511 81fe42e95387ca0b77e5ca3deafaeb8a9d59fda2b3bee4239415b40f06a6f0a3",
+   "prompt": "HOLD-EMPTY first prompt",
    "step": 2
   },
   {
-   "at": 4,
-   "clock": 2000,
-   "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42530 a9a3ce6e48e76ee9d586820106f966edaf7204a9d5daa0a4f704b2b10c1aa413",
-   "prompt": "HOLD-ASK read the file of another approval",
-   "step": 3
+   "at": 5,
+   "clock": 2001,
+   "input": "clock"
   },
   {
-   "at": 4,
-   "clock": 2000,
-   "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42530 a9a3ce6e48e76ee9d586820106f966edaf7204a9d5daa0a4f704b2b10c1aa413",
-   "prompt": "HOLD-ASK read the file of another approval",
-   "step": 4
+   "at": 5,
+   "clock": 2009,
+   "input": "clock"
   },
   {
-   "at": 4,
-   "clock": 2000,
-   "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42530 a9a3ce6e48e76ee9d586820106f966edaf7204a9d5daa0a4f704b2b10c1aa413",
-   "prompt": "HOLD-ASK read the file of another approval",
-   "step": 5
+   "at": 5,
+   "clock": 2010,
+   "input": "clock"
   },
   {
-   "at": 4,
-   "clock": 2000,
-   "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools first 42530 a9a3ce6e48e76ee9d586820106f966edaf7204a9d5daa0a4f704b2b10c1aa413",
-   "prompt": "HOLD-ASK read the file of another approval",
-   "step": 6
+   "at": 5,
+   "clock": 2016,
+   "input": "clock"
   },
   {
-   "at": 10,
+   "at": 6,
+   "clock": 2025,
+   "input": "clock"
+  },
+  {
+   "at": 6,
+   "clock": 2032,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2050,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2100,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2109,
+   "input": "clock"
+  },
+  {
+   "at": 7,
+   "clock": 2110,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2200,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2216,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2225,
+   "input": "clock"
+  },
+  {
+   "at": 8,
+   "clock": 2226,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2250,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2300,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2400,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 2800,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 3000,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 3001,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 3010,
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 3500,
+   "input": "clock"
+  },
+  {
+   "at": 9,
    "clock": 4000,
-   "input": "phone.answerApprovalNotification 0 allow not-the-shown-approval"
+   "input": "clock"
+  },
+  {
+   "at": 9,
+   "clock": 4000,
+   "input": "phone.submitToSession"
+  },
+  {
+   "at": 11,
+   "clock": 4001,
+   "input": "clock"
+  },
+  {
+   "at": 11,
+   "clock": 4010,
+   "input": "clock"
+  },
+  {
+   "at": 11,
+   "clock": 4016,
+   "input": "clock"
   },
   {
    "at": 11,
    "clock": 5000,
-   "input": "phone.answerApprovalNotification 1 deny not-the-shown-approval"
+   "input": "clock"
   },
   {
-   "at": 12,
-   "clock": 6000,
-   "input": "phone.answerApprovalNotification 2 allow shown"
+   "at": 11,
+   "clock": 5000,
+   "input": "phone.abortSession"
   },
   {
-   "at": 12,
-   "clock": 6000,
+   "at": 11,
+   "clock": 5000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools after-tool 42793 32d3ce7436d48fb64825727c4977dda3c10ea6d34882bb2df1598f5e78ebabfa",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42553 d126cea95f40ae378346ab6b5d80d60a0be8620eb4f597c8d890a78ed8ea3771",
+   "prompt": "and also this",
    "step": 1
   },
   {
-   "at": 12,
-   "clock": 6000,
+   "at": 11,
+   "clock": 5000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools after-tool 42793 32d3ce7436d48fb64825727c4977dda3c10ea6d34882bb2df1598f5e78ebabfa",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42553 d126cea95f40ae378346ab6b5d80d60a0be8620eb4f597c8d890a78ed8ea3771",
+   "prompt": "and also this",
    "step": 2
   },
   {
-   "at": 12,
-   "clock": 6000,
+   "at": 11,
+   "clock": 5000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools after-tool 42793 32d3ce7436d48fb64825727c4977dda3c10ea6d34882bb2df1598f5e78ebabfa",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42553 d126cea95f40ae378346ab6b5d80d60a0be8620eb4f597c8d890a78ed8ea3771",
+   "prompt": "and also this",
    "step": 3
   },
   {
-   "at": 12,
-   "clock": 6000,
+   "at": 11,
+   "clock": 5000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools after-tool 42793 32d3ce7436d48fb64825727c4977dda3c10ea6d34882bb2df1598f5e78ebabfa",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42553 d126cea95f40ae378346ab6b5d80d60a0be8620eb4f597c8d890a78ed8ea3771",
+   "prompt": "and also this",
    "step": 4
   },
   {
-   "at": 12,
-   "clock": 6000,
+   "at": 11,
+   "clock": 5000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools after-tool 42793 32d3ce7436d48fb64825727c4977dda3c10ea6d34882bb2df1598f5e78ebabfa",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42553 d126cea95f40ae378346ab6b5d80d60a0be8620eb4f597c8d890a78ed8ea3771",
+   "prompt": "and also this",
    "step": 5
   },
   {
-   "at": 12,
-   "clock": 6000,
+   "at": 11,
+   "clock": 5000,
    "input": "provider write",
-   "key": "POST /v1/chat/completions stream tools after-tool 42793 32d3ce7436d48fb64825727c4977dda3c10ea6d34882bb2df1598f5e78ebabfa",
-   "prompt": "HOLD-ASK read the file of another approval",
+   "key": "POST /v1/chat/completions stream tools first 42553 d126cea95f40ae378346ab6b5d80d60a0be8620eb4f597c8d890a78ed8ea3771",
+   "prompt": "and also this",
    "step": 6
+  },
+  {
+   "at": 12,
+   "clock": 5001,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5010,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5016,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5050,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5150,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5250,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 5400,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 6000,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 6001,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 6010,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 7000,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 8000,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 9000,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 9400,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 10001,
+   "input": "clock"
+  },
+  {
+   "at": 13,
+   "clock": 11000,
+   "input": "clock"
   }
  ],
  "history": [
@@ -197,18 +420,18 @@
     "queued": [],
     "busy": false,
     "commandBusy": false,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
-    "currentProject": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
+    "currentProject": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "desktopSession": {
      "classification": "project",
-     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a"
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a"
     },
     "remoteEnabled": false,
     "remoteSessionId": null
    }
   },
   {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [],
@@ -254,7 +477,7 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "",
@@ -272,7 +495,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -358,7 +581,7 @@
    }
   },
   {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [],
@@ -404,7 +627,7 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -422,7 +645,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -500,20 +723,20 @@
    }
   },
   {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-notify-allow-unknown-id",
-      "text": "HOLD-ASK read the file of another approval",
+      "id": "sub-running-steering-queued",
+      "text": "HOLD-EMPTY first prompt",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
+      "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
       "device": "Phone A"
      }
     ],
@@ -567,9 +790,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-ASK read the file of another approval"
+     "HOLD-EMPTY first prompt"
     ],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -587,7 +810,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -673,19 +896,19 @@
    "input": "phone.submitNewTask",
    "reply": {
     "accepted": true,
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "snapshot": {
      "items": [
       {
        "kind": "user",
-       "id": "sub-notify-allow-unknown-id",
-       "text": "HOLD-ASK read the file of another approval",
+       "id": "sub-running-steering-queued",
+       "text": "HOLD-EMPTY first prompt",
        "at": 1900000002000,
        "modelId": "harness-model",
        "model": "harness-model",
        "provider": "custom-harness",
        "agent": "Default",
-       "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
+       "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
        "device": "Phone A"
       }
      ],
@@ -739,9 +962,9 @@
      "activeToolSummary": null,
      "activeTools": null,
      "promptHistoryList": [
-      "HOLD-ASK read the file of another approval"
+      "HOLD-EMPTY first prompt"
      ],
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+     "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
      "sessionForkedFrom": null,
      "clientHostPid": "<pid:daemon>",
      "model": "harness-model",
@@ -759,7 +982,7 @@
      "contextWindow": null,
      "rawContextWindow": null,
      "effectiveContextWindowPercent": null,
-     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
      "workspace": null,
      "systemShell": {
       "command": "",
@@ -830,20 +1053,20 @@
    }
   },
   {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-notify-allow-unknown-id",
-      "text": "HOLD-ASK read the file of another approval",
+      "id": "sub-running-steering-queued",
+      "text": "HOLD-EMPTY first prompt",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
+      "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
       "device": "Phone A"
      }
     ],
@@ -866,32 +1089,11 @@
      "responseLength": 0,
      "inputTokens": 0,
      "outputTokens": 0,
-     "mode": "tool-approval"
+     "mode": "responding"
     },
     "queued": [],
     "thinking": null,
-    "toolApproval": {
-     "id": "it_f5863baf_1",
-     "name": "read",
-     "kind": "approval",
-     "args": {
-      "path": "ask-me.json"
-     },
-     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
-     "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook rule for read",
-     "requestedAt": 1900000002000,
-     "timeoutMs": null,
-     "expiresAt": null,
-     "remember": [
-      "once",
-      "session",
-      "always"
-     ],
-     "agentId": "lead",
-     "grantAction": "tool:read"
-    },
+    "toolApproval": null,
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
     "promptRestore": null,
@@ -918,9 +1120,9 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-ASK read the file of another approval"
+     "HOLD-EMPTY first prompt"
     ],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -938,7 +1140,7 @@
     "contextWindow": null,
     "rawContextWindow": null,
     "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -1020,73 +1222,21 @@
    }
   },
   {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-notify-allow-unknown-id",
-      "text": "HOLD-ASK read the file of another approval",
+      "id": "sub-running-steering-queued",
+      "text": "HOLD-EMPTY first prompt",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
+      "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
       "device": "Phone A"
-     },
-     {
-      "kind": "tool",
-      "id": "it_f5863baf_2",
-      "name": "__aggregate__",
-      "args": {
-       "categoryOrder": [
-        "Read|Reading|Read|file|files"
-       ]
-      },
-      "count": 1,
-      "completedCount": 0,
-      "categories": {
-       "Read|Reading|Read|file|files": {
-        "key": "Read|Reading|Read|file|files",
-        "category": "Read",
-        "active": "Reading",
-        "done": "Read",
-        "noun": "file",
-        "pluralNoun": "files",
-        "effect": false,
-        "count": 1
-       }
-      },
-      "toolMembers": [
-       {
-        "kind": "tool",
-        "id": "call_hold_1",
-        "name": "read",
-        "args": {
-         "path": "ask-me.json"
-        },
-        "result": null,
-        "rawResult": null,
-        "isError": false,
-        "errorCount": 0,
-        "callErrorCount": 0,
-        "exitErrorCount": 0,
-        "count": 1,
-        "completedCount": 0,
-        "headerFinalized": false,
-        "startedAt": 1900000002000
-       }
-      ],
-      "aggregate": true,
-      "result": null,
-      "rawResult": null,
-      "isError": false,
-      "expanded": false,
-      "headerFinalized": false,
-      "startedAt": 1900000002000,
-      "deferredDisplayReady": true
      }
     ],
     "transcriptViewItems": null,
@@ -1094,7 +1244,7 @@
     "transcriptHistoryBefore": false,
     "transcriptHistoryAfter": false,
     "transcriptArchive": null,
-    "structureRevision": 2,
+    "structureRevision": 1,
     "streamingTail": null,
     "toasts": [],
     "progressHint": null,
@@ -1106,319 +1256,42 @@
      "verb": "Architecting",
      "startedAt": 1900000002000,
      "responseLength": 0,
-     "inputTokens": 10,
-     "outputTokens": 2,
-     "mode": "tool-use"
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
     },
     "queued": [],
     "thinking": null,
-    "toolApproval": {
-     "id": "it_f5863baf_1",
-     "name": "read",
-     "kind": "approval",
-     "args": {
-      "path": "ask-me.json"
-     },
-     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
-     "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook rule for read",
-     "requestedAt": 1900000002000,
-     "timeoutMs": null,
-     "expiresAt": null,
-     "remember": [
-      "once",
-      "session",
-      "always"
-     ],
-     "agentId": "lead",
-     "grantAction": "tool:read"
-    },
+    "toolApproval": null,
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
     "promptRestore": null,
     "lastTurn": null,
     "stats": {
-     "inputTokens": 10,
-     "outputTokens": 2,
+     "inputTokens": 0,
+     "outputTokens": 0,
      "cachedTokens": 0,
      "cacheWriteTokens": 0,
-     "promptTokens": 10,
-     "latestInputTokens": 10,
-     "latestOutputTokens": 2,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
      "latestCachedTokens": 0,
      "latestCacheWriteTokens": 0,
-     "latestPromptTokens": 10,
+     "latestPromptTokens": 0,
      "costUsd": 0,
      "turns": 0,
-     "currentContextTokens": 10,
+     "currentContextTokens": null,
      "currentEstimatedContextTokens": 0,
-     "currentContextSource": "last_api_request",
-     "currentContextUpdatedAt": 1900000002000,
-     "usageReadout": {
-      "input": 10,
-      "cacheRead": 0,
-      "cacheWrite": 0,
-      "output": 2,
-      "requestOutputTokens": 0,
-      "requestMs": 0
-     }
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
     },
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-ASK read the file of another approval"
+     "HOLD-EMPTY first prompt"
     ],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
-    "sessionForkedFrom": null,
-    "clientHostPid": "<pid:daemon>",
-    "model": "harness-model",
-    "provider": "custom-harness",
-    "sessionProvider": null,
-    "sessionModel": null,
-    "effort": null,
-    "turnEffort": null,
-    "effortOptions": [],
-    "fast": false,
-    "fastCapable": false,
-    "autoEffort": true,
-    "modelParameters": {},
-    "contextPercent": null,
-    "contextWindow": null,
-    "rawContextWindow": null,
-    "effectiveContextWindowPercent": null,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
-    "workspace": null,
-    "systemShell": {
-     "command": "",
-     "effective": "",
-     "source": "auto"
-    },
-    "webSearchRoute": {
-     "provider": "default",
-     "model": "default"
-    },
-    "autoClear": {
-     "enabled": true,
-     "idleMs": 3600000,
-     "unlimited": false,
-     "label": "1h",
-     "custom": false,
-     "providerCustom": false,
-     "providerDefault": 3600000,
-     "provider": "custom-harness",
-     "providerDefaults": [
-      {
-       "provider": "custom-harness",
-       "idleMs": 3600000,
-       "builtInMs": 3600000,
-       "unlimited": false,
-       "builtInUnlimited": false,
-       "custom": false
-      },
-      {
-       "provider": "default",
-       "idleMs": 3600000,
-       "builtInMs": 3600000,
-       "unlimited": false,
-       "builtInUnlimited": false,
-       "custom": false
-      }
-     ],
-     "minContextPercent": 10
-    },
-    "workflow": {
-     "id": "default",
-     "name": "Default",
-     "description": "Handle tasks as requested.",
-     "source": "built-in",
-     "delegatesAgents": true
-    },
-    "orchestrationMode": "balanced",
-    "pendingWorkflowSwitch": false,
-    "pendingOrchestrationModeSwitch": false,
-    "goal": null,
-    "quotaResume": null,
-    "todo": null,
-    "displayContextWindow": 128000,
-    "compactBoundaryTokens": 128000,
-    "autoCompactTokenLimit": 128000,
-    "agentWorkers": [],
-    "agentJobs": [],
-    "agentScope": null,
-    "toolMode": "full",
-    "themeEpoch": 0,
-    "transcriptSpilled": {
-     "rows": 0,
-     "epoch": 0
-    },
-    "shellJobs": {
-     "count": 0,
-     "elapsedLabel": "",
-     "jobs": [],
-     "finished": []
-    },
-    "hostShellJobs": {
-     "count": 0,
-     "elapsedLabel": "",
-     "jobs": [],
-     "finished": []
-    },
-    "remoteEnabled": false,
-    "remoteSessionId": null
-   }
-  },
-  {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
-   "frameSource": "live",
-   "snapshot": {
-    "items": [
-     {
-      "kind": "user",
-      "id": "sub-notify-allow-unknown-id",
-      "text": "HOLD-ASK read the file of another approval",
-      "at": 1900000002000,
-      "modelId": "harness-model",
-      "model": "harness-model",
-      "provider": "custom-harness",
-      "agent": "Default",
-      "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
-      "device": "Phone A"
-     },
-     {
-      "kind": "tool",
-      "id": "it_f5863baf_2",
-      "name": "__aggregate__",
-      "args": {
-       "categoryOrder": [
-        "Read|Reading|Read|file|files"
-       ]
-      },
-      "count": 1,
-      "completedCount": 0,
-      "categories": {
-       "Read|Reading|Read|file|files": {
-        "key": "Read|Reading|Read|file|files",
-        "category": "Read",
-        "active": "Reading",
-        "done": "Read",
-        "noun": "file",
-        "pluralNoun": "files",
-        "effect": false,
-        "count": 1
-       }
-      },
-      "toolMembers": [
-       {
-        "kind": "tool",
-        "id": "call_hold_1",
-        "name": "read",
-        "args": {
-         "path": "ask-me.json"
-        },
-        "result": null,
-        "rawResult": null,
-        "isError": false,
-        "errorCount": 0,
-        "callErrorCount": 0,
-        "exitErrorCount": 0,
-        "count": 1,
-        "completedCount": 0,
-        "headerFinalized": false,
-        "startedAt": 1900000002000
-       }
-      ],
-      "aggregate": true,
-      "result": null,
-      "rawResult": null,
-      "isError": false,
-      "expanded": false,
-      "headerFinalized": false,
-      "startedAt": 1900000002000,
-      "deferredDisplayReady": true
-     }
-    ],
-    "transcriptViewItems": null,
-    "transcriptViewRevision": 0,
-    "transcriptHistoryBefore": false,
-    "transcriptHistoryAfter": false,
-    "transcriptArchive": null,
-    "structureRevision": 2,
-    "streamingTail": null,
-    "toasts": [],
-    "progressHint": null,
-    "busy": true,
-    "commandBusy": false,
-    "commandStatus": null,
-    "spinner": {
-     "active": true,
-     "verb": "Architecting",
-     "startedAt": 1900000002000,
-     "responseLength": 0,
-     "inputTokens": 10,
-     "outputTokens": 2,
-     "mode": "tool-use"
-    },
-    "queued": [],
-    "thinking": null,
-    "toolApproval": {
-     "id": "it_f5863baf_1",
-     "name": "read",
-     "kind": "approval",
-     "args": {
-      "path": "ask-me.json"
-     },
-     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
-     "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook rule for read",
-     "requestedAt": 1900000002000,
-     "timeoutMs": null,
-     "expiresAt": null,
-     "remember": [
-      "once",
-      "session",
-      "always"
-     ],
-     "agentId": "lead",
-     "grantAction": "tool:read"
-    },
-    "toolApprovalsWaiting": 0,
-    "toolApprovalResult": null,
-    "promptRestore": null,
-    "lastTurn": null,
-    "stats": {
-     "inputTokens": 10,
-     "outputTokens": 2,
-     "cachedTokens": 0,
-     "cacheWriteTokens": 0,
-     "promptTokens": 10,
-     "latestInputTokens": 10,
-     "latestOutputTokens": 2,
-     "latestCachedTokens": 0,
-     "latestCacheWriteTokens": 0,
-     "latestPromptTokens": 10,
-     "costUsd": 0,
-     "turns": 0,
-     "currentContextTokens": 10,
-     "currentEstimatedContextTokens": 0,
-     "currentContextSource": "last_api_request",
-     "currentContextUpdatedAt": 1900000002000,
-     "usageReadout": {
-      "input": 10,
-      "cacheRead": 0,
-      "cacheWrite": 0,
-      "output": 2,
-      "requestOutputTokens": 0,
-      "requestMs": 0
-     }
-    },
-    "activeToolSummary": null,
-    "activeTools": null,
-    "promptHistoryList": [
-     "HOLD-ASK read the file of another approval"
-    ],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -1436,7 +1309,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -1495,7 +1368,7 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210"
+     "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4"
     },
     "toolMode": "full",
     "themeEpoch": 0,
@@ -1520,73 +1393,21 @@
    }
   },
   {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-notify-allow-unknown-id",
-      "text": "HOLD-ASK read the file of another approval",
+      "id": "sub-running-steering-queued",
+      "text": "HOLD-EMPTY first prompt",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
+      "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
       "device": "Phone A"
-     },
-     {
-      "kind": "tool",
-      "id": "it_f5863baf_2",
-      "name": "__aggregate__",
-      "args": {
-       "categoryOrder": [
-        "Read|Reading|Read|file|files"
-       ]
-      },
-      "count": 1,
-      "completedCount": 0,
-      "categories": {
-       "Read|Reading|Read|file|files": {
-        "key": "Read|Reading|Read|file|files",
-        "category": "Read",
-        "active": "Reading",
-        "done": "Read",
-        "noun": "file",
-        "pluralNoun": "files",
-        "effect": false,
-        "count": 1
-       }
-      },
-      "toolMembers": [
-       {
-        "kind": "tool",
-        "id": "call_hold_1",
-        "name": "read",
-        "args": {
-         "path": "ask-me.json"
-        },
-        "result": null,
-        "rawResult": null,
-        "isError": false,
-        "errorCount": 0,
-        "callErrorCount": 0,
-        "exitErrorCount": 0,
-        "count": 1,
-        "completedCount": 0,
-        "headerFinalized": false,
-        "startedAt": 1900000002000
-       }
-      ],
-      "aggregate": true,
-      "result": null,
-      "rawResult": null,
-      "isError": false,
-      "expanded": false,
-      "headerFinalized": false,
-      "startedAt": 1900000002000,
-      "deferredDisplayReady": true
      }
     ],
     "transcriptViewItems": null,
@@ -1594,7 +1415,7 @@
     "transcriptHistoryBefore": false,
     "transcriptHistoryAfter": false,
     "transcriptArchive": null,
-    "structureRevision": 2,
+    "structureRevision": 1,
     "streamingTail": null,
     "toasts": [],
     "progressHint": null,
@@ -1606,70 +1427,42 @@
      "verb": "Architecting",
      "startedAt": 1900000002000,
      "responseLength": 0,
-     "inputTokens": 10,
-     "outputTokens": 2,
-     "mode": "tool-use"
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
     },
     "queued": [],
     "thinking": null,
-    "toolApproval": {
-     "id": "it_f5863baf_1",
-     "name": "read",
-     "kind": "approval",
-     "args": {
-      "path": "ask-me.json"
-     },
-     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
-     "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook rule for read",
-     "requestedAt": 1900000002000,
-     "timeoutMs": null,
-     "expiresAt": null,
-     "remember": [
-      "once",
-      "session",
-      "always"
-     ],
-     "agentId": "lead",
-     "grantAction": "tool:read"
-    },
+    "toolApproval": null,
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
     "promptRestore": null,
     "lastTurn": null,
     "stats": {
-     "inputTokens": 10,
-     "outputTokens": 2,
+     "inputTokens": 0,
+     "outputTokens": 0,
      "cachedTokens": 0,
      "cacheWriteTokens": 0,
-     "promptTokens": 10,
-     "latestInputTokens": 10,
-     "latestOutputTokens": 2,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
      "latestCachedTokens": 0,
      "latestCacheWriteTokens": 0,
-     "latestPromptTokens": 10,
+     "latestPromptTokens": 0,
      "costUsd": 0,
      "turns": 0,
-     "currentContextTokens": 10,
+     "currentContextTokens": null,
      "currentEstimatedContextTokens": 0,
-     "currentContextSource": "last_api_request",
-     "currentContextUpdatedAt": 1900000002000,
-     "usageReadout": {
-      "input": 10,
-      "cacheRead": 0,
-      "cacheWrite": 0,
-      "output": 2,
-      "requestOutputTokens": 0,
-      "requestMs": 0
-     }
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
     },
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-ASK read the file of another approval"
+     "HOLD-EMPTY first prompt"
     ],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -1687,7 +1480,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -1746,7 +1539,7 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210"
+     "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4"
     },
     "toolMode": "full",
     "themeEpoch": 0,
@@ -1776,73 +1569,21 @@
    }
   },
   {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-notify-allow-unknown-id",
-      "text": "HOLD-ASK read the file of another approval",
+      "id": "sub-running-steering-queued",
+      "text": "HOLD-EMPTY first prompt",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
+      "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
       "device": "Phone A"
-     },
-     {
-      "kind": "tool",
-      "id": "it_f5863baf_2",
-      "name": "__aggregate__",
-      "args": {
-       "categoryOrder": [
-        "Read|Reading|Read|file|files"
-       ]
-      },
-      "count": 1,
-      "completedCount": 0,
-      "categories": {
-       "Read|Reading|Read|file|files": {
-        "key": "Read|Reading|Read|file|files",
-        "category": "Read",
-        "active": "Reading",
-        "done": "Read",
-        "noun": "file",
-        "pluralNoun": "files",
-        "effect": false,
-        "count": 1
-       }
-      },
-      "toolMembers": [
-       {
-        "kind": "tool",
-        "id": "call_hold_1",
-        "name": "read",
-        "args": {
-         "path": "ask-me.json"
-        },
-        "result": null,
-        "rawResult": null,
-        "isError": false,
-        "errorCount": 0,
-        "callErrorCount": 0,
-        "exitErrorCount": 0,
-        "count": 1,
-        "completedCount": 0,
-        "headerFinalized": false,
-        "startedAt": 1900000002000
-       }
-      ],
-      "aggregate": true,
-      "result": null,
-      "rawResult": null,
-      "isError": false,
-      "expanded": false,
-      "headerFinalized": false,
-      "startedAt": 1900000002000,
-      "deferredDisplayReady": true
      }
     ],
     "transcriptViewItems": null,
@@ -1850,7 +1591,7 @@
     "transcriptHistoryBefore": false,
     "transcriptHistoryAfter": false,
     "transcriptArchive": null,
-    "structureRevision": 2,
+    "structureRevision": 1,
     "streamingTail": null,
     "toasts": [],
     "progressHint": null,
@@ -1862,70 +1603,42 @@
      "verb": "Architecting",
      "startedAt": 1900000002000,
      "responseLength": 0,
-     "inputTokens": 10,
-     "outputTokens": 2,
-     "mode": "tool-use"
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
     },
     "queued": [],
     "thinking": null,
-    "toolApproval": {
-     "id": "it_f5863baf_1",
-     "name": "read",
-     "kind": "approval",
-     "args": {
-      "path": "ask-me.json"
-     },
-     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
-     "toolCallId": "call_hold_1",
-     "reason": "approval requested by hook rule for read",
-     "requestedAt": 1900000002000,
-     "timeoutMs": null,
-     "expiresAt": null,
-     "remember": [
-      "once",
-      "session",
-      "always"
-     ],
-     "agentId": "lead",
-     "grantAction": "tool:read"
-    },
+    "toolApproval": null,
     "toolApprovalsWaiting": 0,
     "toolApprovalResult": null,
     "promptRestore": null,
     "lastTurn": null,
     "stats": {
-     "inputTokens": 10,
-     "outputTokens": 2,
+     "inputTokens": 0,
+     "outputTokens": 0,
      "cachedTokens": 0,
      "cacheWriteTokens": 0,
-     "promptTokens": 10,
-     "latestInputTokens": 10,
-     "latestOutputTokens": 2,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
      "latestCachedTokens": 0,
      "latestCacheWriteTokens": 0,
-     "latestPromptTokens": 10,
+     "latestPromptTokens": 0,
      "costUsd": 0,
      "turns": 0,
-     "currentContextTokens": 10,
+     "currentContextTokens": null,
      "currentEstimatedContextTokens": 0,
-     "currentContextSource": "last_api_request",
-     "currentContextUpdatedAt": 1900000002000,
-     "usageReadout": {
-      "input": 10,
-      "cacheRead": 0,
-      "cacheWrite": 0,
-      "output": 2,
-      "requestOutputTokens": 0,
-      "requestMs": 0
-     }
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
     },
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-ASK read the file of another approval"
+     "HOLD-EMPTY first prompt"
     ],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -1943,7 +1656,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -2002,7 +1715,193 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210"
+     "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-running-steering-queued",
+      "text": "HOLD-EMPTY first prompt",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
+    },
+    "queued": [
+     {
+      "id": "sub-running-steering-queued-2",
+      "submittedAt": 1900000004000,
+      "text": "and also this",
+      "displayText": "and also this",
+      "mode": "prompt",
+      "priority": "next",
+      "device": "Phone A"
+     }
+    ],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-EMPTY first prompt"
+    ],
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 128000,
+    "compactBoundaryTokens": 128000,
+    "autoCompactTokenLimit": 128000,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4"
     },
     "toolMode": "full",
     "themeEpoch": 0,
@@ -2033,140 +1932,104 @@
   },
   {
    "kind": "reply",
-   "input": "phone.answerApprovalNotification 0 allow not-the-shown-approval",
-   "reply": "open"
+   "input": "phone.submitToSession",
+   "reply": true
   },
   {
    "kind": "reply",
-   "input": "phone.answerApprovalNotification 1 deny not-the-shown-approval",
-   "reply": "settled"
+   "input": "phone.abortSession",
+   "reply": {
+    "aborted": true,
+    "restoreText": "",
+    "pastedImages": null,
+    "pastedTexts": null,
+    "discardPastedImages": null,
+    "discardPastedTexts": null,
+    "restoredSubmissionIds": []
+   }
   },
   {
-   "kind": "reply",
-   "input": "phone.answerApprovalNotification 2 allow shown",
-   "reply": "answered"
-  },
-  {
-   "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+   "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
    "frameSource": "live",
    "snapshot": {
     "items": [
      {
       "kind": "user",
-      "id": "sub-notify-allow-unknown-id",
-      "text": "HOLD-ASK read the file of another approval",
+      "id": "sub-running-steering-queued",
+      "text": "HOLD-EMPTY first prompt",
       "at": 1900000002000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
-      "messageId": "msg_4c45dd4c3711433a98df06d57addd603",
+      "messageId": "msg_c06b3a43a66b4ee783efa03eec5ea88d",
       "device": "Phone A"
-     },
-     {
-      "kind": "tool",
-      "id": "it_f5863baf_2",
-      "name": "__aggregate__",
-      "args": {
-       "categoryOrder": [
-        "Read|Reading|Read|file|files"
-       ]
-      },
-      "count": 1,
-      "completedCount": 1,
-      "categories": {
-       "Read|Reading|Read|file|files": {
-        "key": "Read|Reading|Read|file|files",
-        "category": "Read",
-        "active": "Reading",
-        "done": "Read",
-        "noun": "file",
-        "pluralNoun": "files",
-        "effect": false,
-        "count": 1
-       }
-      },
-      "toolMembers": [
-       {
-        "kind": "tool",
-        "id": "call_hold_1",
-        "name": "read",
-        "args": {
-         "path": "ask-me.json"
-        },
-        "result": "[lines 1-1]\n{\"asked\":true}\n[lines 1-1 of 1]",
-        "rawResult": "[lines 1-1]\n{\"asked\":true}\n[lines 1-1 of 1]",
-        "isError": false,
-        "errorCount": 0,
-        "callErrorCount": 0,
-        "exitErrorCount": 0,
-        "count": 1,
-        "completedCount": 1,
-        "headerFinalized": true,
-        "startedAt": 1900000002000,
-        "completedAt": 1900000006000
-       }
-      ],
-      "aggregate": true,
-      "result": "3 lines",
-      "rawResult": "1. read\n[lines 1-1]\n{\"asked\":true}\n[lines 1-1 of 1]",
-      "isError": false,
-      "expanded": false,
-      "headerFinalized": true,
-      "startedAt": 1900000002000,
-      "deferredDisplayReady": true,
-      "text": "3 lines",
-      "errorCount": 0,
-      "callErrorCount": 0,
-      "exitErrorCount": 0,
-      "completedAt": 1900000006000,
-      "doneCategories": {
-       "Read|Reading|Read|file|files": {
-        "key": "Read|Reading|Read|file|files",
-        "category": "Read",
-        "active": "Reading",
-        "done": "Read",
-        "noun": "file",
-        "pluralNoun": "files",
-        "effect": false,
-        "count": 1
-       }
-      }
-     },
-     {
-      "kind": "assistant",
-      "id": "it_f5863baf_3",
-      "text": "ok",
-      "streaming": false,
-      "at": 1900000006000,
-      "messageId": "msg_2d833ffc4fd04a90af453372d7d02df6",
-      "modelId": "harness-model",
-      "model": "harness-model",
-      "provider": "custom-harness",
-      "agent": "Default",
-      "device": "Phone A",
-      "completionVerb": "Mapped",
-      "attemptId": "5275232d-ef84-4e52-a279-149ff04c9230"
      },
      {
       "kind": "turndone",
-      "id": "it_f5863baf_4",
-      "checkpointId": "sub-notify-allow-unknown-id",
-      "elapsedMs": 4000,
-      "status": "done",
-      "finalAssistantId": "it_f5863baf_3",
-      "outputTokens": 4,
+      "id": "it_368ca4dd_1",
+      "checkpointId": "sub-running-steering-queued",
+      "elapsedMs": 3000,
+      "status": "cancelled",
+      "outputTokens": 0,
       "thinkingElapsedMs": 0,
-      "toolCount": 1,
+      "toolCount": 0,
       "verb": "Mapped",
-      "at": 1900000006000,
+      "at": 1900000005000,
       "modelId": "harness-model",
       "model": "harness-model",
       "provider": "custom-harness",
       "agent": "Default",
       "device": "Phone A",
       "completionVerb": "Mapped",
-      "attemptId": "5275232d-ef84-4e52-a279-149ff04c9230"
+      "attemptId": "4b0399f5-3877-4d71-b7c8-31cf16f23975"
+     },
+     {
+      "kind": "user",
+      "id": "sub-running-steering-queued-2",
+      "text": "and also this",
+      "at": 1900000005000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_2d1b7ec80aa642fa8b62b7d588c22f5e",
+      "device": "Phone A"
+     },
+     {
+      "kind": "assistant",
+      "id": "it_368ca4dd_2",
+      "text": "ok",
+      "streaming": false,
+      "at": 1900000005000,
+      "messageId": "msg_ceec4500ddae416abf97ef9aac3d359a",
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "device": "Phone A",
+      "completionVerb": "Wrapped",
+      "attemptId": "7ce2e331-e910-449a-959f-99d75164a51e"
+     },
+     {
+      "kind": "turndone",
+      "id": "it_368ca4dd_3",
+      "checkpointId": "sub-running-steering-queued-2",
+      "elapsedMs": 0,
+      "status": "done",
+      "finalAssistantId": "it_368ca4dd_2",
+      "outputTokens": 2,
+      "thinkingElapsedMs": 0,
+      "toolCount": 0,
+      "verb": "Wrapped",
+      "at": 1900000005000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "device": "Phone A",
+      "completionVerb": "Wrapped",
+      "attemptId": "7ce2e331-e910-449a-959f-99d75164a51e"
      }
     ],
     "transcriptViewItems": null,
@@ -2174,7 +2037,7 @@
     "transcriptHistoryBefore": false,
     "transcriptHistoryAfter": false,
     "transcriptArchive": null,
-    "structureRevision": 3,
+    "structureRevision": 4,
     "streamingTail": null,
     "toasts": [],
     "progressHint": null,
@@ -2186,36 +2049,31 @@
     "thinking": null,
     "toolApproval": null,
     "toolApprovalsWaiting": 0,
-    "toolApprovalResult": {
-     "id": "it_f5863baf_1",
-     "approved": true,
-     "device": "Phone A",
-     "at": 1900000006000
-    },
+    "toolApprovalResult": null,
     "promptRestore": null,
     "lastTurn": null,
     "stats": {
-     "inputTokens": 20,
-     "outputTokens": 4,
+     "inputTokens": 10,
+     "outputTokens": 2,
      "cachedTokens": 0,
      "cacheWriteTokens": 0,
-     "promptTokens": 20,
+     "promptTokens": 10,
      "latestInputTokens": 10,
      "latestOutputTokens": 2,
      "latestCachedTokens": 0,
      "latestCacheWriteTokens": 0,
      "latestPromptTokens": 10,
      "costUsd": 0,
-     "turns": 1,
+     "turns": 2,
      "currentContextTokens": 10,
      "currentEstimatedContextTokens": 0,
      "currentContextSource": "last_api_request",
-     "currentContextUpdatedAt": 1900000006000,
+     "currentContextUpdatedAt": 1900000005000,
      "usageReadout": {
-      "input": 20,
+      "input": 10,
       "cacheRead": 0,
       "cacheWrite": 0,
-      "output": 4,
+      "output": 2,
       "requestOutputTokens": 0,
       "requestMs": 0
      }
@@ -2223,9 +2081,10 @@
     "activeToolSummary": null,
     "activeTools": null,
     "promptHistoryList": [
-     "HOLD-ASK read the file of another approval"
+     "and also this",
+     "HOLD-EMPTY first prompt"
     ],
-    "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+    "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
     "sessionForkedFrom": null,
     "clientHostPid": "<pid:daemon>",
     "model": "harness-model",
@@ -2243,7 +2102,7 @@
     "contextWindow": 128000,
     "rawContextWindow": 128000,
     "effectiveContextWindowPercent": 100,
-    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-steering-queued\\ws\\a",
     "workspace": null,
     "systemShell": {
      "command": "",
@@ -2302,7 +2161,7 @@
     "agentWorkers": [],
     "agentJobs": [],
     "agentScope": {
-     "sessionId": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210"
+     "sessionId": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4"
     },
     "toolMode": "full",
     "themeEpoch": 0,
