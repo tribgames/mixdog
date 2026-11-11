@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-model-catalog-projection',
   net: false,
   entry: 'model-catalog-projection.mjs projectModelsDevCatalog(catalog) / projectLitellmCatalog(catalog) and model-list-sanitize.mjs sanitizeModelList(models, { provider, _testCatalog }). Not run: a catalog fetch.',
-  replay: 'mixdog-ai catalog::lookup projection (projection.rs:98, :158): feed `input.source` (the published payload) and compare the projected `result` whole, key presence included; the sanitizer verdict (`survivors`) is the same with the full and the projected catalog.',
+  compare: 'mixdog-ai catalog::lookup projection (projection.rs:98, :158): feed `input.source` (the published payload) and compare the projected `result` whole, key presence included; the sanitizer verdict (`survivors`) is the same with the full and the projected catalog.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::catalog::lookup project_litellm and project_models_dev (catalog/lookup/projection.rs:98, :158).",
 });
 const { projectLitellmCatalog, projectModelsDevCatalog } = await rec.P('agent/orchestrator/providers/model-catalog-projection.mjs');
 const { sanitizeModelList } = await rec.P('agent/orchestrator/providers/model-list-sanitize.mjs');
