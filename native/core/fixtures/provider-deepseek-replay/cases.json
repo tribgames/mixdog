@@ -1,0 +1,921 @@
+{
+  "set": "provider-deepseek-replay",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "empty-vs-absent-reasoning:empty",
+      "source": "src/runtime/agent/orchestrator/providers/deepseek-replay.test.mjs:12",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "answer",
+                  "reasoning_content": ""
+                },
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "answer",
+          "model": "deepseek-v4-pro",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "stop",
+          "reasoningContent": "",
+          "usage": {
+            "$exact": "undefined"
+          },
+          "generationMs": 0
+        },
+        "messageHasReasoningContent": true
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "deepseek",
+            {
+              "apiKey": "fixture",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Check."
+              }
+            ],
+            "deepseek-v4-pro",
+            [],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.deepseek.com",
+          "path": "/chat/completions",
+          "headers": [
+            [
+              "host",
+              "api.deepseek.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "129"
+            ]
+          ],
+          "body": "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"Check.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"choices\":[{\"delta\":{\"content\":\"answer\",\"reasoning_content\":\"\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "empty-vs-absent-reasoning:absent",
+      "source": "src/runtime/agent/orchestrator/providers/deepseek-replay.test.mjs:12",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "answer"
+                },
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "answer",
+          "model": "deepseek-v4-pro",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "stop",
+          "usage": {
+            "$exact": "undefined"
+          },
+          "generationMs": 0
+        },
+        "messageHasReasoningContent": false
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "deepseek",
+            {
+              "apiKey": "fixture",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Check."
+              }
+            ],
+            "deepseek-v4-pro",
+            [],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.deepseek.com",
+          "path": "/chat/completions",
+          "headers": [
+            [
+              "host",
+              "api.deepseek.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "129"
+            ]
+          ],
+          "body": "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"Check.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "empty-reasoning-through-tool-history",
+      "source": "src/runtime/agent/orchestrator/providers/deepseek-replay.test.mjs:32",
+      "input": {
+        "replies": [
+          [
+            {
+              "model": "deepseek-v4-pro",
+              "choices": [
+                {
+                  "delta": {
+                    "role": "assistant",
+                    "reasoning_content": "",
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_empty",
+                        "type": "function",
+                        "function": {
+                          "name": "missing_fixture_tool",
+                          "arguments": "{}"
+                        }
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "model": "deepseek-v4-pro",
+              "choices": [
+                {
+                  "delta": {
+                    "content": "done",
+                    "reasoning_content": ""
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "done",
+          "model": "deepseek-v4-pro",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "stop",
+          "reasoningContent": "",
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "reasoningTokens": null,
+            "reasoningTokensComplete": false,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "cacheWrite1hTokens": 0,
+            "promptTokens": 0,
+            "raw": {
+              "$exact": "undefined"
+            }
+          },
+          "generationMs": 0,
+          "lastTurnUsage": {
+            "$exact": "undefined"
+          },
+          "lastSendTools": [],
+          "firstTurnUsage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "reasoningTokens": null,
+            "reasoningTokensComplete": false,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "cacheWrite1hTokens": 0,
+            "promptTokens": 0,
+            "raw": {
+              "$exact": "undefined"
+            }
+          },
+          "iterations": 2,
+          "toolCallsTotal": 1,
+          "providerState": {
+            "$exact": "undefined"
+          },
+          "providerStateUpdated": false,
+          "terminationReason": {
+            "$exact": "undefined"
+          },
+          "providerContinuations": 0
+        },
+        "committed": [
+          {
+            "role": "assistant",
+            "createdAt": 1794225600000,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_empty",
+                "name": "missing_fixture_tool",
+                "arguments": {}
+              }
+            ],
+            "reasoningContent": ""
+          }
+        ],
+        "committedHasReasoningContent": true,
+        "replayDeepseek": [
+          {
+            "role": "user",
+            "content": "Check."
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_empty",
+                "type": "function",
+                "function": {
+                  "name": "missing_fixture_tool",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": ""
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_empty",
+            "content": "Error: unknown tool \"missing_fixture_tool\""
+          },
+          {
+            "role": "assistant",
+            "content": "done",
+            "reasoning_content": ""
+          }
+        ],
+        "replayOpenrouter": [
+          {
+            "role": "user",
+            "content": "Check."
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_empty",
+                "type": "function",
+                "function": {
+                  "name": "missing_fixture_tool",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_empty",
+            "content": "Error: unknown tool \"missing_fixture_tool\""
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "deepseek",
+            {
+              "apiKey": "fixture",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/agent-loop.mjs.agentLoop",
+          "args": [
+            {
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "deepseek",
+                {
+                  "apiKey": "fixture",
+                  "preconnect": false
+                }
+              ]
+            },
+            [
+              {
+                "role": "user",
+                "content": "Check."
+              }
+            ],
+            "deepseek-v4-pro",
+            [],
+            null,
+            "C:\\Users\\tempe\\side\\pool\\w22",
+            {
+              "session": {
+                "id": "empty-reasoning-fixture",
+                "owner": "agent",
+                "agent": "worker",
+                "contextWindow": 200000,
+                "rawContextWindow": 200000,
+                "compaction": {
+                  "auto": false
+                }
+              },
+              "onAssistantMessageCommitted": {
+                "callback": "onAssistantMessageCommitted"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Check."
+              }
+            ],
+            "deepseek-v4-pro",
+            {
+              "$exact": "undefined"
+            },
+            {
+              "session": {
+                "id": "empty-reasoning-fixture",
+                "owner": "agent",
+                "agent": "worker",
+                "contextWindow": 200000,
+                "rawContextWindow": 200000,
+                "compaction": {
+                  "auto": false
+                }
+              },
+              "onAssistantMessageCommitted": {
+                "callback": "onAssistantMessageCommitted"
+              },
+              "iteration": 1,
+              "providerState": {
+                "$exact": "undefined"
+              },
+              "providerToolSnapshotAuthoritative": true,
+              "providerNativeToolPrefixCount": 0,
+              "onToolExcluded": {
+                "callback": ""
+              },
+              "onToolCall": {
+                "callback": ""
+              },
+              "_stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                },
+                "firstStallAt": 0
+              },
+              "admissionOwner": null
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Check."
+              },
+              {
+                "role": "assistant",
+                "createdAt": 1794225600000,
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_empty",
+                    "name": "missing_fixture_tool",
+                    "arguments": {}
+                  }
+                ],
+                "reasoningContent": ""
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"missing_fixture_tool\"",
+                "toolCallId": "call_empty",
+                "toolKind": "error",
+                "toolTiming": {
+                  "dispatchStartedAt": 1794225600000,
+                  "executionStartedAt": 1794225600000,
+                  "executionCompletedAt": 1794225600000,
+                  "postprocessStartedAt": 1794225600000,
+                  "resultCompletedAt": 1794225600000
+                }
+              }
+            ],
+            "deepseek-v4-pro",
+            {
+              "$exact": "undefined"
+            },
+            {
+              "session": {
+                "id": "empty-reasoning-fixture",
+                "owner": "agent",
+                "agent": "worker",
+                "contextWindow": 200000,
+                "rawContextWindow": 200000,
+                "compaction": {
+                  "auto": false
+                },
+                "_providerPrefixGuardState": {
+                  "messageHashes": [
+                    "1d5b8b24601ad816e3c663eb23c564f5c38385263d2e16a6bfae84d911931c69"
+                  ],
+                  "requestPrefixHash": "80ec2a40e1e101d7f7fab84f307011fb04c7c486766250b34480fabca10212ca",
+                  "provider": "deepseek",
+                  "model": "deepseek-v4-pro",
+                  "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                  "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+                },
+                "lastProviderSendAt": 1794225600000,
+                "_repeatFailGuard": {
+                  "sig": "missing_fixture_tool:{}",
+                  "count": 1
+                },
+                "_repeatFailHistory": [
+                  "missing_fixture_tool:{}"
+                ],
+                "_repeatArgShapeFailGuard": null,
+                "todoCheck": {
+                  "reminders": 0,
+                  "awaitingProgress": false,
+                  "auditAsked": false
+                }
+              },
+              "onAssistantMessageCommitted": {
+                "callback": "onAssistantMessageCommitted"
+              },
+              "iteration": 2,
+              "providerState": {
+                "$exact": "undefined"
+              },
+              "providerToolSnapshotAuthoritative": true,
+              "providerNativeToolPrefixCount": 0,
+              "onToolExcluded": {
+                "callback": ""
+              },
+              "onToolCall": {
+                "callback": ""
+              },
+              "_stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                },
+                "firstStallAt": 0
+              },
+              "admissionOwner": null
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs.toOpenAIMessages",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Check."
+              },
+              {
+                "role": "assistant",
+                "createdAt": 1794225600000,
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_empty",
+                    "name": "missing_fixture_tool",
+                    "arguments": {}
+                  }
+                ],
+                "reasoningContent": ""
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"missing_fixture_tool\"",
+                "toolCallId": "call_empty",
+                "toolKind": "error",
+                "toolTiming": {
+                  "dispatchStartedAt": 1794225600000,
+                  "executionStartedAt": 1794225600000,
+                  "executionCompletedAt": 1794225600000,
+                  "postprocessStartedAt": 1794225600000,
+                  "resultCompletedAt": 1794225600000
+                }
+              },
+              {
+                "role": "assistant",
+                "content": "done",
+                "reasoningContent": ""
+              }
+            ],
+            "deepseek",
+            {
+              "replaysReasoningContent": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs.toOpenAIMessages",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Check."
+              },
+              {
+                "role": "assistant",
+                "createdAt": 1794225600000,
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_empty",
+                    "name": "missing_fixture_tool",
+                    "arguments": {}
+                  }
+                ],
+                "reasoningContent": ""
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"missing_fixture_tool\"",
+                "toolCallId": "call_empty",
+                "toolKind": "error",
+                "toolTiming": {
+                  "dispatchStartedAt": 1794225600000,
+                  "executionStartedAt": 1794225600000,
+                  "executionCompletedAt": 1794225600000,
+                  "postprocessStartedAt": 1794225600000,
+                  "resultCompletedAt": 1794225600000
+                }
+              },
+              {
+                "role": "assistant",
+                "content": "done",
+                "reasoningContent": ""
+              }
+            ],
+            "openrouter"
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.deepseek.com",
+          "path": "/chat/completions",
+          "headers": [
+            [
+              "host",
+              "api.deepseek.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "129"
+            ]
+          ],
+          "body": "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"Check.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"model\":\"deepseek-v4-pro\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"\",\"tool_calls\":[{\"index\":0,\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"missing_fixture_tool\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.deepseek.com",
+          "path": "/chat/completions",
+          "headers": [
+            [
+              "host",
+              "api.deepseek.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "402"
+            ]
+          ],
+          "body": "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"Check.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"missing_fixture_tool\",\"arguments\":\"{}\"}}],\"reasoning_content\":\"\"},{\"role\":\"tool\",\"tool_call_id\":\"call_empty\",\"content\":\"Error: unknown tool \\\"missing_fixture_tool\\\"\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"model\":\"deepseek-v4-pro\",\"choices\":[{\"delta\":{\"content\":\"done\",\"reasoning_content\":\"\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    }
+  ]
+}

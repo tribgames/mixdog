@@ -1,0 +1,166 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-devin-wire-request.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::devin request.rs (:78-91, :258) and connect/pb.rs: feed each scenario's `input.messages` + `input.options` (+ metadata/ids) and compare `result.hex` (the exact request bytes) and `result.activeTail`; `result.wire` is the decoded form for diagnosis; pure rows compare `result` whole.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "devin-wire-request.mjs buildDevinChatRequest(messages, { model, modelRow, metadata, cascadeId, executionId, ...options }) -> { request, activeTail }, devinHistoryBytes, devinDeterministicUuid, normalizeDevinToolCallId, responsesCallComponent; devin-wire-identity.mjs devinModelClass / isDevinGeminiModel / devinDemotedThinking; devin-wire-schema.mjs devinToolWireSchema / devinGoogleToolSchema; devin-wire-protobuf.mjs for the bytes. Not run: a send.",
+  "exclusions": [
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 4418974,
+      "path": "cases.json",
+      "sha256": "9b587e4675dbf4982c08b9c8854aeba4daa87e73d07aa586dcf5b4dbfd8dc0c7"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "request-envelope-matches-native-cli",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "assistant-source-and-uuid",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:63 deterministic_uuid(&str) -> String (pub; `pub mod request` at devin/mod.rs:17)"
+    },
+    {
+      "id": "multi-turn-history-lowering",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "foreign-tool-call-ids-normalized",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:78 normalize_tool_call_id(&str) and :148 wire_tool_call_ids (pub)"
+    },
+    {
+      "id": "responses-origin-composite-ids",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:78 normalize_tool_call_id and :148 wire_tool_call_ids (pub)"
+    },
+    {
+      "id": "composite-result-pairs-plain-responses-call",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:148 wire_tool_call_ids (pub)"
+    },
+    {
+      "id": "opaque-composite-id-never-collapses",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:148 wire_tool_call_ids (pub)"
+    },
+    {
+      "id": "foreign-reasoning-demoted",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "same-model-turn-keeps-tool-call-ids",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "unanswered-call-and-orphan-result",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:258 paired_transcript(Vec<Message>) (pub)"
+    },
+    {
+      "id": "misplaced-result-pulled-forward",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:258 paired_transcript (pub)"
+    },
+    {
+      "id": "native-thinking-same-model-demoted-otherwise",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "model-classes-and-demotion-wrappers",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "images-only-for-vision-models",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "tool-schemas-json-strings",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    },
+    {
+      "id": "tool-schema-draft-upgrade-google-projection",
+      "level": "pure",
+      "rust": "RUST WORK: the draft upgrade / Google projection of tool schemas is not a public Devin function (looked in devin/request.rs and devin/schema.rs; google::schema is a separate public module with a different signature)"
+    },
+    {
+      "id": "active-turn-excluded-from-compactable-size",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-devin-wire-request.mjs",
+  "recorderSha256": "32bcd26f2382f8d8dc0877b3d1e43a91117a2e6ea809ed853edbb9874e2a6ab4",
+  "replay": "PURE: mixdog-ai/src/providers/devin/request.rs (`pub mod request`, devin/mod.rs:17): build_chat_request :483 returns the ChatRequest (the builder result Node records); deterministic_uuid :63, normalize_tool_call_id :78, wire_tool_call_ids :148, paired_transcript :258; per case see `levels`. DevinCodec::encode returns a framed, compressed WireRequest and is NOT the recorded value. The tool-schema draft-upgrade case is Rust work.",
+  "set": "provider-devin-wire-request",
+  "totalBytes": 4418974,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

@@ -771,12 +771,14 @@ fn a_cut_tool_stream_dispatches_the_complete_calls_as_node_does() {
             _ => None,
         })
         .collect();
+    // The recording holds the thrown error whole (`lib/exact.mjs`): its own fields are under `props`.
+    let thrown = &node["error"]["props"];
     assert_eq!(json!(calls), node["dispatchedToolCalls"]);
-    assert_eq!(json!(calls), node["error"]["partialToolCalls"]);
+    assert_eq!(json!(calls), thrown["partialToolCalls"]);
     let err = decoder.finish().expect_err("a cut stream");
-    assert_eq!((node["error"]["code"].as_str(), node["error"]["truncatedStream"].as_bool()), (Some("TRUNCATED_STREAM"), Some(true)));
+    assert_eq!((node["error"]["code"].as_str(), thrown["truncatedStream"].as_bool()), (Some("TRUNCATED_STREAM"), Some(true)));
     assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
-    assert_eq!(Some(err.exposure.tool_input_cut), node["error"]["pendingToolUse"].as_bool());
+    assert_eq!(Some(err.exposure.tool_input_cut), thrown["pendingToolUse"].as_bool());
     assert_eq!(err.exposure.tool_dispatched, !calls.is_empty());
 }
 
