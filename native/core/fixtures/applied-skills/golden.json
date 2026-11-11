@@ -1,0 +1,129 @@
+{
+  "note": "recordAppliedSkills through the real persist path: the applied names, the stored user rows and the restored chips",
+  "skills": [
+    "selected-guide",
+    "other-guide"
+  ],
+  "cases": [
+    {
+      "name": "inline mentions",
+      "prompt": "Review with $selected-guide then $other-guide and $HOME.",
+      "applied": [
+        "selected-guide",
+        "other-guide"
+      ],
+      "userTranscripts": [
+        {
+          "messageId": "msg_earlier"
+        },
+        {
+          "messageId": "msg_turn",
+          "appliedSkills": [
+            "selected-guide",
+            "other-guide"
+          ]
+        },
+        null,
+        null
+      ],
+      "restoredUserRows": [
+        {
+          "messageId": "msg_earlier",
+          "appliedSkills": null
+        },
+        {
+          "messageId": "msg_turn",
+          "appliedSkills": [
+            "selected-guide",
+            "other-guide"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "header-only selection",
+      "prompt": "Skill: \"selected-guide\"\n\nDo the work.",
+      "applied": [
+        "selected-guide"
+      ],
+      "userTranscripts": [
+        {
+          "messageId": "msg_earlier"
+        },
+        {
+          "messageId": "msg_turn",
+          "appliedSkills": [
+            "selected-guide"
+          ]
+        },
+        null
+      ],
+      "restoredUserRows": [
+        {
+          "messageId": "msg_earlier",
+          "appliedSkills": null
+        },
+        {
+          "messageId": "msg_turn",
+          "appliedSkills": [
+            "selected-guide"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "queued prompt",
+      "prompt": "First task",
+      "queued": "Next: use $other-guide.",
+      "applied": [
+        "other-guide"
+      ],
+      "userTranscripts": [
+        {
+          "messageId": "msg_earlier"
+        },
+        null,
+        null
+      ],
+      "restoredUserRows": [
+        {
+          "messageId": "msg_earlier",
+          "appliedSkills": null
+        },
+        {
+          "messageId": null,
+          "appliedSkills": null
+        },
+        {
+          "messageId": "msg_queued",
+          "appliedSkills": [
+            "other-guide"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no skill named",
+      "prompt": "Nothing to load, $nobody.",
+      "applied": [],
+      "userTranscripts": [
+        {
+          "messageId": "msg_earlier"
+        },
+        {
+          "messageId": "msg_turn"
+        }
+      ],
+      "restoredUserRows": [
+        {
+          "messageId": "msg_earlier",
+          "appliedSkills": null
+        },
+        {
+          "messageId": "msg_turn",
+          "appliedSkills": null
+        }
+      ]
+    }
+  ]
+}

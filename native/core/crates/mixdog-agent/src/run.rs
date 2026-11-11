@@ -66,6 +66,9 @@ pub struct RunConfig {
     /// its durability ack (while selecting on the token), so memory never runs
     /// ahead of disk.
     pub first_request_after: Option<Ticket>,
+    /// The turn's own prompt selects skills (`runAskAgentLoop`: not an injected prompt, not a retry): the last
+    /// message is the prompt, prepared before the first request.
+    pub select_input_skills: bool,
     /// The route's provider needs the source of a read, not a receipt.
     pub read_body_required: bool,
     /// Mid-conversation effort: the route's inputs and the adapter that sets
@@ -108,6 +111,7 @@ impl RunConfig {
             escalated_max_output_tokens: None,
             continuation_no_tool_limit: 8,
             first_request_after: None,
+            select_input_skills: false,
             read_body_required: false,
             effort: None,
             step_auto_effort: None,
@@ -342,7 +346,9 @@ pub struct Run {
     pub(crate) max_output_override: Option<u32>,
     pub(crate) tool_batch_just_completed: bool,
     pub(crate) last_batch_later: bool,
-    pub(crate) pending_skill_prompts: Vec<Content>,
+    /// The prompts whose skills are prepared before the next request: the content, whether it is the turn's own
+    /// prompt, the message it is and the ticket of its commit (the stamp lands on a durable row).
+    pub(crate) pending_skill_prompts: Vec<(Content, bool, AgentMessage, Option<Ticket>)>,
     pub(crate) baseline: Option<Baseline>,
     /// The request the latest send settled on, and when its send began (`requestStartedAt`).
     pub(crate) last_request: Option<Arc<mixdog_core_api::domain::provider::ModelRequest>>,
@@ -576,9 +582,10 @@ impl Run {
             let sink = Arc::clone(&self.env.sink);
             let prompt = (!entry.task_notification).then(|| entry.content.clone());
             let (message, event) = steer::inject(entry, stage, now, move || sink.message_id());
-            self.push(message).await?;
+            let queued = message.clone();
+            let ticket = self.push(message).await?;
             if let Some(content) = prompt {
-                self.pending_skill_prompts.push(content);
+                self.pending_skill_prompts.push((content, false, queued, Some(ticket)));
             }
             self.emit(RunEvent::SteerInjected(event));
         }
@@ -654,9 +661,27 @@ impl Run {
             self.tool_batch_just_completed = false;
             self.last_batch_later = false;
         }
+        if std::mem::take(&mut self.config.select_input_skills)
+            && let Some(input) = self.messages.last()
+        {
+            self.pending_skill_prompts.insert(0, (input.message.content.clone(), true, input.clone(), None));
+        }
         if let Some(skills) = self.env.skills.clone() {
-            for content in std::mem::take(&mut self.pending_skill_prompts) {
-                skills.select(&content, &mut self.messages).await;
+            for (content, initial, message, ticket) in std::mem::take(&mut self.pending_skill_prompts) {
+                let before = self.messages.len();
+                let applied = skills.select(&content, initial, &mut self.messages).await;
+                // The selection's records join the stored conversation (`session.messages = outgoing`).
+                let added: Vec<AgentMessage> = self.messages[before..].to_vec();
+                for added in &added {
+                    self.env.sink.commit(added).await.map_err(AgentError::Commit)?;
+                }
+                if !applied.is_empty() {
+                    if let Some(ticket) = ticket {
+                        self.until_durable(ticket).await?;
+                    }
+                    self.env.sink.skills_applied(&message, &applied).await;
+                }
+                self.throw_if_aborted()?;
             }
         } else {
             self.pending_skill_prompts.clear();
