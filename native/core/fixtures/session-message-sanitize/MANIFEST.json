@@ -1,0 +1,53 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-message-sanitize.mjs --tree <tree>",
+  "entry": "Ran message-sanitize.mjs (filterModelVisibleSessionMessages), loop/steering.mjs (createSteeringDrain), provider-prefix-guard.mjs (prepareProviderPrefixGuard), manager/turn-interruption.mjs (finalizeTurnInterruptionSnapshot) and shared/task-notification-envelope.mjs on the test file's inputs. Did not run persistCompactedOutgoingAfterAskFailure (needs the store) nor a real turn.",
+  "exclusions": [
+    "meta.transcript.messageId of a drained notification (msg_ + 32 hex, random per run) is recorded as msg_<id>",
+    "object identity (assert.equal(snapshot[i], messages[i])) is recorded as identity flags: sameArray, sameElements; a Rust copy needs only equality"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 32863,
+      "path": "recording.json",
+      "sha256": "f8aaaf75fa4d803df957f4e71769e300dce9d092db227b310cacc2ab7e141505"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-message-sanitize.mjs",
+  "recorderSha256": "ebe78a0bcbdba8c3089e4fd5272baaf93b0977c52603a0d3303053df84049675",
+  "replay": "mixdog-core run_host factory.rs item commit / mixdog-agent project.rs (model rows), mixdog-agent interrupt.rs finalize_interrupted_turn and the provider prefix guard: build the same messages (texts as recorded) and compare the snapshot (element-wise identity flags aside: a Rust snapshot is a copy), the steering-drained row, guard verdicts with their error text, and the interrupted-turn messages whole.",
+  "set": "session-message-sanitize",
+  "testFile": "src/runtime/agent/orchestrator/session/manager/message-sanitize.test.mjs",
+  "totalBytes": 32863
+}
