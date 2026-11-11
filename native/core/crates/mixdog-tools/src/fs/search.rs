@@ -918,10 +918,80 @@ enum Mode {
     Count,
 }
 
+#[derive(Clone)]
 struct Hit {
     path: AbsPath,
     line: u64,
     text: String,
+}
+
+/// grep-pattern-fanout.mjs `candidateMatchTexts`: the text after every `:<digits>:` of an output line, each a
+/// possible split of `path:line:text`; the whole line when there is none.
+fn candidate_match_texts(line: &str) -> Vec<&str> {
+    static SPLIT: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r":(\d+):").expect("a fixed pattern"));
+    let mut out = Vec::new();
+    let mut at = 0;
+    // `re.lastIndex = hit.index + 1`: overlapping splits are all tried.
+    while let Some(hit) = SPLIT.find_at(line, at) {
+        out.push(&line[hit.end()..]);
+        at = hit.start() + 1;
+    }
+    if out.is_empty() {
+        out.push(line);
+    }
+    out
+}
+
+/// grep-pattern-fanout.mjs `attributeCombinedLines`: each output line goes to every pattern whose JavaScript regex
+/// matches its text; a line none matches (the regex dialects differ, or the 500-column clip cut the match off) is
+/// residual. `None` when the line's possible splits disagree on a pattern (`ambiguous`).
+fn attribute_combined(lines: &[String], regexes: &[mixdog_js::JsRegex]) -> Option<(Vec<Vec<usize>>, Vec<usize>)> {
+    let mut by_pattern = vec![Vec::new(); regexes.len()];
+    let mut residual = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let texts = candidate_match_texts(line);
+        let mut hit_any = false;
+        for (i, re) in regexes.iter().enumerate() {
+            let matched = re.is_match(texts[0]);
+            if texts[1..].iter().any(|t| re.is_match(t) != matched) {
+                return None;
+            }
+            if matched {
+                by_pattern[i].push(index);
+                hit_any = true;
+            }
+        }
+        if !hit_any {
+            residual.push(index);
+        }
+    }
+    Some((by_pattern, residual))
+}
+
+/// grep-request.mjs `resolveGrepRequest`: the non-empty patterns in NFC (`normalizeSearchPattern`), each once
+/// (`uniqueStrings`), at most the first 10 (`capGrepPatterns`, `GREP_PATTERN_ARRAY_CAP`); past 10 the answer opens with
+/// `[capped at 10 of N patterns]` (search-input-helpers.mjs `capPatternList`).
+fn pattern_list(requested: &[String]) -> (Vec<String>, String) {
+    use unicode_normalization::UnicodeNormalization;
+    const CAP: usize = 10;
+    let mut list: Vec<String> = Vec::new();
+    for p in requested.iter().filter(|p| !p.is_empty()).map(|p| p.nfc().collect::<String>()) {
+        if !list.contains(&p) {
+            list.push(p);
+        }
+    }
+    let total = list.len();
+    if total <= CAP {
+        return (list, String::new());
+    }
+    list.truncate(CAP);
+    (list, format!("[capped at {CAP} of {total} patterns]\n"))
+}
+
+/// ripgrep's `-e p1 -e p2 …`: one regex, a line kept when any pattern matches it.
+fn combined_regex(patterns: &[String]) -> String {
+    patterns.iter().map(|p| format!("(?:{p})")).collect::<Vec<_>>().join("|")
 }
 
 fn escape_glob(name: &str) -> String {
@@ -1156,32 +1226,44 @@ impl GrepTool {
                 args["path"] = JsonValue::String(one);
             }
         }
+        let (patterns, note) = pattern_list(&patterns);
         let mode = mode_of(&args);
+        Ok(format!("{note}{}", self.answer_patterns(ctx, &args, &patterns, mode, budget).await?))
+    }
+
+    /// One path's answer to its (distinct, capped) patterns.
+    async fn answer_patterns(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String], mode: Mode, budget: usize) -> Result<String, ToolError> {
+        let args = args.clone();
+        let patterns = patterns.to_vec();
         // Node `runGrepPatternFanout`: several content patterns are independent greps, one section
         // each; a match line or block an earlier pattern showed is not repeated.
         if patterns.len() > 1 && mode == Mode::Content {
             // `perPatternCharBudget` (grep-pattern-fanout.mjs).
             let per_pattern = (budget / patterns.len()).max(512);
-            let bodies = match self.combined_patterns(ctx, &args, &patterns, per_pattern).await? {
-                Some(bodies) => bodies,
+            let (bodies, residual) = match self.combined_patterns(ctx, &args, &patterns, per_pattern).await? {
+                Some(answer) => answer,
                 // `runPerPatternFanout`: each pattern an independent grep.
                 None => {
+                    if self.no_candidate_files(ctx, &args, &patterns).await? {
+                        return Ok(no_matches(true));
+                    }
                     let mut bodies = Vec::with_capacity(patterns.len());
                     for pattern in &patterns {
                         bodies.push(self.search(ctx, &args, pattern, mode, true, per_pattern).await?);
                     }
-                    bodies
+                    (bodies, Vec::new())
                 }
             };
             let mut seen = std::collections::HashSet::new();
             let bodies: Vec<String> = bodies.iter().map(|body| dedupe_fanout_match_lines(body, &mut seen)).collect();
-            return Ok(fanout_sections(Fanout::Pattern, &patterns, &bodies));
+            let mut text = fanout_sections(Fanout::Pattern, &patterns, &bodies);
+            if !residual.is_empty() {
+                // `renderCombinedSections`: lines no pattern claimed are shown, at most 40, not dropped.
+                text.push_str(&format!("\n\n# grep (unattributed matches)\n{}", residual[..residual.len().min(40)].join("\n")));
+            }
+            return Ok(text);
         }
-        let pattern = if patterns.len() == 1 {
-            patterns[0].clone()
-        } else {
-            patterns.iter().map(|p| format!("(?:{p})")).collect::<Vec<_>>().join("|")
-        };
+        let pattern = if patterns.len() == 1 { patterns[0].clone() } else { combined_regex(&patterns) };
         self.search(ctx, &args, &pattern, mode, false, budget).await
     }
 
@@ -1224,36 +1306,52 @@ impl GrepTool {
         args: &JsonValue,
         patterns: &[String],
         budget: usize,
-    ) -> Result<Option<Vec<String>>, ToolError> {
-        if patterns.iter().any(|p| mixdog_js::JsRegex::new(p, "").is_err()) {
+    ) -> Result<Option<(Vec<String>, Vec<String>)>, ToolError> {
+        // `new RegExp(p, request.caseInsensitive ? 'i' : '')`, `caseInsensitive` being `args['-i'] === true`.
+        let flags = if args.get("-i") == Some(&JsonValue::Bool(true)) { "i" } else { "" };
+        let Ok(regexes) = patterns.iter().map(|p| mixdog_js::JsRegex::new(p, flags)).collect::<Result<Vec<_>, _>>() else {
+            return Ok(None);
+        };
+        let window = Window::of(args, Mode::Content);
+        // `combinedFanoutEligible`: the automatic context travels as `-B`/`-A` (grep-request.mjs
+        // `resolveGrepContextFlags`), which the combined pass declines.
+        if window.context.is_none() {
             return Ok(None);
         }
-        let window = Window::of(args, Mode::Content);
         let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
         let cap = per_window.saturating_mul(patterns.len()).clamp(400, 4000);
-        let mut lines = std::collections::HashSet::new();
-        let mut sections = Vec::with_capacity(patterns.len());
-        for pattern in patterns {
-            let found = self.collect(ctx, args, pattern, Mode::Content, Some(cap + 1)).await?;
-            if !found.complete || !found.errors.is_empty() || found.single || found.all.len() > cap {
-                return Ok(None);
-            }
-            lines.extend(found.all.iter().map(|(_, h)| (h.path.clone(), h.line)));
-            if lines.len() > cap {
-                return Ok(None);
-            }
-            sections.push(found.all);
+        let found = self.collect(ctx, args, &combined_regex(patterns), Mode::Content, Some(cap + 1)).await?;
+        if !found.complete || !found.errors.is_empty() || found.single || found.all.len() > cap {
+            return Ok(None);
         }
+        // The stream's lines as ripgrep printed them: `path:line:text`, the path with the platform's separator, the text
+        // clipped at 500 columns.
+        let lines: Vec<String> = found
+            .all
+            .iter()
+            .map(|(label, h)| format!("{}:{}:{}", label.replace('/', std::path::MAIN_SEPARATOR_STR), h.line, clip_match_text(&h.text)))
+            .collect();
+        let Some((by_pattern, residual)) = attribute_combined(&lines, &regexes) else { return Ok(None) };
         let mut bodies = Vec::with_capacity(patterns.len());
-        for (pattern, all) in patterns.iter().zip(&sections) {
-            bodies.push(if all.is_empty() {
+        for (pattern, indices) in patterns.iter().zip(&by_pattern) {
+            bodies.push(if indices.is_empty() {
                 no_matches(true)
             } else {
+                let all: Vec<(String, Hit)> = indices.iter().map(|&i| found.all[i].clone()).collect();
                 let shape = Shape { mode: Mode::Content, single: false, fanout: true, complete: true, totals: Totals::Combined };
-                render(ctx, all, &window, shape, pattern, budget).await?
+                render(ctx, &all, &window, shape, pattern, budget).await?
             });
         }
-        Ok(Some(bodies))
+        let residual = residual.into_iter().map(|i| lines[i].clone()).collect();
+        Ok(Some((bodies, residual)))
+    }
+
+    /// grep-pattern-fanout.mjs `fanoutPrefilterCandidates`: before the per-pattern greps, one files-with-matches scan of
+    /// every pattern over a folder; when it completes with no file the call is one no-match answer. A file, a missing
+    /// path or a scan error leaves the per-pattern greps to answer.
+    async fn no_candidate_files(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String]) -> Result<bool, ToolError> {
+        let found = self.collect(ctx, args, &combined_regex(patterns), Mode::Files, Some(1)).await?;
+        Ok(found.complete && found.errors.is_empty() && !found.single && found.all.is_empty())
     }
 
     /// Every root's hits (at most `bound` in all, in scan order), labelled and sorted.
