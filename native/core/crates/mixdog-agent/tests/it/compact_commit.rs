@@ -81,6 +81,17 @@ fn the_config_keys_are_nodes() {
     assert_eq!(keys, mixdog_agent::compact::pressure::COMPACTION_CONFIG_KEYS);
 }
 
+/// compact-smoke.mjs's migration check: `normalizeCompactionConfig` drops the retired compaction types and their knobs.
+#[test]
+fn the_retired_compaction_keys_are_dropped() {
+    let legacy = serde_json::json!({ "type": "semantic", "compactType": "recall-fasttrack", "semantic": "auto", "prune": true, "tailTurns": 5, "auto": true });
+    let migrated = mixdog_agent::compact::settings::normalize_compaction(Some(&legacy));
+    for key in ["type", "compactType", "semantic", "prune", "tailTurns"] {
+        assert!(!migrated.contains_key(key), "{key} kept: {migrated:?}");
+    }
+    assert_eq!(migrated.get("auto"), Some(&Value::Bool(true)));
+}
+
 #[test]
 fn the_commit_equals_nodes() {
     let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
