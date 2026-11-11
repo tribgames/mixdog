@@ -415,7 +415,22 @@ impl ToolFailureLog for RunFailureLog {
     }
 
     fn tool(&self, call: TracedCall) {
-        let TracedCall { iteration, tool_call_id, tool_name, tool_kind, tool_ms, tool_args, model, result_kind, result, timing, .. } = call;
+        let TracedCall {
+            iteration,
+            tool_call_id,
+            tool_name,
+            tool_kind,
+            tool_ms,
+            tool_args,
+            model,
+            result_kind,
+            result,
+            timing,
+            execution_intervals,
+            result_telemetry,
+            local_search,
+            ..
+        } = call;
         let mut args = json!({
             "sessionId": self.session_id,
             "iteration": iteration,
@@ -441,7 +456,16 @@ impl ToolFailureLog for RunFailureLog {
                 "postprocessStartedAt": t.postprocess_started_at,
                 "resultCompletedAt": t.result_completed_at,
             });
-            args["executionIntervals"] = json!([{ "started_at_ms": t.execution_started_at, "completed_at_ms": t.execution_completed_at }]);
+        }
+        args["executionIntervals"] = execution_intervals
+            .iter()
+            .map(|(started, completed)| json!({ "started_at_ms": started, "completed_at_ms": completed }))
+            .collect();
+        if let Some(telemetry) = result_telemetry {
+            args["resultTelemetry"] = telemetry;
+        }
+        if let Some(search) = local_search {
+            args["localSearchTelemetry"] = search;
         }
         if let Value::Object(args) = args {
             self.writer.record_tool(&args);

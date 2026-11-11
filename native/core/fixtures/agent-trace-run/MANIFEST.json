@@ -1,24 +1,24 @@
 {
-  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --graph-bin <mixdog-graph executable>",
   "excluded": [
     "agent-trace rows of kinds other than batch, tool and tool_slow (context: the request's context accounting; usage: the usage log): written by other call sites than the tool batch; their count per kind is recorded (others) and not compared"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 9703,
+      "bytes": 16911,
       "path": "golden.json",
-      "sha256": "16022382d43e18ae06539d8648ff5aa77fd6eeb7cc269a26bc0104ed3af95660"
+      "sha256": "a3f2182902382c7fdf6213fbbd9f134606ef363eb06c53843accd06302e8ed56"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/agent-trace-run-rows.mjs",
-      "sha256": "14b0241b423269fb5a473fbc520e8aa2a1fcac22c757845e126a86c5f5076c74"
+      "sha256": "4caa9b86cc209dbc47c08420a1409d4298bcdadaba660929f26b3bedd0aa6dbd"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/agent-trace-run-scenarios.mjs",
-      "sha256": "104af93f584f8a393260144b0882998280b046ed99e0d05397c68c3d089103bf"
+      "sha256": "b7f6c575fbab5f3e2e5684674d35cc4f77dabea5b699a5fc6e1ded4b7dbb391a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -43,6 +43,7 @@
     "ts and each execution_intervals mark",
     "batch ids (v4 UUIDs, by the order of their batch rows)",
     "tool_ms and each payload.timing value",
+    "each local_search value named *_ms",
     "workspace",
     "data folder (tool-failures rows)"
   ],
@@ -68,7 +69,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-trace-run.mjs",
-  "recorderSha256": "2427bb5c373e25fc8ba08b8ef783a16f8370545ef2357e57095a01266d50ec00",
+  "recorderSha256": "2db3bee626bdd4d228a99aee5d23cb2b424d60935cbdeae4957daf100fe83347",
   "set": "agent-trace-run",
   "syntheticInputs": {
     "environment": [
@@ -83,14 +84,25 @@
           "MIXDOG_DIAGNOSTICS": "1"
         },
         "scenario": "a failing call, then a second batch"
+      },
+      {
+        "env": {
+          "MIXDOG_DIAGNOSTICS": "1"
+        },
+        "scenario": "an ambiguous edit retried in its batch group"
       }
     ],
+    "graphBinary": {
+      "builtFrom": "git archive b6f10295a2f698afc85332467192de28500bd146 native/mixdog-graph, cargo build --release; given to Node as MIXDOG_GRAPH_BIN (its resident search server serves glob)",
+      "sha256": "5cb2fe69c41696f94195d9503b55343c8b9e6c3edd7da92308d67ac40c096195"
+    },
     "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/agent-trace-run-scenarios.mjs",
     "session": "sessionOptions (src/session-runtime/session-create/session-options.mjs) with the headless tool profile, no session profile, skipSkills true and workflow { id: headless, delegatesAgents: false }",
     "workspaceFiles": {
       "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
-      "b.txt": "c150e5a8a604acebd8d15bd7bf8ea96b2874bdcc91dee6319977d353251283b0"
+      "b.txt": "c150e5a8a604acebd8d15bd7bf8ea96b2874bdcc91dee6319977d353251283b0",
+      "c.txt": "562db9b7dbd05bedf8f05dba56c17da47886d5eb878a939704463ccc105c1fe8"
     }
   },
-  "totalBytes": 9703
+  "totalBytes": 16911
 }

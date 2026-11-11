@@ -8,7 +8,7 @@
 // Each scenario runs in a Node process of its own (its `env` laid over the process environment), twice, in two fresh profiles but
 // the same workspace path; the two recordings must be identical.
 //
-//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a with node_modules> [--only <n>,<n>]
+//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a with node_modules> --graph-bin <mixdog-graph executable built from native/mixdog-graph at b6f10295a> [--only <n>,<n>]
 //
 // Output: native/core/fixtures/agent-trace-run/golden.json (+ MANIFEST.json); with --only the scenarios named are recorded and printed.
 import { createHash } from 'node:crypto';
@@ -95,7 +95,13 @@ const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
 const argv = process.argv.slice(2);
 const onlyAt = argv.indexOf('--only');
 const only = onlyAt >= 0 ? argv[onlyAt + 1] : null;
-const tree = resolveTree(parseArgs(onlyAt >= 0 ? argv.filter((_, i) => i !== onlyAt && i !== onlyAt + 1) : argv));
+const cli = parseArgs(onlyAt >= 0 ? argv.filter((_, i) => i !== onlyAt && i !== onlyAt + 1) : argv);
+const tree = resolveTree(cli);
+// Node's glob is served by the resident search server of the graph executable (native-search-client.mjs), which a
+// source tree has not built: without it the call fails as `native search server unavailable`, which no installed
+// product does.
+const graphBin = cli.get('graph-bin');
+if (!graphBin || !existsSync(graphBin)) throw new Error('--graph-bin <mixdog-graph executable built from native/mixdog-graph at the Node commit> is required');
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const { recorderProvenance } = await import('./lib/provenance.mjs');
 const SCENARIO_COUNT = scenarios().length;
@@ -105,7 +111,7 @@ const fileText = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 /** One scenario in its own profile under the run's folder, in a job object of its own (lib/job-run.mjs). */
 async function recordScenario(label, index, run, workspace) {
   const sandbox = join(run, `profile-${label}`);
-  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, RECORDER_SCENARIO: String(index), MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', ...scenarios()[index].env };
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, RECORDER_SCENARIO: String(index), MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', MIXDOG_GRAPH_BIN: graphBin, ...scenarios()[index].env };
   for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
     env[name] = join(sandbox, name.toLowerCase());
     mkdirSync(env[name], { recursive: true });
@@ -175,10 +181,10 @@ try {
     writeSetManifest(stage, {
       set: 'agent-trace-run',
       recorder,
-      command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
+      command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <exact export of ${NODE_COMMIT}> --graph-bin <mixdog-graph executable>`,
       identity,
       extra: {
-        normalised: ['session_id', 'ts and each execution_intervals mark', 'batch ids (v4 UUIDs, by the order of their batch rows)', 'tool_ms and each payload.timing value', 'workspace', 'data folder (tool-failures rows)'],
+        normalised: ['session_id', 'ts and each execution_intervals mark', 'batch ids (v4 UUIDs, by the order of their batch rows)', 'tool_ms and each payload.timing value', 'each local_search value named *_ms','workspace', 'data folder (tool-failures rows)'],
         excluded: ['agent-trace rows of kinds other than batch, tool and tool_slow (context: the request\'s context accounting; usage: the usage log): written by other call sites than the tool batch; their count per kind is recorded (others) and not compared'],
         notCompared: ['others: the counts of the excluded kinds', 'results: the scripted turn\'s answer and send count, recorded to show the turn ended as scripted'],
         ...recorderProvenance(import.meta.url),
@@ -186,6 +192,10 @@ try {
           provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/agent-trace-run-scenarios.mjs`,
           session: 'sessionOptions (src/session-runtime/session-create/session-options.mjs) with the headless tool profile, no session profile, skipSkills true and workflow { id: headless, delegatesAgents: false }',
           environment: all.map((s) => ({ scenario: s.name, env: s.env })),
+          graphBinary: {
+            builtFrom: `git archive ${NODE_COMMIT} native/mixdog-graph, cargo build --release; given to Node as MIXDOG_GRAPH_BIN (its resident search server serves glob)`,
+            sha256: createHash('sha256').update(readFileSync(graphBin)).digest('hex'),
+          },
           workspaceFiles: Object.fromEntries(Object.entries(FILES).map(([name, text]) => [name, createHash('sha256').update(text).digest('hex')])),
         },
       },

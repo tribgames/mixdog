@@ -18,7 +18,6 @@ use futures::stream::FuturesUnordered;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_rt::TaskClass;
-use serde_json::json;
 
 use mixdog_core_api::domain::tool::ToolOutput;
 
@@ -102,6 +101,11 @@ fn output_is_complete(output: &ToolOutput) -> bool {
         .unwrap_or(true)
 }
 
+/// The `meta` object a tool left for the call's trace row under `key` (Node's `resultTelemetry` / `localSearchTelemetry`).
+fn output_meta(output: Option<&ToolOutput>, key: &str) -> Option<serde_json::Value> {
+    output?.meta.as_ref()?.get(key).cloned()
+}
+
 fn is_edit_progress(name: &str, read_only: bool) -> bool {
     if read_only {
         return false;
@@ -127,7 +131,45 @@ fn dedup_stub(name: &str, first_iteration: u32, stuck: bool) -> String {
     s
 }
 
-type EditGroup = Arc<Mutex<(u32, u32)>>;
+pub(crate) type EditGroup = Arc<Mutex<(u32, u32)>>;
+
+/// A streamed call's barrier signal. An ambiguous edit's run holds it for the batch, which may retry it in its group before the
+/// same-anchor edit behind it runs; a call the batch answers without taking up its run lets the run send it.
+#[derive(Default)]
+pub(crate) struct Settle {
+    finished: Option<tokio::sync::watch::Sender<bool>>,
+    held: bool,
+    passed_over: bool,
+}
+
+pub(crate) type SettleSlot = Arc<Mutex<Settle>>;
+
+fn settle(slot: &SettleSlot) {
+    if let Some(finished) = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).finished.take() {
+        finished.send_replace(true);
+    }
+}
+
+/// The run settled: it signals, unless it is an ambiguous edit the batch may still retry.
+fn run_settled(slot: &SettleSlot, conflict: bool) {
+    let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if conflict && !s.passed_over {
+        s.held = true;
+    } else if let Some(finished) = s.finished.take() {
+        finished.send_replace(true);
+    }
+}
+
+/// The batch answered the call without taking up its run: a held signal goes now, any other when the run settles.
+fn passed_over(slots: &HashMap<String, SettleSlot>, id: &str) {
+    if let Some(slot) = slots.get(id) {
+        let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        s.passed_over = true;
+        if s.held && let Some(finished) = s.finished.take() {
+            finished.send_replace(true);
+        }
+    }
+}
 
 /// One assistant turn issuing N `edit` calls with the same file and
 /// `old_string` (not replace-all) and N distinct `new_string`s is
@@ -177,7 +219,13 @@ fn edit_key(call: &ToolCall) -> Option<String> {
 }
 
 async fn run_one(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>) -> Executed {
-    let mut executed = execute_call(call.clone(), Arc::clone(&env)).await;
+    let executed = execute_call(call.clone(), Arc::clone(&env)).await;
+    retry_in_group(call, env, group, executed).await
+}
+
+/// `retryAmbiguousEdit` (`tool-batch/execute-call.mjs:229`): run after a call's result is in, whether it ran in the batch or
+/// streamed ahead of it (`executeToolCall` calls it after `executeLive` either way).
+pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>, mut executed: Executed) -> Executed {
     let Some(group) = group else {
         return executed;
     };
@@ -186,19 +234,17 @@ async fn run_one(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>) ->
         g.0.saturating_sub(g.1)
     };
     if remaining >= 1 && executed.conflict {
-        let mut retry = call;
-        if remaining >= 2
-            && let Some(args) = retry.arguments.as_object_mut()
-        {
-            args.insert("editOccurrence".into(), json!({ "expected": remaining }));
-        }
-        let rerun = execute_call(retry, env).await;
+        let occurrence = (remaining >= 2).then_some(mixdog_core_api::domain::tool::EditOccurrence { expected: remaining });
+        let rerun = crate::tools::execute_call_occupying(call, env, occurrence).await;
+        // Node traces every run, the retry whether it succeeded or not (`rerunAmbiguousEdit`'s `finally`).
+        let intervals: Vec<(i64, i64)> = executed.intervals().into_iter().chain(rerun.intervals()).collect();
         if !rerun.failed {
             // Node keeps the first run's start and takes the retry's end.
             let span = executed.tool_ms + rerun.tool_ms;
             executed = rerun;
             executed.tool_ms = span;
         }
+        executed.execution_intervals = intervals;
     }
     if !executed.failed {
         group.lock().unwrap_or_else(std::sync::PoisonError::into_inner).1 += 1;
@@ -322,6 +368,8 @@ impl Run {
         let cwd = self.tool_env.cwd.as_path().to_path_buf();
         let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
         let (finished, done) = tokio::sync::watch::channel(false);
+        let finished: SettleSlot = Arc::new(Mutex::new(Settle { finished: Some(finished), ..Settle::default() }));
+        self.eager_settles.insert(id.clone(), Arc::clone(&finished));
         let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
@@ -333,7 +381,7 @@ impl Run {
             failed.store(executed.failed, std::sync::atomic::Ordering::Release);
             // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
             observer.event(RunEvent::EarlyResult(early_result(&early_id, &executed)));
-            finished.send_replace(true);
+            run_settled(&finished, executed.conflict);
             executed
         });
         self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name) });
@@ -348,6 +396,7 @@ impl Run {
                 handle.abort();
             }
         }
+        self.eager_settles.clear();
         self.eager_sigs.clear();
         self.eager_started.clear();
         self.barriers.clear();
@@ -361,6 +410,7 @@ impl Run {
     /// a barrier ends itself with the abort's text, `execute_gated`), and its result is never stored.
     fn release_eager(&mut self) {
         self.eager.clear();
+        self.eager_settles.clear();
         self.eager_sigs.clear();
         self.eager_started.clear();
         self.barriers.clear();
@@ -565,6 +615,7 @@ impl Run {
         let mut recorded = 0usize;
         let mut was_executed = vec![false; n];
         let mut tool_ms = vec![0i64; n];
+        let mut intervals: Vec<Vec<(i64, i64)>> = vec![Vec::new(); n];
         let mut cacheable = vec![false; n];
         let mut outputs: Vec<Option<ToolOutput>> = (0..n).map(|_| None).collect();
         let mut follow_ups: Vec<AgentMessage> = Vec::new();
@@ -583,6 +634,7 @@ impl Run {
                 let call = &calls[j];
                 if (j as u64) >= allowed || wrap_up.is_some_and(|at| self.env.clock.now_ms() >= at) {
                     staged[j] = Some(limits::refusal(&call.id));
+                    passed_over(&self.eager_settles, &call.id);
                     evaluated[j] = true;
                     finished[j] = true;
                     continue;
@@ -605,6 +657,7 @@ impl Run {
                 match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig, unprojected[j].as_ref()).await {
                     Decision::Skip(message) => {
                         staged[j] = Some(message);
+                        passed_over(&self.eager_settles, &call.id);
                         finished[j] = true;
                         skipped[j] = true;
                     }
@@ -624,6 +677,7 @@ impl Run {
                     outputs[recorded] = result.output.take();
                     was_executed[recorded] = true;
                     tool_ms[recorded] = result.tool_ms;
+                    intervals[recorded] = result.intervals();
                     follow_ups.extend(result.follow_ups.iter().cloned());
                     staged[recorded] = Some(result.message);
                 }
@@ -668,6 +722,7 @@ impl Run {
                     served.message = AgentMessage::tool_text(&call.id, hit.content, ToolKind::CacheHit);
                     served.failed = false;
                     served.cache_hit = Some(hit.first_tool_use_id);
+                    passed_over(&self.eager_settles, &call.id);
                     executed[j] = Some(served);
                     finished[j] = true;
                     continue;
@@ -679,17 +734,25 @@ impl Run {
                 }
                 // A write is never run twice: only a streamed read is thrown away, and only when it may be stale.
                 let eager = eager.filter(|_| kept);
+                let group = edit_key(&call).and_then(|k| groups.get(&k).cloned());
                 if let Some(handle) = eager {
                     streamed.insert(j);
                     let id = call.id.clone();
+                    let env = Arc::clone(&env);
+                    // A group member is retried in call order, before the same-anchor edit behind it runs (`plan.mjs:61-64`; Node's
+                    // serial body resumes on the settled run ahead of that edit's barrier and enters the edit lock first).
+                    let slot = self.eager_settles.get(&id).cloned();
                     running.push(Box::pin(async move {
                         let result = handle.await.unwrap_or_else(|_| {
                             Executed::error(&id, "Error: tool task failed".to_owned())
                         });
-                        (j, result)
+                        let executed = retry_in_group(call, env, group, result).await;
+                        if let Some(slot) = slot {
+                            settle(&slot);
+                        }
+                        (j, executed)
                     }));
                 } else {
-                    let group = edit_key(&call).and_then(|k| groups.get(&k).cloned());
                     let env = Arc::clone(&env);
                     running.push(Box::pin(async move { (j, run_one(call, env, group).await) }));
                 }
@@ -736,7 +799,7 @@ impl Run {
         }
         drop(running);
 
-        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &cacheable, &outputs).await;
+        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, &cacheable, &outputs).await;
         // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
@@ -775,6 +838,7 @@ impl Run {
         staged: &mut [Option<AgentMessage>],
         executed: &[bool],
         tool_ms: &[i64],
+        intervals: &mut [Vec<(i64, i64)>],
         cacheable: &[bool],
         outputs: &[Option<ToolOutput>],
     ) {
@@ -837,9 +901,9 @@ impl Run {
                 }
             }
         }
-        // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (an error call's row of the
-        // trace rows and, for an error call, its failure row, on the result the transcript holds) and then `writeCaches` (a normal
-        // call's reusable body).
+        // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (the call's trace rows and,
+        // for an error call, its failure row, on the result the transcript holds) and then `writeCaches` (a normal call's
+        // reusable body).
         for i in indices {
             let Some(m) = &staged[i] else {
                 continue;
@@ -858,6 +922,9 @@ impl Run {
                     result: trace_result(&m.message.content),
                     result_text: trace_text(&m.message.content),
                     timing: m.tool_timing,
+                    execution_intervals: std::mem::take(&mut intervals[i]),
+                    result_telemetry: output_meta(outputs[i].as_ref(), "resultTelemetry"),
+                    local_search: output_meta(outputs[i].as_ref(), "localSearchTelemetry"),
                 });
             }
             if !error

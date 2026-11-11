@@ -24,6 +24,7 @@ use mixdog_core_api::domain::provider::ImageSource;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::tool::CallOptions;
+use mixdog_core_api::domain::tool::EditOccurrence;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolNotify;
 use mixdog_core_api::domain::tool::ProgressSink;
@@ -533,6 +534,9 @@ pub(crate) struct Executed {
     /// Dispatch to settle in ms (Node's `toolEndedAt - toolStartedAt`, the failure log's `tool_ms`); 0 for a
     /// call that did not run.
     pub(crate) tool_ms: i64,
+    /// Every run of the call as (started, completed) ms when it ran more than once (Node's `executionIntervals`: an
+    /// ambiguous edit's batch-group retry adds its run, failed or not); empty for one run, whose interval is its timing's.
+    pub(crate) execution_intervals: Vec<(i64, i64)>,
 }
 
 impl Executed {
@@ -547,7 +551,16 @@ impl Executed {
             output: None,
             returned: false,
             tool_ms: 0,
+            execution_intervals: Vec::new(),
         }
+    }
+
+    /// The (started, completed) ms of each run of the call.
+    pub(crate) fn intervals(&self) -> Vec<(i64, i64)> {
+        if !self.execution_intervals.is_empty() {
+            return self.execution_intervals.clone();
+        }
+        self.message.tool_timing.map(|t| vec![(t.execution_started_at, t.execution_completed_at)]).unwrap_or_default()
     }
 
     /// A call skipped, not run, because the earlier mutation it depends on failed (`waitForPreceding`).
@@ -628,11 +641,17 @@ pub(crate) fn is_invalid_args_marker(arguments: &JsonValue) -> bool {
 /// Policy, approval wait, then the tool task. Awaiting the approval is a
 /// cancel-safe wait: the run's token ends it from outside.
 pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed {
+    execute_call_occupying(call, env, None).await
+}
+
+/// `execute_call` with the caller's `options.editOccurrence` (a same-anchor batch retry), passed beside the model's arguments as
+/// Node passes it, never through them.
+pub(crate) async fn execute_call_occupying(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
     // A `call_tool` whose arguments did not parse is a projection failure (`tool-call-resolution.mjs:43`): refused before dispatch, so
     // it is no completed call and has no timing.
     let refused_before_dispatch = call.name == "call_tool" && is_invalid_args_marker(&call.arguments);
-    let executed = execute_call_inner(call, Arc::clone(&env)).await;
+    let executed = execute_call_inner(call, Arc::clone(&env), edit_occurrence).await;
     if refused_before_dispatch { executed } else { stamp_timing(executed, dispatch_started_at, env.clock.as_ref()) }
 }
 
@@ -645,7 +664,7 @@ pub(crate) fn stamp_timing(mut executed: Executed, dispatch_started_at: i64, clo
     executed
 }
 
-async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>) -> Executed {
+async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     // `executeBatchCall`'s invalid-args guard (`session/tool-batch/execute-call.mjs`): a call whose arguments the provider
     // could not parse is answered with the retry notice and never dispatched, whatever its name (a `call_tool` included).
     if is_invalid_args_marker(&call.arguments) {
@@ -657,7 +676,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>) -> Executed {
         );
     }
     let started = env.clock.now_ms();
-    let mut executed = execute_gated(&call, &env).await;
+    let mut executed = execute_gated(&call, &env, edit_occurrence).await;
     executed.tool_ms = (env.clock.now_ms() - started).max(0);
     // PostToolUseFailure: a tool that resolved to a failure fires the hook;
     // it never breaks the loop.
@@ -858,13 +877,27 @@ pub fn read_only_io_deadline() -> DeadlineFn {
             return None;
         }
         let raw = std::env::var_os("MIXDOG_IO_TOOL_TIMEOUT_MS").map(|raw| raw.to_string_lossy().into_owned()).unwrap_or_default();
-        let raw = mixdog_js::js_trim(&raw);
-        if raw == "0" {
-            return None;
-        }
-        let configured = mixdog_js::string_to_number(raw);
-        Some(if configured.is_finite() && configured > 0.0 { Duration::from_millis(configured.floor().max(1.0) as u64) } else { READ_ONLY_IO_TIMEOUT })
+        io_timeout_from(&raw)
     })
+}
+
+/// The largest delay a JavaScript timer keeps (`setTimeout` fires a longer one after 1 ms).
+const TIMER_MAX_MS: f64 = 2_147_483_647.0;
+
+/// `readOnlyIoTimeoutMs` on the variable's text. A value past the timer's range departs from Node: Node's `setTimeout` fires
+/// such a timer after 1 ms (a `TimeoutOverflowWarning`), so every read-only call times out; here it is no deadline, as the
+/// deadline instant would overflow.
+fn io_timeout_from(raw: &str) -> Option<Duration> {
+    let raw = mixdog_js::js_trim(raw);
+    if raw == "0" {
+        return None;
+    }
+    let configured = mixdog_js::string_to_number(raw);
+    if !(configured.is_finite() && configured > 0.0) {
+        return Some(READ_ONLY_IO_TIMEOUT);
+    }
+    let ms = configured.floor().max(1.0);
+    (ms <= TIMER_MAX_MS).then(|| Duration::from_millis(ms as u64))
 }
 
 /// `runReadOnlyIoWithDeadline`'s timeout error: the text a read-only I/O call gives when it has nothing to hand back past its deadline.
@@ -931,7 +964,7 @@ impl Drop for AbortOnDrop {
     }
 }
 
-async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
+async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Option<EditOccurrence>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
     let call = call.clone();
     let name = call.name.clone();
@@ -1010,7 +1043,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         approvals: Arc::clone(&env.tool_env.approvals),
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
-        options: CallOptions { notify: env.tool_env.notify.clone(), ..CallOptions::default() },
+        options: CallOptions { notify: env.tool_env.notify.clone(), edit_occurrence },
         review: env.tool_env.review.clone(),
     };
     // Node: arguments are coerced to the declared schema before the tool sees
@@ -1109,6 +1142,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
                 output: Some(output),
                 returned: false,
                 tool_ms: 0,
+                execution_intervals: Vec::new(),
             }
         }
         Err(error) => {
@@ -1544,6 +1578,86 @@ mod tests {
         );
         // The task may not have started before the deadline fired; either way it ends.
         let _ = dropped.await;
+    }
+
+    /// `runReadOnlyIoWithDeadline` (`read-only-deadline.mjs:96-104`): a tool that hands back text within the grace after its deadline
+    /// keeps it, with the deadline notice after it.
+    #[tokio::test(start_paused = true)]
+    async fn a_read_only_io_tool_that_answers_its_deadline_keeps_its_partial_output_with_the_notice() {
+        let held = stuck_env(Some(Duration::from_millis(20_000)), true, "grep");
+        let call = tokio::spawn(execute_call(stuck_call("grep"), Arc::new(held.env)));
+        held.started.notified().await;
+        tokio::time::advance(Duration::from_millis(20_000)).await;
+        let executed = call.await.unwrap();
+        assert!(!executed.failed);
+        assert_eq!(
+            executed.message.text(),
+            "partial\n[warning] read-only I/O tool \"grep\" hit the 20000ms deadline; PARTIAL results shown — narrow the scope (path, glob, more specific pattern, smaller limit) for the complete set."
+        );
+    }
+
+    /// Fails as ambiguous until it is called as a same-anchor batch member, then edits.
+    struct AmbiguousUntilOccupied {
+        spec: ToolSpec,
+        seen: std::sync::Mutex<Vec<Option<EditOccurrence>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for AmbiguousUntilOccupied {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, ctx: &ToolContext, _: JsonValue) -> ToolOutcome {
+            self.seen.lock().unwrap().push(ctx.options.edit_occurrence);
+            match ctx.options.edit_occurrence {
+                Some(_) => Ok(ToolOutput { parts: vec![ToolPart::Text("Updated a.txt (1 replacement)".into())], ..ToolOutput::default() }),
+                None => Err(ToolError::new(ToolErrorCode::Conflict { matches: 2 }, "Error: edit failed (old_string found 2 times)")),
+            }
+        }
+    }
+
+    struct Ticking(std::sync::atomic::AtomicI64);
+    impl crate::env::Clock for Ticking {
+        fn now_ms(&self) -> i64 {
+            self.0.fetch_add(10, std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    /// `rerunAmbiguousEdit` (`tool-batch/execute-call.mjs:219,263`): the retry is told how many occurrences remain through the call's
+    /// options, and the call keeps the run that failed as ambiguous beside the retry's.
+    #[tokio::test]
+    async fn an_ambiguous_edit_retried_in_its_group_keeps_both_runs() {
+        let mut held = stuck_env(None, false, "edit");
+        let tool = Arc::new(AmbiguousUntilOccupied { spec: plain("edit", "edit", true, None).spec().clone(), seen: Default::default() });
+        held.env.tools = ToolSet::new(vec![tool.clone() as Arc<dyn Tool>]);
+        held.env.clock = Arc::new(Ticking(std::sync::atomic::AtomicI64::new(0)));
+        let env = Arc::new(held.env);
+        let call = stuck_call("edit");
+        let first = execute_call(call.clone(), Arc::clone(&env)).await;
+        assert!(first.conflict);
+        let group: crate::batch::EditGroup = Arc::new(std::sync::Mutex::new((2, 0)));
+        let executed = crate::batch::retry_in_group(call, env, Some(group), first).await;
+        assert!(!executed.failed);
+        assert_eq!(*tool.seen.lock().unwrap(), [None, Some(EditOccurrence { expected: 2 })]);
+        let runs = executed.intervals();
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        assert!(runs[0].1 <= runs[1].0, "the failed run, then the retry: {runs:?}");
+    }
+
+    /// `readOnlyIoTimeoutMs` on the variable's text: `0` none, a negative or non-numeric value the default, a positive one its whole
+    /// ms; a value past a JavaScript timer's range is none, not a deadline whose instant overflows.
+    #[test]
+    fn the_io_timeout_variable_is_read_as_node_reads_it() {
+        assert_eq!(io_timeout_from(""), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from(" 0 "), None);
+        assert_eq!(io_timeout_from("-5"), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from("abc"), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from("Infinity"), Some(READ_ONLY_IO_TIMEOUT));
+        assert_eq!(io_timeout_from("0.4"), Some(Duration::from_millis(1)));
+        assert_eq!(io_timeout_from("1500.9"), Some(Duration::from_millis(1500)));
+        assert_eq!(io_timeout_from("2147483647"), Some(Duration::from_millis(2_147_483_647)));
+        assert_eq!(io_timeout_from("2147483648"), None);
+        assert_eq!(io_timeout_from("1e30"), None);
     }
 
     #[test]
