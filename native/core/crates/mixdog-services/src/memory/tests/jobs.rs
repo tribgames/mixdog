@@ -127,6 +127,58 @@ async fn the_tail_ingest_matches_the_recorded_node_run() {
     assert!(reloaded.get_offset(&file).is_none());
 }
 
+/// `fixtures/session-transcript/restart.json`: the turn's transcript was written and the writing runtime was gone before
+/// any ingest ran (the kill between save and feed). Node's watcher ingest then stores every line once, across a start
+/// killed after its inserts but before its read position was persisted (the next start sends the same rows again, which
+/// the unique source reference keeps single) and a start with nothing new. The same starts here over the same file.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it() {
+    let writer: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/writer.json")).expect("writer recording");
+    let restart: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/restart.json")).expect("restart recording");
+    let now = 1_772_600_767_890_i64;
+    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
+    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sess_restart.jsonl");
+    let escaped = serde_json::to_string(&dir.path().to_string_lossy()).unwrap();
+    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &escaped[1..escaped.len() - 1]);
+    std::fs::write(&file, &text).unwrap();
+    let starts = restart["starts"].as_array().unwrap();
+    let rows_of = |inserts: &Value| -> Vec<Value> { inserts.as_array().unwrap().clone() };
+    let start = || async {
+        let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(move || now));
+        ingest.load_transcript_offsets().await;
+        let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
+        (ingest, count)
+    };
+
+    // The first start: every line is stored; it is killed before its position is persisted, so the blob is what it was.
+    let (_, count) = start().await;
+    assert_eq!(count as u64, starts[0]["count"].as_u64().unwrap(), "{}", starts[0]["label"]);
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+    assert_eq!(starts[0]["persisted"], json!({}), "Node's killed start left the blob as it found it");
+    crate::memory::schema::set_meta(&db, "state.transcript_offsets", &json!({})).await.expect("the blob a kill before the persist leaves");
+
+    // The next start reads the file from where the blob says (its start) and sends the same rows again: still one each.
+    assert_eq!(starts[1]["inserts"], starts[0]["inserts"], "Node resends the same rows");
+    let (ingest, count) = start().await;
+    assert_eq!(count, 0, "every row it sends is already stored");
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+    let position = ingest.get_offset(&file).expect("a position");
+    assert_eq!(position.bytes as usize, text.len());
+    assert_eq!(position.line_index, starts[1]["position"]["lineIndex"].as_f64().unwrap());
+    assert_eq!(position.generation, starts[1]["position"]["generation"].as_f64().unwrap());
+
+    // A start with nothing new stores nothing.
+    let (_, count) = start().await;
+    assert_eq!(count as u64, starts[2]["count"].as_u64().unwrap(), "{}", starts[2]["label"]);
+    assert!(starts[2]["inserts"].as_array().unwrap().is_empty());
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+}
+
 fn assert_offset(ingest: &TranscriptIngest, file: &Path, expected: &Value) {
     let got = ingest.get_offset(file).expect("a stored position");
     assert_eq!(
