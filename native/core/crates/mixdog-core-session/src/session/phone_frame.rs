@@ -69,6 +69,17 @@ impl Frames {
     }
 }
 
+/// A model step that called tools, held from its usage until its first call's gate answered. Node's host hears a call's
+/// approval before the step's usage, its tool rows and the spinner's `tool-use` (recorded: `running-approval-pending`,
+/// `running-ask-pending`, `notify-*` publish `toolApproval` with `spinner.mode: 'tool-approval'` alone in one frame, then
+/// the tool row, the tokens and `tool-use` in the next): `set({ toolApproval })` flushes at once (`draft-store.mjs:69-70`),
+/// the rest waits for the frame (`frame-batched-store.mjs:44-48`). The step's notifications are kept here meanwhile.
+pub(crate) struct StepHold {
+    pub notes: Vec<super::frames::Note>,
+    /// The runtime section as last published, the approval's frame shows it with the request's mode.
+    pub runtime: mixdog_app_protocol::v2::thread::ThreadRuntime,
+}
+
 /// What a feed notification was in Node's store: the `set` behind it and its boundary. `None`: not a change of the
 /// session's state (a snapshot, or the frame announcement itself).
 pub(crate) fn mark_of(note: &super::frames::Note) -> Option<Mark> {

@@ -652,6 +652,9 @@ impl RunObserver for PortObserver {
                 }
                 self.progress.approval_wait(waiting);
             }
+            RunEvent::Stage(Stage::Authorized) => {
+                let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::Authorized));
+            }
             RunEvent::ToolPhaseCompleted { .. } => {
                 let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::ToolPhaseCompleted));
             }
