@@ -1,0 +1,285 @@
+{
+  "set": "provider-custom-provider-keys",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "single-key-provider-sends-as-before-no-roster",
+      "source": "src/runtime/agent/orchestrator/providers/custom-provider-keys.test.mjs:138",
+      "input": {
+        "id": "custom-keys-single",
+        "primary": "sk-solo",
+        "added": "sk-added"
+      },
+      "result": {
+        "sends": [
+          {
+            "label": "answers",
+            "result": {
+              "content": "solo",
+              "model": "m1",
+              "stopReason": "stop",
+              "generationMs": 0,
+              "requestServiceTier": ""
+            },
+            "keys": [
+              "sk-solo"
+            ],
+            "requests": [
+              {
+                "method": "POST",
+                "origin": "https://keys.example.com",
+                "path": "/v1/chat/completions",
+                "headers": {
+                  "host": "keys.example.com",
+                  "connection": "keep-alive",
+                  "accept": "application/json",
+                  "user-agent": "OpenAI/JS 6.49.0",
+                  "x-stainless-retry-count": "0",
+                  "x-stainless-lang": "js",
+                  "x-stainless-package-version": "6.49.0",
+                  "x-stainless-os": "Windows",
+                  "x-stainless-arch": "x64",
+                  "x-stainless-runtime": "node",
+                  "x-stainless-runtime-version": "v22.20.0",
+                  "authorization": "Bearer sk-solo",
+                  "content-type": "application/json",
+                  "accept-language": "*",
+                  "sec-fetch-mode": "cors",
+                  "accept-encoding": "gzip, deflate",
+                  "content-length": "115"
+                },
+                "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+                "reply": {
+                  "status": 200,
+                  "contentType": "text/event-stream",
+                  "body": "data: {\"id\":\"c1\",\"model\":\"m1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"solo\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+                }
+              }
+            ]
+          },
+          {
+            "label": "quota refusal",
+            "error": {
+              "name": "Error",
+              "message": "429 You exceeded your current quota.",
+              "status": 429,
+              "headers": {},
+              "requestID": null,
+              "error": {
+                "message": "You exceeded your current quota.",
+                "type": "insufficient_quota",
+                "code": "insufficient_quota"
+              },
+              "code": "insufficient_quota",
+              "type": "insufficient_quota"
+            },
+            "keys": [
+              "sk-solo"
+            ],
+            "requests": [
+              {
+                "method": "POST",
+                "origin": "https://keys.example.com",
+                "path": "/v1/chat/completions",
+                "headers": {
+                  "host": "keys.example.com",
+                  "connection": "keep-alive",
+                  "accept": "application/json",
+                  "user-agent": "OpenAI/JS 6.49.0",
+                  "x-stainless-retry-count": "0",
+                  "x-stainless-lang": "js",
+                  "x-stainless-package-version": "6.49.0",
+                  "x-stainless-os": "Windows",
+                  "x-stainless-arch": "x64",
+                  "x-stainless-runtime": "node",
+                  "x-stainless-runtime-version": "v22.20.0",
+                  "authorization": "Bearer sk-solo",
+                  "content-type": "application/json",
+                  "accept-language": "*",
+                  "sec-fetch-mode": "cors",
+                  "accept-encoding": "gzip, deflate",
+                  "content-length": "115"
+                },
+                "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+                "reply": {
+                  "status": 429,
+                  "contentType": "application/json",
+                  "body": "{\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+                }
+              }
+            ]
+          },
+          {
+            "label": "key added while live",
+            "result": {
+              "content": "added",
+              "model": "m1",
+              "stopReason": "stop",
+              "generationMs": 0,
+              "requestServiceTier": "",
+              "providerMetadata": {
+                "accountRouting": {
+                  "provider": "custom-keys-single",
+                  "accountId": "f5e848b6-0eb0-4474-8bdb-28760e3b82c0",
+                  "sessionAccountId": "f5e848b6-0eb0-4474-8bdb-28760e3b82c0"
+                }
+              }
+            },
+            "keys": [
+              "sk-solo",
+              "sk-added"
+            ],
+            "requests": [
+              {
+                "method": "POST",
+                "origin": "https://keys.example.com",
+                "path": "/v1/chat/completions",
+                "headers": {
+                  "host": "keys.example.com",
+                  "connection": "keep-alive",
+                  "accept": "application/json",
+                  "user-agent": "OpenAI/JS 6.49.0",
+                  "x-stainless-retry-count": "0",
+                  "x-stainless-lang": "js",
+                  "x-stainless-package-version": "6.49.0",
+                  "x-stainless-os": "Windows",
+                  "x-stainless-arch": "x64",
+                  "x-stainless-runtime": "node",
+                  "x-stainless-runtime-version": "v22.20.0",
+                  "authorization": "Bearer sk-solo",
+                  "content-type": "application/json",
+                  "accept-language": "*",
+                  "sec-fetch-mode": "cors",
+                  "accept-encoding": "gzip, deflate",
+                  "content-length": "115"
+                },
+                "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+                "reply": {
+                  "status": 429,
+                  "contentType": "application/json",
+                  "body": "{\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+                }
+              },
+              {
+                "method": "POST",
+                "origin": "https://keys.example.com",
+                "path": "/v1/chat/completions",
+                "headers": {
+                  "host": "keys.example.com",
+                  "connection": "keep-alive",
+                  "accept": "application/json",
+                  "user-agent": "OpenAI/JS 6.49.0",
+                  "x-stainless-retry-count": "0",
+                  "x-stainless-lang": "js",
+                  "x-stainless-package-version": "6.49.0",
+                  "x-stainless-os": "Windows",
+                  "x-stainless-arch": "x64",
+                  "x-stainless-runtime": "node",
+                  "x-stainless-runtime-version": "v22.20.0",
+                  "authorization": "Bearer sk-added",
+                  "content-type": "application/json",
+                  "accept-language": "*",
+                  "sec-fetch-mode": "cors",
+                  "accept-encoding": "gzip, deflate",
+                  "content-length": "115"
+                },
+                "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+                "reply": {
+                  "status": 200,
+                  "contentType": "text/event-stream",
+                  "body": "data: {\"id\":\"c1\",\"model\":\"m1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"added\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+                }
+              }
+            ]
+          },
+          {
+            "label": "key removed again",
+            "error": {
+              "name": "Error",
+              "message": "429 You exceeded your current quota.",
+              "status": 429,
+              "headers": {},
+              "requestID": null,
+              "error": {
+                "message": "You exceeded your current quota.",
+                "type": "insufficient_quota",
+                "code": "insufficient_quota"
+              },
+              "code": "insufficient_quota",
+              "type": "insufficient_quota"
+            },
+            "keys": [
+              "sk-solo"
+            ],
+            "requests": [
+              {
+                "method": "POST",
+                "origin": "https://keys.example.com",
+                "path": "/v1/chat/completions",
+                "headers": {
+                  "host": "keys.example.com",
+                  "connection": "keep-alive",
+                  "accept": "application/json",
+                  "user-agent": "OpenAI/JS 6.49.0",
+                  "x-stainless-retry-count": "0",
+                  "x-stainless-lang": "js",
+                  "x-stainless-package-version": "6.49.0",
+                  "x-stainless-os": "Windows",
+                  "x-stainless-arch": "x64",
+                  "x-stainless-runtime": "node",
+                  "x-stainless-runtime-version": "v22.20.0",
+                  "authorization": "Bearer sk-solo",
+                  "content-type": "application/json",
+                  "accept-language": "*",
+                  "sec-fetch-mode": "cors",
+                  "accept-encoding": "gzip, deflate",
+                  "content-length": "115"
+                },
+                "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+                "reply": {
+                  "status": 429,
+                  "contentType": "application/json",
+                  "body": "{\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+                }
+              }
+            ]
+          }
+        ],
+        "rosterFileExistsAfterFirstSend": false,
+        "poolAccountsAfterQuota": []
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "keys.example.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer sk-solo",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "115"
+          },
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+          }
+        }
+      ]
+    }
+  ]
+}
