@@ -243,3 +243,8 @@ webrtc = "=0.21.1" # not in Codex
 rtc = "=0.21.1" # not in Codex; protocol core under `webrtc`
 shiguredo_libvpx = "=2026.2.0-canary.3" # not in Codex
 jpeg-decoder = { version = "0.3", default-features = false } # not in Codex
+
+[patch.crates-io]
+# The same 0.19.2 with a check a thread may set that the matcher reads while it backtracks
+# (native/vendor/fancy-regex/src/interrupt.rs): an MCP output schema's pattern ends when its call is cancelled.
+fancy-regex = { path = "../vendor/fancy-regex" }

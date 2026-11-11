@@ -38,7 +38,7 @@ const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
 
 fn io() -> McpIo {
     let tokens = mixdog_rt::testing::tokens();
-    McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }
+    McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }
 }
 
 fn config(name: &str) -> McpServerConfig {

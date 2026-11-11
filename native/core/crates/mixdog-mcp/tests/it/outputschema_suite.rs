@@ -132,6 +132,7 @@ async fn replay(case: &Value, artifacts: &std::path::Path) -> Value {
     let io = McpIo {
         spawn: tokens.spawn_io,
         durability: tokens.durability_io,
+        cpu: tokens.cpu_bulk,
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -250,7 +251,7 @@ fn hostile_patterns_take() {
                 continue;
             }
             let started = std::time::Instant::now();
-            let verdict = validators.check(tool_name, result);
+            let verdict = validators.check(tool_name, result, &[]);
             println!(
                 "{} {}: {:?} in {:.3} s",
                 tool_name,
@@ -281,7 +282,7 @@ fn a_chain_of_references_compiles_up_to_the_bound_and_overflows_past_it() {
     let check = |n: usize, v: Value| {
         let tools = chain(n);
         let validators = OutputValidators::of(tools.as_array().unwrap()).unwrap();
-        validators.check("chain", &json!({"content": [], "structuredContent": {"v": v}}))
+        validators.check("chain", &json!({"content": [], "structuredContent": {"v": v}}), &[])
     };
     // `v` adds one reference to the chain's `STACK_LIMIT - 1`.
     assert!(check(STACK_LIMIT - 1, json!(1)).is_ok());

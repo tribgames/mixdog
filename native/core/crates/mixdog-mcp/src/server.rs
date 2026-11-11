@@ -13,7 +13,9 @@ use std::time::Instant;
 
 use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolOutput;
+use mixdog_rt::CpuBulk;
 use mixdog_rt::DurabilityIo;
+use mixdog_rt::LaneToken;
 use mixdog_rt::SpawnIo;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
@@ -57,6 +59,8 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 pub struct McpIo {
     pub spawn: SpawnIo,
     pub durability: DurabilityIo,
+    /// Where a result is checked against its tool's output schema.
+    pub cpu: CpuBulk,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -135,6 +139,9 @@ pub enum CallError {
     Rpc(#[from] RpcError),
     #[error("{}", .0.text)]
     Reported(ReportedError),
+    /// The result could not be checked against its output schema: the lane that checks it is full.
+    #[error("{0}; retry after running work completes")]
+    Overloaded(String),
 }
 
 pub struct McpServer {
@@ -587,9 +594,31 @@ impl McpServer {
             .request("tools/call", json!({"name": tool, "arguments": arguments}), options)
             .await;
         drop(permit);
-        let result = result?;
-        ready.outputs.check(tool, &result)?;
-        Ok(result)
+        self.checked(ready, tool, result?, cancel).await
+    }
+
+    /// `callTool`'s check of `result` against `tool`'s output schema, as a cpu-bulk lane job: a pattern may backtrack for
+    /// long, and the matcher ends when the call is cancelled or the server closes.
+    async fn checked(&self, ready: &Ready, tool: &str, result: Value, cancel: &CancellationToken) -> Result<Value, CallError> {
+        if !ready.outputs.checks(tool) {
+            return Ok(result);
+        }
+        let outputs = Arc::clone(&ready.outputs);
+        let (tool, stops) = (tool.to_owned(), [cancel.clone(), self.shutdown.clone()]);
+        let job = self
+            .io
+            .cpu
+            .submit(cancel, move |_lane| {
+                let checked = outputs.check(&tool, &result, &stops);
+                (checked, result)
+            })
+            .map_err(|full| CallError::Overloaded(full.to_string()))?;
+        match job.await {
+            Ok((checked, result)) => checked.map(|()| result).map_err(CallError::from),
+            // Dropped before it ran: its call was cancelled, or the lane can take no job.
+            Err(dropped) if !cancel.is_cancelled() && !self.shutdown.is_cancelled() => Err(CallError::Overloaded(dropped.to_string())),
+            Err(_) => Err(RpcError::Cancelled.into()),
+        }
     }
 
     /// Removes model-visible secrets from a message about this server.
