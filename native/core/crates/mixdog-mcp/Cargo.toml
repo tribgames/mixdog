@@ -32,6 +32,8 @@ base64 = { workspace = true }
 flate2 = { workspace = true }
 # The tools' `outputSchema`, checked on every result as the MCP SDK client does.
 jsonschema = { workspace = true }
+# The `url` format's lookaheads, as `ajv-formats` writes them.
+fancy-regex = { workspace = true }
 futures = { workspace = true, features = ["std", "alloc"] }
 rand = { workspace = true }
 regex = { workspace = true }

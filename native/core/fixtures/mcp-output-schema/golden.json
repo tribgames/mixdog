@@ -537,6 +537,2581 @@
       "results": {},
       "connect": "can't resolve reference https://example.test/late.json from id #",
       "outputs": []
+    },
+    {
+      "name": "const, enum, default and examples are data, not schema",
+      "tools": [
+        {
+          "name": "literal",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "c": {
+                "const": {
+                  "$ref": "https://example.test/value"
+                }
+              },
+              "e": {
+                "enum": [
+                  {
+                    "$ref": "https://example.test/other"
+                  },
+                  {
+                    "$id": "https://example.test/not-an-id"
+                  }
+                ]
+              },
+              "d": {
+                "type": "string",
+                "default": {
+                  "$ref": "https://example.test/default"
+                }
+              },
+              "x": {
+                "type": "string",
+                "examples": [
+                  {
+                    "$ref": "https://example.test/example"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "literal": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "structuredContent": {
+              "c": {
+                "$ref": "https://example.test/value"
+              },
+              "e": {
+                "$id": "https://example.test/not-an-id"
+              }
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              }
+            ],
+            "structuredContent": {
+              "c": 1,
+              "e": 2,
+              "d": 3,
+              "x": 4
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "literal",
+          "i": 0,
+          "output": "ok"
+        },
+        {
+          "tool": "literal",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/c must be equal to constant, data/e must be equal to one of the allowed values, data/d must be string, data/x must be string"
+        }
+      ]
+    },
+    {
+      "name": "a relative reference resolves against its schema $id, nested ids included",
+      "tools": [
+        {
+          "name": "base",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/dir/base.json",
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "number"
+              }
+            },
+            "$defs": {
+              "word": {
+                "$id": "https://example.test/dir/word.json",
+                "type": "string",
+                "minLength": 2
+              }
+            }
+          }
+        },
+        {
+          "name": "relative",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/dir/tool.json",
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "base.json"
+              },
+              "w": {
+                "$ref": "word.json"
+              },
+              "up": {
+                "$ref": "../dir/word.json"
+              }
+            }
+          }
+        },
+        {
+          "name": "nested",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "w": {
+                "$ref": "https://example.test/dir/word.json"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "relative": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "structuredContent": {
+              "x": {
+                "n": 1
+              },
+              "w": "ab",
+              "up": "cd"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              }
+            ],
+            "structuredContent": {
+              "x": {
+                "n": "one"
+              },
+              "w": "a",
+              "up": 3
+            }
+          }
+        ],
+        "nested": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "structuredContent": {
+              "w": "ab"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              }
+            ],
+            "structuredContent": {
+              "w": "a"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "relative",
+          "i": 0,
+          "output": "ok"
+        },
+        {
+          "tool": "relative",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/x/n must be number, data/w must NOT have fewer than 2 characters, data/up must be string"
+        },
+        {
+          "tool": "nested",
+          "i": 0,
+          "output": "ok"
+        },
+        {
+          "tool": "nested",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/w must NOT have fewer than 2 characters"
+        }
+      ]
+    },
+    {
+      "name": "an invalid schema with an $id fails the listing",
+      "tools": [
+        {
+          "name": "fine",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "invalid",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/invalid.json",
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "bogus"
+              }
+            }
+          }
+        }
+      ],
+      "results": {},
+      "connect": "type must be JSONType or JSONType[]: bogus",
+      "outputs": []
+    },
+    {
+      "name": "an invalid schema without an $id fails its first structured result",
+      "tools": [
+        {
+          "name": "invalid",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "bogus"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "invalid": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "x": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "again"
+              }
+            ],
+            "structuredContent": {
+              "x": "a"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "invalid",
+          "i": 0,
+          "output": "Error: MCP error -32600: Tool invalid has an output schema but did not return structured content"
+        },
+        {
+          "tool": "invalid",
+          "i": 1,
+          "output": "Error: MCP error -32602: Failed to validate structured content: type must be JSONType or JSONType[]: bogus"
+        },
+        {
+          "tool": "invalid",
+          "i": 2,
+          "output": "Error: MCP error -32602: Failed to validate structured content: type must be JSONType or JSONType[]: bogus"
+        }
+      ]
+    },
+    {
+      "name": "every format ajv-formats adds, a valid value then an invalid one",
+      "tools": [
+        {
+          "name": "fmt_date",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "date"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_time",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "time"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_date_time",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_iso_time",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "iso-time"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_iso_date_time",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "iso-date-time"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_duration",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "duration"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_uri",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "uri"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_uri_reference",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "uri-reference"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_uri_template",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "uri-template"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_url",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "url"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_email",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "email"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_hostname",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "hostname"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_ipv4",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "ipv4"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_ipv6",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "ipv6"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_regex",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "regex"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_uuid",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "uuid"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_json_pointer",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "json-pointer"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_json_pointer_uri_fragment",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "json-pointer-uri-fragment"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_relative_json_pointer",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "relative-json-pointer"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_byte",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "byte"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_int32",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "int32"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_int64",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "int64"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_float",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "float"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_double",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "double"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_password",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "password"
+              }
+            }
+          }
+        },
+        {
+          "name": "fmt_binary",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "format": "binary"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "fmt_date": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-02-29\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-02-29"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2023-02-29\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2023-02-29"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-1-01\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-1-01"
+            }
+          }
+        ],
+        "fmt_time": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12:34:56Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12:34:56Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12:34:56\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12:34:56"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"25:00:00Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "25:00:00Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"23:59:60Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "23:59:60Z"
+            }
+          }
+        ],
+        "fmt_date_time": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01T00:00:00Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01T00:00:00Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01t00:00:00+01:00\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01t00:00:00+01:00"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01 00:00:00Z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01 00:00:00Z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01T00:00:00\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01T00:00:00"
+            }
+          }
+        ],
+        "fmt_iso_time": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12:34:56\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12:34:56"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"12:34\""
+              }
+            ],
+            "structuredContent": {
+              "v": "12:34"
+            }
+          }
+        ],
+        "fmt_iso_date_time": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01T00:00:00\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01T00:00:00"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2024-01-01\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2024-01-01"
+            }
+          }
+        ],
+        "fmt_duration": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"P1D\""
+              }
+            ],
+            "structuredContent": {
+              "v": "P1D"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"PT1H30M\""
+              }
+            ],
+            "structuredContent": {
+              "v": "PT1H30M"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"P1W\""
+              }
+            ],
+            "structuredContent": {
+              "v": "P1W"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"1D\""
+              }
+            ],
+            "structuredContent": {
+              "v": "1D"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"P\""
+              }
+            ],
+            "structuredContent": {
+              "v": "P"
+            }
+          }
+        ],
+        "fmt_uri": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"https://a.test/x?y#z\""
+              }
+            ],
+            "structuredContent": {
+              "v": "https://a.test/x?y#z"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"urn:isbn:0451450523\""
+              }
+            ],
+            "structuredContent": {
+              "v": "urn:isbn:0451450523"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"not a uri\""
+              }
+            ],
+            "structuredContent": {
+              "v": "not a uri"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"/relative\""
+              }
+            ],
+            "structuredContent": {
+              "v": "/relative"
+            }
+          }
+        ],
+        "fmt_uri_reference": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"../x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "../x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"#frag\""
+              }
+            ],
+            "structuredContent": {
+              "v": "#frag"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"https://a.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "https://a.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a b"
+            }
+          }
+        ],
+        "fmt_uri_template": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"https://a.test/{id}\""
+              }
+            ],
+            "structuredContent": {
+              "v": "https://a.test/{id}"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"https://a.test/{id\""
+              }
+            ],
+            "structuredContent": {
+              "v": "https://a.test/{id"
+            }
+          }
+        ],
+        "fmt_url": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"https://a.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "https://a.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"ftp://a.test/x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "ftp://a.test/x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"nope\""
+              }
+            ],
+            "structuredContent": {
+              "v": "nope"
+            }
+          }
+        ],
+        "fmt_email": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a@b.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a@b.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a.b+c@d-e.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a.b+c@d-e.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a@\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a@"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a@b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a@b"
+            }
+          }
+        ],
+        "fmt_hostname": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a.test"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"localhost\""
+              }
+            ],
+            "structuredContent": {
+              "v": "localhost"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"-bad-\""
+              }
+            ],
+            "structuredContent": {
+              "v": "-bad-"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.test\""
+              }
+            ],
+            "structuredContent": {
+              "v": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.test"
+            }
+          }
+        ],
+        "fmt_ipv4": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"10.0.0.1\""
+              }
+            ],
+            "structuredContent": {
+              "v": "10.0.0.1"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"10.0.0.256\""
+              }
+            ],
+            "structuredContent": {
+              "v": "10.0.0.256"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"01.2.3.4\""
+              }
+            ],
+            "structuredContent": {
+              "v": "01.2.3.4"
+            }
+          }
+        ],
+        "fmt_ipv6": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"::1\""
+              }
+            ],
+            "structuredContent": {
+              "v": "::1"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"2001:db8::1\""
+              }
+            ],
+            "structuredContent": {
+              "v": "2001:db8::1"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"::g\""
+              }
+            ],
+            "structuredContent": {
+              "v": "::g"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"1::2::3\""
+              }
+            ],
+            "structuredContent": {
+              "v": "1::2::3"
+            }
+          }
+        ],
+        "fmt_regex": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"^a+$\""
+              }
+            ],
+            "structuredContent": {
+              "v": "^a+$"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"(\""
+              }
+            ],
+            "structuredContent": {
+              "v": "("
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"\\\\p{L}\""
+              }
+            ],
+            "structuredContent": {
+              "v": "\\p{L}"
+            }
+          }
+        ],
+        "fmt_uuid": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"123e4567-e89b-12d3-a456-426614174000\""
+              }
+            ],
+            "structuredContent": {
+              "v": "123e4567-e89b-12d3-a456-426614174000"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"urn:uuid:123e4567-e89b-12d3-a456-426614174000\""
+              }
+            ],
+            "structuredContent": {
+              "v": "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"123e4567\""
+              }
+            ],
+            "structuredContent": {
+              "v": "123e4567"
+            }
+          }
+        ],
+        "fmt_json_pointer": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"/a/b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "/a/b"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"\""
+              }
+            ],
+            "structuredContent": {
+              "v": ""
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a/b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a/b"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"/a~2\""
+              }
+            ],
+            "structuredContent": {
+              "v": "/a~2"
+            }
+          }
+        ],
+        "fmt_json_pointer_uri_fragment": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"#/a\""
+              }
+            ],
+            "structuredContent": {
+              "v": "#/a"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"#/a%20b\""
+              }
+            ],
+            "structuredContent": {
+              "v": "#/a%20b"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"/a\""
+              }
+            ],
+            "structuredContent": {
+              "v": "/a"
+            }
+          }
+        ],
+        "fmt_relative_json_pointer": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"1/a\""
+              }
+            ],
+            "structuredContent": {
+              "v": "1/a"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"0#\""
+              }
+            ],
+            "structuredContent": {
+              "v": "0#"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"/a\""
+              }
+            ],
+            "structuredContent": {
+              "v": "/a"
+            }
+          }
+        ],
+        "fmt_byte": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"aGk=\""
+              }
+            ],
+            "structuredContent": {
+              "v": "aGk="
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"a\""
+              }
+            ],
+            "structuredContent": {
+              "v": "a"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"aGk\""
+              }
+            ],
+            "structuredContent": {
+              "v": "aGk"
+            }
+          }
+        ],
+        "fmt_int32": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1"
+              }
+            ],
+            "structuredContent": {
+              "v": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "2147483647"
+              }
+            ],
+            "structuredContent": {
+              "v": 2147483647
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "2147483648"
+              }
+            ],
+            "structuredContent": {
+              "v": 2147483648
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1.5"
+              }
+            ],
+            "structuredContent": {
+              "v": 1.5
+            }
+          }
+        ],
+        "fmt_int64": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1"
+              }
+            ],
+            "structuredContent": {
+              "v": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1.5"
+              }
+            ],
+            "structuredContent": {
+              "v": 1.5
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "9007199254740991"
+              }
+            ],
+            "structuredContent": {
+              "v": 9007199254740991
+            }
+          }
+        ],
+        "fmt_float": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1.5"
+              }
+            ],
+            "structuredContent": {
+              "v": 1.5
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1"
+              }
+            ],
+            "structuredContent": {
+              "v": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          }
+        ],
+        "fmt_double": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1.5"
+              }
+            ],
+            "structuredContent": {
+              "v": 1.5
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          }
+        ],
+        "fmt_password": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"\""
+              }
+            ],
+            "structuredContent": {
+              "v": ""
+            }
+          }
+        ],
+        "fmt_binary": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"x\""
+              }
+            ],
+            "structuredContent": {
+              "v": "x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "\"\""
+              }
+            ],
+            "structuredContent": {
+              "v": ""
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "fmt_date",
+          "i": 0,
+          "output": "\"2024-02-29\""
+        },
+        {
+          "tool": "fmt_date",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date\""
+        },
+        {
+          "tool": "fmt_date",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date\""
+        },
+        {
+          "tool": "fmt_time",
+          "i": 0,
+          "output": "\"12:34:56Z\""
+        },
+        {
+          "tool": "fmt_time",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"time\""
+        },
+        {
+          "tool": "fmt_time",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"time\""
+        },
+        {
+          "tool": "fmt_time",
+          "i": 3,
+          "output": "\"23:59:60Z\""
+        },
+        {
+          "tool": "fmt_date_time",
+          "i": 0,
+          "output": "\"2024-01-01T00:00:00Z\""
+        },
+        {
+          "tool": "fmt_date_time",
+          "i": 1,
+          "output": "\"2024-01-01t00:00:00+01:00\""
+        },
+        {
+          "tool": "fmt_date_time",
+          "i": 2,
+          "output": "\"2024-01-01 00:00:00Z\""
+        },
+        {
+          "tool": "fmt_date_time",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"date-time\""
+        },
+        {
+          "tool": "fmt_iso_time",
+          "i": 0,
+          "output": "\"12:34:56\""
+        },
+        {
+          "tool": "fmt_iso_time",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"iso-time\""
+        },
+        {
+          "tool": "fmt_iso_date_time",
+          "i": 0,
+          "output": "\"2024-01-01T00:00:00\""
+        },
+        {
+          "tool": "fmt_iso_date_time",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"iso-date-time\""
+        },
+        {
+          "tool": "fmt_duration",
+          "i": 0,
+          "output": "\"P1D\""
+        },
+        {
+          "tool": "fmt_duration",
+          "i": 1,
+          "output": "\"PT1H30M\""
+        },
+        {
+          "tool": "fmt_duration",
+          "i": 2,
+          "output": "\"P1W\""
+        },
+        {
+          "tool": "fmt_duration",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"duration\""
+        },
+        {
+          "tool": "fmt_duration",
+          "i": 4,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"duration\""
+        },
+        {
+          "tool": "fmt_uri",
+          "i": 0,
+          "output": "\"https://a.test/x?y#z\""
+        },
+        {
+          "tool": "fmt_uri",
+          "i": 1,
+          "output": "\"urn:isbn:0451450523\""
+        },
+        {
+          "tool": "fmt_uri",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uri\""
+        },
+        {
+          "tool": "fmt_uri",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uri\""
+        },
+        {
+          "tool": "fmt_uri_reference",
+          "i": 0,
+          "output": "\"../x\""
+        },
+        {
+          "tool": "fmt_uri_reference",
+          "i": 1,
+          "output": "\"#frag\""
+        },
+        {
+          "tool": "fmt_uri_reference",
+          "i": 2,
+          "output": "\"https://a.test\""
+        },
+        {
+          "tool": "fmt_uri_reference",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uri-reference\""
+        },
+        {
+          "tool": "fmt_uri_template",
+          "i": 0,
+          "output": "\"https://a.test/{id}\""
+        },
+        {
+          "tool": "fmt_uri_template",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uri-template\""
+        },
+        {
+          "tool": "fmt_url",
+          "i": 0,
+          "output": "\"https://a.test\""
+        },
+        {
+          "tool": "fmt_url",
+          "i": 1,
+          "output": "\"ftp://a.test/x\""
+        },
+        {
+          "tool": "fmt_url",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"url\""
+        },
+        {
+          "tool": "fmt_email",
+          "i": 0,
+          "output": "\"a@b.test\""
+        },
+        {
+          "tool": "fmt_email",
+          "i": 1,
+          "output": "\"a.b+c@d-e.test\""
+        },
+        {
+          "tool": "fmt_email",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"email\""
+        },
+        {
+          "tool": "fmt_email",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"email\""
+        },
+        {
+          "tool": "fmt_hostname",
+          "i": 0,
+          "output": "\"a.test\""
+        },
+        {
+          "tool": "fmt_hostname",
+          "i": 1,
+          "output": "\"localhost\""
+        },
+        {
+          "tool": "fmt_hostname",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"hostname\""
+        },
+        {
+          "tool": "fmt_hostname",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"hostname\""
+        },
+        {
+          "tool": "fmt_ipv4",
+          "i": 0,
+          "output": "\"10.0.0.1\""
+        },
+        {
+          "tool": "fmt_ipv4",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv4\""
+        },
+        {
+          "tool": "fmt_ipv4",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv4\""
+        },
+        {
+          "tool": "fmt_ipv6",
+          "i": 0,
+          "output": "\"::1\""
+        },
+        {
+          "tool": "fmt_ipv6",
+          "i": 1,
+          "output": "\"2001:db8::1\""
+        },
+        {
+          "tool": "fmt_ipv6",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv6\""
+        },
+        {
+          "tool": "fmt_ipv6",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"ipv6\""
+        },
+        {
+          "tool": "fmt_regex",
+          "i": 0,
+          "output": "\"^a+$\""
+        },
+        {
+          "tool": "fmt_regex",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"regex\""
+        },
+        {
+          "tool": "fmt_regex",
+          "i": 2,
+          "output": "\"\\\\p{L}\""
+        },
+        {
+          "tool": "fmt_uuid",
+          "i": 0,
+          "output": "\"123e4567-e89b-12d3-a456-426614174000\""
+        },
+        {
+          "tool": "fmt_uuid",
+          "i": 1,
+          "output": "\"urn:uuid:123e4567-e89b-12d3-a456-426614174000\""
+        },
+        {
+          "tool": "fmt_uuid",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"uuid\""
+        },
+        {
+          "tool": "fmt_json_pointer",
+          "i": 0,
+          "output": "\"/a/b\""
+        },
+        {
+          "tool": "fmt_json_pointer",
+          "i": 1,
+          "output": "\"\""
+        },
+        {
+          "tool": "fmt_json_pointer",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"json-pointer\""
+        },
+        {
+          "tool": "fmt_json_pointer",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"json-pointer\""
+        },
+        {
+          "tool": "fmt_json_pointer_uri_fragment",
+          "i": 0,
+          "output": "\"#/a\""
+        },
+        {
+          "tool": "fmt_json_pointer_uri_fragment",
+          "i": 1,
+          "output": "\"#/a%20b\""
+        },
+        {
+          "tool": "fmt_json_pointer_uri_fragment",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"json-pointer-uri-fragment\""
+        },
+        {
+          "tool": "fmt_relative_json_pointer",
+          "i": 0,
+          "output": "\"1/a\""
+        },
+        {
+          "tool": "fmt_relative_json_pointer",
+          "i": 1,
+          "output": "\"0#\""
+        },
+        {
+          "tool": "fmt_relative_json_pointer",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"relative-json-pointer\""
+        },
+        {
+          "tool": "fmt_byte",
+          "i": 0,
+          "output": "\"aGk=\""
+        },
+        {
+          "tool": "fmt_byte",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"byte\""
+        },
+        {
+          "tool": "fmt_byte",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"byte\""
+        },
+        {
+          "tool": "fmt_int32",
+          "i": 0,
+          "output": "1"
+        },
+        {
+          "tool": "fmt_int32",
+          "i": 1,
+          "output": "2147483647"
+        },
+        {
+          "tool": "fmt_int32",
+          "i": 2,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"int32\""
+        },
+        {
+          "tool": "fmt_int32",
+          "i": 3,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"int32\""
+        },
+        {
+          "tool": "fmt_int64",
+          "i": 0,
+          "output": "1"
+        },
+        {
+          "tool": "fmt_int64",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/v must match format \"int64\""
+        },
+        {
+          "tool": "fmt_int64",
+          "i": 2,
+          "output": "9007199254740991"
+        },
+        {
+          "tool": "fmt_float",
+          "i": 0,
+          "output": "1.5"
+        },
+        {
+          "tool": "fmt_float",
+          "i": 1,
+          "output": "1"
+        },
+        {
+          "tool": "fmt_float",
+          "i": 2,
+          "output": "\"x\""
+        },
+        {
+          "tool": "fmt_double",
+          "i": 0,
+          "output": "1.5"
+        },
+        {
+          "tool": "fmt_double",
+          "i": 1,
+          "output": "\"x\""
+        },
+        {
+          "tool": "fmt_password",
+          "i": 0,
+          "output": "\"x\""
+        },
+        {
+          "tool": "fmt_password",
+          "i": 1,
+          "output": "\"\""
+        },
+        {
+          "tool": "fmt_binary",
+          "i": 0,
+          "output": "\"x\""
+        },
+        {
+          "tool": "fmt_binary",
+          "i": 1,
+          "output": "\"\""
+        }
+      ]
+    },
+    {
+      "name": "each keyword of draft-07 failing once",
+      "tools": [
+        {
+          "name": "keywords",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "max": {
+                "maximum": 3
+              },
+              "min": {
+                "minimum": 3
+              },
+              "xmax": {
+                "exclusiveMaximum": 3
+              },
+              "xmin": {
+                "exclusiveMinimum": 3
+              },
+              "mult": {
+                "multipleOf": 0.5
+              },
+              "maxl": {
+                "maxLength": 2
+              },
+              "minl": {
+                "minLength": 2
+              },
+              "pat": {
+                "pattern": "^a+$"
+              },
+              "maxi": {
+                "maxItems": 1
+              },
+              "mini": {
+                "minItems": 2
+              },
+              "uniq": {
+                "uniqueItems": true
+              },
+              "uniqt": {
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "deps2": {
+                "dependencies": {
+                  "a": [
+                    "b",
+                    "c"
+                  ]
+                }
+              },
+              "condelse": {
+                "if": {
+                  "type": "number"
+                },
+                "then": {
+                  "minimum": 10
+                },
+                "else": {
+                  "minLength": 3
+                }
+              },
+              "tuple": {
+                "items": [
+                  {
+                    "type": "string"
+                  }
+                ],
+                "additionalItems": false
+              },
+              "cont": {
+                "contains": {
+                  "const": 1
+                }
+              },
+              "maxp": {
+                "maxProperties": 1
+              },
+              "minp": {
+                "minProperties": 1
+              },
+              "names": {
+                "propertyNames": {
+                  "pattern": "^[a-z]+$"
+                }
+              },
+              "deps": {
+                "dependencies": {
+                  "a": [
+                    "b"
+                  ],
+                  "c": {
+                    "required": [
+                      "d"
+                    ]
+                  }
+                }
+              },
+              "pprops": {
+                "patternProperties": {
+                  "^n": {
+                    "type": "number"
+                  }
+                }
+              },
+              "not": {
+                "not": {
+                  "type": "string"
+                }
+              },
+              "all": {
+                "allOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "minimum": 1
+                  }
+                ]
+              },
+              "one": {
+                "oneOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "minimum": 0
+                  }
+                ]
+              },
+              "cond": {
+                "if": {
+                  "type": "number"
+                },
+                "then": {
+                  "minimum": 10
+                },
+                "else": {
+                  "type": "string"
+                }
+              },
+              "fals": {
+                "items": false
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "keywords": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "structuredContent": {
+              "max": 3,
+              "min": 3,
+              "xmax": 2,
+              "xmin": 4,
+              "mult": 1.5,
+              "maxl": "ab",
+              "minl": "ab",
+              "pat": "aa",
+              "maxi": [
+                1
+              ],
+              "mini": [
+                1,
+                2
+              ],
+              "uniq": [
+                1,
+                2
+              ],
+              "tuple": [
+                "a"
+              ],
+              "cont": [
+                0,
+                1
+              ],
+              "maxp": {
+                "a": 1
+              },
+              "minp": {
+                "a": 1
+              },
+              "names": {
+                "ab": 1
+              },
+              "deps": {
+                "a": 1,
+                "b": 2
+              },
+              "pprops": {
+                "n1": 1
+              },
+              "not": 1,
+              "all": 2,
+              "one": "x",
+              "cond": 11,
+              "fals": [],
+              "uniqt": [
+                1,
+                "1",
+                2
+              ],
+              "deps2": {
+                "a": 1,
+                "b": 2,
+                "c": 3
+              },
+              "condelse": "abc"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              }
+            ],
+            "structuredContent": {
+              "max": 4,
+              "min": 2,
+              "xmax": 3,
+              "xmin": 3,
+              "mult": 1.25,
+              "maxl": "abc",
+              "minl": "a",
+              "pat": "b",
+              "maxi": [
+                1,
+                2
+              ],
+              "mini": [
+                1
+              ],
+              "uniq": [
+                1,
+                1
+              ],
+              "tuple": [
+                "a",
+                "b"
+              ],
+              "cont": [
+                0
+              ],
+              "maxp": {
+                "a": 1,
+                "b": 2
+              },
+              "minp": {},
+              "names": {
+                "AB": 1
+              },
+              "deps": {
+                "a": 1,
+                "c": 2
+              },
+              "pprops": {
+                "n1": "x"
+              },
+              "not": "x",
+              "all": 0,
+              "one": 1,
+              "cond": 5,
+              "fals": [
+                1
+              ],
+              "uniqt": [
+                "a",
+                1,
+                2,
+                "a",
+                1
+              ],
+              "deps2": {
+                "a": 1
+              },
+              "condelse": "ab"
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "keywords",
+          "i": 0,
+          "output": "ok"
+        },
+        {
+          "tool": "keywords",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/max must be <= 3, data/min must be >= 3, data/xmax must be < 3, data/xmin must be > 3, data/mult must be multiple of 0.5, data/maxl must NOT have more than 2 characters, data/minl must NOT have fewer than 2 characters, data/pat must match pattern \"^a+$\", data/maxi must NOT have more than 1 items, data/mini must NOT have fewer than 2 items, data/uniq must NOT have duplicate items (items ## 0 and 1 are identical), data/uniqt must NOT have duplicate items (items ## 4 and 1 are identical), data/deps2 must have properties b, c when property a is present, data/deps2 must have properties b, c when property a is present, data/condelse must NOT have fewer than 3 characters, data/condelse must match \"else\" schema, data/tuple must NOT have more than 1 items, data/cont/0 must be equal to constant, data/cont must contain at least 1 valid item(s), data/maxp must NOT have more than 1 properties, data/minp must NOT have fewer than 1 properties, data/names must match pattern \"^[a-z]+$\", data/names property name must be valid, data/deps must have property b when property a is present, data/deps must have required property 'd', data/pprops/n1 must be number, data/not must NOT be valid, data/all must be >= 1, data/one must match exactly one schema in oneOf, data/cond must be >= 10, data/cond must match \"then\" schema, data/fals/0 boolean schema is false"
+        }
+      ]
     }
   ]
 }
