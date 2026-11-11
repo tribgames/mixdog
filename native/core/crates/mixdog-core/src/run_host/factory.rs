@@ -1635,6 +1635,7 @@ mod tests {
         fn delivery(&self) -> DeliveryState {
             DeliveryState::Accepted
         }
+        fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
     }
 
     struct Scripted {

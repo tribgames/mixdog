@@ -211,7 +211,7 @@ struct Plan {
 
 /// `old` is rebased onto the file's own line endings for matching only, and every occurrence gets
 /// its own replacement speaking that occurrence's local convention.
-fn plan_eol(content: &str, old: &str, new: &str) -> Plan {
+fn plan_eol(content: &str, old: &str, new: &str, absorb_trailing_newline: bool) -> Plan {
     let mut match_old = old.to_owned();
     let mut rebased = false;
     if !content.contains(&match_old) && has_eol(&match_old) {
@@ -227,7 +227,7 @@ fn plan_eol(content: &str, old: &str, new: &str) -> Plan {
         // units of the match, so a block whose last line is one character long is left as it is.
         let tail: Vec<u16> = match_old.encode_utf16().collect();
         let tail_has_eol = tail[tail.len().saturating_sub(2)..].iter().any(|u| *u == 0x0A || *u == 0x0D);
-        if rebased && new.is_empty() && !tail_has_eol {
+        if absorb_trailing_newline && rebased && new.is_empty() && !tail_has_eol {
             for eol in ["\r\n", "\n", "\r"] {
                 if content.contains(&format!("{match_old}{eol}")) {
                     match_old.push_str(eol);
@@ -257,10 +257,20 @@ fn plan_eol(content: &str, old: &str, new: &str) -> Plan {
 
 /// The edited text and replacement count, or the model-facing failure. `utf8` is false for a
 /// UTF-16 file, which only the exact applier splices.
-pub(super) fn apply(content: &str, old: &str, new: &str, replace_all: bool, utf8: bool) -> Result<(String, usize), ToolError> {
-    let plan = plan_eol(content, old, new);
+/// `occupation` is a same-anchor batch member's `editOccurrence.expected`: when exactly that many occurrences remain, the
+/// first is consumed (`applyEditOccupation`); any other count falls through to the strict ambiguity reject.
+pub(super) fn apply(content: &str, old: &str, new: &str, replace_all: bool, utf8: bool, occupation: Option<u32>) -> Result<(String, usize), ToolError> {
+    let plan = plan_eol(content, old, new, occupation.is_none());
     if !plan.positions.is_empty() && plan.replacements.iter().all(|r| *r == plan.old) {
         return Err(super::common::invalid("new_string", "same_as_old", SAME_STRINGS));
+    }
+    if let Some(expected) = occupation
+        && !replace_all
+        && expected >= 2
+        && plan.positions.len() == expected as usize
+    {
+        let at = plan.positions[0];
+        return Ok((format!("{}{}{}", &content[..at], plan.replacements[0], &content[at + plan.old.len()..]), 1));
     }
     if !utf8 || plan.rebased || !plan.uniform {
         return apply_exact(content, &plan, replace_all);

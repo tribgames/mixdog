@@ -564,6 +564,7 @@ mixdog_rt::replay_chunks!(GROUP_TESTS, #[tokio::test(flavor = "multi_thread")] a
     timeout_equals_nodes = 7,
 ]);
 async fn replay(case: Value) {
+    seam::take_control();
     let title = case["title"].as_str().unwrap().to_owned();
     let spec = &case["spec"];
     let client = spec["client"].as_str().unwrap();
