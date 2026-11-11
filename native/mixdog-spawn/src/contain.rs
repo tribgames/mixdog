@@ -181,6 +181,15 @@ mod imp {
             (ok != 0).then_some(info.ActiveProcesses)
         }
 
+        /// After a root that ended: the console hosts it leaves are given time to signal their own exit
+        /// ([`crate::console_hosts::settle`]) before anything left in the job is taken for a survivor.
+        pub(crate) fn settle_exit(&self) {
+            crate::console_hosts::settle(self.job, crate::console_hosts::SETTLE_DEADLINE, || {
+                #[cfg(feature = "core-test")]
+                crate::testing::settle_window();
+            });
+        }
+
         /// Whether any process of the job might still be running: a job that could not be asked is not empty.
         pub(crate) fn occupied(&self) -> bool {
             self.active().is_none_or(|active| active > 0)
@@ -368,6 +377,9 @@ mod imp {
                 tree.signal_group(Signal::Kill);
             }
         }
+
+        /// A process group has no console host to wait for.
+        pub(crate) fn settle_exit(&self) {}
 
         /// SIGTERM to the group: the gentle first stop of an escalating one (`kill` is the second).
         pub(crate) fn terminate(&self) {

@@ -821,6 +821,11 @@ fn wait_and_finish(
     if let Some(input) = &proc.input {
         input.shutdown();
     }
+    // A pseudo console's host is the terminal's, closed above; a piped command's console host signals its own exit before
+    // the exit is published, so it is never taken for a survivor.
+    if proc.pty.is_none() {
+        proc.containment.settle_exit();
+    }
     // Read after the drain: a kill during it (descendants still holding the pipes) counts.
     // Fixing the reason and closing the door to kills is one step under the lifecycle lock; a
     // later kill returns `AlreadyExited`.

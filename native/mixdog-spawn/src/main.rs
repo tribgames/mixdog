@@ -28,6 +28,8 @@ use windows_sys::Win32::System::JobObjects::{
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 
+#[cfg(windows)]
+mod console_hosts;
 mod wire;
 use wire::*;
 mod process;
@@ -71,10 +73,6 @@ const LATE_EMPTY_POLL: Duration = Duration::from_millis(500);
 const LATE_VERIFY_DEADLINE: Duration = Duration::from_secs(60);
 #[cfg(windows)]
 const LATE_FAILURE_LIMIT: u32 = 10;
-// A root that exited on its own leaves its console host for a moment: the job
-// is given this long to empty before what remains is taken for survivors.
-#[cfg(windows)]
-const EXIT_SETTLE: Duration = Duration::from_millis(500);
 // Those survivors are kept in their job (breakaway still refused) and watched
 // at LATE_EMPTY_POLL for at most KEPT_WATCH: a targeted cancel kills them
 // through the job, an emptied job is reported, and at the deadline they are
@@ -427,8 +425,9 @@ fn pause(id: u64, point: &'static str) {
 fn pause(_id: u64, _point: &'static str) {}
 
 /// After the root's exit. A killed contained job must empty (verify_kill).
-/// One whose root exited on its own is given EXIT_SETTLE to empty and stays
-/// Open, so killable, meanwhile: a cancel, deadline or the shutdown reap that
+/// One whose root exited on its own first lets the console hosts it left
+/// signal their exit (console_hosts::settle) and stays Open, so killable,
+/// meanwhile: a cancel, deadline or the shutdown reap that
 /// lands then makes it a killed job (Killing), verified like any other.
 /// Otherwise, decided in one state-lock hold: EMPTY; or its survivors, which a
 /// natural exit never kills, are kept in the job (PRESERVED, watch_kept),
@@ -442,7 +441,7 @@ fn settle_tree(managed: &Arc<ManagedProcess>, manager: &Arc<Manager>, exited_on_
     }
     let id = managed.request_id;
     if exited_on_its_own {
-        control.await_empty(EXIT_SETTLE, || rekill(managed));
+        console_hosts::settle(control.handle, console_hosts::SETTLE_DEADLINE, || {});
         pause(id, "settle:check");
         let mut state = managed.lock_state();
         if state.tree == Tree::Open {
