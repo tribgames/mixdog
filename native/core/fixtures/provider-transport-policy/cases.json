@@ -469,7 +469,7 @@
     },
     {
       "id": "ws-full-forces-computeDelta-full",
-      "source": "scripts/provider-toolcall/transport-policy.test.mjs:113",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:117",
       "input": {
         "env": "ws-full"
       },
@@ -546,7 +546,7 @@
     },
     {
       "id": "responses-policy-full-caps-equal-legacy",
-      "source": "scripts/provider-toolcall/transport-policy.test.mjs:144",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:148",
       "input": {
         "envs": [
           {},
@@ -860,7 +860,7 @@
     },
     {
       "id": "responses-policy-capabilities-table",
-      "source": "scripts/provider-toolcall/transport-policy.test.mjs:158",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:165",
       "input": {},
       "result": {
         "capabilities": {
@@ -889,7 +889,7 @@
     },
     {
       "id": "responses-policy-openai-direct-ws-delta",
-      "source": "scripts/provider-toolcall/transport-policy.test.mjs:158",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:165",
       "input": {
         "env": {
           "MIXDOG_OAI_TRANSPORT": "ws-delta"
@@ -931,7 +931,7 @@
     },
     {
       "id": "responses-policy-xai",
-      "source": "scripts/provider-toolcall/transport-policy.test.mjs:165",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:172",
       "input": {},
       "result": {
         "auto": {

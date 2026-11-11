@@ -19,7 +19,7 @@
     {
       "bytes": 65933,
       "path": "cases.json",
-      "sha256": "73b102fa833861085de038c6d8cf761fa0fdda1e4c7d85de864f2f4b9b5d60b2"
+      "sha256": "5b7ad04a28999d6bd53043d3a9d40a935ea49329ce50254c144b0e60946eb364"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-transport-policy.mjs",
-  "recorderSha256": "3fc77ce6789fb79f20e59f7683785fe1efb682a0c356425a4d1accb3c4b8a616",
+  "recorderSha256": "c494805e7e3a2d2be8ffb399f1607af9fd2b75032c4e61a161da6a08d2b2a866",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178). The mode selection is DefaultProviderBuilder::build (registry/builder.rs:1295).",
   "set": "provider-transport-policy",
   "totalBytes": 65933,

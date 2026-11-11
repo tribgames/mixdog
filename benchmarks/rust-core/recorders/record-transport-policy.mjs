@@ -50,19 +50,19 @@ await run('ws-delta-drives-computeDelta-delta-frame', 89, { env: 'ws-delta' }, (
   const entry = { lastRequestSansInput: '{"model":"gpt-5.5"}', lastResponseId: 'resp_prev', lastRequestInput: [body.input[0]], lastResponseItems: [] };
   return { body, entry, delta: _computeDelta({ entry, body }) };
 }));
-await run('ws-full-forces-computeDelta-full', 113, { env: 'ws-full' }, () => withEnv('ws-full', () => {
+await run('ws-full-forces-computeDelta-full', 117, { env: 'ws-full' }, () => withEnv('ws-full', () => {
   const body = { model: 'gpt-5.5', input: [{ type: 'message', role: 'user', content: 'hi' }] };
   const entry = { lastRequestSansInput: '{"model":"gpt-5.5"}', lastResponseId: 'resp_prev', lastRequestInput: body.input, lastResponseItems: [] };
   return { body, entry, delta: _computeDelta({ entry, body }) };
 }));
-await run('responses-policy-full-caps-equal-legacy', 144, { envs }, () => envs.map((env) => {
+await run('responses-policy-full-caps-equal-legacy', 148, { envs }, () => envs.map((env) => {
   const legacy = resolveOpenAiTransportPolicy(env);
   const shared = resolveResponsesTransportPolicy(env, RESPONSES_TRANSPORT_CAPABILITIES['openai-oauth']);
   return { env, legacy, shared, equal: shared.mode === legacy.mode && shared.transport === legacy.transport && shared.allowHttpFallback === legacy.allowHttpFallback && JSON.stringify(shared.delta) === JSON.stringify(legacy.delta) };
 }));
-await run('responses-policy-capabilities-table', 158, {}, () => ({ capabilities: RESPONSES_TRANSPORT_CAPABILITIES, full: FULL_RESPONSES_TRANSPORT_CAPS }));
-await run('responses-policy-openai-direct-ws-delta', 158, { env: { MIXDOG_OAI_TRANSPORT: 'ws-delta' } }, () => ({ direct: resolveResponsesTransportPolicy({ MIXDOG_OAI_TRANSPORT: 'ws-delta' }, RESPONSES_TRANSPORT_CAPABILITIES.openai) }));
-await run('responses-policy-xai', 165, {}, () => {
+await run('responses-policy-capabilities-table', 165, {}, () => ({ capabilities: RESPONSES_TRANSPORT_CAPABILITIES, full: FULL_RESPONSES_TRANSPORT_CAPS }));
+await run('responses-policy-openai-direct-ws-delta', 165, { env: { MIXDOG_OAI_TRANSPORT: 'ws-delta' } }, () => ({ direct: resolveResponsesTransportPolicy({ MIXDOG_OAI_TRANSPORT: 'ws-delta' }, RESPONSES_TRANSPORT_CAPABILITIES.openai) }));
+await run('responses-policy-xai', 172, {}, () => {
   const xai = RESPONSES_TRANSPORT_CAPABILITIES.xai;
   return {
     auto: resolveResponsesTransportPolicy({}, xai),
