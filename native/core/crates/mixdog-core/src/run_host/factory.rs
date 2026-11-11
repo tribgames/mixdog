@@ -248,10 +248,6 @@ fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
 
 // ---- the commit sink ---------------------------------------------------------------------------------
 
-/// How long a model request or a tool batch waits for the row it follows to reach the store before the turn fails with the storage
-/// error (Node has no bound: its checkpoint write is synchronous and a failure throws at once).
-const DURABLE_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
-
 enum Job {
     Commit(u64, ItemCommit),
     Compact(u64, mixdog_core_session::session::run::Compaction),
@@ -526,22 +522,18 @@ impl TranscriptSink for PortSink {
         format!("msg_{}", uuid::Uuid::new_v4().simple())
     }
 
+    /// Waits for the row as Node's turn waits for its save (`awaitPreviousTurnDurable`, `turn-durability.mjs:99`): with no bound of its
+    /// own (a cancelled run stops waiting, `Run::until_durable`), and a row the store refused is the turn's storage error.
     async fn durable(&self, ticket: Ticket) -> Result<(), NotDurable> {
         let not_saved = |cause: String| NotDurable(format!("Session {}: the conversation is not saved to disk, so the next turn cannot start ({cause})", self.port.thread().as_str()));
-        let wait = async {
-            if ticket.0 == 0 {
-                return self.port.input_durable().await.map_err(|error| format!("{error:?}"));
-            }
-            let mut done = self.done.clone();
-            done.wait_for(|d| *d >= ticket.0).await.map_err(|_| "the session's writer ended".to_owned())?;
-            match lock(&self.failed).iter().find(|(n, _)| *n <= ticket.0) {
-                Some((_, cause)) => Err(cause.clone()),
-                None => Ok(()),
-            }
-        };
-        match mixdog_rt::time::timeout(DURABLE_WAIT, wait).await {
-            Ok(saved) => saved.map_err(not_saved),
-            Err(_) => Err(not_saved(format!("the store did not acknowledge the save within {}s", DURABLE_WAIT.as_secs()))),
+        if ticket.0 == 0 {
+            return self.port.input_durable().await.map_err(|error| not_saved(format!("{error:?}")));
+        }
+        let mut done = self.done.clone();
+        done.wait_for(|d| *d >= ticket.0).await.map_err(|_| not_saved("the session's writer ended".to_owned()))?;
+        match lock(&self.failed).iter().find(|(n, _)| *n <= ticket.0) {
+            Some((_, cause)) => Err(not_saved(cause.clone())),
+            None => Ok(()),
         }
     }
 }
@@ -1609,6 +1601,67 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    /// The provider that, when its request arrives, makes the store refuse the next write (the assistant row the reply commits).
+    struct RefusesNextSave {
+        inner: Arc<Scripted>,
+        refuse: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for RefusesNextSave {
+        fn id(&self) -> &ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            self.inner.retry_policy()
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.refuse.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.inner.attempt(request).await
+        }
+    }
+
+    /// A row the store refused is no acknowledgement (Node: `TurnPersistenceError`, `turn-durability.mjs:20`): the tool the
+    /// assistant row gated does not run, no second request is made, and the turn fails with the storage error.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refused_row_save_fails_the_turn_before_the_tool_it_gated() {
+        let scripted = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::TextDelta("looking".into()),
+                StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "a": 1 }), native_type: None }),
+                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+            ]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let provider = Arc::new(RefusesNextSave { inner: scripted.clone(), refuse: rig.store.fail_next.clone() });
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+
+        let stored = || format!("{:?}", rig.store.records(&id));
+        eventually_on_awaiting(|| "the turn's storage failure in the store".to_owned(), &[handle.stepped()], || stored().contains("is not saved to disk").then_some(())).await;
+        assert_eq!(lock(&scripted.requests).len(), 1, "no request follows a row that was not saved");
+        assert!(!stored().contains("echo:"), "the tool did not run: {}", stored());
     }
 
     /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's
