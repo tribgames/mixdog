@@ -381,6 +381,7 @@ mod tests {
         runtime: Arc<ExecRuntime>,
         shell: ShellTool,
         task: TaskTool,
+        configured: Arc<ConfiguredShell>,
     }
 
     async fn rig() -> Rig {
@@ -388,16 +389,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let processes = LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
         let shell_path = crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.unwrap();
+        let configured = Arc::new(ConfiguredShell::default());
         let (exec, _events) = build_exec(
             &tokens,
             dir.path(),
             dir.path().join("launchers"),
             shell_path,
-            Arc::new(ConfiguredShell::default()),
+            Arc::clone(&configured),
             SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
             ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
         );
-        Rig { dir, processes, runtime: exec.runtime.clone(), shell: ShellTool::new(exec.runtime.clone()), task: TaskTool::new(exec.runtime) }
+        Rig {
+            dir,
+            processes,
+            runtime: exec.runtime.clone(),
+            shell: ShellTool::new(exec.runtime.clone()),
+            task: TaskTool::new(exec.runtime),
+            configured,
+        }
     }
 
     impl Rig {
@@ -480,8 +489,8 @@ mod tests {
     /// Node b6f10295a by `record-shell-warm-standby.mjs`): a command taken by the parked standby runs in its folder (one
     /// whose name needs the Base64 hand-off) for PowerShell and .NET with its session's TEMP, and the next command, in the
     /// next standby, does not see the global it set; a command from another folder (another environment) does not take
-    /// the standby and runs cold. Commands of 1 MiB, 1 MiB + 1 byte (cold), one the hand-off prelude pushes past 1 MiB
-    /// and one of 5 MiB (warm) run whole, past the helper's 1 MiB input queue. A variable of this process's environment changed
+    /// the standby and runs cold. Commands of 1 MiB, 1 MiB + 1 byte, one the hand-off prelude pushes past 1 MiB when it is
+    /// taken and one of 5 MiB each run whole cold and warm, past the helper's 1 MiB input queue. A variable of this process's environment changed
     /// after a standby was parked reaches the next command, which does not take that standby. Whether each command ran
     /// in the parked standby is told, as Node's recording tells it, by the process id it prints last. Each standby runs
     /// one command, and shutdown ends the parked one.
@@ -551,6 +560,65 @@ mod tests {
         });
         ended.await.expect("shutdown ended the parked standby");
         assert_eq!(rig.runtime.parked_standby(), None, "nothing is parked after shutdown");
+    }
+
+    /// A shell that never reads the script it is fed is held and limited as in Node (`fixtures/shell-unread-stdin/golden.json`,
+    /// recorded by `record-shell-unread-stdin.mjs` with the same stand-in, `testdata/unread_stdin_shell.rs`): the write of a
+    /// 1 MiB command waits on the full pipe, and meanwhile a run limit ends the shell with the timeout's answer and the hold
+    /// moves it to the background, each before the stand-in's 30 s are up. Node's warm standby was off; here the stand-in may
+    /// be parked and taken, which feeds it the same way.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[allow(clippy::disallowed_methods, reason = "the test builds its stand-in shell on the test thread")]
+    async fn a_shell_that_never_reads_its_input_is_held_and_limited_as_nodes() {
+        use mixdog_core_api::domain::process::ProcessManager;
+        let want: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/shell-unread-stdin/golden.json")).unwrap();
+        let rig = rig().await;
+        let standin = rig.dir.path().join("standin").join("pwsh.exe");
+        std::fs::create_dir_all(standin.parent().unwrap()).unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/testdata/unread_stdin_shell.rs");
+        let built = std::process::Command::new("rustc").arg("-O").arg("-o").arg(&standin).arg(&source).status().unwrap();
+        assert!(built.success(), "the stand-in shell did not build");
+        rig.configured.set(&standin.to_string_lossy());
+        // The recorder's `sizedCommand`.
+        let sized = |size: usize| {
+            let head = "$null = $PSScriptRoot; $s = '";
+            let tail = "'; Write-Output ('len|' + $s.Length)";
+            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
+        };
+        let life = Duration::from_millis(want["standinLifeMs"].as_u64().unwrap());
+        let mut wrong = Vec::new();
+        for (i, case) in want["cases"].as_array().unwrap().iter().enumerate() {
+            let mut input = case["input"].clone();
+            let size = input.as_object_mut().unwrap().remove("size").unwrap().as_u64().unwrap() as usize;
+            input["command"] = serde_json::Value::String(sized(size));
+            let call = format!("u{i}");
+            let started = std::time::Instant::now();
+            let ran = text(rig.shell.call(&ctx(rig.dir.path(), &call, rig.processes.clone()), input).await);
+            let answered = started.elapsed();
+            let view: String = ran
+                .replace(&format!("task-{call}"), "<TASK>")
+                .lines()
+                .map(|line| {
+                    if line.starts_with("started: ") {
+                        "started: <TIME>".to_owned()
+                    } else if line.starts_with("logs: ") {
+                        "logs: <LOGS>".to_owned()
+                    } else {
+                        line.to_owned()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + if ran.ends_with('\n') { "\n" } else { "" };
+            if view != case["text"].as_str().unwrap() || answered >= life {
+                wrong.push(format!("{}: after {answered:?} {view:?}", case["name"]));
+            }
+        }
+        for process in ProcessManager::list(&rig.processes) {
+            let _ = ProcessManager::kill(&rig.processes, &process.handle);
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     /// The time from a shell call to its result for a PowerShell command that prints at once, as Node's warm standby is
