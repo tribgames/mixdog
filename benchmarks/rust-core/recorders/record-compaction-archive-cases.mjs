@@ -228,7 +228,8 @@ await runCase('prompts and replies get a stable message id at creation; a surfac
   };
 });
 await runCase('stamping never serializes inline media and never reaches a provider payload', async () => {
-  const image = { type: 'image', data: 'A'.repeat(8 * 1024 * 1024), mimeType: 'image/png' };
+  // The size of the inline image is scaled down from the Node test's 8 MiB (the toJSON trap, not the size, is what proves nothing serializes it): 64 KiB keeps the fixture small.
+  const image = { type: 'image', data: 'A'.repeat(64 * 1024), mimeType: 'image/png' };
   const plain = () => [
     { role: 'system', content: 'rules' },
     { role: 'user', content: [{ type: 'text', text: 'see screenshot' }, image] },
@@ -246,9 +247,8 @@ await runCase('stamping never serializes inline media and never reaches a provid
   const oai = toOpenAIMessages(messages, 'openai');
   return {
     stampedCount, error,
-    anthropicEqualsUnstamped: isDeepStrictEqual(anth, toAnthropicMessages(plain(), [])),
-    openaiEqualsUnstamped: isDeepStrictEqual(oai, toOpenAIMessages(plain(), 'openai')),
-    anthropicSha256: sha(JSON.stringify(anth)), openaiSha256: sha(JSON.stringify(oai)),
+    anthropic: anth, anthropicOfUnstamped: toAnthropicMessages(plain(), []),
+    openai: oai, openaiOfUnstamped: toOpenAIMessages(plain(), 'openai'),
     imageBytes: image.data.length,
   };
 });
@@ -256,7 +256,7 @@ await runCase('stamped ids are persisted: a stamped message is a new object the 
   const original = { role: 'user', content: 'hi' };
   const session = { id: 'stamp-save', messages: [original] };
   const count = stampCompactionMessageIds(session.messages, session.id);
-  return { count, replacedNotEdited: session.messages[0] !== original, originalMeta: original.meta ?? null, hasId: Boolean(idOf(session.messages[0])), id: idOf(session.messages[0]) };
+  return { count, replacedNotEdited: session.messages[0] !== original, originalMeta: original.meta, id: idOf(session.messages[0]) };
 });
 for (const path of ['rules', 'summary']) {
   await runCase(`a ${path} compaction carries every kept message's id to its rewrite (provenance)`, async () => {
@@ -271,13 +271,12 @@ for (const path of ['rules', 'summary']) {
     stampCompactionMessageIds(session.messages, session.id);
     const before = session.messages.slice();
     const result = await compact(session, summaryProvider());
-    const ids = new Set(before.map(idOf));
     const after = session.messages.map((message) => {
       const id = message?.meta && typeof message.meta === 'object' ? message.meta.transcript?.messageId : '';
       return {
-        role: message.role, id: id || null, idKnownBefore: id ? ids.has(id) : null,
+        role: message.role, id,
         message: structuredClone(message),
-        restoredWhenNoId: id ? null : restoreTranscriptItems([message], { sessionId: session.id }),
+        restoredWhenNoId: id ? undefined : restoreTranscriptItems([message], { sessionId: session.id }),
       };
     });
     await flush(path);
@@ -298,14 +297,13 @@ await runCase('recompacting a compacted transcript keeps the summary ack and arc
   await flush('repeat');
   const ackAfter = session.messages.find(isProtectedContextAckMessage);
   return {
-    ackFound: Boolean(ack), linesAfterFirst, repeatDropped: repeat.droppedMessages, repeatChanged: repeat.changed,
-    ackIdBefore: ack ? idOf(ack) : null, ackIdAfter: ackAfter ? idOf(ackAfter) : null,
-    messagesCarryingAckId: session.messages.filter((m) => m.meta?.transcript?.messageId === idOf(ack)).length,
+    ack, ackAfter, linesAfterFirst, repeat,
+    messagesCarryingAckId: session.messages.filter((m) => m.meta?.transcript?.messageId === idOf(ack)),
     linesAfterRepeat: archiveLines(session.id).length,
   };
 });
 await runCase('context acks never render; a bare "." reply still does', async () => {
-  const rows = (messages) => restoreTranscriptItems(messages, { sessionId: 'ack' }).map((item) => `${item.kind}:${item.text}`);
+  const rows = (messages) => restoreTranscriptItems(messages, { sessionId: 'ack' });
   const legacyAck = { role: 'assistant', content: '.' };
   return {
     contextAck: rows([contextAckMessage()]),
@@ -319,7 +317,7 @@ await runCase('a rewrite-only compaction archives nothing', async () => {
   const session = storedSession('rewrite');
   const before = stamped(session.messages.slice(), session.id);
   const after = before.map((message) => (message.role === 'tool' ? { ...message, content: 'patched (trimmed)' } : { ...message }));
-  const dropped = droppedByCompaction(before, after).length;
+  const dropped = droppedByCompaction(before, after);
   const scheduled = scheduleCompactionArchive({ session, before, after });
   const control = stamped([{ role: 'user', content: '[mixdog-runtime] obsolete notification' }], 'control');
   const scheduledControl = scheduleCompactionArchive({ session, before: [...before, ...control], after });
@@ -342,7 +340,7 @@ await runCase('a mixed drop-and-rewrite compaction archives only what left, and 
   await flush('mixed');
   const items = JSON.parse(archiveLines(session.id)[0]).items;
   saveArchive('mixed', session.id);
-  return { beforeIds: idsOf(before), dropped, identities: scheduled.identities, itemLabels: items.map((item) => item.text ?? item.name ?? item.label), lostCallCard: { callId: items[1].callId, result: items[1].result } };
+  return { beforeIds: idsOf(before), dropped, identities: scheduled.identities, items };
 });
 await runCase('a partial loss (kept id and call, lost text) archives the text row live and persisted alike', async () => {
   const session = storedSession('partial');
@@ -351,7 +349,7 @@ await runCase('a partial loss (kept id and call, lost text) archives the text ro
   const result = { role: 'tool', toolCallId: 'pc1', content: 'a body' };
   const before = stamped([prompt, call, result], session.id);
   const after = [prompt, { ...call, content: '' }, result];
-  const dropped = droppedByCompaction(before, after).length;
+  const dropped = droppedByCompaction(before, after);
   const scheduled = scheduleCompactionArchive({ session, before, after });
   await flush('partial');
   const persisted = JSON.parse(archiveLines(session.id)[0]).items.filter((item) => item.status !== 'compacted');
@@ -359,8 +357,8 @@ await runCase('a partial loss (kept id and call, lost text) archives the text ro
   const rows = restoreTranscriptItems(before, { sessionId: session.id });
   return {
     dropped, scheduledDropped: scheduled.dropped, identities: scheduled.identities,
-    persisted: persisted.map((item) => [item.kind, item.text]),
-    live: rows.map((row) => [row.kind, row.text ?? row.callId, archived(row)]),
+    persisted,
+    live: rows.map((row) => ({ row, archived: archived(row) })),
   };
 });
 await runCase('after a rules compaction a restart shows no turn both above and below the divider', async () => {
@@ -374,12 +372,7 @@ await runCase('after a rules compaction a restart shows no turn both above and b
   const doc = { id: session.id, provider: session.provider, model: session.model, compaction: session.compaction, messages: after };
   const restarted = await projectStoredTranscript(session.id, doc, { itemLimit: 10_000, checkpointAbsent: true });
   saveArchive('rules-restart', session.id);
-  return {
-    changed: result.changed,
-    items: restarted.items.map((item) => ({ id: item.id, kind: item.kind, status: item.status ?? null, archived: item.archived === true, textSha256: item.text ? sha(item.text) : null })),
-    transcriptHasOlder: restarted.transcriptHasOlder ?? null,
-    droppedStillKept: droppedByCompaction(before, after).filter((message) => after.some((kept) => kept === message)).length,
-  };
+  return { changed: result.changed, restarted, dropped: droppedByCompaction(before, after), kept: after };
 });
 await runCase('a committed compaction archives what it dropped as one display-only segment', async () => {
   const session = storedSession('commit');
@@ -392,16 +385,11 @@ await runCase('a committed compaction archives what it dropped as one display-on
   const lines = archiveLines(session.id);
   const segment = JSON.parse(lines[0]);
   const dropped = droppedByCompaction(before, session.messages);
-  const payload = JSON.stringify(session.messages);
   saveArchive('commit', session.id);
   return {
-    changed: result.changed, nextSeqAtCommit, lineCount: lines.length, head: heads(session.id), count: segment.count, itemCount: segment.items.length,
-    divider: { kind: segment.items.at(-1).kind, status: segment.items.at(-1).status, label: segment.items.at(-1).label, id: segment.items.at(-1).id },
-    archivedRowIds: segment.items.slice(0, -1).map((item) => [item.id, item.archived === true]),
-    archiveState: archiveState(session), droppedCount: dropped.length,
-    payloadHasArchiveIds: payload.includes('arch1_'), payloadHasArchivedKey: payload.includes('"archived"'),
-    keptOneOfDropped: session.messages.some((message) => dropped.includes(message)),
-    summaryRequestHasArchiveIds: sentLog.some((p) => p.includes('arch1_')),
+    changed: result.changed, nextSeqAtCommit, lineCount: lines.length, head: heads(session.id), segment,
+    archiveState: archiveState(session), dropped, keptMessages: session.messages,
+    summaryRequests: [...sentLog],
   };
 });
 await runCase('an automatic pre-send compaction archives what it dropped once it adopts the result', async () => {
@@ -426,13 +414,13 @@ await runCase('an automatic pre-send compaction archives what it dropped once it
   const [line] = archiveLines(id);
   const items = JSON.parse(line).items;
   saveArchive('presend', id);
-  return { compactChanged: result.compactChanged, nextSeq, firstArchivedUserStartsWithLargeOldRequest: items.some((item) => item.kind === 'user' && item.text.startsWith('large old request')), lastItemId: items.at(-1).id, payloadHasArchiveIds: JSON.stringify(session.messages).includes('arch1_') };
+  return { compactChanged: result.compactChanged, nextSeq, items, messages: session.messages };
 });
 await runCase('a compaction aborted because the conversation moved archives nothing', async () => {
   const session = storedSession('moved');
   const result = await compact(session, summaryProvider(() => { session.messages = session.messages.slice(0, -2); }));
   await flush('moved');
-  return { error: result.error ?? null, changed: result.changed ?? null, lines: archiveLines(session.id), archive: archiveState(session) };
+  return { error: result.error, changed: result.changed, lines: archiveLines(session.id), archive: archiveState(session) };
 });
 await runCase('fsync failure fails the publication and leaves no temp file', async () => {
   const { session, scheduled, log } = await failedFsyncSession('fsync');
@@ -466,11 +454,11 @@ await runCase('an append that the handle writes only in part is completed before
   let acknowledged;
   try {
     const scheduled = scheduleCompactionArchive({ session, before: itemsOf(2, 3), after: [] });
-    acknowledged = Boolean(await within('short write acknowledged', scheduled.written));
+    acknowledged = await within('short write acknowledged', scheduled.written);
     await flush('short-write second');
   } finally { proto.write = realWrite; }
   saveArchive('short-write', session.id);
-  return { acknowledged, shortWritesAtLeastOne: shortWrites > 0, seqs: archiveLines(session.id).map((l) => JSON.parse(l).seq), endsWithNewline: readFileSync(path, 'utf8').endsWith('\n'), sidecarExists: existsSync(sidecarOf(session.id)) };
+  return { acknowledged, shortWrites, heads: heads(session.id), archiveText: readFileSync(path, 'utf8'), sidecarExists: existsSync(sidecarOf(session.id)) };
 });
 await runCase('a page never reads or parses the segments it skips', async () => {
   const valid = compactionSegmentLine({ seq: 1, prev: null, at: 1, items: itemsOf(9, 3).map((_m, i) => ({ id: `a${i}` })) });
@@ -493,16 +481,15 @@ await runCase('the archive is capped by dropping its oldest segments, and links 
   const session = storedSession('cap');
   for (const seq of [1, 2, 3, 4]) scheduleCompactionArchive({ session, before: itemsOf(seq, 4, 2_000), after: [], maxBytes: 20_000 });
   await flush('cap 1-4');
-  const afterFour = { heads: heads(session.id), segments: archiveState(session).segments.map((e) => e.seq) };
+  const afterFour = { heads: heads(session.id), segments: archiveState(session).segments };
   scheduleCompactionArchive({ session, before: itemsOf(5, 4, 2_000), after: [], maxBytes: 20_000 });
   await flush('cap 5');
   const afterFive = heads(session.id);
   scheduleCompactionArchive({ session, before: itemsOf(6, 40, 2_000), after: [], maxBytes: 20_000 });
   await flush('cap 6');
   const newest = archiveLines(session.id).at(-1);
-  const items = JSON.parse(newest).items;
   saveArchive('cap', session.id);
-  return { afterFour, afterFive, newestSeq: compactionSegmentHead(newest).seq, newestBytesWithNewline: Buffer.byteLength(newest) + 1, lastItemId: items.at(-1).id, secondLastText: items.at(-2).text.slice(0, 7) };
+  return { afterFour, afterFive, newestHead: compactionSegmentHead(newest), newestBytesWithNewline: Buffer.byteLength(newest) + 1, newest };
 });
 await runCase('a clear hides earlier archive segments and the next write drops them', async () => {
   const session = storedSession('clear');
@@ -528,12 +515,7 @@ await runCase('paged stored reads continue into the archive, newest segment firs
   const whole = await projectStoredTranscript(session.id, doc, { checkpointAbsent: true });
   const below = await readCompactionArchivePage(sessionsDir, session.id, { after: 0, before: 3, skip: 5, limit: 2 });
   saveArchive('paging', session.id);
-  return {
-    tail: { texts: tail.items.map((i) => i.text), hasOlder: tail.transcriptHasOlder },
-    page: { ids: page.items.map((i) => i.id), hasOlder: page.transcriptHasOlder },
-    all: { compactedIds: all.items.filter((i) => i.status === 'compacted').map((i) => i.id), count: all.items.length, hasOlder: all.transcriptHasOlder },
-    wholeCount: whole.items.length, below: rowIds(below),
-  };
+  return { tail, page, all, whole, below };
 });
 await runCase('deleting a session removes its archive; the sweep reaps an orphaned one', async () => {
   const deleted = storedSession('delete');
@@ -552,7 +534,7 @@ await runCase('deleting a session removes its archive; the sweep reaps an orphan
   utimesSync(orphanPath, old, old);
   const tally = { cleaned: 0 };
   for (const _ of reapOrphanSidecars({ plan: { maxAge: 1_000 }, dir: sessionsDir, now: Date.now(), tally }));
-  return { existedBefore, deleteResult, existsAfterDelete: existsSync(deletedPath), orphanMtimeAgeMs: 60_000, maxAgeMs: 1_000, orphanExistsAfterSweep: existsSync(orphanPath), cleanedAtLeastOne: tally.cleaned >= 1, cleaned: tally.cleaned };
+  return { existedBefore, deleteResult, existsAfterDelete: existsSync(deletedPath), orphanMtimeAgeMs: 60_000, maxAgeMs: 1_000, orphanExistsAfterSweep: existsSync(orphanPath), cleaned: tally.cleaned };
 });
 await runCase('a delete that lands while a segment is being published wins, and leaves no temp file', async () => {
   const session = storedSession('delete-race');
@@ -580,7 +562,6 @@ await runCase('the cap holds: at most one segment over it, back within it at eac
   const rewrites = [];
   _setCompactionArchivePublishHook(async ({ tmp }) => { if (tmp) rewrites.push(tmp); });
   const path = compactionArchivePath(sessionsDir, session.id);
-  let previous = [];
   const steps = [];
   for (let seq = 1; seq <= 24; seq += 1) {
     const before = rewrites.length;
@@ -590,8 +571,8 @@ await runCase('the cap holds: at most one segment over it, back within it at eac
     const newest = Buffer.byteLength(lines.at(-1)) + 1;
     const size = readFileSync(path).length;
     const rewrote = rewrites.length > before;
-    steps.push({ seq, newestSeq: compactionSegmentHead(lines.at(-1)).seq, size, newestBytes: newest, rewrote, lineCount: lines.length, appendKeptEveryEarlierLine: rewrote ? null : isDeepStrictEqual(lines.slice(0, -1), previous) });
-    previous = lines;
+    saveArchive('cap-holds-' + seq, session.id);
+    steps.push({ seq, newestHead: compactionSegmentHead(lines.at(-1)), size, newestBytes: newest, rewrote, lineCount: lines.length });
   }
   return { maxBytes, steps, rewriteCount: rewrites.length };
 });
@@ -632,7 +613,7 @@ await runCase('archive pages follow the sidecar after it changes', async () => {
   scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
   await flush('index 2');
   const second = await readCompactionArchivePage(sessionsDir, session.id, { limit: 3 });
-  return { first: rowIds(first), unchangedFileSameAnswer: isDeepStrictEqual(first, again), second: rowIds(second) };
+  return { first, again, second };
 });
 await runCase('a deleted session does not regrow its archive from a pending write', async () => {
   const session = storedSession('late');
@@ -760,7 +741,7 @@ await runCase('archive rows pass through the disk projection at publication, not
   await flush('redact');
   const [line] = archiveLines(session.id);
   saveArchive('redact', session.id);
-  return { secret, containsSecret: line.includes(secret), containsRedacted: line.includes('[redacted]') };
+  return { secret, line };
 });
 await runCase('a session deleted before its segment is written leaves no segment and no gap, and logs the skip', async () => {
   const session = storedSession('deleted-gap');
@@ -786,7 +767,7 @@ for (const code of ['EACCES', 'EIO']) {
       first = await compact(session, summaryProvider());
       publishSessionPersistence(session.id, 'landed');
     });
-    const keptWhileUnreadable = { changed: first.changed, error: first.error, transcriptUntouched: session.messages === before, sidecarUnchanged: readFileSync(pending, 'utf8') === original, lines: archiveLines(session.id) };
+    const keptWhileUnreadable = { changed: first.changed, error: first.error, transcriptUntouched: session.messages === before, originalSidecar: original, sidecarNow: readFileSync(pending, 'utf8'), lines: archiveLines(session.id) };
     _setCompactionArchiveFs(null);
     const second = await compact(session, summaryProvider());
     await flush(`unreadable-${code}`);
@@ -818,8 +799,8 @@ await runCase('the startup scan treats a missing store as empty and reports any 
   _setCompactionArchiveFs({ readdir: async () => { throw fsError('ENOENT'); } });
   const missing = await recoverPendingCompactionArchives();
   _setCompactionArchiveFs({ readdir: async () => { throw fsError('EACCES'); } });
-  let rejected = null;
-  try { await recoverPendingCompactionArchives(); } catch (e) { rejected = { code: e.code, message: e.message }; }
+  let rejected;
+  try { await recoverPendingCompactionArchives(); } catch (e) { rejected = e; }
   return { missingStoreRecovered: missing, otherFailureRejected: rejected };
 });
 await runCase('the startup scan reports a sidecar it cannot read, leaves it intact and still recovers the others', async () => {
@@ -829,7 +810,7 @@ await runCase('the startup scan reports a sidecar it cannot read, leaves it inta
   _setCompactionArchiveFs({ readFileSync: (target, encoding) => { if (target === unreadable.pending) throw fsError('EIO'); return readFileSync(target, encoding); } });
   let count;
   const log = await captureStderr(async () => { count = await recoverPendingCompactionArchives(); await flush('scan-unreadable'); });
-  const out = { count, log, unreadableSidecarIntact: readFileSync(unreadable.pending, 'utf8') === original, readableSidecarAfter: existsSync(readable.pending), unreadableArchiveLines: archiveLines(unreadable.session.id) };
+  const out = { count, log, originalUnreadableSidecar: original, unreadableSidecarNow: readFileSync(unreadable.pending, 'utf8'), readableSidecarAfter: existsSync(readable.pending), unreadableArchiveLines: archiveLines(unreadable.session.id) };
   rmSync(unreadable.pending, { force: true });
   return out;
 });
@@ -847,7 +828,7 @@ writeJson(join(stage, 'golden.json'), {
 for (const name of sorted) writeText(join(stage, name), files.get(name).toString('utf8'));
 rmSync(dataDir, { recursive: true, force: true });
 const identity = exactProductIdentity(tree, COMMIT);
-const normalised = normalisePaths(JSON.parse(readFileSync(join(stage, 'golden.json'), 'utf8')), { replaceInText: [[dataDir, '<data>']], replaceRegex: [[/corrupt-\d+/g, 'corrupt-<n>'], [/mixdog-tmp-[0-9a-f]{8,16}/g, 'mixdog-tmp-<random>'], [/(tool-results[\\\\/]+[^\\\\/]+[\\\\/]+)[0-9a-f]{64}(\.txt)/g, '$1<sha256 of the text>$2'], [/sha256:[0-9a-f]{64}/g, 'sha256:<sha256 of the text>']] });
+const normalised = normalisePaths(JSON.parse(readFileSync(join(stage, 'golden.json'), 'utf8')), { replaceInText: [[dataDir, '<data>']], replaceRegex: [[/^\d+(:[0-9a-z]+:\d+)$/, '<epoch>$1'], [/corrupt-\d+/g, 'corrupt-<n>'], [/mixdog-tmp-[0-9a-f]{8,16}/g, 'mixdog-tmp-<random>'], [/(tool-results[\\\\/]+[^\\\\/]+[\\\\/]+)[0-9a-f]{64}(\.txt)/g, '$1<sha256 of the text>$2'], [/sha256:[0-9a-f]{64}/g, 'sha256:<sha256 of the text>']] });
 writeJson(join(stage, 'golden.json'), normalised.doc);
 writeSetManifest(stage, {
   set: 'compaction-archive-cases', recorder: RECORDER, command: `node ${RECORDER} --tree <export of ${COMMIT} with node_modules>`, identity,
