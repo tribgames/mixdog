@@ -1,0 +1,79 @@
+{
+  "note": "Node's media handler at b6f10295a2f698afc85332467192de28500bd146; {root} is the case folder",
+  "test": "src/session-runtime/internal-tool-executor/feature-tools.test.mjs",
+  "clock": 1700000000000,
+  "cases": [
+    {
+      "name": "media generation is attributed to the calling session and its source",
+      "session": "caller-session",
+      "sessions": {
+        "caller-session": "schedule"
+      },
+      "lane": {
+        "id": "xai",
+        "label": "Grok Imagine",
+        "authType": "api-key",
+        "authenticated": true,
+        "supportedKinds": [
+          "image"
+        ],
+        "kinds": [
+          "image"
+        ],
+        "image": {
+          "models": [
+            {
+              "id": "grok-imagine-image",
+              "label": "Grok Imagine Image",
+              "controls": {
+                "maxReferences": 5
+              }
+            }
+          ],
+          "defaultModel": "grok-imagine-image",
+          "controls": {}
+        },
+        "video": null
+      },
+      "args": {
+        "action": "generate",
+        "kind": "image",
+        "prompt": "a red fox",
+        "path": "out/fox.png"
+      },
+      "handed": [
+        {
+          "cwd": "{root}\\cwd",
+          "signal": null,
+          "sessionId": "caller-session",
+          "sourceType": "schedule"
+        }
+      ],
+      "starts": [
+        {
+          "lane": "xai",
+          "kind": "image",
+          "model": "grok-imagine-image",
+          "prompt": "a red fox",
+          "options": {},
+          "references": [],
+          "sessionId": "caller-session",
+          "sourceType": "schedule"
+        }
+      ],
+      "reply": {
+        "ok": true,
+        "output": "{root}\\cwd\\out\\fox.png",
+        "lane": "xai",
+        "model": "grok-imagine-image",
+        "laneSource": "first",
+        "options": {},
+        "referenceCount": 0,
+        "prompt": "a red fox",
+        "assetId": "asset-1",
+        "elapsedMs": 1234
+      },
+      "isError": false
+    }
+  ]
+}
