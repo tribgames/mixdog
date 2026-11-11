@@ -105,3 +105,21 @@ fn a_carried_session_takes_the_values_its_source_holds_and_gains_up_the_chain() 
     assert_eq!(*told.lock().unwrap(), ["parent", "child", "parent"]);
     assert_eq!(store.redact_text("unrelated", "after"), "after");
 }
+
+/// A completion's message keeps its card (`meta.taskCard`, a core-only field: the report as the card shows it and the raw
+/// notification); stored after a mark, the card holds the marker like the content does.
+#[test]
+fn a_completion_card_on_a_stored_message_takes_the_marker() {
+    let fill = serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "730215" } } });
+    let store = SensitiveStore::default();
+    store.remember("owner", &[fill]);
+    let message = serde_json::json!({
+        "role": "user",
+        "content": "<result>\nThe code is 730215.\n</result>",
+        "meta": { "source": "task-notification", "taskCard": { "name": "agent", "args": { "tag": "s2h" }, "result": "The code is 730215.", "rawResult": "<result>\nThe code is 730215.\n</result>" } },
+    });
+    let stored = store.redact_message("owner", &message);
+    assert!(!stored.to_string().contains("730215"), "{stored}");
+    assert_eq!(stored["meta"]["taskCard"]["result"], "The code is [redacted].");
+    assert_eq!(stored["meta"]["source"], "task-notification");
+}

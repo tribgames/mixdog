@@ -560,6 +560,17 @@ impl SensitiveStore {
                 changed = true;
             }
         }
+        // The core keeps a completion's card on its message (`meta.taskCard`: the report as the card shows it, and the
+        // raw notification); Node's message has no card, its text is the content alone.
+        if let Some(card) = message.get("meta").and_then(|meta| meta.get("taskCard")) {
+            let next = redact_json_value(self, session, card);
+            if next != *card {
+                let mut meta = message["meta"].as_object().cloned().unwrap_or_default();
+                meta.insert("taskCard".into(), next);
+                out.insert("meta".into(), Value::Object(meta));
+                changed = true;
+            }
+        }
         let replay_holds = has_replay_state(message) && self.contains(session, &replay_state_text(message));
         if !changed && !replay_holds {
             return message.clone();
