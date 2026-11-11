@@ -62,7 +62,7 @@ impl ModelTraits for Gemini {
 /// What the recorder's providers read beside their configuration: Node's catalog for claude-sonnet-4-6 (adaptive
 /// thinking with effort, 16k output), the Gemini traits, the gpt-5.2 row, and the recording machine's Codex identity
 /// (its OS in the user agent; declared in the manifest).
-fn inputs() -> Inputs {
+pub(crate) fn inputs() -> Inputs {
     Inputs {
         caps: Arc::new(|_: &str| {
             Some(ModelCaps {

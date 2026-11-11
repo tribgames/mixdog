@@ -188,14 +188,16 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::AccountRouting(_) => "AccountRouting",
         E::AccountStage(_) => "AccountStage",
         E::WireRerouted(_) => "WireRerouted",
+        E::OutputStarted => "OutputStarted",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 26] = [
+const STREAM_EVENT_VARIANTS: [&str; 27] = [
     "AccountRouting",
     "AccountStage",
     "WireRerouted",
+    "OutputStarted",
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -260,6 +262,7 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::AccountStage(p::AccountStage::Switching { message: "Quota exhausted — switching to the next account".into() }),
         p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "custom-x".into(), account_id: "k2".into(), at: 1 }),
         p::StreamEvent::WireRerouted(json!({ "provider": "openrouter", "model": "m", "wire": "chat", "source": "reroute", "loweredAssistantCount": 0 })),
+        p::StreamEvent::OutputStarted,
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();

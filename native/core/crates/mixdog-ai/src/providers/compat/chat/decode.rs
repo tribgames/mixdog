@@ -232,7 +232,7 @@ impl ChatDecoder {
         for recovered in calls {
             let call = leak::openai_call(recovered);
             self.leaked.push(call.clone());
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::Progress(ProgressKind::Tool));
             // Held until a normal finish confirms the turn ended (`drainLeakedCalls`).
             if self.normal_finish {
@@ -277,13 +277,22 @@ impl ChatDecoder {
         self.error(err)
     }
 
+    /// Visible output (`text`, `reasoning` or `tool`, `isVisibleStreamProgress`): the first starts the generation
+    /// (`reportProgress`, stream-state.mjs:72).
+    fn progress(&mut self, out: &mut Vec<StreamEvent>) {
+        if !self.progressed {
+            out.push(StreamEvent::OutputStarted);
+        }
+        self.progressed = true;
+    }
+
     fn emit_text(&mut self, text: &str, out: &mut Vec<StreamEvent>) {
         if text.is_empty() {
             return;
         }
         self.content.push_str(text);
         self.text_emitted = true;
-        self.progressed = true;
+        self.progress(out);
         out.push(StreamEvent::TextDelta(text.to_owned()));
     }
 
@@ -291,7 +300,7 @@ impl ChatDecoder {
         self.reasoning_source = Some(source);
         self.reasoning.push_str(text);
         if !text.is_empty() {
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::ReasoningDelta(text.to_owned()));
         }
     }
@@ -395,7 +404,7 @@ impl ChatDecoder {
             .filter(|d| !d.is_empty())
         {
             self.details.extend(details.iter().cloned());
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::Progress(ProgressKind::Reasoning));
         }
         // These provider fields are aliases, never independent segments.
@@ -411,7 +420,7 @@ impl ChatDecoder {
         }
         if let Some(calls) = delta.and_then(|d| d.get("tool_calls")).and_then(JsonValue::as_array) {
             if !calls.is_empty() {
-                self.progressed = true;
+                self.progress(out);
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
             self.merge_tool_calls(calls, out);

@@ -250,7 +250,7 @@ impl ProviderAdapter for AccountedAdapter {
         match self.inner.attempt(request).await {
             Ok(stream) => Ok(Box::new(AccountedStream {
                 inner: stream,
-                open: Some(Open { accounting, usage: None, served: None, fallback: false, response_id: None }),
+                open: Some(Open { accounting, usage: None, served: None, fallback: false, response_id: None, output_at: None }),
                 group,
                 now: Arc::clone(&self.deps.now),
             })),
@@ -304,6 +304,8 @@ struct Open {
     fallback: bool,
     /// The provider's id for the response (`result.responseId`, usage-accounting.mjs:130, :158).
     response_id: Option<String>,
+    /// When the model began its output ([`StreamEvent::OutputStarted`], Node's `firstOutputAt`).
+    output_at: Option<i64>,
 }
 
 struct AccountedStream {
@@ -337,15 +339,23 @@ impl ModelStream for AccountedStream {
                 open.response_id = Some(id.clone());
                 Some(Ok(StreamEvent::ResponseId(id)))
             }
+            Some(Ok(StreamEvent::OutputStarted)) => {
+                open.output_at.get_or_insert_with(|| (self.now)());
+                Some(Ok(StreamEvent::OutputStarted))
+            }
             Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms })) => {
                 let open = self.open.take()?;
+                let ended = (self.now)();
                 let done = Completed {
                     facts: open.usage.as_ref().map(Facts::from),
                     model: open.served.clone(),
                     fallback: open.fallback,
                     response_id: open.response_id.clone(),
                     pricing_model: pricing_model.clone(),
-                    stream_ended_at: (self.now)(),
+                    // The generation window: from the output's start to the stream's end (`generationWindow`,
+                    // generation-window.mjs:9).
+                    generation_ms: open.output_at.map(|at| (ended - at) as f64),
+                    stream_ended_at: ended,
                     ..Completed::default()
                 };
                 let recorded = open.accounting.finish(Outcome::Completed(done)).await;

@@ -57,10 +57,12 @@ const { PACKAGE_VERSION } = await at('src/runtime/web-search/lib/package-version
 
 const { install } = await import(pathToFileURL(join(import.meta.dirname, 'lib/intercept.mjs')).href);
 const hub = await install(tree);
-// Wall-clock reads (ledger ts/day, durations, first-output times, the session id's base-36 stamp) all read START; the
-// one product timer these scenarios run, the retry sleep, keeps its real (1 ms) delay and is logged by the hub.
+// Wall-clock reads (ledger ts/day, durations, first-output times, the session id's base-36 stamp) all read a virtual
+// clock at START, which moves only where a timed answer steps it (`clockMs`, reset per scenario); the one product timer
+// these scenarios run, the retry sleep, keeps its real (1 ms) delay and is logged by the hub.
 const START = 1_700_000_000_000;
-Date.now = () => START;
+let clockMs = 0;
+Date.now = () => START + clockMs;
 const P = (file) => at(`src/runtime/agent/orchestrator/providers/${file}`);
 
 process.env.MIXDOG_USAGE_LEDGER_PATH = join(dataDir, 'ledger.sqlite');
@@ -498,11 +500,42 @@ for (const [name, script] of VERTEX_CLAUDE_CANCEL) {
   scenarios.push({ group: 'vertex-claude-cancel', name, cancel: name, provider: 'vertex-ai-adc', model: 'claude-sonnet-4-6', messages: claudeTurn, tools: null, opts: {}, script });
 }
 
+// Generation timing (generation-window.mjs, usage-accounting.mjs:15-33 and :140): a timed answer is written in two parts,
+// the virtual clock stepped 700 ms before the first (which ends with the first text) and 1300 ms once the client has
+// read that text (its `onTextDelta`), so the answer's generation window is 1300 ms and its first output comes 700 ms into
+// the request. Anthropic and OpenAI are timed in the ledger; a compatible Chat answer keeps the window in its result only.
+const timedReply = (body, marker) => {
+  const at = body.indexOf(marker);
+  if (at < 0) throw new Error(`timed answer: no ${marker} in ${body}`);
+  const first = body.slice(0, at + marker.length);
+  return { ...ok(body), timed: [[700, first], [1300, body.slice(first.length)]] };
+};
+const TIMING = [
+  ['anthropic-oauth', 'claude-sonnet-4-6', () => timedReply(anthropicText('claude-sonnet-4-6'), '"text":"The answer is 42."}}\n\n')],
+  ['openai', 'gpt-5.2', () => timedReply(responsesText('gpt-5.2'), '"delta":"The answer is 42."}\n\n')],
+  ['deepseek', 'deepseek-chat', () => timedReply(chatText(undefined, 'deepseek-chat'), '"content":"The answer is 42."}}]}\n\n')],
+];
+for (const [provider, model, reply] of TIMING) {
+  scenarios.push({
+    group: 'generation-timing',
+    name: provider,
+    provider,
+    model,
+    messages: [{ role: 'system', content: 'You are a fixture assistant.' }, { role: 'user', content: 'Hello' }],
+    tools: null,
+    opts: { sessionId: 'timing-session', sourceType: 'lead' },
+    accounted: true,
+    timed: true,
+    script: () => router(sequence(reply())),
+  });
+}
+
 // The holding endpoint: the hub's request record and answers (with the status and headers it answered), plus `hold` and
-// `closedByClient`. `abortNow` is the running scenario's caller abort; `closings` the connections still to settle before
-// its record is written.
+// `closedByClient`, and a timed answer's parts (`timed`). `abortNow` is the running scenario's caller abort; `closings`
+// the connections still to settle before its record is written; `textRead` resolves at the client's first text.
 let abortNow = () => {};
 let closings = [];
+let textRead = () => {};
 // The retry-wait step: the first timer a retry sleep arms calls `onRetrySleep` once that sleep is waiting.
 let onRetrySleep = null;
 const armTimer = globalThis.setTimeout;
@@ -525,6 +558,18 @@ const holding = http.createServer(async (req, res) => {
   rec.served = reply.body;
   rec.status = reply.status ?? 200;
   rec.answerHeaders = { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.hold ? {} : (reply.headers ?? {})) };
+  if (reply.timed) {
+    rec.timed = reply.timed.map(([advanceMs, body]) => ({ advanceMs, body }));
+    const [[before, first], [after, rest]] = reply.timed;
+    const read = new Promise((resolve) => (textRead = resolve));
+    clockMs += before;
+    res.writeHead(rec.status, rec.answerHeaders);
+    res.write(first);
+    await within('the client reading the first output of a timed answer', read);
+    clockMs += after;
+    res.end(rest);
+    return;
+  }
   if (!reply.hold) {
     res.writeHead(rec.status, rec.answerHeaders);
     res.end(reply.body);
@@ -651,13 +696,14 @@ for (const s of selected) {
   await (await P('openai-ws-pool.mjs'))._clearWebSocketPoolForTest?.();
   delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
   rows = [];
+  clockMs = 0;
   const dispatched = [];
   const events = [];
   let callbackNames = [];
   let result;
-  // A cancelled send is answered by the holding endpoint (global fetch reads the hub's port per request).
+  // A cancelled or timed send is answered by the holding endpoint (global fetch reads the hub's port per request).
   const hubPort = hub.httpPort;
-  if (s.cancel) hub.httpPort = holding.address().port;
+  if (s.cancel || s.timed) hub.httpPort = holding.address().port;
   await hub.run({ http: s.script() }, async () => {
     const provider = await PROVIDERS[s.provider]();
     // anthropic-oauth fires `void this._refreshModelCache()` after a reply; it is settled inside its own scenario so its
@@ -691,6 +737,7 @@ for (const s of selected) {
         : {
             onTextDelta: (text) => {
               events.push({ on: 'textDelta', text });
+              textRead();
               if (s.cancel === 'mid-stream') ac.abort();
             },
             onTextReset: (detail) => events.push({ on: 'textReset', ...detail }),
@@ -747,7 +794,6 @@ writeSetManifest(stage, {
       'requestId of an Antigravity body: agent-<randomUUID> drawn per send; its presence is compared',
       'GET requests (catalog listings such as /v1/models, client-version lookups): reads beside the send, which the core makes from its catalog services outside the send',
       'HEAD preconnect of the core\'s socket warm-up: a raw undici.request in Node, which the hub (a fetch redirect) never sees',
-      'result generationMs and ledger ttftMs: no Rust adapter reports where generation starts in its stream yet (Completed.generation_ms is unset)',
       'result hasThinkingContent, contentBlockTypes: Anthropic\'s summary of its blocks for the empty-turn trace, derived from the replay blocks compared',
       'result assistantBlocks: the same list as providerReplay.items (checked equal), which is compared',
       'result providerState.<owner>.updatedAt: the wall clock when the state was taken (Date.now pinned to START here, the system clock in the core); its presence is compared',

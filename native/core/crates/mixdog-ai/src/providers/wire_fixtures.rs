@@ -145,7 +145,6 @@ fn call_json(call: &ToolCall) -> Value {
 
 /// Node's whole recorded result (`ok` and the calls dispatched live), with only the fields the core has no counterpart
 /// of left out, each declared in the manifest's exclusions (`fixtures/provider-wire/MANIFEST.json`):
-/// - `generationMs`: where generation started in the stream, which no Rust adapter reports yet (as the ledger's `ttftMs`);
 /// - `hasThinkingContent`, `contentBlockTypes`: Anthropic's summary of its blocks for the empty-turn trace
 ///   (ask-turn-commit.mjs:65-66), derived from the blocks the compared replay carries;
 /// - `assistantBlocks`: Anthropic's block list, which Node also returns as `providerReplay.items`
@@ -162,7 +161,7 @@ pub(crate) fn node_result(result: &Value) -> Value {
     if let Some(blocks) = map.shift_remove("assistantBlocks") {
         assert_eq!(Some(&blocks), map.get("providerReplay").and_then(|r| r.get("items")), "Node returns its blocks twice");
     }
-    for key in ["generationMs", "hasThinkingContent", "contentBlockTypes", "requestServiceTier"] {
+    for key in ["hasThinkingContent", "contentBlockTypes", "requestServiceTier"] {
         map.shift_remove(key);
     }
     if map.get("stopReason").is_some_and(Value::is_null) {
@@ -184,6 +183,14 @@ pub(crate) fn node_result(result: &Value) -> Value {
 /// events (`ItemStart`, `Progress`, `ChunkProgress`, notices, the deltas) are Node's stream callbacks, which its result
 /// does not keep: [`core_events`] compares them with the callbacks Node made, in order.
 pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
+    core_result_at(events, &vec![START; events.len()], requested)
+}
+
+/// [`core_result`] of events each stamped with the virtual clock's time when the stream yielded it: the generation
+/// window (Node `generationMs`) runs from the output's start ([`StreamEvent::OutputStarted`]) to the terminal event.
+pub(crate) fn core_result_at(events: &[StreamEvent], at: &[i64], requested: &str) -> Value {
+    assert_eq!(events.len(), at.len(), "one time per event");
+    let mut output_at = None;
     let mut ok = Map::new();
     let mut content = String::new();
     let mut model = requested.to_owned();
@@ -193,8 +200,12 @@ pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
     let mut natives = Vec::new();
     let mut dispatched = Vec::new();
     let mut completed = 0;
-    for event in events {
+    for (event, at) in events.iter().zip(at) {
         match event {
+            StreamEvent::OutputStarted => {
+                assert!(output_at.is_none(), "one output start: {events:?}");
+                output_at = Some(*at);
+            }
             StreamEvent::TextDelta(text) => content.push_str(text),
             StreamEvent::FinalContent(text) => content.clone_from(text),
             StreamEvent::ServedModel(served) => model.clone_from(served),
@@ -241,6 +252,9 @@ pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
             }
             StreamEvent::Completed { stop, pricing_model, .. } => {
                 completed += 1;
+                if let Some(started) = output_at {
+                    ok.insert("generationMs".into(), json!(at - started));
+                }
                 if let Some(stop) = stop {
                     ok.insert("stopReason".into(), json!(stop_text(stop)));
                 }
@@ -590,11 +604,18 @@ pub(crate) fn assert_minted_bearer(sent: &[WireRequest], recorded: &Recorded, na
 /// method and URL (`served`), with the status the scenario's script gave it (200 unless `refuse` names the n-th such
 /// request), and kept. (A held answer, whose connection's end is the point, is served by the product's own client over
 /// a loopback socket instead: `google::vertex_claude_cancel_wire_tests`.)
+///
+/// The hub keeps the recorder's virtual clock: it stands at [`START`] and moves only where a timed answer (`timed`) steps
+/// it, by each part's `advanceMs` as the client reads that part, as Node's endpoint stepped it.
 pub(crate) struct Hub {
     records: Mutex<Vec<Option<Value>>>,
     refusals: Mutex<Vec<(String, u16, Vec<(String, String)>)>>,
     pub sent: Mutex<Vec<WireRequest>>,
+    clock: Arc<std::sync::atomic::AtomicI64>,
 }
+
+/// The recorder's `START`: every wall-clock read of a scenario reads it until a timed answer steps the clock.
+pub(crate) const START: i64 = 1_700_000_000_000;
 
 impl Hub {
     pub fn new(recorded: &Recorded) -> Arc<Self> {
@@ -602,7 +623,19 @@ impl Hub {
             records: Mutex::new(recorded.exchange["records"].as_array().expect("records").iter().cloned().map(Some).collect()),
             refusals: Mutex::default(),
             sent: Mutex::default(),
+            clock: Arc::new(std::sync::atomic::AtomicI64::new(START)),
         })
+    }
+
+    /// The virtual clock's time, in Unix milliseconds.
+    pub fn now(&self) -> i64 {
+        self.clock.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// A reader of the virtual clock, for the accounting's `now`.
+    pub fn clock(&self) -> Arc<dyn Fn() -> i64 + Send + Sync> {
+        let clock = Arc::clone(&self.clock);
+        Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     /// The first request whose path ends with `path_end` is answered with `status` and `headers` (the scenario's script).
@@ -622,6 +655,21 @@ struct Served(Option<bytes::Bytes>);
 impl crate::transport::BodyStream for Served {
     async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
         self.0.take().map(Ok)
+    }
+}
+
+/// A timed answer: each part read steps the virtual clock by its `advanceMs` first.
+struct Timed {
+    parts: std::collections::VecDeque<(i64, bytes::Bytes)>,
+    clock: Arc<std::sync::atomic::AtomicI64>,
+}
+
+#[async_trait::async_trait]
+impl crate::transport::BodyStream for Timed {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+        let (advance, part) = self.parts.pop_front()?;
+        self.clock.fetch_add(advance, std::sync::atomic::Ordering::SeqCst);
+        Some(Ok(part))
     }
 }
 
@@ -663,6 +711,13 @@ impl crate::transport::HttpSend for Hub {
                 None => (200, Vec::new()),
             }
         };
+        if let Some(parts) = record["timed"].as_array() {
+            let parts = parts
+                .iter()
+                .map(|p| (p["advanceMs"].as_i64().expect("advanceMs"), bytes::Bytes::from(p["body"].as_str().expect("body").to_owned())))
+                .collect();
+            return Ok(crate::transport::HttpResponse { status, headers, body: Box::new(Timed { parts, clock: Arc::clone(&self.clock) }) });
+        }
         Ok(crate::transport::HttpResponse { status, headers, body: Box::new(Served(Some(body))) })
     }
 }
@@ -764,6 +819,21 @@ pub(crate) async fn built_on(
     let name = provider.strip_suffix("-adc").or_else(|| provider.strip_suffix("-express")).unwrap_or(provider);
     let adapter = builder.build(name, &input["config"]).await.unwrap_or_else(|e| panic!("{provider}: {e}"));
     (adapter, dir)
+}
+
+/// Every event of one attempt, each with the hub's virtual time when the stream yielded it.
+pub(crate) async fn timed_attempt(
+    adapter: &dyn mixdog_core_api::domain::provider::ProviderAdapter,
+    request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+    hub: &Hub,
+) -> Result<(Vec<StreamEvent>, Vec<i64>), mixdog_core_api::domain::provider::ProviderError> {
+    let mut stream = adapter.attempt(request).await?;
+    let (mut events, mut at) = (Vec::new(), Vec::new());
+    while let Some(event) = stream.next().await {
+        events.push(event?);
+        at.push(hub.now());
+    }
+    Ok((events, at))
 }
 
 /// Every event of one attempt.

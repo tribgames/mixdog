@@ -219,7 +219,7 @@ pub struct Completed {
     pub request_service_tier: Option<String>,
     /// The answer came from a fallback model (`anthropicFallbacks`).
     pub fallback: bool,
-    /// Generation start within the stream, for the first-output time.
+    /// The generation window (Node `result.generationMs`): from the model's first output to the stream's end.
     pub generation_ms: Option<f64>,
     /// When the stream returned.
     pub stream_ended_at: i64,

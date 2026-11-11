@@ -135,6 +135,7 @@ impl ResponseBuilder {
             | StreamEvent::ResponseId(_)
             | StreamEvent::AccountStage(_)
             | StreamEvent::WireRerouted(_)
+            | StreamEvent::OutputStarted
             | StreamEvent::Progress(_)
             | StreamEvent::ChunkProgress(_) => {}
         }

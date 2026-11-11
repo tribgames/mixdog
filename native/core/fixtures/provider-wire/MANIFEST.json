@@ -7,7 +7,6 @@
     "requestId of an Antigravity body: agent-<randomUUID> drawn per send; its presence is compared",
     "GET requests (catalog listings such as /v1/models, client-version lookups): reads beside the send, which the core makes from its catalog services outside the send",
     "HEAD preconnect of the core's socket warm-up: a raw undici.request in Node, which the hub (a fetch redirect) never sees",
-    "result generationMs and ledger ttftMs: no Rust adapter reports where generation starts in its stream yet (Completed.generation_ms is unset)",
     "result hasThinkingContent, contentBlockTypes: Anthropic's summary of its blocks for the empty-turn trace, derived from the replay blocks compared",
     "result assistantBlocks: the same list as providerReplay.items (checked equal), which is compared",
     "result providerState.<owner>.updatedAt: the wall clock when the state was taken (Date.now pinned to START here, the system clock in the core); its presence is compared",
@@ -23,7 +22,7 @@
     "vertex-claude-cancel error name, message and code: the DOMException AbortError Node's fetch and withRetry throw; the core's send ends as Cancelled, compared as that pairing",
     "vertex-claude-cancel/retry-wait retrySleeps delayMs: the jittered wait Node armed; the core's wait is shown entered (its send pending after the retry's discard, under a paused clock) and ended by the cancel before the clock moves, not measured"
   ],
-  "fileCount": 177,
+  "fileCount": 186,
   "files": [
     {
       "bytes": 5943,
@@ -566,6 +565,51 @@
       "sha256": "7b4245c098d28906338f69ea091e05844c7affe8248d01868ccdf826b32a8791"
     },
     {
+      "bytes": 6362,
+      "path": "generation-timing/anthropic-oauth/exchange.json",
+      "sha256": "c8f2c6ac6cee47966b38c4a26984dd1cc57b3400df84519051d23d92ab0492a9"
+    },
+    {
+      "bytes": 917,
+      "path": "generation-timing/anthropic-oauth/input.json",
+      "sha256": "bdd70c3e58557977cc5426b80d9a821f03d5fa8c44b1663b9521e8b040f6aa84"
+    },
+    {
+      "bytes": 2326,
+      "path": "generation-timing/anthropic-oauth/result.json",
+      "sha256": "064fc54e1eee0a838229390483f015b4b84a21c3fda907e3dcc4f2403aa1ce8d"
+    },
+    {
+      "bytes": 4486,
+      "path": "generation-timing/deepseek/exchange.json",
+      "sha256": "665e61b6cc3811c859a548311a8c110841bbce4c710d974a6c49dc7e2887ded9"
+    },
+    {
+      "bytes": 584,
+      "path": "generation-timing/deepseek/input.json",
+      "sha256": "ebc60f77edfc804f5349961a305b47f2c0a66621beefc832c9287c6ce38abce0"
+    },
+    {
+      "bytes": 1893,
+      "path": "generation-timing/deepseek/result.json",
+      "sha256": "d8738de7ba48567f570fec7c7b4c5141c621b330b28d0dcd796aa6a5e50c3a75"
+    },
+    {
+      "bytes": 5655,
+      "path": "generation-timing/openai/exchange.json",
+      "sha256": "81ac10e0aa094f7dba3f31490548e41f69ecb74a22353ddd5804b0a1d4cc729d"
+    },
+    {
+      "bytes": 551,
+      "path": "generation-timing/openai/input.json",
+      "sha256": "294d0fa15531f7d56f395c4a8f69f3edb0bf863e927ba6f78c05acad07cf0bce"
+    },
+    {
+      "bytes": 2591,
+      "path": "generation-timing/openai/result.json",
+      "sha256": "4d5a01a5487db6a7c95dab76f9884d789dba13e8256507a4b7d11b157d740a70"
+    },
+    {
       "bytes": 7135,
       "path": "hosted-search/anthropic-oauth/exchange.json",
       "sha256": "aa5730c652e4f7b15deec9934459b18bfb1ab10eab415ca2214b4f1a5806a6c5"
@@ -944,7 +988,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "b489705e79ebe883df3c74ddc51ae2fa45a869b577af8b62978ceb90b7d594ba",
+  "recorderSha256": "8ae38f59cba86d346a0cc0d3d902477f983bfbecb5302d56c36bd5e21d599f59",
   "set": "provider-wire",
-  "totalBytes": 395586
+  "totalBytes": 420951
 }
