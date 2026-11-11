@@ -60,7 +60,8 @@
         "timers": [
           {
             "armed": 50,
-            "cleared": true
+            "cleared": true,
+            "fired": false
           }
         ]
       }
@@ -72,9 +73,14 @@
         "query": "fallback query",
         "result": {
           "vector": null,
-          "state": "failed"
+          "state": "failed",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "load failed",
+            "props": {}
+          }
         },
-        "errorMessage": "load failed",
         "errorIsTheInjectedObject": true,
         "calls": [
           "isReady",
@@ -82,13 +88,19 @@
           "warmup",
           [
             "onWarmupError",
-            "load failed"
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "load failed",
+              "props": {}
+            }
           ]
         ],
         "timers": [
           {
             "armed": 50,
-            "cleared": true
+            "cleared": true,
+            "fired": false
           }
         ]
       }
@@ -99,8 +111,10 @@
         "label": "cold recall aborts without waiting for the timeout",
         "query": "cancel query",
         "rejected": {
+          "$exact": "error",
           "name": "Error",
-          "message": "cancelled"
+          "message": "cancelled",
+          "props": {}
         },
         "rejectedWithTheInjectedReason": true,
         "calls": [
@@ -111,7 +125,31 @@
         "timers": [
           {
             "armed": 5000,
-            "cleared": true
+            "cleared": true,
+            "fired": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "cold recall falls back after the bounded wait while warmup continues (test line 47)",
+      "scenario": {
+        "label": "cold recall falls back after the bounded wait while warmup continues",
+        "query": "bounded wait",
+        "result": {
+          "vector": null,
+          "state": "timeout"
+        },
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup"
+        ],
+        "timers": [
+          {
+            "armed": 5,
+            "cleared": true,
+            "fired": true
           }
         ]
       }
@@ -119,6 +157,35 @@
     {
       "name": "further shapes (beyond the test file)",
       "scenarios": [
+        {
+          "label": "cold recall times out, then the warmup fails in the background",
+          "query": "late failure",
+          "result": {
+            "vector": null,
+            "state": "timeout"
+          },
+          "calls": [
+            "isReady",
+            "canWarmup",
+            "warmup",
+            [
+              "onWarmupError",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed late",
+                "props": {}
+              }
+            ]
+          ],
+          "timers": [
+            {
+              "armed": 5,
+              "cleared": true,
+              "fired": true
+            }
+          ]
+        },
         {
           "label": "empty query",
           "query": "   ",
@@ -156,8 +223,10 @@
           "label": "signal already aborted before the call",
           "query": "aborted early",
           "rejected": {
+            "$exact": "error",
             "name": "Error",
-            "message": "already cancelled"
+            "message": "already cancelled",
+            "props": {}
           },
           "rejectedWithTheInjectedReason": true,
           "calls": [],
@@ -167,8 +236,11 @@
           "label": "signal aborted without a reason",
           "query": "aborted bare",
           "rejected": {
+            "$exact": "error",
             "name": "AbortError",
-            "message": "This operation was aborted"
+            "message": "This operation was aborted",
+            "code": 20,
+            "props": {}
           },
           "rejectedWithTheInjectedReason": null,
           "calls": [],
@@ -200,7 +272,8 @@
           "timers": [
             {
               "armed": 0,
-              "cleared": true
+              "cleared": true,
+              "fired": false
             }
           ]
         },
@@ -230,7 +303,8 @@
           "timers": [
             {
               "armed": 60000,
-              "cleared": true
+              "cleared": true,
+              "fired": false
             }
           ]
         },
