@@ -598,18 +598,25 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         proxy: Arc::new(mixdog_core::run_host::proxy_providers::HostProxyProviders::new(b.host.clone(), b.client_epoch.clone(), now_ms.clone())),
     });
     // The warm-up slot and the host around the setup (`setup_host.rs`). The slot warms the setup that holds the host: a true cycle, bound below.
-    let setup_warmup = crate::setup_host::SetupWarmup::new(crate::setup_host::warmup_delay_ms(&*b.env), {
-        let closing = close_requested.clone();
-        Arc::new(move || closing.is_cancelled())
-    });
+    let setup_warmup = crate::setup_host::SetupWarmup::new(
+        crate::setup_host::warmup_delay_ms(&*b.env),
+        {
+            let closing = close_requested.clone();
+            Arc::new(move || closing.is_cancelled())
+        },
+        Arc::new(crate::setup_host::TracedMarks),
+    );
     let setup_host = Arc::new(crate::setup_host::DaemonSetupHost { env: b.env.clone(), config: config.clone(), warmup: setup_warmup.clone() });
-    let provider_setup = Arc::new(mixdog_core_domains::domains::ai_account::setup_cache::CachedProviderSetup::new(gatherer, keychain_live, overlays, setup_host));
+    let provider_setup = Arc::new(mixdog_core_domains::domains::ai_account::setup_cache::CachedProviderSetup::new(gatherer, keychain_live.clone(), overlays, setup_host));
     setup_warmup.bind(provider_setup.clone()).map_err(|_| ComposeError::AlreadyBound("provider setup warm-up"))?;
     let dashboards = mixdog_core_domains::domains::ai_account::dashboards::Dashboards::new(Arc::new(crate::setup_host::SetupSourceOf { setup: provider_setup.clone(), config: config.clone(), effective: effective.clone() }));
     // The provider model cache's warm (`scheduleProviderModelWarmup` and the account flows' `warmProviderModelCache`): built here for the effects, bound to the list and the gates below.
     let model_warmup = mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup::new(mixdog_core_domains::domains::ai_admin::model_warmup::WarmupConfig::from_env(&*b.env));
     // The statusline usage warm-up (`scheduleStatuslineUsageWarmup`): built here for the prewarm signals, bound to the route and the usage service once those exist.
     let statusline_warmup = mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup::new(&*b.env);
+    // The provider initialization warm (`scheduleProviderWarmup`, opt-in): built here for the prewarm signals, bound with the gates below.
+    let provider_warmup = mixdog_core_domains::domains::ai_admin::provider_warmup::ProviderWarmup::new(mixdog_core_domains::domains::ai_admin::provider_warmup::ProviderWarmupConfig::from_env(&*b.env));
+    let provider_init = Arc::new(crate::prewarm_world::DaemonProviderInit { keychain: keychain_live.clone(), config: config.clone(), loaded: loaded_config.clone(), readiness: readiness.clone() });
     let provider_effects = mixdog_core_domains::domains::ai_account::auth_refresh::ProviderEffects::new(config.clone(), readiness.clone(), admission.clone(), dashboards.clone(), model_warmup.clone());
     // Node's one `invalidateProviderCaches()` also drops the setup cache: the effects the flow runs are `ProviderEffects` plus that drop.
     let refresh: Arc<dyn mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh> = mixdog_core_domains::domains::ai_account::auth_refresh::AuthRefreshFlow::new(Arc::new(
@@ -1936,16 +1943,17 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let prewarm_lazy = prewarm_world.lazy();
     let code_graph_prewarm = mixdog_core::run_host::code_graph_prewarm::CodeGraphPrewarm::new(prewarm_world);
     // The catalog warm-up defers while a turn runs or a session is being created (the same probe) and is woken with the prewarm.
-    b.catalog_warmup.bind_busy({
-        let (liveness, late) = (liveness.clone(), late.clone());
-        Arc::new(move || crate::prewarm_world::busy_reason(&liveness, &late))
-    });
+    b.catalog_warmup.bind_gates(Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }));
     model_warmup.bind(model_list.clone(), Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() })).map_err(|()| ComposeError::AlreadyBound("provider model warm-up"))?;
+    provider_warmup
+        .bind(provider_init, Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }))
+        .map_err(|()| ComposeError::AlreadyBound("provider warm-up"))?;
     let session_prewarm: Arc<dyn mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals> = Arc::new(crate::prewarm_world::WarmupSignals {
         prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy },
         catalog: b.catalog_warmup.clone(),
         models: model_warmup.clone(),
         statusline: statusline_warmup.clone(),
+        providers: provider_warmup.clone(),
         channel_admin: channel_admin.clone(),
     });
     // The deferred channel start parks on the same busy probe (`channel-start.mjs:50-56`) and is woken with the warm-ups.
@@ -2225,7 +2233,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     late_setup_ui
         .bind(Arc::new(mixdog_core_session::session::setup_ui::SessionSetupUi::new(directory.clone())))
         .map_err(|_| ComposeError::AlreadyBound("setup ui"))?;
-    model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:121): after the model list, the gates and the wakes exist
+    provider_warmup.start(); // the boot's scheduleProviderWarmup() (session.mjs:121)
+    model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:122): after the model list, the gates and the wakes exist
     // The boot's scheduleAutomationAutostart() (session.mjs:126) without its 1.5 s timer: the compose has finished, so probe once and start enabled automation now.
     channel_admin.schedule_automation_autostart();
     setup_warmup.schedule_default(); // the boot's scheduleProviderSetupWarmup() (session.mjs:122), default 300 ms
@@ -2784,8 +2793,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     statusline_warmup
         .bind(
             { let main = main_route.clone(); Arc::new(move || main.route()) },
-            loaded_config.clone(),
-            readiness.clone(),
+            Arc::new(mixdog_core_domains::domains::ai_admin::statusline_warmup::ReadinessPrep { keychain: keychain_live.clone(), loaded: loaded_config.clone(), readiness: readiness.clone() }),
             usage_sources.clone(),
             Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }),
         )

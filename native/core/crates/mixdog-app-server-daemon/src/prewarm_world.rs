@@ -49,6 +49,7 @@ pub struct WarmupSignals {
     pub catalog: Arc<crate::catalog::CatalogWarmup>,
     pub models: Arc<mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup>,
     pub statusline: Arc<mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup>,
+    pub providers: Arc<mixdog_core_domains::domains::ai_admin::provider_warmup::ProviderWarmup>,
     pub channel_admin: Arc<mixdog_services::channels::ChannelAdmin>,
 }
 
@@ -62,10 +63,13 @@ impl CodeGraphPrewarmSignals for WarmupSignals {
         self.catalog.wake();
         self.models.wake();
         self.statusline.wake();
+        self.providers.wake();
         self.channel_admin.wake_deferred_start();
     }
 
+    /// `turn-settle.mjs`: the first settled turn reschedules the provider and model warms; every one refreshes the usage.
     fn turn_settled(&self) {
+        self.providers.first_turn_settled();
         self.models.first_turn_settled();
         self.statusline.turn_settled();
     }
@@ -83,6 +87,13 @@ pub struct DaemonWarmupGates {
     pub close_requested: CancellationToken,
 }
 
+impl mixdog_core_domains::domains::ai_admin::model_warmup::WarmupMarks for DaemonWarmupGates {
+    /// `bootProfile(event, meta)`.
+    fn profile(&self, event: &str, detail: Option<serde_json::Value>) {
+        tracing::debug!(event, ?detail, "boot profile");
+    }
+}
+
 impl mixdog_core_domains::domains::ai_admin::model_warmup::WarmupGates for DaemonWarmupGates {
     fn busy(&self) -> Option<&'static str> {
         busy_reason(&self.liveness, &self.directory)
@@ -96,10 +107,32 @@ impl mixdog_core_domains::domains::ai_admin::model_warmup::WarmupGates for Daemo
         let closing = self.close_requested.clone();
         Box::pin(async move { closing.cancelled().await })
     }
+}
 
-    /// `bootProfile(event, detail)`.
-    fn profile(&self, event: &str, detail: &str) {
-        tracing::debug!(event, detail, "boot profile");
+/// What the provider warm runs in the daemon: its keychain, the config's full reload and the readiness of the loaded
+/// config's providers (`getConfig().providers`).
+pub struct DaemonProviderInit {
+    pub keychain: Arc<dyn mixdog_core_domains::domains::ai_account::setup_cache::KeychainLive>,
+    pub config: mixdog_core_config::config::Config,
+    pub loaded: Arc<mixdog_core_domains::domains::ai_admin::provider_sync::LoadedConfig>,
+    pub readiness: Arc<mixdog_ai::catalog::ProviderReadiness>,
+}
+
+#[async_trait]
+impl mixdog_core_domains::domains::ai_admin::provider_warmup::ProviderInit for DaemonProviderInit {
+    /// The keyring is asked per call (`HolderLive`): its prewarm cannot fail.
+    async fn keychain_prewarm(&self) -> Result<(), String> {
+        self.keychain.await_prewarm().await;
+        Ok(())
+    }
+
+    async fn reload_full_config(&self) -> Result<(), String> {
+        self.config.reload_full_config().await.map(drop).map_err(|error| error.to_string())
+    }
+
+    async fn ensure_providers_ready(&self) -> Result<(), String> {
+        let providers = self.loaded.get().get("providers").and_then(serde_json::Value::as_object).cloned().unwrap_or_default();
+        self.readiness.ensure_providers_ready(Some(providers)).await.map(drop).map_err(|error| error.message)
     }
 }
 
