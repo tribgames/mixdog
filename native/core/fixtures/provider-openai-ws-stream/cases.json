@@ -2287,15 +2287,15 @@
             }
           },
           {
+            "event": "clock-step",
+            "advanceMs": 738,
+            "nowMs": 1368
+          },
+          {
             "event": "closed",
             "serverInitiated": false,
             "code": 1000,
             "reason": "release_no_keep"
-          },
-          {
-            "event": "clock-step",
-            "advanceMs": 738,
-            "nowMs": 1368
           },
           {
             "event": "dial",
@@ -2447,15 +2447,15 @@
             }
           },
           {
+            "event": "clock-step",
+            "advanceMs": 1722,
+            "nowMs": 3090
+          },
+          {
             "event": "closed",
             "serverInitiated": false,
             "code": 1000,
             "reason": "release_no_keep"
-          },
-          {
-            "event": "clock-step",
-            "advanceMs": 1722,
-            "nowMs": 3090
           },
           {
             "event": "dial",
@@ -2607,15 +2607,15 @@
             }
           },
           {
+            "event": "clock-step",
+            "advanceMs": 3364,
+            "nowMs": 6454
+          },
+          {
             "event": "closed",
             "serverInitiated": false,
             "code": 1000,
             "reason": "release_no_keep"
-          },
-          {
-            "event": "clock-step",
-            "advanceMs": 3364,
-            "nowMs": 6454
           },
           {
             "event": "dial",
@@ -6482,7 +6482,8 @@
           }
         ],
         "keepalivesForMs": 584999,
-        "advanceMsAfter": 1
+        "advanceMsAfter": 1,
+        "stallRetryBudget": "spent"
       },
       "result": {
         "error": {
@@ -6527,10 +6528,20 @@
               "replayUnsafe": false,
               "replaySafe": true,
               "successEligible": false
-            }
+            },
+            "wsFailurePhase": "stream",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "openai-oauth-ws-stall-budget"
           }
         },
         "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
           {
             "event": "dial",
             "host": "chatgpt.com",
@@ -6548,6 +6559,54 @@
                 "Bearer fixture-access-token"
               ],
               [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
                 "Sec-WebSocket-Version",
                 "13"
               ],
@@ -6562,6 +6621,10 @@
               [
                 "Upgrade",
                 "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
               ],
               [
                 "Host",
@@ -6582,9 +6645,16 @@
             "event": "open"
           },
           {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
             "event": "frame",
             "dir": "client->server",
-            "text": "{\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794226632586}\",\"x-codex-ws-stream-request-start-ms\":\"1794226632586\"}}"
           },
           {
             "event": "frame",
@@ -6820,6 +6890,56 @@
           }
         ]
       },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "sendOpts": {
+                "_stallRetryBudget": {
+                  "allowStallRetry": {
+                    "callback": "allowStallRetry"
+                  },
+                  "firstStallAt": 0
+                }
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "ws-stream-test",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
       "clock": [
         {
           "advanceMs": 60000,
@@ -6917,7 +7037,8 @@
           }
         ],
         "keepalivesForMs": 299999,
-        "advanceMsAfter": 1
+        "advanceMsAfter": 1,
+        "stallRetryBudget": "spent"
       },
       "result": {
         "error": {
@@ -6965,10 +7086,18 @@
             },
             "liveTextEmitted": true,
             "emittedText": true,
-            "unsafeToRetry": true
+            "unsafeToRetry": true,
+            "wsFailurePhase": "stream"
           }
         },
         "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
           {
             "event": "dial",
             "host": "chatgpt.com",
@@ -6986,6 +7115,54 @@
                 "Bearer fixture-access-token"
               ],
               [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
                 "Sec-WebSocket-Version",
                 "13"
               ],
@@ -7000,6 +7177,10 @@
               [
                 "Upgrade",
                 "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
               ],
               [
                 "Host",
@@ -7020,9 +7201,16 @@
             "event": "open"
           },
           {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
             "event": "frame",
             "dir": "client->server",
-            "text": "{\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794227217586}\",\"x-codex-ws-stream-request-start-ms\":\"1794227217586\"}}"
           },
           {
             "event": "frame",
@@ -7162,11 +7350,65 @@
           }
         ]
       },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "sendOpts": {
+                "_stallRetryBudget": {
+                  "allowStallRetry": {
+                    "callback": "allowStallRetry"
+                  },
+                  "firstStallAt": 0
+                }
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "ws-stream-test",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
       "clock": [
         {
           "advanceMs": 60000,
           "fromMs": 1617586,
-          "fired": [],
+          "fired": [
+            {
+              "dueMs": 1617836
+            }
+          ],
           "toMs": 1677586
         },
         {
@@ -7246,56 +7488,12 @@
               "model": "gpt-fixture"
             }
           }
-        ]
+        ],
+        "stallRetryBudget": "spent"
       },
       "result": {
         "startedAtMs": 1917586,
-        "retryKeepaliveMs": 184999,
-        "first": {
-          "error": {
-            "$exact": "error",
-            "name": "Error",
-            "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
-            "props": {
-              "wsCloseCode": 1006,
-              "wsCloseReason": "",
-              "partialContent": "",
-              "partialToolCalls": {
-                "$exact": "undefined"
-              },
-              "partialProviderReplay": {
-                "$exact": "undefined"
-              },
-              "pendingToolUse": false,
-              "partialModel": "gpt-fixture",
-              "streamOutcome": {
-                "version": 1,
-                "provider": "openai-responses",
-                "transport": "ws",
-                "terminalObserved": false,
-                "continuation": true,
-                "declaredContinuation": false,
-                "textEmitted": false,
-                "textObservedChars": 0,
-                "reasoningEmitted": false,
-                "toolCallsStarted": false,
-                "toolCallsComplete": 0,
-                "toolCallsDispatched": 0,
-                "dispatchAmbiguous": false,
-                "pendingToolInput": false,
-                "userAbort": false,
-                "stallObserved": false,
-                "truncatedStream": false,
-                "visibleOutput": false,
-                "observedOutput": false,
-                "sideEffectDispatched": false,
-                "replayUnsafe": false,
-                "replaySafe": true,
-                "successEligible": false
-              }
-            }
-          }
-        },
+        "retryKeepaliveMs": 184800,
         "error": {
           "$exact": "error",
           "name": "StreamStalledError",
@@ -7338,10 +7536,20 @@
               "replayUnsafe": false,
               "replaySafe": true,
               "successEligible": false
-            }
+            },
+            "wsFailurePhase": "stream",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "openai-oauth-ws-stall-budget"
           }
         },
         "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
           {
             "event": "dial",
             "host": "chatgpt.com",
@@ -7359,6 +7567,54 @@
                 "Bearer fixture-access-token"
               ],
               [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "cabea32a-8d16-79c1-95ae-57c4309ba43b"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"cabea32a-8d16-79c1-95ae-57c4309ba43b\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
                 "Sec-WebSocket-Version",
                 "13"
               ],
@@ -7373,6 +7629,10 @@
               [
                 "Upgrade",
                 "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
               ],
               [
                 "Host",
@@ -7393,9 +7653,16 @@
             "event": "open"
           },
           {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
             "event": "frame",
             "dir": "client->server",
-            "text": "{\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"cabea32a-8d16-79c1-95ae-57c4309ba43b\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"3bf76ba3-b4f4-75aa-a5ac-9cffe1003a60\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"cabea32a-8d16-79c1-95ae-57c4309ba43b\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"3bf76ba3-b4f4-75aa-a5ac-9cffe1003a60\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794227517586}\",\"x-codex-ws-stream-request-start-ms\":\"1794227517586\"}}"
           },
           {
             "event": "frame",
@@ -7560,19 +7827,42 @@
             "by": "server"
           },
           {
-            "event": "send-settled"
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 199,
+              "retryAt": 1794227917785,
+              "reason": "Connection interrupted",
+              "classifier": "ws_1006",
+              "message": "Connection interrupted · retry 1/5 in 199ms"
+            }
           },
           {
-            "event": "dial",
-            "host": "chatgpt.com",
-            "port": 443,
-            "servername": "chatgpt.com"
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 199,
+            "nowMs": 2317785
           },
           {
             "event": "closed",
             "serverInitiated": true,
             "code": 1006,
             "reason": ""
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
           },
           {
             "event": "upgrade-request",
@@ -7583,6 +7873,54 @@
               [
                 "Authorization",
                 "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "cabea32a-8d16-79c1-95ae-57c4309ba43b"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"cabea32a-8d16-79c1-95ae-57c4309ba43b\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
               ],
               [
                 "Sec-WebSocket-Version",
@@ -7599,6 +7937,10 @@
               [
                 "Upgrade",
                 "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
               ],
               [
                 "Host",
@@ -7619,9 +7961,16 @@
             "event": "open"
           },
           {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
             "event": "frame",
             "dir": "client->server",
-            "text": "{\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"cabea32a-8d16-79c1-95ae-57c4309ba43b\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"3bf76ba3-b4f4-75aa-a5ac-9cffe1003a60\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"cabea32a-8d16-79c1-95ae-57c4309ba43b\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"3bf76ba3-b4f4-75aa-a5ac-9cffe1003a60\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794227917785}\",\"x-codex-ws-stream-request-start-ms\":\"1794227917785\"}}"
           },
           {
             "event": "frame",
@@ -7635,7 +7984,7 @@
           {
             "event": "clock-step",
             "advanceMs": 60000,
-            "nowMs": 2377586
+            "nowMs": 2377785
           },
           {
             "event": "frame",
@@ -7655,7 +8004,7 @@
           {
             "event": "clock-step",
             "advanceMs": 60000,
-            "nowMs": 2437586
+            "nowMs": 2437785
           },
           {
             "event": "frame",
@@ -7675,7 +8024,7 @@
           {
             "event": "clock-step",
             "advanceMs": 60000,
-            "nowMs": 2497586
+            "nowMs": 2497785
           },
           {
             "event": "frame",
@@ -7694,7 +8043,7 @@
           },
           {
             "event": "clock-step",
-            "advanceMs": 4999,
+            "advanceMs": 4800,
             "nowMs": 2502585
           },
           {
@@ -7737,10 +8086,51 @@
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs.updateSessionStage",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
           "args": [
-            "sess_ws_retry_deadline",
-            "requesting"
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "sendOpts": {
+                "_stallRetryBudget": {
+                  "allowStallRetry": {
+                    "callback": "allowStallRetry"
+                  },
+                  "firstStallAt": 0
+                }
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "sess_ws_retry_deadline",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
           ]
         }
       ],
@@ -7748,7 +8138,11 @@
         {
           "advanceMs": 60000,
           "fromMs": 1917586,
-          "fired": [],
+          "fired": [
+            {
+              "dueMs": 1917836
+            }
+          ],
           "toMs": 1977586
         },
         {
@@ -7788,26 +8182,46 @@
           "toMs": 2317586
         },
         {
-          "advanceMs": 60000,
+          "advanceMs": 0,
           "fromMs": 2317586,
           "fired": [],
-          "toMs": 2377586
+          "toMs": 2317586
+        },
+        {
+          "advanceMs": 199,
+          "fromMs": 2317586,
+          "fired": [
+            {
+              "dueMs": 2317785
+            }
+          ],
+          "toMs": 2317785
         },
         {
           "advanceMs": 60000,
-          "fromMs": 2377586,
-          "fired": [],
-          "toMs": 2437586
+          "fromMs": 2317785,
+          "fired": [
+            {
+              "dueMs": 2317836
+            }
+          ],
+          "toMs": 2377785
         },
         {
           "advanceMs": 60000,
-          "fromMs": 2437586,
+          "fromMs": 2377785,
           "fired": [],
-          "toMs": 2497586
+          "toMs": 2437785
         },
         {
-          "advanceMs": 4999,
-          "fromMs": 2497586,
+          "advanceMs": 60000,
+          "fromMs": 2437785,
+          "fired": [],
+          "toMs": 2497785
+        },
+        {
+          "advanceMs": 4800,
+          "fromMs": 2497785,
           "fired": [],
           "toMs": 2502585
         },
@@ -7846,7 +8260,8 @@
           }
         ],
         "keepalivesForMs": 299999,
-        "advanceMsAfter": 1
+        "advanceMsAfter": 1,
+        "stallRetryBudget": "spent"
       },
       "result": {
         "retry": {
@@ -7892,7 +8307,10 @@
                 "replayUnsafe": false,
                 "replaySafe": true,
                 "successEligible": false
-              }
+              },
+              "wsFailurePhase": "stream",
+              "providerRecoveryExhausted": true,
+              "providerRecoveryOwner": "openai-oauth-ws-stall-budget"
             }
           }
         },
@@ -7901,6 +8319,13 @@
             "event": "clock-step",
             "advanceMs": 10000,
             "nowMs": 2512586
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -7919,6 +8344,54 @@
                 "Bearer fixture-access-token"
               ],
               [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "cdaa494f-9d22-7e6b-b6a4-23664395434a"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"cdaa494f-9d22-7e6b-b6a4-23664395434a\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
                 "Sec-WebSocket-Version",
                 "13"
               ],
@@ -7933,6 +8406,10 @@
               [
                 "Upgrade",
                 "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
               ],
               [
                 "Host",
@@ -7953,9 +8430,16 @@
             "event": "open"
           },
           {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
             "event": "frame",
             "dir": "client->server",
-            "text": "{\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"cdaa494f-9d22-7e6b-b6a4-23664395434a\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"697cc528-fb9a-74d4-9874-0292c7d19163\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"cdaa494f-9d22-7e6b-b6a4-23664395434a\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"697cc528-fb9a-74d4-9874-0292c7d19163\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794228112586}\",\"x-codex-ws-stream-request-start-ms\":\"1794228112586\"}}"
           },
           {
             "event": "frame",
@@ -8103,13 +8587,65 @@
             "sess_ws_retry_after_output",
             "requesting"
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "sendOpts": {
+                "_stallRetryBudget": {
+                  "allowStallRetry": {
+                    "callback": "allowStallRetry"
+                  },
+                  "firstStallAt": 0
+                }
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "sess_ws_retry_after_output",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
         }
       ],
       "clock": [
         {
           "advanceMs": 10000,
           "fromMs": 2502586,
-          "fired": [],
+          "fired": [
+            {
+              "dueMs": 2502836
+            }
+          ],
           "toMs": 2512586
         },
         {
