@@ -624,7 +624,7 @@ impl World {
     }
 
     async fn grants(&self, filter: &Value) -> Value {
-        let rows = self.store.list_grants(filter.get("agentId").and_then(Value::as_str)).await.expect("the grants");
+        let rows = within("the store's grants", self.store.list_grants(filter.get("agentId").and_then(Value::as_str))).await.expect("the grants");
         Value::Array(
             rows.iter()
                 .map(|g| json!({"id": g.id, "agentId": g.agent_id, "action": g.action.render(), "mode": g.mode.as_str(), "device": g.device, "at": g.at_ms}))
@@ -635,7 +635,7 @@ impl World {
     async fn audit(&self, filter: &Value) -> Value {
         let agent = filter.get("agentId").and_then(Value::as_str);
         let limit = filter.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
-        let rows = self.store.read_audit(agent, limit).await.expect("the audit");
+        let rows = within("the store's audit", self.store.read_audit(agent, limit)).await.expect("the audit");
         Value::Array(
             rows.iter()
                 .map(|r| {
@@ -653,7 +653,7 @@ impl World {
     async fn set_mode(&self, agent: &str, action: &str, mode: &str) {
         let mode = PermissionMode::parse(mode).expect("a mode");
         if let Some(action) = GrantKey::parse(action) {
-            let _ = self.store.set_mode(agent, &action, mode, "", false).await.expect("the store");
+            let _ = within("the store's setMode", self.store.set_mode(agent, &action, mode, "", false)).await.expect("the store");
         }
     }
 
@@ -711,7 +711,7 @@ impl World {
             }
             "store.grant" => {
                 let scope = remember_of(step.get("scope").as_str());
-                self.store.grant(step.get("agentId").as_str(), &key(step.get("action").as_str()), scope, "").await.expect("the grant");
+                within("the store's grant", self.store.grant(step.get("agentId").as_str(), &key(step.get("action").as_str()), scope, "")).await.expect("the grant");
                 Vec::new()
             }
             "store.setMode" => {
@@ -734,31 +734,31 @@ impl World {
                 self.set_run(LEAD, None);
                 Vec::new()
             }
-            "agentPermissions" => vec![("rows", self.permissions().table(&input("agent")).await.expect("the table"))],
+            "agentPermissions" => vec![("rows", within("the permission table", self.permissions().table(&input("agent"))).await.expect("the table"))],
             "mailer comment row" => {
-                let rows = self.permissions().table(&json!("mailer")).await.expect("the table");
+                let rows = within("the permission table", self.permissions().table(&json!("mailer"))).await.expect("the table");
                 vec![("row", comment_row(&rows))]
             }
             "setAgentPermission mailer comment ask" => {
-                let rows = self.permissions().set(&json!("mailer"), &json!("comment"), &json!("ask"), false).await.expect("the table");
+                let rows = within("setAgentPermission", self.permissions().set(&json!("mailer"), &json!("comment"), &json!("ask"), false)).await.expect("the table");
                 vec![("row", comment_row(&rows))]
             }
             "setAgentPermission scribe comment ask; mailer tool:shell ask" => {
-                self.permissions().set(&json!("scribe"), &json!("comment"), &json!("ask"), false).await.expect("the table");
-                self.permissions().set(&json!("mailer"), &json!("tool:shell"), &json!("ask"), false).await.expect("the table");
+                within("setAgentPermission", self.permissions().set(&json!("scribe"), &json!("comment"), &json!("ask"), false)).await.expect("the table");
+                within("setAgentPermission", self.permissions().set(&json!("mailer"), &json!("tool:shell"), &json!("ask"), false)).await.expect("the table");
                 Vec::new()
             }
             "setAgentPermission lead tool:shell ask noWiden" => {
-                self.permissions().set(&json!("lead"), &json!("tool:shell"), &json!("ask"), true).await.expect("the table");
+                within("setAgentPermission", self.permissions().set(&json!("lead"), &json!("tool:shell"), &json!("ask"), true)).await.expect("the table");
                 Vec::new()
             }
             "modeFor mailer comment" => {
-                let mode = self.store.mode_for("mailer", &key("comment"), false).await.expect("the mode");
+                let mode = within("the store's modeFor", self.store.mode_for("mailer", &key("comment"), false)).await.expect("the mode");
                 vec![("mode", json!(mode.as_str()))]
             }
             "revokeGrant (the one grant)" => {
-                let grants = self.store.list_grants(Some("mailer")).await.expect("the grants");
-                vec![("revoked", json!(self.store.revoke_grant(&grants[0].id).await.expect("the revoke")))]
+                let grants = within("the store's grants", self.store.list_grants(Some("mailer"))).await.expect("the grants");
+                vec![("revoked", json!(within("the store's revoke", self.store.revoke_grant(&grants[0].id)).await.expect("the revoke")))]
             }
             marker if marker.starts_with("scenario ") => Vec::new(),
             other => panic!("a step the replay does not know: {other}"),
@@ -1046,7 +1046,10 @@ async fn hook_ask_11_a_shared_allow_is_listed_in_every_agents_permissions() {
     let log = replay_log(&world, &expected).await;
     let mut results = Vec::new();
     for rejection in expected.get("rejections").as_array() {
-        let refused = world.permissions().set(&plain(rejection.get("agent")), &plain(rejection.get("action")), &plain(rejection.get("mode")), false)
+        let refused = within(
+            "setAgentPermission",
+            world.permissions().set(&plain(rejection.get("agent")), &plain(rejection.get("action")), &plain(rejection.get("mode")), false),
+        )
         .await
         .expect_err("the change is refused");
         results.push(obj(vec![(
@@ -1067,7 +1070,7 @@ async fn hook_ask_12_a_damaged_or_hand_edited_grants_file_never_yields_a_tool_gr
         world.set_mode(agent.as_str(), action.as_str(), mode.as_str()).await;
     }
     let log = replay_log(&world, &expected).await;
-    let mode = world.store.mode_for("lead", &key("tool:shell"), false).await.expect("the mode");
+    let mode = within("the store's modeFor", world.store.mode_for("lead", &key("tool:shell"), false)).await.expect("the mode");
     let actual = obj(vec![("log", log), ("setModes", expected.get("setModes").clone()), ("modeFor", ex(json!(mode.as_str())))]);
     compare(&actual, &expected, "hook-ask-grants case 12");
 }
@@ -1130,15 +1133,15 @@ async fn session_4_the_real_session_life_changes_when_the_session_is_cleared_or_
     let id = expected.get("sessionId").as_str();
     let session = world.session(id);
     session.live.change(|header| *header = json!({"owner": "cli", "agent": "lead", "createdAt": 5}).as_object().unwrap().clone());
-    let before = session.gate.facts().await.life;
+    let before = within("the session's gate facts", session.gate.facts()).await.life;
     session.live.change(|header| {
         header.insert("compaction".into(), json!({"lastClearAt": 77}));
     });
-    let after_clear = session.gate.facts().await.life;
+    let after_clear = within("the session's gate facts", session.gate.facts()).await.life;
     session.live.change(|header| {
         header.insert("closed".into(), json!(true));
     });
-    let after_close = session.gate.facts().await.life;
+    let after_close = within("the session's gate facts", session.gate.facts()).await.life;
     let actual = obj(vec![
         ("log", Exact::Array(Vec::new())),
         ("sessionId", ex(json!(id))),
