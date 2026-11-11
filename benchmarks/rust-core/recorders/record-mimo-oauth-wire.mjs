@@ -4,8 +4,8 @@
 // exactly what the product sent; its answers are scripted per case (held answers are released by arrival, not by time). Probe cases use
 // the product's own `fetchImpl` injection point with a scripted fetch that records its calls. Virtual time: the one case with a
 // transient 5xx moves the virtual clock to the retry timer (each step is recorded in `clockSteps`).
-// Not recorded: the stream-wait widening assertions (:466, MiMo first-byte/idle windows, dec:47/138) and the enrichment-supersession part
-// of the stale-publish test (:~345-395: it drives the private `_inner._fetchModelItems` and a getter hook counting reads of `name`).
+// The stream-wait widening case (:466) is recorded on the virtual clock (case widened-stream-waits-and-explicit-first-byte-allowance).
+// Not recorded: the enrichment-supersession part of the stale-publish test (:~345-395: it drives the private `_inner._fetchModelItems` and a getter hook counting reads of `name`).
 //   node benchmarks/rust-core/recorders/record-mimo-oauth-wire.mjs --tree <exact export of b6f10295a>
 import { rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
