@@ -219,7 +219,7 @@ async fn set_extension_scope_answers_each_sessions_own_folder_as_node_does() {
     let base = scratch.path().to_string_lossy().into_owned();
     let escaped = serde_json::to_string(&base).unwrap();
     let golden: Value =
-        serde_json::from_str(&include_str!("../../../../fixtures/set-extension-scope-sessions/golden.json").replace("<BASE>", &escaped[1..escaped.len() - 1])).unwrap();
+        serde_json::from_str(&mixdog_testkit::fixture!("../../fixtures/set-extension-scope-sessions/golden.json").replace("<BASE>", &escaped[1..escaped.len() - 1])).unwrap();
     let recorded = golden["sessions"].as_object().unwrap();
     let mut threads = Vec::new();
     let mut statuses = Vec::new();

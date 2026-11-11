@@ -52,7 +52,7 @@ pub(super) fn copy_new(from: &Path, to: &Path, secret: bool) -> std::io::Result<
         target.write_all(&buffer[..read])?;
         size += read as u64;
     }
-    target.sync_all()?;
+    fsio::flush(&target)?;
     Ok((size, hex(&hasher.finalize())))
 }
 

@@ -32,7 +32,7 @@ Object.assign(process.env, {
   LOCALAPPDATA: dirs.localappdata,
   ANTHROPIC_OAUTH_CREDENTIALS_PATH: credentials,
 });
-const { FIXTURES_ROOT, commitStage, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, parseArgs, resolveTree, stageSet, writeJson, recordingProvenance, writeSetManifest } = await import('./lib/common.mjs');
 
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'provider-refusal');
@@ -97,5 +97,5 @@ for (const scenario of SCENARIOS) {
   recorded.push(record);
 }
 writeJson(join(stage, 'golden.json'), { configs: CONFIGS, scenarios: recorded });
-writeSetManifest(stage, { set: 'provider-refusal', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeSetManifest(stage, { set: 'provider-refusal', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree, extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs']) });
 commitStage(stage, finalDir);

@@ -20,7 +20,7 @@ use super::accounts::AccountScope;
 use super::jobs::MediaFailure;
 use super::tool::{MediaGraph, MediaToolService, namespaced};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-tool-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-tool-twin.json");
 
 fn fill(value: &Value, root: &str) -> Value {
     match value {
@@ -176,7 +176,7 @@ fn listing(root: &Path) -> Value {
 
 #[tokio::test]
 async fn the_tool_answers_what_nodes_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path().to_string_lossy().into_owned();
     let tokens = mixdog_rt::testing::tokens();
