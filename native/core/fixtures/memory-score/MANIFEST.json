@@ -1,0 +1,56 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-score.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the SQL function category_score_params/compute_entry_score the schema installs: Rust replays that one",
+    "runs": "computeEntryScore and CATEGORY_GRADE (memory-score.mjs)"
+  },
+  "exclusions": "none",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 5822,
+      "path": "golden.json",
+      "sha256": "a5e66876d0cf2acceedaa56228a6cf2aa7127a3a1970a2b7134cabf627c81a49"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "none": "no run-dependent value"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-score.mjs",
+  "recorderSha256": "5424c918b2318de4c09c3b9f636ee48753d17da9190cd679d61a284c7b27e549",
+  "replay": "mixdog-services memory: mem/schema.rs category_score_params + compute_entry_score (PG function or its Rust twin); compares every score and the null answers exactly (f64 equal)",
+  "set": "memory-score",
+  "totalBytes": 5822
+}
