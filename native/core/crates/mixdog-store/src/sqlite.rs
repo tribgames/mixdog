@@ -683,6 +683,9 @@ struct Writer {
     step_rows: usize,
     /// Told of the rows an append transaction changed, once it committed.
     sink: RowSinkCell,
+    /// Bumped after each round of the writer's work, so a reader that read it before its read knows nothing was
+    /// written since when it reads the same number again ([`SqliteStore::revision`]).
+    revision: Arc<std::sync::atomic::AtomicU64>,
 }
 
 const LABELS_KEY: &str = "ui:placeholder_labels";
@@ -787,6 +790,7 @@ impl Writer {
             append_rows: APPEND_ROWS,
             step_rows: STEP_ROWS,
             sink: RowSinkCell::default(),
+            revision: Arc::default(),
         })
     }
 
@@ -1012,6 +1016,7 @@ impl Writer {
             }
             self.purge_step();
             self.reproject_step();
+            self.revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
@@ -1504,6 +1509,7 @@ struct Shared {
     /// The read pool and the writer channel, behind the boot reconcile.
     gate: gate::Gate,
     rows: RowSinkCell,
+    revision: Arc<std::sync::atomic::AtomicU64>,
     /// The writer thread, joined by [`SqliteStore::close`].
     #[cfg(any(test, feature = "test-support"))]
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -1650,6 +1656,7 @@ impl SqliteStore {
             .query_map([], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         let rows = writer.sink.clone();
+        let revision = writer.revision.clone();
         let (sender, rx) = mpsc::channel();
         let handle = thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
@@ -1662,6 +1669,7 @@ impl SqliteStore {
                 path: path.to_path_buf(),
                 gate,
                 rows,
+                revision,
                 #[cfg(any(test, feature = "test-support"))]
                 writer: Mutex::new(Some(handle)),
             }),
@@ -1707,6 +1715,12 @@ impl SqliteStore {
                 let _ = handle.join();
             }
         });
+    }
+
+    /// A number that differs from an earlier one whenever the writer may have written since (read it before the data it
+    /// stands for: a read that followed the same number saw nothing newer).
+    pub fn revision(&self) -> u64 {
+        self.shared.revision.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Connects the sink of the catalog row writes. Set once; the second call is refused.
