@@ -18,7 +18,7 @@ use crate::run_host::ledger_source::LedgerSource;
 
 /// The recording of Node's `getUsageStats({ view: 'hour' })` and `getUsageDashboard({ refresh: true, refreshSetup: false })`
 /// (`record-usage-stats-push.mjs`, from the pinned Node commit): the empty ledger, then after each appended row.
-const GOLDEN: &str = include_str!("../../../../../fixtures/usage-stats-push/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-stats-push/golden.json");
 
 type Published = (SectionName, Option<String>, SectionChange);
 
@@ -366,7 +366,7 @@ impl UsageSources for RecordedQuotas {
 /// source over the provider setup, config and quota readings Node's dashboard was given.
 #[tokio::test(start_paused = true)]
 async fn the_ledger_sources_pushed_entries_equal_nodes_answers() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     assert_eq!(golden["question"], json!({ "view": "hour" }));
     assert_eq!(serde_json::to_value(dialog_question().view).unwrap(), golden["question"]["view"]);
     assert_eq!(golden["dashboardQuestion"], dashboard_question());

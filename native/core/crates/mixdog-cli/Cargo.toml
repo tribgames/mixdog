@@ -24,7 +24,7 @@ replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-c
 crash-gates = ["mixdog-core-session/crash-gates"]
 # Every replay control, and for every library `mixdogd` links the features a test build gives it, so a test run and
 # this build compile each library once (D:\mixdog-build\tools\unify-test-features.py writes it; cargo-gate adds it).
-dev-controls = ["crash-gates", "replay-controls", "terminal-lease-clock", "mixdog-agent/test-support", "mixdog-ai/count-work", "mixdog-ai/test-support", "mixdog-core/count-work", "mixdog-core-api/mock", "mixdog-core-base/test-support", "mixdog-core-config/count-work", "mixdog-core-domains/count-work", "mixdog-core-review/test-support", "mixdog-core-run/replay-controls", "mixdog-core-run/test-support", "mixdog-core-session/crash-gates", "mixdog-core-session/test-support", "mixdog-js/fixture-tools", "mixdog-mcp/test-support", "mixdog-migrate/crash-hook", "mixdog-rt/test-support", "mixdog-scm/write-queue-hook", "mixdog-secrets/count-work", "mixdog-secrets/test-support", "mixdog-spawn/core", "mixdog-spawn/core-test", "mixdog-spawn/lease-clock", "mixdog-spawn/scripted-shell", "mixdog-store/crash-hook", "mixdog-store/test-support", "mixdog-tools/policy-observer", "mixdog-workspace/count-jobs", "mixdog-workspace/kill-points", "mixdog-workspace/replay-controls"]
+dev-controls = ["crash-gates", "replay-controls", "terminal-lease-clock", "mixdog-agent/test-support", "mixdog-ai/count-work", "mixdog-ai/test-support", "mixdog-core/count-work", "mixdog-core-api/mock", "mixdog-core-base/test-support", "mixdog-core-config/count-work", "mixdog-core-domains/count-work", "mixdog-core-review/test-support", "mixdog-core-run/replay-controls", "mixdog-core-run/test-support", "mixdog-core-session/crash-gates", "mixdog-core-session/test-support", "mixdog-fsio/elide-syncs", "mixdog-js/fixture-tools", "mixdog-mcp/test-support", "mixdog-migrate/crash-hook", "mixdog-rt/test-support", "mixdog-scm/write-queue-hook", "mixdog-secrets/count-work", "mixdog-secrets/test-support", "mixdog-spawn/core", "mixdog-spawn/core-test", "mixdog-spawn/lease-clock", "mixdog-spawn/scripted-shell", "mixdog-store/crash-hook", "mixdog-store/test-support", "mixdog-tools/policy-observer", "mixdog-workspace/count-jobs", "mixdog-workspace/kill-points", "mixdog-workspace/replay-controls"]
 
 [dependencies]
 # Reached through mixdog-app-server-daemon; named here only so the features above reach them.
@@ -38,6 +38,7 @@ mixdog-core-domains = { workspace = true, optional = true }
 mixdog-core-review = { workspace = true, optional = true }
 mixdog-core-run = { workspace = true, optional = true }
 mixdog-core-session = { workspace = true, optional = true }
+mixdog-fsio = { workspace = true, optional = true }
 mixdog-mcp = { workspace = true, optional = true }
 mixdog-scm = { workspace = true, optional = true }
 mixdog-secrets = { workspace = true, optional = true }
@@ -98,3 +99,4 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

@@ -696,7 +696,7 @@ mod tests {
     /// or the args it left for the executor and whether the limit is the injected default.
     #[test]
     fn the_guard_refuses_and_rewrites_as_node_does() {
-        let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
         let mut failures = Vec::new();
         let mut ran = 0;
         for case in doc["cases"].as_array().unwrap() {

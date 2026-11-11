@@ -62,6 +62,7 @@ windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win3
 count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-core = { path = ".", features = ["count-work"] }
 bytes = { workspace = true }
 flate2 = { workspace = true }
@@ -105,3 +106,4 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

@@ -17,10 +17,10 @@ use crate::memory::session_search::db::{SessionSearchDb, search_rows};
 use crate::memory::session_search::ingest::{IngestSession, SessionSearchIngest};
 use crate::memory::tests::support::TestPg;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/tools/memory/session-search/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/session-search/golden.json");
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("golden")
+    serde_json::from_str(&GOLDEN).expect("golden")
 }
 
 /// `{"$gen": {prefix, unit, times, suffix}}` stands for a long generated text.
