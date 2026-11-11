@@ -1,0 +1,198 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "startProjectTask opens and publishes its shell despite a real recency publication failure",
+      "observed": {
+        "snapshotCwd": "<root>\\project",
+        "snapshotCurrentProject": "<root>\\project",
+        "hostSnapshotCwd": "<root>\\project",
+        "renameAttempts": 1,
+        "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+        "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}"
+      }
+    },
+    {
+      "case": "an accepted submission commits its receipt and stays subscribed after ${cause} breaks recency",
+      "observed": {
+        "runs": [
+          {
+            "cause": "publication",
+            "options": {
+              "id": "recency-submit-publication"
+            },
+            "accepted": true,
+            "snapshotSessionIdIsResultSessionId": true,
+            "receiptPhase": "accepted",
+            "receiptSessionIdIsResultSessionId": true,
+            "retryAccepted": true,
+            "calls": {
+              "creates": 1,
+              "submits": 1,
+              "unsubscribes": 0
+            }
+          },
+          {
+            "cause": "corrupt registry",
+            "options": {
+              "id": "recency-submit-corrupt registry"
+            },
+            "accepted": true,
+            "snapshotSessionIdIsResultSessionId": true,
+            "receiptPhase": "accepted",
+            "receiptSessionIdIsResultSessionId": true,
+            "retryAccepted": true,
+            "calls": {
+              "creates": 1,
+              "submits": 1,
+              "unsubscribes": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "enter keeps registration and unhiding when only the recency write fails",
+      "observed": {
+        "startFiles": {
+          "desktop-projects.json": {
+            "version": 2,
+            "hidden": [
+              "<root>/project"
+            ],
+            "aliases": {}
+          }
+        },
+        "entered": [
+          "<root>\\project"
+        ],
+        "renameAttempts": 1,
+        "hiddenAfter": [],
+        "knownPath": "<root>\\project",
+        "project": "<root>\\project"
+      }
+    },
+    {
+      "case": "explicit ${action} still rejects the original registry persistence error",
+      "observed": {
+        "runs": [
+          {
+            "action": "add",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "name": "Error",
+              "code": "EIO",
+              "message": "registry publication failed"
+            },
+            "renameAttempts": 1,
+            "registryFileUnchanged": true,
+            "hostSnapshot": null
+          },
+          {
+            "action": "enter",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "name": "Error",
+              "code": "EIO",
+              "message": "registry publication failed"
+            },
+            "renameAttempts": 1,
+            "registryFileUnchanged": true,
+            "hostSnapshot": null
+          },
+          {
+            "action": "rename",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "name": "Error",
+              "code": "EIO",
+              "message": "registry publication failed"
+            },
+            "renameAttempts": 1,
+            "registryFileUnchanged": true,
+            "hostSnapshot": null
+          },
+          {
+            "action": "remove",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "name": "Error",
+              "code": "EIO",
+              "message": "registry publication failed"
+            },
+            "renameAttempts": 1,
+            "registryFileUnchanged": true,
+            "hostSnapshot": null
+          },
+          {
+            "action": "touch",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "name": "Error",
+              "code": "EIO",
+              "message": "registry publication failed"
+            },
+            "renameAttempts": 1,
+            "registryFileUnchanged": true,
+            "hostSnapshot": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "registration and project-authority failures are not swallowed as recency failures",
+      "observed": {
+        "injected": {
+          "name": "Error",
+          "code": "EIO",
+          "message": "registry unreadable"
+        },
+        "results": {
+          "startProject": {
+            "rejected": true,
+            "isTheOriginalError": true
+          },
+          "startProjectTask": {
+            "rejected": true,
+            "isTheOriginalError": true
+          },
+          "submitNewTask": {
+            "rejected": true,
+            "isTheOriginalError": true
+          }
+        },
+        "calls": {
+          "creates": 0,
+          "submits": 0,
+          "unsubscribes": 0
+        },
+        "registryFileUnchanged": true
+      }
+    },
+    {
+      "case": "a corrupt registry is recovered: its bytes are kept aside and project start still works",
+      "observed": {
+        "registryBytes": "{broken",
+        "firstStart": {
+          "rejected": true,
+          "name": "Error",
+          "code": "PROJECT_UNAVAILABLE",
+          "isSyntaxError": false
+        },
+        "snapshotCwd": "<root>\\project",
+        "projectIsCwd": true,
+        "asideCount": 1,
+        "asideName": "projects.json.corrupt-<stamp>",
+        "asideBytes": "{broken"
+      }
+    }
+  ]
+}
