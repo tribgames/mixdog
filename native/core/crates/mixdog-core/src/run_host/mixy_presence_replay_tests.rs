@@ -3,12 +3,13 @@
 //! every reader. Each case writes the Node profile the recorder wrote (`agents/lead/agent.json`,
 //! `sessions/sess_home_lead.json`, `bots/migration.json`), imports it through the 1.4.5 migration
 //! (`mixdog-migrate`), and asks the core's readers over the imported store:
-//! - `heartbeat`: a first [`Heartbeat::tick`] over a fresh state file, its settings the production
-//!   [`ConfigHeartbeatSettings`] (heartbeat on, as Node's `isEnabled: true`) over [`DefinitionAgents`];
+//! - `heartbeat`: a first tick of the daemon's heartbeat ([`production_heartbeat`]) over a fresh
+//!   state file, the config's heartbeat on (Node's `isEnabled: true`), her presence from [`DefinitionAgents`];
 //! - `routines`: [`SessionRoutineHost::owner_problem`] of the ownerless owner (`routineOwnerProblem('')`);
-//! - `reports`: a heartbeat report queued for her home ([`RoutineResultQueue::add`]), one
-//!   [`AgentHomeDelivery::drain`] over the production [`DefinitionsDirectory`] (its thread not loaded,
-//!   as Node's `loadSession: () => null`), then the queue's items;
+//! - `reports`: a heartbeat report queued for her home ([`RoutineResultQueue::add`]), drained as the
+//!   daemon drains every home with work owed ([`AgentHomeDelivery::recover`], which finds the home
+//!   through `pending_homes`) over the production [`DefinitionsDirectory`] (her thread not loaded, as
+//!   Node's `loadSession: () => null`), then the queue's items;
 //! - `desktop`: `agent/getLeadStatus` of [`DesktopLeadStatus`], the method the window asks (it decides
 //!   `created` once, as `resolveMixyCreated`), its `created`;
 //! - `status`: the runtime route the desktop reads under it (`withMixyExists`): [`AgentDefinitions::lead_status`]
@@ -43,8 +44,7 @@ use mixdog_migrate::index::IndexProjector;
 use mixdog_migrate::run::{MigrateOptions, Migrator, product_drivers};
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
 use mixdog_rt::{CancellationToken, LaneToken};
-use mixdog_services::bots::beat::digest::{SessionReader, TranscriptPage};
-use mixdog_services::bots::beat::{CatalogPage, FactSources, Heartbeat, HeartbeatParts, HeartbeatStore, HeldRequests, Maintainer, MaintainerModel, MaintainerRoute, SessionCatalog, TaskWatches, UserActivity};
+use mixdog_services::bots::beat::{CatalogPage, HeartbeatStore, HeldRequests, SessionCatalog, UserActivity};
 use mixdog_services::bots::delivery::env::{DeliveryConfig, HomeThreads, LiveSlot, RetryTimer, RoomRelay, ThreadSnapshot, WakeFollow};
 use mixdog_services::bots::delivery::home::AgentHomeDelivery;
 use mixdog_services::bots::delivery::queue::{AddOptions, HOME_QUEUE_LIMIT, Handoffs, QUEUE_CAPS, RoutineResultQueue};
@@ -52,8 +52,7 @@ use mixdog_services::bots::ids::schedule_owner_agent_id;
 use mixdog_services::bots::live::{LiveSurface, WakeOptions, WakeTurn};
 use mixdog_services::bots::state_json::StateJson;
 use mixdog_services::bots::{
-    AnnouncedRun, DeliveryItem, ExecutorRun, HeartbeatSessions, MixyWake, RoutineHost, RoutineKind, RoutineRecords, RoutineRuntime, RoutineState, RoutineTurn, TurnSettle,
-    WakeHost,
+    AnnouncedRun, DeliveryItem, ExecutorRun, HeartbeatSessions, RoutineHost, RoutineKind, RoutineRecords, RoutineRuntime, RoutineState, RoutineTurn, TurnSettle, WakeHost,
 };
 use mixdog_services::scheduler::Clock;
 use mixdog_services::webhooks::RunStamp;
@@ -63,8 +62,9 @@ use serde_json::{Value, json};
 
 use super::agent_home_deps::{RoomMembers, SessionHomeDeps};
 use super::directory_sessions::DirectorySessions;
-use super::heartbeat_parts::ConfigHeartbeatSettings;
+use super::heartbeat_parts::{HeartbeatHolds, production_heartbeat};
 use super::home_directory::DefinitionsDirectory;
+use super::summary_host::SummaryServices;
 use super::routine_host::{DefinitionAgents, RoutineAgents, RoutineSessions, SessionRoutineHost};
 
 const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/mixy-presence-cases/golden.json");
@@ -144,32 +144,8 @@ impl SessionCatalog for Unreached {
 }
 
 #[async_trait]
-impl TaskWatches for Unreached {
-    async fn task_session_ids(&self) -> Result<Vec<String>, String> {
-        unreachable!("a first check only arms")
-    }
-}
-
-#[async_trait]
 impl HeldRequests for Unreached {
     async fn pending(&self) -> Result<usize, String> {
-        unreachable!("a first check only arms")
-    }
-}
-
-#[async_trait]
-impl SessionReader for Unreached {
-    async fn read_tail(&self, _: &str, _: usize) -> Result<TranscriptPage, String> {
-        unreachable!("a first check only arms")
-    }
-}
-
-#[async_trait]
-impl MaintainerModel for Unreached {
-    async fn route(&self) -> Result<Option<MaintainerRoute>, String> {
-        unreachable!("a first check only arms")
-    }
-    async fn send(&self, _: &MaintainerRoute, _: &str, _: &str, _: u32) -> Result<String, String> {
         unreachable!("a first check only arms")
     }
 }
@@ -317,6 +293,8 @@ struct Profile {
     routine_host: Arc<SessionRoutineHost>,
     desktop: DesktopLeadStatus,
     directory: Arc<SessionDirectory>,
+    /// The Maintainer's providers (a first check never asks them).
+    summaries: Arc<SummaryServices>,
     /// The per-check state files (Node's `fresh(dataDir, name)`).
     checks: std::sync::atomic::AtomicUsize,
 }
@@ -382,6 +360,9 @@ async fn profile(setup: &Value, split: bool, now: i64) -> Profile {
     let scopes = mixdog_core_base::support::testing::scopes(&dir.path().join("state"), "agent").await;
     let desktop = DesktopLeadStatus::new(LeadService::new(agents.clone(), LeadAppearance::new(config.clone()), scopes), agents.clone(), homes);
     let settings = Settings::with_process_env(config, Arc::new(NoEffects));
+    let summaries_dir = dir.path().join("summaries");
+    crate::run_host::fixture_fs::create_dir_all(&summaries_dir);
+    let summaries = super::compaction_world::tests::services(&summaries_dir, json!({}), Arc::default()).await.summaries;
     Profile {
         _dir: dir,
         data,
@@ -393,6 +374,7 @@ async fn profile(setup: &Value, split: bool, now: i64) -> Profile {
         routine_host,
         desktop,
         directory,
+        summaries,
         checks: std::sync::atomic::AtomicUsize::new(0),
     }
 }
@@ -403,23 +385,41 @@ impl Profile {
         self.data.join(format!("{name}-{n}.json"))
     }
 
-    /// `heartbeatRuns`: a heartbeat over a fresh state file, ticked once.
+    /// The home delivery over `queue` (Node's `createAgentHomeDelivery` of the recording).
+    fn delivery(&self, queue: Arc<RoutineResultQueue>) -> Arc<AgentHomeDelivery> {
+        let live = LiveSlot::new();
+        live.set(Some(Arc::new(NoThread)));
+        let clock: Arc<dyn Clock> = self.clock.clone();
+        AgentHomeDelivery::new(Arc::new(NoThread), Arc::new(DefinitionsDirectory::new(self.agents.clone())), live, Arc::new(Unreached), queue, clock, Arc::new(NoThread), DeliveryConfig::node())
+    }
+
+    fn queue(&self, name: &str) -> Arc<RoutineResultQueue> {
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let clock: Arc<dyn Clock> = self.clock.clone();
+        Arc::new(RoutineResultQueue::new(StateJson::new(self.data.join(name), lane), HOME_QUEUE_LIMIT, QUEUE_CAPS, clock, Arc::new(Unreached)))
+    }
+
+    /// `heartbeatRuns`: the daemon's heartbeat over a fresh state file, ticked once.
     async fn heartbeat(&self) -> Value {
         let lane = mixdog_rt::testing::tokens().durability_io;
         let store = HeartbeatStore::new(StateJson::new(self.fresh("heartbeat"), lane));
         let clock: Arc<dyn Clock> = self.clock.clone();
-        let routines = RoutineRuntime::new(self.routine_host.clone(), self.rows.clone(), clock.clone(), mixdog_js::time::Tz::UTC);
         let unreached = Arc::new(Unreached);
-        let heartbeat = Heartbeat::new(HeartbeatParts {
+        let heartbeat = production_heartbeat(HeartbeatHolds {
             clock: clock.clone(),
             store: store.clone(),
-            activity: UserActivity::new(store.clone(), clock),
-            settings: ConfigHeartbeatSettings::new(self.settings.clone(), self.routine_agents.clone()),
-            facts: FactSources { catalog: unreached.clone(), watches: unreached.clone(), held: unreached.clone(), routines: self.rows.clone() },
-            tails: unreached.clone(),
-            maintainer: Maintainer::new(unreached.clone()),
-            wake: Arc::new(MixyWake::new(routines, unreached, HeartbeatSessions::new(), store)),
-            live: Arc::new(NoThread),
+            activity: UserActivity::new(store, clock.clone()),
+            settings: self.settings.clone(),
+            agents: self.routine_agents.clone(),
+            directory: self.directory.clone(),
+            summaries: self.summaries.clone(),
+            delivery: self.delivery(self.queue("routine-results.json")),
+            catalog: unreached.clone(),
+            held: unreached.clone(),
+            records: self.rows.clone(),
+            routines: RoutineRuntime::new(self.routine_host.clone(), self.rows.clone(), clock, mixdog_js::time::Tz::UTC),
+            wake_host: unreached,
+            marks: HeartbeatSessions::new(),
         });
         json!(heartbeat.tick().await.word())
     }
@@ -430,25 +430,16 @@ impl Profile {
         json!(problem.map_or("", |problem| problem.code()))
     }
 
-    /// `reportWaits`: a heartbeat report queued for her home, one drain, the items left.
+    /// `reportWaits`: a heartbeat report queued for her home, drained, the items left. The daemon
+    /// finds the homes with work owed through `pending_homes` and drains each (`recover`); the
+    /// `drain` call after it is served by that pass (one more pass if it is still running).
     async fn reports(&self) -> Value {
-        let lane = mixdog_rt::testing::tokens().durability_io;
-        let clock: Arc<dyn Clock> = self.clock.clone();
-        let queue = Arc::new(RoutineResultQueue::new(StateJson::new(self.fresh("routine-results"), lane), HOME_QUEUE_LIMIT, QUEUE_CAPS, clock.clone(), Arc::new(Unreached)));
-        let live = LiveSlot::new();
-        live.set(Some(Arc::new(NoThread)));
-        let delivery = AgentHomeDelivery::new(
-            Arc::new(NoThread),
-            Arc::new(DefinitionsDirectory::new(self.agents.clone())),
-            live,
-            Arc::new(Unreached),
-            queue.clone(),
-            clock,
-            Arc::new(NoThread),
-            DeliveryConfig::node(),
-        );
+        let n = self.checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let queue = self.queue(&format!("routine-results-{n}.json"));
+        let delivery = self.delivery(queue.clone());
         let item = json!({"runId": "heartbeat_1", "kind": "agent-message", "text": "Project A got to step 3.", "at": 1});
         queue.add(HOME, item, AddOptions::default()).await.expect("queued");
+        assert_eq!(delivery.recover().await.expect("the queue reads"), [HOME], "the queued home is the one pending");
         tokio::time::timeout(DRAIN_DEADLINE, delivery.drain(HOME).wait())
             .await
             .unwrap_or_else(|_| panic!("timed out after {DRAIN_DEADLINE:?} awaiting the drain of {HOME}"));
