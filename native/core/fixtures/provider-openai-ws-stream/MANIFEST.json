@@ -10,7 +10,9 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the four watchdog cases that end in the reader's own timeout (no output at the first-output deadline, semantic idle after output, the reopened stream, the retry after output) call the stream reader `_streamResponse` (the entry the Node test calls) over a real client socket to the loopback server, so the first error is the outcome; the watchdog cases advance the virtual clock (`rec.clock`) with the product's real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.",
   "exclusions": [
-    "result.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared",
+    "result.result.transportTiming.*Ms and result.nextSend.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared",
+    "openai-ws-stream.test.mjs:187 (and :203) emit close(1006, \"gone\") on a mocked socket; that pair cannot occur on a socket: 1006 is never carried in a close frame (RFC 6455 7.4.1) and the product's `ws` client rejects a frame carrying it (node_modules/ws/lib/receiver.js:662, isValidStatusCode in node_modules/ws/lib/validation.js:37-45, WS_ERR_INVALID_CLOSE_CODE). Recorded instead are the two real closes: close-dropped-without-close-frame-before-terminal (the connection ends with no close frame: the client reports 1006 with an empty reason) and close-frame-1011-gone-before-terminal (a close frame a server may send, code 1011, reason \"gone\"); :203 is recorded with the dropped connection",
+    "internal fields the test reads are recorded through what they cause on the wire, in result.nextSend and the events after `next-send` (the next send on the same pool key / cache key, forceFresh off, store true for both sends): :58 result.responseId with state.sawCompleted -> the completed socket is kept and reused (no new dial); for the OpenAI OAuth (codex) transport the next request frame carries the full input and no previous_response_id, so the id itself does not reach the wire on this route; :361 state.userAbort / state.watchdogAbort -> the socket closed 4002 \"aborted\" (the user and watchdog aborts are the same on the wire), and the next send dials a fresh connection with the full input and no previous_response_id",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -18,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 293511,
+      "bytes": 329524,
       "path": "cases.json",
-      "sha256": "10dfba8a57b104e2c7c2246c0671de5c32a8d38155043504f2ea99c2d2cf5760"
+      "sha256": "2a1042317e28f0e460ff7ea03fab21e2cf62a09cc76463f8a2d864eb6986d1a0"
     }
   ],
   "inputs": [
@@ -42,7 +44,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "9c3bac7af557e26757ee81a258b4ed3ae3c18603f4f249a376ae9785f29c6835"
+      "sha256": "943f721e9658f8eed8cacc854a53a0444e43d9d39e1dde978ebfcb4260689ebd"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
@@ -83,7 +85,11 @@
       "level": "wire"
     },
     {
-      "id": "close-before-terminal-keeps-partial-state",
+      "id": "close-dropped-without-close-frame-before-terminal",
+      "level": "wire"
+    },
+    {
+      "id": "close-frame-1011-gone-before-terminal",
       "level": "wire"
     },
     {
@@ -146,12 +152,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
-  "recorderSha256": "df7e60d39c76a69164ed8f2487df29cbfa87eafbe623c80b7adcb988d750b897",
+  "recorderSha256": "9857807d816ab5791d6603e619e1b784b4e9a099e5989b9f7a602b67da8da51d",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-ws-stream",
-  "totalBytes": 293511,
+  "totalBytes": 329524,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

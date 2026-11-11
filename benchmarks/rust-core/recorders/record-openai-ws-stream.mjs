@@ -4,9 +4,8 @@
 // `_streamResponse` over a fake socket with shortened watchdog values; no public Rust function takes that input, so the cases go through the sender and the watchdogs run
 // with the product's real timeouts on the virtual clock. Each case records ONE ordered list: the dial, the upgrade request (every header in order), the upgrade response,
 // every frame in each direction, the callbacks the caller saw (progress / text / tool / stage, interleaved as they happened), the virtual-clock steps (a retry the sender
-// takes is followed step by step: its backoff timer, the redial) and the closes with their codes. A scripted close is a close frame carrying the test's code and reason
-// (1006 'gone' is written as raw frame bytes: the `ws` server refuses that code, and the product's `ws` client rejects it as a protocol error - what the product does
-// with the frame is the recorded outcome); the reopened-stream case's dying first attempt is the server dropping the TCP connection (the client sees 1006, empty reason).
+// takes is followed step by step: its backoff timer, the redial) and the closes with their codes. A scripted close is a close frame with a code a server may send,
+// or the connection dropped with no close frame (the client sees 1006, empty reason); the test's close(1006, 'gone') exists only on its mocked socket (see the manifest).
 //   node benchmarks/rust-core/recorders/record-openai-ws-stream.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
@@ -15,10 +14,15 @@ const rec = await startRecording({
   set: 'provider-openai-ws-stream',
   // The send's own timing report (`transportTiming`, `*Ms` fields) is measured with the real performance clock: those numbers are replaced by a marker at this declared path only.
   maskRow: (row) => {
-    const timing = row.result?.result?.transportTiming;
-    if (timing) for (const key of Object.keys(timing)) if (/Ms$/.test(key) && typeof timing[key] === 'number') timing[key] = '<ms, real clock>';
+    for (const timing of [row.result?.result?.transportTiming, row.result?.nextSend?.result?.transportTiming]) {
+      if (timing) for (const key of Object.keys(timing)) if (/Ms$/.test(key) && typeof timing[key] === 'number') timing[key] = '<ms, real clock>';
+    }
   },
-  exclusions: ['result.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared'],
+  exclusions: [
+    'result.result.transportTiming.*Ms and result.nextSend.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared',
+    'openai-ws-stream.test.mjs:187 (and :203) emit close(1006, "gone") on a mocked socket; that pair cannot occur on a socket: 1006 is never carried in a close frame (RFC 6455 7.4.1) and the product\'s `ws` client rejects a frame carrying it (node_modules/ws/lib/receiver.js:662, isValidStatusCode in node_modules/ws/lib/validation.js:37-45, WS_ERR_INVALID_CLOSE_CODE). Recorded instead are the two real closes: close-dropped-without-close-frame-before-terminal (the connection ends with no close frame: the client reports 1006 with an empty reason) and close-frame-1011-gone-before-terminal (a close frame a server may send, code 1011, reason "gone"); :203 is recorded with the dropped connection',
+    'internal fields the test reads are recorded through what they cause on the wire, in result.nextSend and the events after `next-send` (the next send on the same pool key / cache key, forceFresh off, store true for both sends): :58 result.responseId with state.sawCompleted -> the completed socket is kept and reused (no new dial); for the OpenAI OAuth (codex) transport the next request frame carries the full input and no previous_response_id, so the id itself does not reach the wire on this route; :361 state.userAbort / state.watchdogAbort -> the socket closed 4002 "aborted" (the user and watchdog aborts are the same on the wire), and the next send dials a fresh connection with the full input and no previous_response_id',
+  ],
   entry: 'src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the four watchdog cases that end in the reader\'s own timeout (no output at the first-output deadline, semantic idle after output, the reopened stream, the retry after output) call the stream reader `_streamResponse` (the entry the Node test calls) over a real client socket to the loopback server, so the first error is the outcome; the watchdog cases advance the virtual clock (`rec.clock`) with the product\'s real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.',
   compare: 'mixdog-ai providers::openai decoder.rs (:696-745 bundle salvage, :1011-1027, :1144-1179 max-output), the WS transport (openai/pool.rs, transport/ws.rs) and mixdog-agent send.rs:541-556: serve each case\'s `events` as the loopback server does (the `server->client` frames and closes, in order, answering the request frame) and compare, in order, the client\'s upgrade request headers, its frames, the callback events (`progress`/`text`/`tool`, interleaved with the frames), the clock steps, and `result`/`error` (message, wsCloseCode, partialToolCalls, pendingToolUse, providerErrorCode, ...) and `state`. `recorder-cleanup-close` is the recorder\'s own marker; the `ping` / `pong` pairs after a keepalive frame are the recorder\'s proof that the client handled the frame.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
@@ -43,24 +47,15 @@ function onTextDelta(chunk) { world.note({ event: 'text', chunk }); }
 
 // Server side of one connection: `plan` is consumed one entry per connection, when the request frame arrives (a connection past the plans
 // repeats the last plan: a failure the product retries is served again on every attempt, so the send ends with its own typed error once its budget is spent):
-// { frames, close: [code, reason] | null }. A close is a close frame carrying the code and the reason, then the end of the connection; the
-// `ws` server refuses to send the codes a peer must not put in a frame (1006 among them), so such a frame is written as raw bytes on the
-// server's socket (FIN + opcode 8, unmasked, payload = the 2-byte code and the UTF-8 reason), after every frame already sent.
-const closeFrame = (code, reason) => {
-  const payload = Buffer.concat([Buffer.from([code >> 8, code & 0xff]), Buffer.from(reason, 'utf8')]);
-  return Buffer.concat([Buffer.from([0x88, payload.length]), payload]);
-};
+// { frames, close: [code, reason] | 'drop' | null }: a close frame with that code and reason, or the connection ended with no close frame.
 const serve = (plans) => {
   let n = 0;
   world.reset({
     onFrame: (conn) => {
       const plan = plans[Math.min(n++, plans.length - 1)];
       for (const frame of plan.frames) conn.send(frame);
-      if (plan.close) {
-        const [code, reason] = plan.close;
-        world.note({ event: 'close-frame-sent', by: 'server', code, reason, bytesHex: closeFrame(code, reason).toString('hex') });
-        conn.ws._socket.end(closeFrame(code, reason));
-      }
+      if (plan.close === 'drop') conn.terminate();
+      else if (plan.close) conn.close(plan.close[0], plan.close[1]);
     },
   });
 };
@@ -150,19 +145,32 @@ const keepalivesFor = async (ms) => {
 };
 
 // One stream: the frames are the server's answer to the request frame; `close` = [code, reason] is the server closing afterwards; `abort` is the external signal's reason.
-async function stream(frames, { close = null, knownToolNames, abort = null, retries = [] } = {}) {
-  serve([{ frames, close }, ...retries]);
+// `nextSend`: after the case's send settles, the next send on the same pool key and cache key (forceFresh off for both), answered `completed` with resp_2:
+// what the first send left on the connection / pool (its response id, whether the socket is reusable) shows in that send's dial and request frame.
+const NEXT_COMPLETED = [{ type: 'response.created', response: { id: 'resp_2', model: 'gpt-fixture' } }, { type: 'response.completed', response: { id: 'resp_2', model: 'gpt-fixture', usage: { input_tokens: 1, output_tokens: 1 }, output: [{ type: 'message', content: [{ type: 'output_text', text: 'next' }] }] } }];
+async function stream(frames, { close = null, knownToolNames, abort = null, retries = [], nextSend = false } = {}) {
+  serve([{ frames, close }, ...retries, ...(nextSend ? [{ frames: NEXT_COMPLETED }] : [])]);
   const controller = new AbortController();
-  const { outcome } = connect({ externalSignal: abort ? controller.signal : null, ...(knownToolNames ? { body: { ...BODY, tools: knownToolNames.map((name) => ({ type: 'function', name })) } } : {}) });
+  const reuse = nextSend ? { forceFresh: false } : {};
+  // With a next send, both sends ask the server to store the response (`store: true`), the condition under which a pooled response id may anchor the next request.
+  const nextBody = { ...BODY, store: true };
+  const { outcome } = connect({ externalSignal: abort ? controller.signal : null, ...reuse, ...(nextSend ? { body: nextBody } : {}), ...(knownToolNames ? { body: { ...BODY, tools: knownToolNames.map((name) => ({ type: 'function', name })) } } : {}) });
   if (abort) {
     await world.until((t) => t.some((e) => e.event === 'progress' && e.kind === 'transport'), 'response.created handled');
     controller.abort(abort);
   }
   const out = await settle(outcome);
+  let next;
+  if (nextSend) {
+    // The connection an aborted send closes is seen closed at the server before the next send starts, so that event precedes the next send's events.
+    if (abort) await world.until((t) => t.filter((e) => e.event === 'closed').length >= t.filter((e) => e.event === 'open').length, 'the aborted send\'s connection closed at the server');
+    world.note({ event: 'next-send' });
+    next = await connect({ ...reuse, body: { ...nextBody, input: [...BODY.input, { type: 'message', role: 'user', content: 'next' }] } }).outcome;
+  }
   await end();
-  return { ...out, events: snapshot() };
+  return { ...out, ...(nextSend ? { nextSend: next } : {}), events: snapshot() };
 }
-const row = (id, line, frames, options = {}) => rec.run(id, `${SRC}:${line}`, { frames, ...(options.close ? { close: options.close } : {}), ...(options.knownToolNames ? { knownToolNames: options.knownToolNames } : {}) }, () => stream(frames, options));
+const row = (id, line, frames, options = {}) => rec.run(id, `${SRC}:${line}`, { frames, ...(options.close ? { close: options.close } : {}), ...(options.knownToolNames ? { knownToolNames: options.knownToolNames } : {}), ...(options.nextSend ? { nextSend: 'the next send on the same pool and cache key, forceFresh off, answered completed resp_2' } : {}) }, () => stream(frames, options));
 
 await row('text-call-and-usage-in-one-result', 58, [
   created, { type: 'response.output_text.delta', delta: 'Hello ' }, { type: 'response.output_text.delta', delta: 'world' },
@@ -170,7 +178,7 @@ await row('text-call-and-usage-in-one-result', 58, [
   { type: 'response.function_call_arguments.delta', item_id: 'fc_1', delta: '{"path"' }, { type: 'response.function_call_arguments.done', item_id: 'fc_1', arguments: '{"path":"a.txt"}' },
   { type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read', arguments: '{"path":"a.txt"}' } },
   { type: 'response.completed', response: { id: 'resp_1', model: 'gpt-fixture', end_turn: false, usage: { input_tokens: 12, output_tokens: 3, input_tokens_details: { cached_tokens: 4 } }, output: [{ type: 'message', content: [{ type: 'output_text', text: 'Hello world' }] }] } },
-]);
+], { nextSend: true });
 await row('call-id-only-in-completed-bundle-is-salvaged', 112, [created, { type: 'response.function_call_arguments.done', item_id: 'fc_late', arguments: '{"q":1}' }, { type: 'response.completed', response: { output: [{ type: 'function_call', id: 'fc_late', call_id: 'call_late', name: 'search' }] } }]);
 await row('unsalvageable-call-fails', 112, [created, { type: 'response.function_call_arguments.done', item_id: 'fc_lost', arguments: '{}' }, { type: 'response.completed', response: { output: [] } }]);
 const leaked = '<function_calls><invoke name="read"><parameter name="path">a.txt</parameter></invoke></function_calls>';
@@ -178,15 +186,17 @@ await row('leaked-tool-call-recovered-once', 140, [created, { type: 'response.ou
 await row('max-output-tokens-truncated-success', 155, [created, { type: 'response.output_text.delta', delta: 'partial' }, { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } }]);
 await row('response-failed-rejects-with-frame', 155, [created, { type: 'response.failed', response: { error: { message: 'boom', code: 'server_error', status: 503 } } }]);
 await row('response-done-cancelled-rejects', 155, [created, { type: 'response.done', response: { status: 'cancelled' } }]);
-await row('close-before-terminal-keeps-partial-state', 187, [created, { type: 'response.output_text.delta', delta: 'half' }, { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_open', call_id: 'c', name: 'n' } }], { close: [1006, 'gone'] });
+const halfFrames = [created, { type: 'response.output_text.delta', delta: 'half' }, { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_open', call_id: 'c', name: 'n' } }];
+await row('close-dropped-without-close-frame-before-terminal', 187, halfFrames, { close: 'drop' });
+await row('close-frame-1011-gone-before-terminal', 187, halfFrames, { close: [1011, 'gone'] });
 const done = { type: 'function_call', id: 'fc_done', call_id: 'call_done', name: 'read' };
 await row('close-after-finished-call-carries-it', 203, [
   created, { type: 'response.output_item.added', item: done }, { type: 'response.function_call_arguments.done', item_id: 'fc_done', arguments: '{"path":"a.txt"}' },
   { type: 'response.output_item.done', item: { ...done, arguments: '{"path":"a.txt"}' } },
   { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_open', call_id: 'call_open', name: 'edit' } }, { type: 'response.function_call_arguments.delta', item_id: 'fc_open', delta: '{"pa' },
-], { close: [1006, 'gone'] });
+], { close: 'drop' });
 const abortRows = [['user-abort', new Error('stop')], ['watchdog-abort', Object.assign(new Error('stalled'), { name: 'AgentStallAbortError' })]];
-for (const [id, reason] of abortRows) await rec.run(`external-abort-tags-${id}`, `${SRC}:361`, { frames: [created], abort: reason }, () => stream([created], { abort: reason }));
+for (const [id, reason] of abortRows) await rec.run(`external-abort-tags-${id}`, `${SRC}:361`, { frames: [created], abort: reason, nextSend: 'the next send on the same pool and cache key, forceFresh off, answered completed resp_2' }, () => stream([created], { abort: reason, nextSend: true }));
 
 // ---- watchdogs on the virtual clock ----
 const reasoningItem = { type: 'reasoning', id: 'rs_1', summary: [] };
