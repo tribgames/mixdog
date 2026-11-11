@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4960,
+      "bytes": 5674,
       "path": "golden.json",
-      "sha256": "0c0997d5bb8a57740668faf057e83348328417d8093753f9a7a472422d365c0b"
+      "sha256": "7d0921164f8580789d7090f040ce3d29ca969bfd47aca061e78cea0b179cf052"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-scope-filter.mjs",
-  "recorderSha256": "fd83ff5175102e916015aaa6cf8ed23501086ae0a70539af019aec1a5a8547e1",
-  "replay": "mixdog-services memory: mem/recall/filters.rs project_scope_predicate and append_project_scope; compares clause text and bound params in order for cases 1 and 2. Case 3 is not replayable (typed Option<&str>): listed, not recorded for replay",
+  "recorderSha256": "b9f7a9a818bf5355013f0a3b87a2ad6eecfe02b12ed7d82c18387918325031c0",
+  "replay": "mixdog-services memory/recall/filters.rs: pub fn append_project_scope (:35); the projectScope argument is read by recall/plan.rs:95 and reaches it through the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay compares the predicate text/params the recorded scope inputs produce (clause, params, and the typing case of non-string scopes)",
   "set": "memory-scope-filter",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 4960,
-  "uuidsNormalised": "none"
+  "totalBytes": 5674,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
