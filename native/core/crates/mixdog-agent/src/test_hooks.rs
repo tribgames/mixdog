@@ -15,6 +15,8 @@ struct Inner {
     released: watch::Sender<bool>,
     /// The ids of group retries that reached the file's lock while an earlier place was still held.
     retries_waiting: watch::Sender<Vec<String>>,
+    /// The ambiguous streamed edits of the file that reached the settle gate, and whether it was open then.
+    at_gate: watch::Sender<Vec<(String, bool)>>,
 }
 
 fn holds() -> &'static Mutex<Vec<Arc<Inner>>> {
@@ -36,6 +38,7 @@ pub fn hold_edits(file: &str, ids: &[&str]) -> EditHold {
         parked: watch::Sender::new(0),
         released: watch::Sender::new(false),
         retries_waiting: watch::Sender::new(Vec::new()),
+        at_gate: watch::Sender::new(Vec::new()),
     });
     holds().lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(Arc::clone(&inner));
     EditHold(inner)
@@ -49,6 +52,11 @@ impl EditHold {
 
     pub fn retries_waiting(&self) -> watch::Receiver<Vec<String>> {
         self.0.retries_waiting.subscribe()
+    }
+
+    /// The file's ambiguous streamed edits (held or not) that reached the settle gate, with whether it was open.
+    pub fn at_gate(&self) -> watch::Receiver<Vec<(String, bool)>> {
+        self.0.at_gate.subscribe()
     }
 
     pub fn release(&self) {
@@ -70,6 +78,12 @@ pub(crate) async fn edit_start(key: &str, id: &str) {
     let mut released = hold.released.subscribe();
     hold.parked.send_modify(|n| *n += 1);
     let _ = released.wait_for(|r| *r).await;
+}
+
+pub(crate) fn at_gate(key: &str, id: &str, open: bool) {
+    if let Some(hold) = find(key) {
+        hold.at_gate.send_modify(|ids| ids.push((id.to_owned(), open)));
+    }
 }
 
 pub(crate) fn retry_queued(key: &str, id: &str, waits: bool) {

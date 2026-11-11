@@ -79,9 +79,11 @@ enum Step {
     Hang,
     /// The stream goes on once the count reaches the number: a response still streaming while the calls it handed over run.
     Until(tokio::sync::watch::Receiver<usize>, usize, &'static str),
-    /// The stream works on what it already received (`ModelStream::settling`, the ledger's write) until the count reaches the
-    /// number or the time passes.
-    Settling(tokio::sync::watch::Receiver<usize>, usize, Duration),
+    /// The response is still waiting for the wire until the future ends.
+    Wire(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>, &'static str),
+    /// The wire's terminal event is in (`ModelStream::on_wire_left`) and the stream works on the ledger's write until the
+    /// future ends.
+    Ledger(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>, &'static str),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -90,7 +92,7 @@ enum Attempt {
     Reject(ProviderError),
 }
 
-struct ScriptedStream(VecDeque<Step>, Arc<std::sync::atomic::AtomicBool>);
+struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>);
 
 #[async_trait]
 impl ModelStream for ScriptedStream {
@@ -106,10 +108,15 @@ impl ModelStream for ScriptedStream {
                     assert!(reached.is_ok(), "the stream waited 30 s for {what}");
                     continue;
                 }
-                Some(Step::Settling(mut count, at, most)) => {
-                    self.1.store(true, std::sync::atomic::Ordering::Release);
-                    let _ = tokio::time::timeout(most, count.wait_for(|n| *n >= at)).await;
-                    self.1.store(false, std::sync::atomic::Ordering::Release);
+                Some(Step::Wire(wait, what)) => {
+                    assert!(tokio::time::timeout(Duration::from_secs(30), wait).await.is_ok(), "the stream waited 30 s for {what}");
+                    continue;
+                }
+                Some(Step::Ledger(wait, what)) => {
+                    if let Some(left) = &self.1 {
+                        left();
+                    }
+                    assert!(tokio::time::timeout(Duration::from_secs(30), wait).await.is_ok(), "the ledger waited 30 s for {what}");
                     continue;
                 }
             };
@@ -120,8 +127,8 @@ impl ModelStream for ScriptedStream {
         DeliveryState::Accepted
     }
 
-    fn settling(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> {
-        Some(Arc::clone(&self.1))
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        self.1 = Some(left);
     }
 }
 
@@ -186,7 +193,7 @@ impl ProviderAdapter for Scripted {
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
-            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), Arc::default()))),
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None))),
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("provider script exhausted"),
         }
@@ -543,25 +550,65 @@ async fn an_edit_behind_an_ambiguous_streamed_edit_runs_before_the_group_retry()
     assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
 }
 
-/// A response whose bytes all arrived is not waiting for the wire while the ledger writes its completed row: an ambiguous
-/// streamed edit that settles meanwhile is acted on once the batch is at it, so its group retry runs before the edit behind
-/// it, as in the recorded case (`agent-trace-run` scenario 2). The stream gives the edit behind it half a second to run.
+/// Releases the held edits, then ends once `id` reached the settle gate.
+fn release_until_at_gate(hold: &Arc<mixdog_agent::test_hooks::EditHold>, id: &'static str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    let (hold, mut at) = (Arc::clone(hold), hold.at_gate());
+    Box::pin(async move {
+        hold.release();
+        let _ = at.wait_for(|seen| seen.iter().any(|(seen, _)| seen == id)).await;
+    })
+}
+
+/// One `next` waits on the wire, then the response's end arrives and the same `next` goes on to the ledger's write of the
+/// completed row (`agent-trace-run` scenario 2): an ambiguous streamed edit settling during the write finds the gate the
+/// wire wait opened closed, so it is acted on once the batch is at it and its group retry runs before the edit behind it.
 #[tokio::test]
-async fn an_ambiguous_edit_settling_while_the_ledger_writes_finds_the_batch_at_it() {
+async fn an_ambiguous_edit_settling_in_the_ledger_write_after_a_wait_on_the_wire_finds_the_batch_at_it() {
     let file = AnchoredFile::new("same\nsame\n");
-    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "ledger.txt", "old_string": "same", "new_string": new }));
+    let hold = Arc::new(mixdog_agent::test_hooks::hold_edits("ledger-phase.txt", &["x1"]));
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "ledger-phase.txt", "old_string": "same", "new_string": new }));
     let h = Harness::new(vec![
         turn(vec![
             edit("x1", "one"),
             edit("x2", "two"),
-            Step::Settling(file.ended.subscribe(), 2, Duration::from_millis(500)),
+            Step::Until(hold.parked(), 1, "x1 parked before its run"),
+            Step::Ledger(release_until_at_gate(&hold, "x1"), "x1 at the settle gate"),
             done(StopReason::ToolUse),
         ]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
     finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(hold.at_gate().borrow().first().cloned(), Some(("x1".to_owned(), false)));
     let runs = file.runs.lock().unwrap().clone();
     let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// The same `next`, with the settlement while it still waits on the wire: the gate is open, the edit behind goes first and
+/// the group retry runs after it, as in Node.
+#[tokio::test]
+async fn an_ambiguous_edit_settling_in_the_wire_wait_before_the_ledger_write_lets_the_edit_behind_it_go() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let hold = Arc::new(mixdog_agent::test_hooks::hold_edits("wire-phase.txt", &["x1"]));
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "wire-phase.txt", "old_string": "same", "new_string": new }));
+    let ended = file.ended.subscribe();
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(hold.parked(), 1, "x1 parked before its run"),
+            Step::Wire(release_until_at_gate(&hold, "x1"), "x1 at the settle gate"),
+            Step::Until(ended, 2, "x2's run to end"),
+            Step::Ledger(Box::pin(async {}), "nothing"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(hold.at_gate().borrow().first().cloned(), Some(("x1".to_owned(), true)));
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
     assert_eq!(runs, want);
     assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
 }

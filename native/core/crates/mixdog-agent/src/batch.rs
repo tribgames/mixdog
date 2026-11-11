@@ -449,6 +449,10 @@ impl Run {
                 }
             };
             if executed.conflict {
+                #[cfg(feature = "test-support")]
+                if let Some(key) = &key {
+                    crate::test_hooks::at_gate(key, &early_id, *gate.borrow());
+                }
                 // A closed gate: the run is gone, and nothing waits for the order.
                 let _ = gate.wait_for(|open| *open).await;
             }

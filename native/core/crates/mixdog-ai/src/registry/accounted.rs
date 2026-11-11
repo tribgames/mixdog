@@ -249,7 +249,7 @@ impl ProviderAdapter for AccountedAdapter {
                 open: Some(Open { accounting, usage: None, served: None }),
                 group,
                 now: Arc::clone(&self.deps.now),
-                settling: Arc::default(),
+                wire_left: None,
             })),
             Err(error) => {
                 fail(accounting, group, error.clone()).await;
@@ -305,8 +305,16 @@ struct AccountedStream {
     open: Option<Open>,
     group: Option<(String, Groups)>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
-    /// Set while the completed row is written ([`ModelStream::settling`]).
-    settling: Arc<std::sync::atomic::AtomicBool>,
+    /// Told when the wire's terminal event is in, before the row is written ([`ModelStream::on_wire_left`]).
+    wire_left: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl AccountedStream {
+    fn leave_wire(&self) {
+        if let Some(left) = &self.wire_left {
+            left();
+        }
+    }
 }
 
 #[async_trait]
@@ -333,20 +341,21 @@ impl ModelStream for AccountedStream {
                     stream_ended_at: (self.now)(),
                     ..Completed::default()
                 };
-                self.settling.store(true, std::sync::atomic::Ordering::Release);
+                self.leave_wire();
                 let recorded = open.accounting.finish(Outcome::Completed(done)).await;
-                self.settling.store(false, std::sync::atomic::Ordering::Release);
                 Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms: recorded.request_ms.or(request_ms) }))
             }
             Some(Ok(event)) => Some(Ok(event)),
             Some(Err(error)) => {
                 let open = self.open.take()?;
+                self.leave_wire();
                 fail(open.accounting, self.group.take(), error.clone()).await;
                 Some(Err(error))
             }
             None => {
                 // A stream may only end with its terminal event: the consumer fails it the same way.
                 let open = self.open.take()?;
+                self.leave_wire();
                 let error = ProviderError::transport(TransportFault::TruncatedStream, self.inner.delivery());
                 fail(open.accounting, self.group.take(), error).await;
                 None
@@ -358,8 +367,8 @@ impl ModelStream for AccountedStream {
         self.inner.delivery()
     }
 
-    fn settling(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> {
-        Some(Arc::clone(&self.settling))
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        self.wire_left = Some(left);
     }
 }
 
