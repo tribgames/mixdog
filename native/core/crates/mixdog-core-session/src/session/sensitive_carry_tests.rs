@@ -171,6 +171,37 @@ async fn a_carried_mark_the_parent_never_applied_is_applied_at_the_next_start() 
     assert_eq!(marks.redact_text("parent", CODE), "[redacted]", "and carried to the parent again");
 }
 
+/// (c) Twenty model-context reads issued while the index is behind (its projections held, as a carried mark's rewrite of
+/// another thread holds them) wait for it off the lane: a row's commit job is still taken, and each read answers once the
+/// index catches up.
+#[tokio::test]
+async fn reads_issued_while_the_index_is_behind_wait_off_the_lane() {
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
+    let data = tempfile::tempdir().expect("data dir");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index_over(data.path(), tokens).await, tokens, &marks).await;
+    create(&threads, tokens, "t", vec![row("a", "the first row")]).await;
+    let (reached, release) = threads.hold_index();
+    reached.await.expect("the index is held");
+    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
+    let store: Arc<dyn ThreadStore> = threads.clone();
+    let reads: Vec<_> = (0..20)
+        .map(|_| {
+            let store = store.clone();
+            tokio::spawn(async move { super::run::read_context(&store, &lanes, &ThreadId::from("t")).await })
+        })
+        .collect();
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    let commit_job = LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), |_| ());
+    assert!(commit_job.is_ok(), "a row's commit job is refused while the reads wait for the index");
+    drop(release);
+    for read in reads {
+        read.await.expect("the read's task").expect("the model context");
+    }
+}
+
 /// (c) Twenty model-context reads of a thread issued while its rewrite holds the reads take no io-interactive thread or queue
 /// place meanwhile (the product's lanes: 4 threads, 16 queued), so a row's commit job is still taken; each read answers the
 /// rewritten rows once the rewrite lets go.

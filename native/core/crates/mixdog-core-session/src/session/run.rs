@@ -90,19 +90,30 @@ pub(crate) async fn read_context(
     let dropped = || CoreError::Internal {
         incident_id: "session-context-job-dropped".into(),
     };
+    // A turn's read waits for room on a full lane (a burst of reads let go by a rewrite fills it) rather than being refused:
+    // only a lane with no healthy worker fails it.
+    let refused = |error: mixdog_rt::SubmitWaitError| match error {
+        mixdog_rt::SubmitWaitError::Full(full) => CoreError::from(full),
+        mixdog_rt::SubmitWaitError::Wedged(_) => CoreError::Internal { incident_id: "session-context-lane-wedged".into() },
+        mixdog_rt::SubmitWaitError::Cancelled => dropped(),
+    };
     let mut read = None;
     loop {
         store.unheld().await;
         let (store_io, thread) = (store.clone(), thread.clone());
         let page = lanes
             .io
-            .submit(&token, move |lane| store_io.context_io(lane, &thread, read))?
+            .submit_wait(&token, move |lane| store_io.context_io(lane, &thread, read))
+            .await
+            .map_err(refused)?
             .await
             .map_err(|_| dropped())??;
         let store_cpu = store.clone();
         let step = lanes
             .cpu
-            .submit(&token, move |lane| store_cpu.context_cpu(lane, page))?
+            .submit_wait(&token, move |lane| store_cpu.context_cpu(lane, page))
+            .await
+            .map_err(refused)?
             .await
             .map_err(|_| dropped())??;
         match step {
