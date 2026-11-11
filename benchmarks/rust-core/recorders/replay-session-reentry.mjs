@@ -84,7 +84,7 @@ try {
 
   /** The desktop: the protocol client over a socket whose outgoing reads this replay counts and can hold (a read in flight). */
   async function desktop(name) {
-    const wire = { reads: [], hold: null, held: [], replies: [] };
+    const wire = { reads: [], hold: null, held: [], replies: [], replyHold: null, replyIds: new Set(), heldReplies: [], deliver: null };
     let socket = null;
     const client = await within(lib.connect({
       target: { id: 'local' },
@@ -94,15 +94,24 @@ try {
           const send = (text) => {
             const message = JSON.parse(text);
             if (READS.has(message.method)) wire.reads.push(message.method);
+            if (wire.replyHold && wire.replyHold === message.method) wire.replyIds.add(message.id);
             if (wire.hold && wire.hold === message.method) {
               wire.held.push(text);
               return void wire.onHeld?.();
             }
             socket.send(text);
           };
+          wire.deliver = (text) => sink.frame(text);
           socket.on('open', () => done({ send, close: (code, reason) => socket.close(code, reason) }));
           socket.on('message', (data) => {
             const text = data.toString('utf8');
+            if (wire.replyIds.size) {
+              const answered = JSON.parse(text);
+              if (answered.id !== undefined && wire.replyIds.delete(answered.id)) {
+                wire.heldReplies.push(text);
+                return void wire.onReply?.();
+              }
+            }
             if (text.includes('"error"')) wire.replies.push(JSON.parse(text));
             sink.frame(text);
           });
@@ -126,7 +135,17 @@ try {
       wire.hold = method;
       return within(new Promise((done) => { wire.onHeld = done; }), LIMIT, `the ${method} request being sent`);
     };
-    return { client, wire, release, holdNext };
+    /** Holds the core's reply to the next request of `method` (the request goes out at once); resolves once the reply is in hand. */
+    const holdReplyTo = (method) => {
+      wire.replyHold = method;
+      return within(new Promise((done) => { wire.onReply = done; }), LIMIT, `the core's reply to ${method}`);
+    };
+    /** Hands the held reply to the client. */
+    const releaseReply = () => {
+      wire.replyHold = null;
+      for (const text of wire.heldReplies.splice(0)) wire.deliver(text);
+    };
+    return { client, wire, release, holdNext, holdReplyTo, releaseReply };
   }
 
   const carrierPrompts = new Set(Object.keys(CARRIERS));
@@ -198,17 +217,19 @@ try {
     const rec = observed(name);
     const threadId = await newThread(writer);
     await written(threadId, 'stored');
-    const { client: a, release, holdNext } = await desktop('reentry-delayed');
+    const { client: a, holdReplyTo, releaseReply } = await desktop('reentry-delayed');
     await within(a.resumeThread(threadId, { lastItems: 50 }), LIMIT, 'opening the stored session');
     await shows(a, threadId, step(rec, 'opened with a stored answer').texts, 'opened with a stored answer');
-    const holding = holdNext('thread/items/list');
+    // The case is about a stale reply: the read goes out and the core answers it, the answer is held back from the client while a new
+    // turn is written, and delivered after.
+    const holding = holdReplyTo('thread/items/list');
     const read = a.call('thread/items/list', { threadId, limit: 50 });
     await holding;
-    assert.deepStrictEqual(texts(a, threadId), step(rec, 'prefetch read held').texts, `${name}: while the read is held`);
+    assert.deepStrictEqual(texts(a, threadId), step(rec, 'prefetch read held').texts, `${name}: while the reply is held`);
     await turn(a, threadId, 'new turn');
     await shows(a, threadId, step(rec, 'new turn submitted while the read is held').texts, 'the new turn while the read is held');
-    release();
-    await within(read, LIMIT, 'the held read');
+    releaseReply();
+    await within(read, LIMIT, 'the held reply');
     const done = step(rec, 'read released');
     assert.deepStrictEqual({ texts: texts(a, threadId), lastTwo: texts(a, threadId).slice(-2) }, { texts: done.texts, lastTwo: done.lastTwo }, `${name}: after the read is released`);
     console.log(`${name}: replayed`);

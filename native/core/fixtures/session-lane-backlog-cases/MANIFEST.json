@@ -81,6 +81,7 @@
       "writesTotal": "the count of Node's SSE writes, see writes",
       "maxPendingBytes": "Node's SSE pending cap (8 MiB); the core bounds a connection by its event budget (CoreFeed lanes lag past it), asserted by the feed seam test",
       "decoded[].snapshot.items[].id": "the core mints its own item ids; rows are compared by text in order",
+      "compaction": "Node's recording has no turn and no runtime (record-session-lane-backlog-cases.mjs:30-34: two snapshots broadcast through the frame stream), so compaction was not part of it either way. The replay's turns exist only to produce the recorded rows and its configuration turns the core's automatic compaction off, so the 300 000-character row does not add a summary row no recorded publication has.",
       "promptRows": "the core writes rows only through turns, so each recorded row is the answer of a turn with prompt `open`/`live`; the prompt rows and turn markers are not compared"
     },
     "replayedBy": {
