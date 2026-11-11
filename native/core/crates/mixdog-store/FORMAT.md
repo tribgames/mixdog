@@ -26,6 +26,14 @@ R2, R26–R35, §4.11. Where this file differs from them, §11 lists the decisio
   `checkpoint` frame and is created whole through `publish_file` (synced, then renamed).
   No append makes a file exceed `ROTATE_AT` = 64 MiB; the next batch goes to a new file.
   Files other than the newest are immutable.
+- **Kinds, from the names alone.** A file is a *segment* (appended to in place) or a *group
+  file* (§3.6: one group larger than `GROUP_IN_PLACE_MAX`, published whole, never appended to).
+  `log.<n>` is a group file iff `n > 0` and `log.<n−1>` does not exist: the writer numbers a
+  group file `current + 2` and every other new file `current + 1`. The kind is known from the
+  listing before any byte of the file is read, so it never depends on a frame that can be
+  damaged. Writers before group files numbered without gaps, so their logs hold no group file
+  and read unchanged; their readers list a log with a gap unchanged (they look up the next
+  file by number, not by `n + 1`).
 - No store file is memory-mapped.
 
 ## 2. Frame
@@ -200,10 +208,8 @@ are trusted and no search is unbounded:
   the log). A marker whose group fails its check is shown nothing and moves nothing (a forged
   or damaged marker cannot hide an anchor); the forward scan reports it if it reaches it. A
   marker naming more than `GROUP_IN_PLACE_MAX` bytes is no in-place group.
-- *Groups of their own file* (§6.1). Their marker is at a fixed place: the second frame of the
-  file, read directly (two bounded reads), whatever the window. A candidate inside its extent
-  is never used; the checkpoint that closes it is used only once the group checks whole, read
-  in `GROUP_CHECK_CHUNK` pieces (§6.3).
+- *Group files* (§1) are never reverse-scanned: when the newest file is one, it is read
+  forward from its first frame (§6.3), so no line inside its group is ever a candidate.
 - Otherwise (nothing usable within `REVERSE_SCAN_MAX` + `GROUP_LOOKBACK`), the newest file is
   read whole from its first frame and the forward scan classifies everything.
 
@@ -211,9 +217,9 @@ Stale bytes (frames of a write that was rolled back) cannot be in a log file: ev
 is `ftruncate` + `sync_file` before any later write at that offset (open-for-append of a torn
 tail, `RollingBack` and `PendingRollback`, SM §8), and a file extended by a later write reads
 zeros, never earlier bytes, wherever that write did not land (NTFS valid-data length; ext4
-`data=ordered`, XFS and APFS zero-fill unwritten extents). Groups larger than in place are
-published whole as new files, so no part of them is ever torn. The rules above do not rely on
-this: they decide from validated bytes only.
+`data=ordered`, XFS and APFS zero-fill unwritten extents). Group files are published whole,
+so no part of them is ever torn. The rules above do not rely on this: they decide from
+validated bytes only.
 
 ### 3.6 Groups
 
@@ -236,14 +242,32 @@ member:
   is `session.repair`) — the same policy as a damaged frame, wherever the group is in the log.
 A payload starting `#group ` that is not a marker is `framing` damage.
 
-No anchor is ever inside a group: the writer places the leading `checkpoint` (§6.1) before the
-marker, and writes no checkpoint inside a group. A group of at most `GROUP_IN_PLACE_MAX` member
-bytes is appended in place with no checkpoint after it in the same write. A larger group is a
-file of its own, published whole: leading `checkpoint`, marker, members, closing `checkpoint`
-(the state after the group); the next write appends to that file and leads with a checkpoint.
-The check of a group is incremental (`framing::GroupCheck`): the SHA-256 is hashed as bytes
-come and one frame is held at a time, so a group read from its file is checked in memory
-bounded by a chunk and a frame. The reverse scan's rules for groups are in §3.5.
+**Invariant G: an anchor is never stored where its use would skip an unvalidated group.** An
+anchor is written only as the first frame of a write that starts after every earlier write
+(groups included) is durable whole, and never in the same write as a group or after a group in
+the same file of that write. So an anchor's use skips only groups that were whole and durable
+before it was written — what §6.1's consequence gives every frame before a checkpoint — and the
+one group no anchor follows, the newest file's last write, is always read by the forward scan,
+which checks it whole. Each writer path keeps it (`src/log.rs`, `LogWriter::append`):
+- *in place* (a group of at most `GROUP_IN_PLACE_MAX` member bytes, appended to a segment): the
+  write is `[checkpoint] marker members` — the checkpoint, when due, is before the marker, and
+  none follows the members; the next write starts only after this one's `sync_file`;
+- *group file* (a larger group): a new file `[checkpoint] marker members`, published whole
+  (temporary file, `sync_file`, rename, directory sync), numbered after a gap (§1); nothing is
+  ever appended to it (`LogWriter::sealed`, also set when a writer opens on one), so the next
+  write is a new segment published whole whose leading checkpoint is written after the group
+  file is durable; a clean close adds nothing to a group file;
+- *rotation*: a new segment published whole, starting with a checkpoint, after the previous
+  file's last write is durable;
+- *clean close*: a checkpoint alone, after every earlier write is durable;
+- `create` (the `session` frame alone) and `repair_damage` (truncation, then a `meta` record:
+  no anchor) write no anchor after a group.
+The reader side: a group file is never reverse-scanned (§3.5); it is read forward from its
+first frame, its group checked whole in `GROUP_CHECK_CHUNK` pieces (`framing::GroupCheck`: the
+SHA-256 hashed as bytes come, one frame held at a time) and its members folded as they are
+checked, kept only if the whole group checks. A group file is published whole, so anything in it
+that does not read whole — a marker that does not check, a member, a cut, zeros — is damage at
+that frame (never a torn tail, never "no group").
 
 Logs written before groups have no markers: every frame reads as before, no version change.
 A reader built before this section (o1) reads a log with groups without misreading it: the
@@ -252,10 +276,13 @@ first member then fails the ordinal check (`ordinal` damage at the member), and 
 payload is no record (§5.1: damage of the record layer at the marker). Such a session opens
 read-only as damaged at its first group after its newest anchor; rows before stay pageable;
 positioned reads of members of groups before the anchor read as before
-(`store_tests::an_old_reader_never_misreads_a_log_with_groups`). A file of its own group ends
-with a checkpoint written in the same publish; an old reader anchors there without checking
-the group, which a publish never leaves partial: it reads the state the writer wrote, and a
-member damaged later fails its CRC on its positioned read.
+(`store_tests::an_old_reader_never_misreads_a_log_with_groups`, over every file of the log).
+Per kind: a group file holds one anchor, its first frame, so an old reader opening it as the
+newest file anchors there and stops at the marker with damage; nothing is truncated (damage,
+not a torn tail, so its open-for-append refuses). A segment after a group file starts with a
+checkpoint written once the group file was durable; an old reader opens from its anchors as a
+new one does and stops at any in-place group after its newest anchor the same way. It never
+reverse-scans into a group file, and reads members by position as plain frames.
 
 ## 4. Blobs
 
@@ -398,9 +425,8 @@ never compared for identity.
   *n*'s barrier succeeded (one durability job in flight per session, RL §6.1). A batch
   appended in place holds at most `DURABILITY_WINDOW_BYTES` (≥ `MAX_FRAME_LEN`): one record, or
   a group of at most `GROUP_IN_PLACE_MAX` member bytes. A larger group (one request's whole
-  unit, e.g. an inherited conversation) is a new file of its own, published whole: `checkpoint`,
-  marker, members, closing `checkpoint` (§3.6); the next batch appends to it and leads with a
-  `checkpoint`.
+  unit, e.g. an inherited conversation) is a group file (§1, §3.6): `checkpoint`, marker,
+  members, published whole; the next batch starts a new segment with a `checkpoint`.
 - A batch whose barrier failed is truncated away before any later append (SM §8
   `RollingBack`/`PendingRollback`), so at any time at most one unsynced batch exists, at
   the end of the newest file.
@@ -426,9 +452,13 @@ goes out of line by the §4.2 rule like any body.
 
 ### 6.3 Open
 
-1. List `sessions/<id>/` (≤ `ceil(size / ROTATE_AT)` log names, plus one per group of its own
-   file (each over `GROUP_IN_PLACE_MAX` bytes), plus tmp names).
-2. Reverse scan (§3.5) the newest file to the newest committed `checkpoint`/`session`.
+1. List `sessions/<id>/` (≤ `ceil(size / ROTATE_AT)` log names, plus two per group file
+   (it and the segment after it; each group file over `GROUP_IN_PLACE_MAX` bytes), plus tmp
+   names).
+2. If the newest file is a group file (§1): read its first frame (the anchor), then forward in
+   `GROUP_CHECK_CHUNK` pieces, checking its group whole and folding its members (§3.6); skip
+   steps 2′–4. Otherwise:
+2′. Reverse scan (§3.5) the newest file to the newest committed `checkpoint`/`session`.
    The bytes from its start to the end of file are fewer than `REVERSE_SCAN_MAX` = 9 MiB
    (proof below).
 3. Load the state (one blob read if out of line); check `covers_ordinal` = the frame's
@@ -454,13 +484,12 @@ append ended, so `EOF = end(B*)` or `end(Bm)`.
 - Hence `EOF − start(C) < CHECKPOINT_EVERY + 2·DURABILITY_WINDOW_BYTES`. The zeros of
   `B*` are part of this bound; nothing else can extend the file.
 
-Groups of their own file are published whole, so they are never `B*` and the bound above
-holds for the batches appended after them. The reader also holds the `GROUP_LOOKBACK` bytes
-before the anchor (§3.5) and reads the newest file's first two frame headers. When the anchor
-is the checkpoint closing a file's own group, the open also reads that group once, in
-`GROUP_CHECK_CHUNK` pieces: **time ∝ the last group, not the file; memory one chunk and one
-frame**, and only until the next write, which leads with a checkpoint. A long file of small
-writes reads the window only (`store_tests::the_open_reads_the_last_group_once_and_otherwise_the_window`).
+Group files are published whole and never appended to, so the bound above is about segments
+only. The reader also holds the `GROUP_LOOKBACK` bytes before the anchor (§3.5). When the newest
+file is a group file, the open reads it once, in `GROUP_CHECK_CHUNK` pieces: **time ∝ the last
+group, not the log; memory one chunk and one frame** (plus the fold's per-row positions), and
+only until the next write, which starts a new segment. A long file of small writes reads the
+window only (`store_tests::the_open_reads_the_last_group_once_and_otherwise_the_window`).
 
 A clean close ends the file with a checkpoint, so the common open reads that frame and the
 lookback before it. Open cost is independent of history length. History rows, pages and the model context come

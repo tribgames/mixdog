@@ -80,6 +80,13 @@ pub fn list_logs(dir: &Path) -> Result<Vec<u32>, OpenError> {
     Ok(files)
 }
 
+/// Whether log `file_no` of the listing `files` is a group file (FORMAT.md §1): its number follows
+/// a gap. The kind is known from the names alone, before any byte of the file is read; a writer
+/// before group files numbered its files without gaps, so none of its files is one.
+pub fn is_group_file(files: &[u32], file_no: u32) -> bool {
+    file_no > 0 && files.binary_search(&(file_no - 1)).is_err()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum OpenError {
     #[error("session log missing: {0}")]
@@ -127,8 +134,8 @@ pub struct OpenedLog {
     pub bytes_read: u64,
     anchor_offset: u64,
     last_is_anchor: bool,
-    /// The anchor is the checkpoint closing a file's own group (§6.1): the next write places one.
-    anchor_closes_group: bool,
+    /// The newest file is a group file (§1): the next write starts the next file.
+    group_file: bool,
 }
 
 fn read_range(file: &mut File, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>, IoError> {
@@ -168,7 +175,7 @@ pub struct HeadRead {
     anchor_start: usize,
     anchor_ordinal: u64,
     bytes_read: u64,
-    anchor_closes_group: bool,
+    group_file: bool,
 }
 
 impl std::fmt::Debug for HeadRead {
@@ -187,6 +194,7 @@ pub struct TailRead {
     committed_end: u64,
     records: Vec<(FramePos, u64)>,
     effects: Vec<crate::fold::Effect>,
+    last_is_anchor: bool,
 }
 
 impl TailRead {
@@ -207,11 +215,41 @@ pub fn read_head<L: IoLane>(_lane: &InLane<L>, dir: &Path) -> Result<HeadRead, O
     let mut file = File::open(&path).map_err(err(IoOp::Open, &path))?;
     let size = file.metadata().map_err(err(IoOp::Read, &path))?.len();
 
+    // A group file holds no anchor but its first frame: only that frame is read here; the rest is
+    // read forward in chunks by `read_tail` (§6.3).
+    let mut bytes_read = 0u64;
+    let group_file = is_group_file(&files, newest);
+    if group_file {
+        let mut buf = read_range(&mut file, &path, 0, size.min(HEADER_LEN as u64) as usize)?;
+        let ordinal = std::str::from_utf8(&buf[..buf.len().min(ORDINAL_DIGITS)])
+            .ok()
+            .and_then(|t| u64::from_str_radix(t, 16).ok())
+            .unwrap_or(0);
+        if let Ok(Some(len)) = framing::check_header(&buf, ordinal)
+            && (len + FRAME_OVERHEAD) as u64 <= size
+        {
+            buf = read_range(&mut file, &path, 0, len + FRAME_OVERHEAD)?;
+        }
+        bytes_read += buf.len() as u64;
+        let scan = framing::scan(&buf, 0, 0, ordinal);
+        return Ok(HeadRead {
+            dir: dir.to_path_buf(),
+            files,
+            newest,
+            size,
+            buf,
+            window_start: 0,
+            scan,
+            anchor_start: 0,
+            anchor_ordinal: ordinal,
+            bytes_read,
+            group_file,
+        });
+    }
+
     // Reverse scan: the clean-close case needs the last frame and the `GROUP_LOOKBACK` bytes
     // before it; the bound is REVERSE_SCAN_MAX (+1 byte so the LF before the anchor is in the
     // window) plus that lookback.
-    let mut bytes_read = 0u64;
-    let head_group = read_head_group(&mut file, &path, size, &mut bytes_read)?;
     let mut buf = Vec::new();
     let mut window_start = size;
     let mut want = MAX_FRAME_LEN as u64 + 1;
@@ -234,32 +272,12 @@ pub fn read_head<L: IoLane>(_lane: &InLane<L>, dir: &Path) -> Result<HeadRead, O
             break None;
         }
     };
-    // The group of a file of its own (§6.1) is at the file's head, wherever the window is: an
-    // anchor inside its extent is no frame of the log, and the checkpoint that closes it is used
-    // only once the group checks whole (read in chunks: time ∝ the group, memory one chunk).
-    let mut anchor_closes_group = false;
-    let found = match (found, &head_group) {
-        (Some(a), Some(group)) => {
-            let at = window_start + a.start as u64;
-            let extent = group.members_at + group.marker.bytes;
-            if at <= group.marker_at || at > extent {
-                Some(a)
-            } else if at == extent && check_group_in_file(&mut file, &path, size, group, &mut bytes_read)? {
-                anchor_closes_group = true;
-                Some(a)
-            } else {
-                None
-            }
-        }
-        (found, _) => found,
-    };
     let (anchor_start, anchor_ordinal) = match found {
         Some(a) => (a.start, a.ordinal),
         None => {
-            // No anchor within the bound, or the one found is inside or closes a head group that
-            // does not check whole: the newest file is damaged somewhere. Read it whole from its
-            // first frame (every file starts with an anchor), so the forward scan validates every
-            // group and locates any damage exactly.
+            // No anchor within the bound: the newest file is damaged somewhere. Read it whole from
+            // its first frame (every file starts with an anchor), so the forward scan validates
+            // every group and locates any damage exactly.
             let all = read_range(&mut file, &path, 0, size as usize)?;
             bytes_read += window_start;
             buf = all;
@@ -283,69 +301,107 @@ pub fn read_head<L: IoLane>(_lane: &InLane<L>, dir: &Path) -> Result<HeadRead, O
         anchor_start,
         anchor_ordinal,
         bytes_read,
-        anchor_closes_group,
+        group_file,
     })
 }
 
-/// The marker of a group right after a file's first frame: where a file of its own holds its group (§6.1).
-struct HeadGroup {
-    marker_at: u64,
-    members_at: u64,
-    marker: GroupMarker,
-    first_ordinal: u64,
+/// What the forward read of a group file after its first frame found.
+struct GroupFileTail {
+    status: LogStatus,
+    committed_end: u64,
+    frames: bool,
 }
 
-/// The head group of the file, if its second frame is a marker (two bounded reads).
-fn read_head_group(file: &mut File, path: &Path, size: u64, bytes_read: &mut u64) -> Result<Option<HeadGroup>, IoError> {
-    if size < HEADER_LEN as u64 {
-        return Ok(None);
-    }
-    let h = read_range(file, path, 0, HEADER_LEN)?;
-    *bytes_read += HEADER_LEN as u64;
-    let Some(ordinal) = std::str::from_utf8(&h[..ORDINAL_DIGITS]).ok().and_then(|t| u64::from_str_radix(t, 16).ok()) else {
-        return Ok(None);
-    };
-    let Ok(Some(len)) = framing::check_header(&h, ordinal) else {
-        return Ok(None);
-    };
-    let marker_at = (len + FRAME_OVERHEAD) as u64;
-    let marker_len = GROUP_MARKER_LEN + FRAME_OVERHEAD;
-    if marker_at + marker_len as u64 > size {
-        return Ok(None);
-    }
-    let line = read_range(file, path, marker_at, marker_len)?;
-    *bytes_read += marker_len as u64;
-    let Ok(payload) = framing::check_frame(&line, ordinal + 1) else {
-        return Ok(None);
-    };
-    // A head group of in-place size is an in-place group (the lookback covers it).
-    let Ok(Some(marker)) = parse_group_marker(payload) else {
-        return Ok(None);
-    };
-    if marker.bytes <= GROUP_IN_PLACE_MAX {
-        return Ok(None);
-    }
-    Ok(Some(HeadGroup { marker_at, members_at: marker_at + marker_len as u64, marker, first_ordinal: ordinal + 1 }))
-}
-
-/// Whether the head group checks whole, its members read in `GROUP_CHECK_CHUNK` pieces.
-fn check_group_in_file(file: &mut File, path: &Path, size: u64, group: &HeadGroup, bytes_read: &mut u64) -> Result<bool, IoError> {
-    let end = group.members_at + group.marker.bytes;
-    if end > size {
-        return Ok(false);
-    }
-    let mut check = framing::GroupCheck::new(group.marker, group.first_ordinal, false);
-    let mut at = group.members_at;
-    while at < end {
-        let n = (end - at).min(GROUP_CHECK_CHUNK as u64) as usize;
-        let chunk = read_range(file, path, at, n)?;
-        *bytes_read += n as u64;
-        if check.feed(&chunk).is_err() {
-            return Ok(false);
+/// The newest file when it is a group file (§1, §6.3), after its first frame at `p` with
+/// `expected` due there: read forward in `GROUP_CHECK_CHUNK` pieces, never reverse-scanned. A
+/// group's members are folded into `fold` as they are checked and kept only if the whole group
+/// checks; a group file is published whole, so anything in it that does not read whole is damage
+/// (never a torn tail).
+#[allow(clippy::too_many_arguments, reason = "one open's state, threaded through")]
+fn fold_group_file(
+    path: &Path,
+    file_no: u32,
+    size: u64,
+    mut p: u64,
+    mut expected: u64,
+    fold: &mut Fold,
+    index: &dyn LineageIndex,
+    resolve: &mut crate::fold::ResolveBody<'_>,
+    bytes_read: &mut u64,
+) -> Result<GroupFileTail, OpenError> {
+    let mut file = File::open(path).map_err(err(IoOp::Open, path))?;
+    let mut frames = false;
+    let damaged = |offset: u64, ordinal: u64| LogStatus::Damaged(Damage { file_no, offset, ordinal });
+    let status = loop {
+        if p == size {
+            break LogStatus::Clean;
         }
-        at += n as u64;
-    }
-    Ok(check.finish().is_ok())
+        let header = read_range(&mut file, path, p, (size - p).min(HEADER_LEN as u64) as usize)?;
+        *bytes_read += header.len() as u64;
+        let frame_len = match framing::check_header(&header, expected) {
+            Ok(Some(len)) if p + (len + FRAME_OVERHEAD) as u64 <= size => len + FRAME_OVERHEAD,
+            _ => break damaged(p, expected),
+        };
+        let mut line = header;
+        line.extend(read_range(&mut file, path, p + HEADER_LEN as u64, frame_len - HEADER_LEN)?);
+        *bytes_read += (frame_len - HEADER_LEN) as u64;
+        let Ok(payload) = framing::check_frame(&line, expected) else {
+            break damaged(p, expected);
+        };
+        let next = p + frame_len as u64;
+        match parse_group_marker(payload) {
+            Err(_) => break damaged(p, expected),
+            Ok(None) => {
+                let Ok(record) = parse_record(payload) else {
+                    break damaged(p, expected);
+                };
+                let pos = FramePos { ordinal: expected, file_no, offset: p };
+                for effect in fold.prepare(std::iter::once(&record), index, resolve)? {
+                    fold.apply(effect, pos);
+                }
+                expected += 1;
+            }
+            Ok(Some(marker)) => {
+                let Some(end) = next.checked_add(marker.bytes).filter(|&end| end <= size) else {
+                    break damaged(p, expected);
+                };
+                let before = fold.clone();
+                let mut check = framing::GroupCheck::new(marker, expected, false);
+                let mut at = next;
+                let mut whole = true;
+                while at < end {
+                    let n = (end - at).min(GROUP_CHECK_CHUNK as u64) as usize;
+                    let chunk = read_range(&mut file, path, at, n)?;
+                    *bytes_read += n as u64;
+                    let mut members = Vec::new();
+                    let fed = check.feed_members(&chunk, |ordinal, start, payload| {
+                        members.push((parse_record(payload), FramePos { ordinal, file_no, offset: next + start as u64 }));
+                    });
+                    let members: Result<Vec<_>, _> = members.into_iter().map(|(r, pos)| r.map(|r| (r, pos))).collect();
+                    let (Ok(()), Ok(members)) = (fed, members) else {
+                        whole = false;
+                        break;
+                    };
+                    let effects = fold.prepare(members.iter().map(|(r, _)| r), index, resolve)?;
+                    for (effect, (_, pos)) in effects.into_iter().zip(members) {
+                        fold.apply(effect, pos);
+                    }
+                    at += n as u64;
+                }
+                if !whole || check.finish().is_err() {
+                    *fold = before;
+                    break damaged(p, expected);
+                }
+                expected += marker.count;
+                p = end;
+                frames = true;
+                continue;
+            }
+        }
+        p = next;
+        frames = true;
+    };
+    Ok(GroupFileTail { status, committed_end: p, frames })
 }
 
 /// J2's tail part: parses the anchor and the tail, reads the anchor state's blob, and runs
@@ -406,6 +462,23 @@ pub fn read_tail<L: IoLane>(
         }
         _ => return Err(OpenError::Format("anchor is not a checkpoint or session".into())),
     };
+    if head.group_file {
+        let mut fold = fold;
+        let mut log_bytes = 0;
+        let tail = fold_group_file(&path, newest, head.size, anchor.end() as u64, anchor.ordinal + 1, &mut fold, index, &mut resolve, &mut log_bytes)?;
+        let mut head = head;
+        head.bytes_read = bytes_read + log_bytes;
+        return Ok(TailRead {
+            head,
+            fold,
+            anchor_offset: 0,
+            status: tail.status,
+            committed_end: tail.committed_end,
+            records: Vec::new(),
+            effects: Vec::new(),
+            last_is_anchor: !tail.frames,
+        });
+    }
 
     // Fold the tail; a committed frame that is not a valid record is damage of the record
     // layer at that frame (FORMAT.md §3.2).
@@ -441,9 +514,10 @@ pub fn read_tail<L: IoLane>(
         committed_end = *end;
     }
     let anchor_offset = anchor_pos.offset;
+    let last_is_anchor = positions.is_empty();
     let mut head = head;
     head.bytes_read = bytes_read;
-    Ok(TailRead { head, fold, anchor_offset, status, committed_end, records: positions, effects })
+    Ok(TailRead { head, fold, anchor_offset, status, committed_end, records: positions, effects, last_is_anchor })
 }
 
 /// Decode: applies the tail's effects to the anchor fold (CPU only).
@@ -452,8 +526,7 @@ pub fn decode_tail(_lane: &InLane<mixdog_rt::CpuInteractive>, tail: TailRead) ->
 }
 
 fn decode_tail_unlaned(tail: TailRead) -> OpenedLog {
-    let TailRead { head, mut fold, anchor_offset, status, committed_end, records, effects } = tail;
-    let last_is_anchor = records.is_empty();
+    let TailRead { head, mut fold, anchor_offset, status, committed_end, records, effects, last_is_anchor } = tail;
     for (effect, (pos, _)) in effects.into_iter().zip(records) {
         fold.apply(effect, pos);
     }
@@ -468,7 +541,7 @@ fn decode_tail_unlaned(tail: TailRead) -> OpenedLog {
         bytes_read: head.bytes_read,
         anchor_offset,
         last_is_anchor,
-        anchor_closes_group: head.anchor_closes_group,
+        group_file: head.group_file,
     }
 }
 
@@ -797,6 +870,9 @@ pub struct LogWriter {
     /// Bytes from the start of the newest `checkpoint`/`session` frame to the end.
     since_anchor: u64,
     last_is_anchor: bool,
+    /// The current file is a group file (FORMAT.md §1): nothing is appended to it; the next batch
+    /// starts the next file.
+    sealed: bool,
 }
 
 impl std::fmt::Debug for LogWriter {
@@ -860,6 +936,7 @@ impl LogWriter {
             fold,
             since_anchor: buf.len() as u64,
             last_is_anchor: true,
+            sealed: false,
         };
         Ok((writer, BatchAck { positions: vec![pos], projection }))
     }
@@ -894,13 +971,8 @@ impl LogWriter {
             file: Some(file),
             state,
             fold: opened.fold,
-            // After a file's own group the next write leads with a checkpoint, so an open finds it and
-            // does not check the group again.
-            since_anchor: if opened.anchor_closes_group {
-                CHECKPOINT_EVERY.max(opened.committed_end - opened.anchor_offset)
-            } else {
-                opened.committed_end - opened.anchor_offset
-            },
+            since_anchor: opened.committed_end - opened.anchor_offset,
+            sealed: opened.group_file,
             last_is_anchor: opened.last_is_anchor,
         })
     }
@@ -935,9 +1007,10 @@ impl LogWriter {
         self.append(batch, false)
     }
 
-    /// Clean close: ends the file with a checkpoint unless its last frame is one.
+    /// Clean close: ends the file with a checkpoint unless its last frame is one. A group file
+    /// gets none (it holds no anchor after its group, FORMAT.md §3.6).
     pub fn close(&mut self, _lane: &InLane<DurabilityIo>) -> Result<Option<BatchAck>, AppendError> {
-        if self.last_is_anchor {
+        if self.last_is_anchor || self.sealed {
             return Ok(None);
         }
         self.append(Vec::new(), true).map(Some)
@@ -999,26 +1072,30 @@ impl LogWriter {
 
 
         let batch_len: u64 = batch.iter().map(|e| e.frame_len() as u64).sum();
-        // A group larger than an in-place group is a file of its own (FORMAT.md §6.1): checkpoint,
-        // marker, members, closing checkpoint, published whole.
-        let own_file = batch.len() > 1 && batch_len > GROUP_IN_PLACE_MAX;
-        let due = force_checkpoint || own_file || self.since_anchor >= CHECKPOINT_EVERY;
+        // A group larger than an in-place group is a group file (FORMAT.md §1, §6.1): checkpoint,
+        // marker, members and nothing else, published whole under the number after a gap. Nothing
+        // is ever appended to a group file: the batch after it starts the next file.
+        let group_file = batch.len() > 1 && batch_len > GROUP_IN_PLACE_MAX;
+        let due = force_checkpoint || group_file || self.sealed || self.since_anchor >= CHECKPOINT_EVERY;
         let mut checkpoint = if due || end + batch_len > ROTATE_AT {
             Some(self.encode_checkpoint()?)
         } else {
             None
         };
         let cp_len = checkpoint.as_ref().map_or(0, |c| c.frame_len() as u64);
-        let rotate = own_file || end + cp_len + batch_len > ROTATE_AT;
+        let rotate = group_file || self.sealed || end + cp_len + batch_len > ROTATE_AT;
         if !rotate && !due {
             checkpoint = None;
         }
         let total = batch_len + checkpoint.as_ref().map_or(0, |c| c.frame_len() as u64);
-        let (file_no, base) = if rotate { (self.file_no + 1, 0) } else { (self.file_no, end) };
+        let (file_no, base) = match (group_file, rotate) {
+            (true, _) => (self.file_no + 2, 0),
+            (false, true) => (self.file_no + 1, 0),
+            (false, false) => (self.file_no, end),
+        };
         // More than one record frame is a group (FORMAT.md §3.6): a marker frame naming the members' count, bytes and SHA-256,
         // then the members, so recovery takes all of them or none. The leading checkpoint stays outside the group: it is the
-        // state before the batch. An in-place group is never followed by a checkpoint in the same write; a file of its own ends
-        // with one (the state after the batch), which an open uses only once the group checks whole (§6.3).
+        // state before the batch. No checkpoint follows a group in the same write (§3.6 invariant).
         let members = batch.len();
         let marker_len = if members > 1 { (GROUP_MARKER_LEN + FRAME_OVERHEAD) as u64 } else { 0 };
         let mut buf = Vec::with_capacity(total as usize + marker_len as usize);
@@ -1045,27 +1122,9 @@ impl LogWriter {
             debug_assert_eq!(marker.len() as u64, marker_len);
             buf.splice(group_at..group_at, marker);
         }
-        let closing = if own_file {
-            let mut after = self.fold.clone();
-            let skip = usize::from(checkpoint.is_some());
-            if let Some(&pos) = positions.first().filter(|_| skip == 1) {
-                after.apply(crate::fold::Effect::None, pos);
-            }
-            for (effect, &pos) in effects.iter().cloned().zip(&positions[skip..]) {
-                after.apply(effect, pos);
-            }
-            let cp = Self::encode_checkpoint_of(&after)?;
-            let ordinal = after.next_ordinal;
-            positions.push(FramePos { ordinal, file_no, offset: base + buf.len() as u64 });
-            framing::encode_into(&mut buf, ordinal, &cp.payload);
-            lens.push(cp.frame_len() as u64);
-            Some(cp)
-        } else {
-            None
-        };
         // Blobs before the frames that reference them (SM §7.5).
         let mut pins: Vec<BlobPin> = Vec::new();
-        for blob in checkpoint.iter().chain(&batch).chain(&closing).flat_map(|e| &e.blobs) {
+        for blob in checkpoint.iter().chain(&batch).flat_map(|e| &e.blobs) {
             pins.push(deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?);
         }
 
@@ -1103,9 +1162,8 @@ impl LogWriter {
         let mut frames = Vec::with_capacity(positions.len());
         let mut records = batch.iter();
         let mut effects = effects.into_iter();
-        let last = positions.len() - 1;
         for (i, (&pos, &frame_len)) in positions.iter().zip(&lens).enumerate() {
-            let (effect, kind, op) = if (i == 0 && checkpoint.is_some()) || (i == last && closing.is_some()) {
+            let (effect, kind, op) = if i == 0 && checkpoint.is_some() {
                 (crate::fold::Effect::None, crate::projection::FrameKind::Other, None)
             } else {
                 let record = &records.next().expect("one record per frame").record;
@@ -1124,19 +1182,16 @@ impl LogWriter {
                 visible_rows: self.fold.visible_rows,
             });
         }
-        if own_file {
-            // The next write leads with a checkpoint, so an open finds it and does not check the group again.
-            self.since_anchor = CHECKPOINT_EVERY;
-        } else if checkpoint.is_some() {
+        if checkpoint.is_some() {
             self.since_anchor = buf.len() as u64;
         } else {
             self.since_anchor += buf.len() as u64;
         }
-        self.last_is_anchor = (batch.is_empty() && checkpoint.is_some()) || own_file;
+        self.last_is_anchor = batch.is_empty() && checkpoint.is_some();
+        self.sealed = group_file;
         let skip = usize::from(checkpoint.is_some());
-        let members_end = positions.len() - usize::from(closing.is_some());
         Ok(BatchAck {
-            positions: positions[skip..members_end].to_vec(),
+            positions: positions[skip..].to_vec(),
             projection: Projection {
                 session: self.fold.session.clone(),
                 frames,
@@ -1147,11 +1202,7 @@ impl LogWriter {
     }
 
     fn encode_checkpoint(&self) -> Result<Encoded, AppendError> {
-        Self::encode_checkpoint_of(&self.fold)
-    }
-
-    fn encode_checkpoint_of(fold: &Fold) -> Result<Encoded, AppendError> {
-        let (state, blob) = body_slot(fold.checkpoint_state())?;
+        let (state, blob) = body_slot(self.fold.checkpoint_state())?;
         Ok(Encoded::new(
             Record::Checkpoint(CheckpointRecord { state }),
             blob.into_iter().collect(),

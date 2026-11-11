@@ -257,6 +257,13 @@ impl GroupCheck {
 
     /// The next bytes of the members.
     pub fn feed(&mut self, bytes: &[u8]) -> Result<(), CorruptCause> {
+        self.feed_members(bytes, |_, _, _| {})
+    }
+
+    /// `feed`, handing each member frame completed by these bytes to `on_member` (its ordinal, its offset from the first
+    /// member byte, its payload) while the bytes are held. Members handed out belong to the group only once `finish`
+    /// accepts it.
+    pub fn feed_members(&mut self, bytes: &[u8], mut on_member: impl FnMut(u64, usize, &[u8])) -> Result<(), CorruptCause> {
         use sha2::Digest;
         self.seen += bytes.len() as u64;
         if self.seen > self.marker.bytes {
@@ -264,12 +271,12 @@ impl GroupCheck {
         }
         self.hasher.update(bytes);
         if self.carry.is_empty() {
-            let used = self.members_in(bytes)?;
+            let used = self.members_in(bytes, &mut on_member)?;
             self.carry.extend_from_slice(&bytes[used..]);
         } else {
             let mut carry = std::mem::take(&mut self.carry);
             carry.extend_from_slice(bytes);
-            let used = self.members_in(&carry)?;
+            let used = self.members_in(&carry, &mut on_member)?;
             carry.drain(..used);
             self.carry = carry;
         }
@@ -277,7 +284,7 @@ impl GroupCheck {
     }
 
     /// Checks the whole frames at the start of `buf`; returns the bytes they take.
-    fn members_in(&mut self, buf: &[u8]) -> Result<usize, CorruptCause> {
+    fn members_in(&mut self, buf: &[u8], on_member: &mut impl FnMut(u64, usize, &[u8])) -> Result<usize, CorruptCause> {
         let mut p = 0;
         while buf.len() - p >= HEADER_LEN {
             let len = check_header(&buf[p..p + HEADER_LEN], self.ordinal)?.ok_or(CorruptCause::Header)?;
@@ -292,6 +299,7 @@ impl GroupCheck {
             if let Some(members) = &mut self.members {
                 members.push(Committed { ordinal: self.ordinal, start: self.parsed, len });
             }
+            on_member(self.ordinal, self.parsed, payload);
             self.parsed += frame_len;
             self.ordinal += 1;
             self.count += 1;
@@ -363,8 +371,8 @@ pub enum Reverse {
 /// that begins at `buf[0]` may be cut and is not a candidate. Finds the newest line that is
 /// a frame on its own and whose payload starts a `checkpoint` or `session` record, and that no
 /// in-place group covers (`covering_group`, decided over the `GROUP_LOOKBACK` bytes before it,
-/// which the window must hold). The group of a file of its own (§6.1) is the caller's to check:
-/// its marker is at the file's head.
+/// which the window must hold). A group file (§1) is never reverse-scanned: it is read forward
+/// from its first frame.
 pub fn reverse_scan(buf: &[u8], buf_is_file_start: bool) -> Reverse {
     let written = written_end(buf);
     let mut end = written;
