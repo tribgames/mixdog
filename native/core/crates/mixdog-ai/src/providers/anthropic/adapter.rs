@@ -138,6 +138,18 @@ pub enum Credentials {
 #[derive(Clone)]
 struct Secret(String);
 
+/// A refusal with the credential the request carried (whatever its kind, wherever its text echoes it) redacted from its
+/// body, so no message, log line or thread decision built from it holds the credential. The credential is the one the
+/// refused request was sent with, not whichever one the account holds by the time the refusal is read.
+fn scrub_refusal(mut refusal: ErrorResponse, secret: &Secret) -> ErrorResponse {
+    let text = String::from_utf8_lossy(&refusal.body);
+    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&secret.0]);
+    if clean != text {
+        refusal.body = clean.into_bytes();
+    }
+    refusal
+}
+
 impl Credentials {
     async fn current(&self) -> Result<Secret, ProviderError> {
         match self {
@@ -428,7 +440,7 @@ impl AnthropicAdapter {
             wire.body = body;
         }
         wire.headers.push(("x-stainless-timeout".to_owned(), super::nonstream::TIMEOUT_SECONDS.to_owned()));
-        let read = self.post(&wire, secret).await?.read_all().await?;
+        let read = scrub_refusal(self.post(&wire, secret).await?.read_all().await?, secret);
         if !read.status.is_some_and(|status| (200..300).contains(&status)) {
             return Err(self.codec.classify(&read));
         }
@@ -440,9 +452,9 @@ impl AnthropicAdapter {
         Ok(Box::new(AnthropicStream::ready(super::nonstream::events(&self.id, &request.model, &message))))
     }
 
-    async fn failure(&self, response: HttpResponse) -> ProviderError {
+    async fn failure(&self, response: HttpResponse, secret: &Secret) -> ProviderError {
         match response.read_all().await {
-            Ok(rejected) => self.codec.classify(&rejected),
+            Ok(rejected) => self.codec.classify(&scrub_refusal(rejected, secret)),
             Err(err) => err,
         }
     }
@@ -451,6 +463,7 @@ impl AnthropicAdapter {
     async fn warm_failure(&self, response: HttpResponse, secret: &Secret) -> ProviderError {
         match response.read_all().await {
             Ok(rejected) => {
+                let rejected = scrub_refusal(rejected, secret);
                 let mut error = self.codec.classify(&rejected);
                 error.message = super::errors::quota_error_text(&rejected, &[&secret.0]);
                 error
@@ -490,7 +503,7 @@ impl AnthropicAdapter {
             .send(self.request_with(&wire, &secret), ANTHROPIC_MODELS)
             .await?;
         if !(200..300).contains(&response.status) {
-            return Err(self.failure(response).await);
+            return Err(self.failure(response, &secret).await);
         }
         response.read_all().await.map(|read| read.body)
     }
@@ -600,6 +613,12 @@ impl ProviderAdapter for AnthropicAdapter {
             };
             let mut speed_dropped = false;
             loop {
+                // The subscription route raises `requesting` before every POST (`doRequest`, anthropic-oauth-request.mjs:64);
+                // the API-key route once before its ladder (anthropic.mjs:300).
+                match self.codec.flavor() {
+                    Flavor::OAuth => request.options.send_identity.raise_stage("requesting"),
+                    Flavor::ApiKey => request.options.send_identity.raise_requesting_once(),
+                }
                 let response = self.post(&wire, &secret).await?;
                 if (200..300).contains(&response.status) {
                     let thread = plan.as_mut().and_then(Plan::take_session);
@@ -619,7 +638,7 @@ impl ProviderAdapter for AnthropicAdapter {
                     }
                     return Ok(Box::new(opened));
                 }
-                let rejected = response.read_all().await?;
+                let rejected = scrub_refusal(response.read_all().await?, &secret);
                 // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
                 // capacity: the cooldown is recorded, `speed` is dropped and the request replayed once
                 // at once, instead of waiting out a window only the fast pool owns.
