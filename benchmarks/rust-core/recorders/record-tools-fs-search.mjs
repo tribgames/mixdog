@@ -608,6 +608,41 @@ const SCENARIOS = [
       { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['beta'], cwd: '<ROOT>/mono' } },
     ],
   },
+  // grep over several paths (lib/grep-path-fanout.mjs): each path's section gets the call's context budget divided by the
+  // number of paths (`Math.max(512, Math.floor(budget / paths))`), and executeBuiltinTool caps the assembled text at
+  // GREP_OUTPUT_MAX_BYTES with _grepBudgetFooter (builtin.mjs _budgetBuiltinOutput).
+  ...(() => {
+    const dirs = ['a', 'b', 'c', 'd', 'e'];
+    const big = (d) =>
+      `${Array.from({ length: 90 }, (_, i) => (i % 3 === 0 ? `export const ${d}${i} = "hit ${d}${i} ${'x'.repeat(70)}";` : `const ${d}${i}_pad = ${i}; // ${'y'.repeat(40)}`)).join('\n')}\n`;
+    const files = Object.fromEntries(dirs.map((d) => [`${d}/big.ts`, big(d)]));
+    files['a/few.ts'] = 'const one = 1;\nexport const rare = "needle";\nconst two = 2;\n';
+    files['b/few.ts'] = 'export const rare2 = "needle";\n';
+    const two = ['a', 'b'];
+    return [{
+      name: 'grep-path-budget',
+      files,
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+      calls: [
+        { tool: 'grep', input: { pattern: 'hit', path: two } },
+        { tool: 'grep', input: { pattern: 'hit', path: dirs } },
+        { tool: 'grep', input: { pattern: 'hit', path: two, mode: 'count' } },
+        { tool: 'grep', input: { pattern: 'hit', path: dirs, mode: 'count' } },
+        { tool: 'grep', input: { pattern: 'hit', path: two, mode: 'files' } },
+        { tool: 'grep', input: { pattern: 'hit', path: two, context: 2 } },
+        { tool: 'grep', input: { pattern: 'hit', path: two, context: 0 } },
+        { tool: 'grep', input: { pattern: 'hit', path: dirs, context: 0 } },
+        { tool: 'grep', input: { pattern: 'hit', path: two, limit: 3, offset: 2 } },
+        { tool: 'grep', input: { pattern: 'hit', path: two, limit: 3, offset: 2, context: 0 } },
+        { tool: 'grep', input: { pattern: 'hit', path: ['a', 'nope', 'b'] } },
+        { tool: 'grep', input: { pattern: 'needle', path: two } },
+        { tool: 'grep', input: { pattern: 'hit', path: 'a' } },
+        { tool: 'grep', input: { pattern: 'hit', path: ['a'] } },
+        { tool: 'grep', input: { pattern: 'hit', path: 'a', context: 0 } },
+        { tool: 'grep', input: { pattern: 'needle', path: 'a' } },
+      ],
+    }];
+  })(),
   // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
   // path dropped, a path array flattened one level with blank entries dropped and removed when nothing is left, then the
   // tool's guard; `grep` keeps a path array as its scopes; `edit` (`file_path`) has no guard; code_graph is answered by
