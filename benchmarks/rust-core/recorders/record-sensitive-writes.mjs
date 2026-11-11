@@ -9,10 +9,12 @@
 //
 // The tree is the export of b6f10295a with the Node fixes of the sensitive writes applied in order (`--patch`, the shared
 // option of lib/common.mjs `patchedProductIdentity`): node-patches/node-fix-sensitive-side-writes.patch (the trace, the
-// tool-failure log, the memory ingest) and node-patches/node-fix-sensitive-header-summary.patch (the session header's title
-// and repeat-failure guards, the session summary index).
+// tool-failure log, the memory ingest at close and at recall), node-patches/node-fix-sensitive-header-summary.patch (the
+// session header's title and repeat-failure guards, the session summary index) and
+// node-patches/node-fix-sensitive-memory-scrub.patch (the replaced search rows' old versions out of the memory database's
+// table files and write-ahead log).
 //
-//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-sensitive-writes.mjs --tree <tree> --patch <patch>,<patch>
+//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-sensitive-writes.mjs --tree <tree> --patch <patch>,<patch>,<patch>
 //
 // Output: native/core/fixtures/sensitive-writes/golden.json (+ MANIFEST.json).
 import { createServer } from 'node:http';
@@ -172,7 +174,9 @@ if (process.argv[2] === '--child') {
   // The search copy: the stored-session backfill every runtime runs once (session-search-ingest.mjs), awaited, which also waits
   // for the session's per-turn ingests queued before it (they run one at a time, in order).
   await deadline(backfillSessionSearch(), 120_000, 'the session-search backfill');
-  state.commands.push(...commands.map((c) => ({ phase, ...c })));
+  // The two fills of one model reply run at once, so their commands reach the bridge in either order: kept in `ref` order.
+  const ordered = [...commands].sort((x, y) => String(x.ref ?? '').localeCompare(String(y.ref ?? '')));
+  state.commands.push(...ordered.map((c) => ({ phase, ...c })));
   bridge.close();
   rmSync(join(process.env.MIXDOG_BRIDGE_DISCOVERY_DIR, 'browser-bridge.json'), { force: true });
   await stopOwnedPgForShutdown({ timeoutMs: 120_000 });
@@ -254,7 +258,7 @@ try {
   }
   const masked = a.normalized.maskValue({ ...a.state, sessionId: undefined });
   const golden = {
-    note: 'every file Node (b6f10295a with node-fix-sensitive-side-writes.patch, then node-fix-sensitive-header-summary.patch) wrote under its profile for lib/sensitive-writes-scenario.mjs, recorded twice and normalised by lib/sensitive-writes-files.mjs; what its model was sent per provider call; the bridge commands; the memory ingest it handed the memory module',
+    note: 'every file Node (b6f10295a with node-fix-sensitive-side-writes.patch, node-fix-sensitive-header-summary.patch, then node-fix-sensitive-memory-scrub.patch) wrote under its profile for lib/sensitive-writes-scenario.mjs, recorded twice and normalised by lib/sensitive-writes-files.mjs; what its model was sent per provider call; the bridge commands; the memory ingest it handed the memory module',
     values: { CODE, FAILED, SECRET },
     files: a.normalized.files,
     noCoreCounterpart: NO_CORE_COUNTERPART,

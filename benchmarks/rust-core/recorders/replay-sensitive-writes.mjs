@@ -15,7 +15,7 @@
 // The PostgreSQL runtime is installed into the profile as an installed one is left (`active-version` and the tree it names), so
 // the core's memory store (the search copy and the memory rows, `<data>/pgdata`) is written and searched like every other file.
 //
-//   MIXDOG_RECORDER_SCRATCH=<scratch parent> MIXDOG_PG_RUNTIME=<an installed runtime folder: active-version + runtime-pg...>
+//   MIXDOG_RECORDER_SCRATCH=<scratch parent> MIXDOG_PG_INSTALL=<an installed runtime folder: active-version + runtime-pg...>
 //     node benchmarks/rust-core/recorders/replay-sensitive-writes.mjs --mixdogd <exe>
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -210,8 +210,8 @@ function coreText(body) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const bin = resolve(arg('--mixdogd'));
   if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent (the workspace path is part of the files)');
-  const pgRuntime = process.env.MIXDOG_PG_RUNTIME;
-  if (!pgRuntime || !existsSync(join(pgRuntime, 'active-version'))) throw new Error('MIXDOG_PG_RUNTIME must name an installed PostgreSQL runtime folder (active-version and the tree it names)');
+  const pgRuntime = process.env.MIXDOG_PG_INSTALL;
+  if (!pgRuntime || !existsSync(join(pgRuntime, 'active-version'))) throw new Error('MIXDOG_PG_INSTALL must name an installed PostgreSQL runtime folder (active-version and the tree it names)');
   const base = mkdtempSync(join(scratch, 'sw-rpl-'));
   const ws = join(base, 'ws');
   mkdirSync(ws);
