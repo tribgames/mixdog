@@ -13,7 +13,7 @@ const { pruneEmbeddingCache, resolveEmbeddingCacheMaxRows, DEFAULT_EMBED_CACHE_M
 
 const resolve = [];
 for (const value of [undefined, '25000', '0', 'invalid', '-5', '12.9', '', null, '1e3', ' 7 ', 'Infinity', '0.5']) {
-  resolve.push({ value: value === undefined ? { absent: true } : value, ...(await capture(() => resolveEmbeddingCacheMaxRows(value))) });
+  resolve.push({ value: value, ...(await capture(() => resolveEmbeddingCacheMaxRows(value))) });
 }
 const envBefore = process.env.MIXDOG_EMBED_CACHE_MAX_ROWS;
 delete process.env.MIXDOG_EMBED_CACHE_MAX_ROWS;
@@ -28,7 +28,7 @@ async function prune(count, options, deleted = 'requested', failOn = null) {
   const statements = [];
   const db = {
     query: async (sql, params) => {
-      statements.push({ sql, params: params ?? null });
+      statements.push({ sql, params });
       if (failOn && sql.includes(failOn)) throw Object.assign(new Error(`scripted failure on ${failOn}`), { code: 'XX000' });
       if (sql.includes('count(*)')) return { rows: [{ n: String(count) }] };
       if (sql.startsWith('TRUNCATE')) return { rowCount: null, rows: [] };
