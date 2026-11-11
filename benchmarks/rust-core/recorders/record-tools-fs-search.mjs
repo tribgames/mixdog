@@ -839,8 +839,11 @@ const SCENARIOS = [
       [{ pattern: ['needle', 'other'], path: 'many', context: 0 }, all],
       [{ pattern: ['needle', 'other'], path: 'many', context: 0, limit: 5, offset: 2 }, all],
       [{ pattern: 'needle', path: ['many', 't'], context: 0 }, all],
-      // A server that never answers: the client's deadline, its cancel, and the kill after the cancel grace.
-      [{ pattern: 'needle', path: 't' }, { silent: true }],
+      // A server that never answers and ignores the cancel: the client's deadline, its cancel, and the kill after the
+      // cancel grace (NATIVE_SEARCH_CANCEL_STALLED). A grep made during the grace (`beside`) is held by the stuck
+      // server, rejected when it is ended, and answered by the next server; a grep after it is answered there too.
+      [{ pattern: 'needle', path: 't' }, { silent: true }, { pattern: 'needle', path: 'u', context: 0 }],
+      [{ pattern: 'needle', path: 't', context: 0 }],
     ];
     return [{
       name: 'grep-timeout',
@@ -853,7 +856,12 @@ const SCENARIOS = [
         'many/m.ts': `${Array.from({ length: 450 }, (_, i) => `needle ${i + 1}${i % 3 === 0 ? ' other' : ''}`).join('\n')}\n`,
       },
       warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
-      calls: calls.map(([input, server]) => ({ tool: 'grep', input, server })),
+      calls: calls.map(([input, server, beside]) => ({
+        tool: 'grep',
+        input,
+        ...(server ? { server } : {}),
+        ...(beside ? { beside: { tool: 'grep', input: beside } } : {}),
+      })),
     }];
   })(),
   // A search server whose queue is full (serve_search/server.rs:370-383, scheduler.rs:241): the stand-in answers every
@@ -973,16 +981,16 @@ async function startStandin(realBin) {
     MIXDOG_SEARCH_SERVER_BIN: process.execPath,
     NODE_OPTIONS: `--import=${pathToFileURL(join(dirname(SELF), 'lib', 'search-server-standin.mjs')).href}`,
   });
-  // The first event named `name` the stand-in reported since `from`; a stand-in that does not report it within
+  // The `nth` event named `name` the stand-in reported since `from`; a stand-in that does not report it within
   // STANDIN_WAIT_MS fails the recording, naming the event.
-  const until = async (name, from) => {
+  const until = async (name, from, nth = 1) => {
     let timer;
     const expired = new Promise((_, reject) => {
-      timer = realSetTimeout(() => reject(new Error(`the search stand-in did not report "${name}" within ${STANDIN_WAIT_MS} ms`)), STANDIN_WAIT_MS);
+      timer = realSetTimeout(() => reject(new Error(`the search stand-in did not report "${name}" #${nth} within ${STANDIN_WAIT_MS} ms`)), STANDIN_WAIT_MS);
     });
     try {
       for (;;) {
-        const hit = events.slice(from).find((e) => e.event === name);
+        const hit = events.slice(from).filter((e) => e.event === name)[nth - 1];
         if (hit) return hit;
         await Promise.race([new Promise((resolve) => { wake = resolve; }), expired]);
       }
@@ -1004,8 +1012,11 @@ async function startStandin(realBin) {
 /** A grep against a server that never answers, on Node's mock clock: once the request reached the server the clock
  *  passes the client's deadline (native-search-client.mjs REQUEST_TIMEOUT_MS; with the clock frozen no search budget
  *  was spent before it), then, once the client sent its cancel, the cancel grace (CANCEL_GRACE_MS), after which the
- *  client ends the server; the call's answer is returned once the server is gone. */
-async function silentServerCall(run, standin, from) {
+ *  client ends the server whose search did not stop (`armNativeCancellationWatchdog`, :501-520). `beside`, if given,
+ *  is a call made during that grace: its search reaches the stuck server, which answers nothing more; the end of the
+ *  server rejects it (`_teardown`, :204-226) and the client sends it again to a new server (`requestNativeWithRestart`,
+ *  :658-702). The answers are returned once the stuck server is gone and the call beside has answered. */
+async function silentServerCall(run, standin, from, beside) {
   const { mock } = await import('node:test');
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
   try {
@@ -1015,9 +1026,12 @@ async function silentServerCall(run, standin, from) {
     mock.timers.tick(17_500);
     const raw = await answer;
     await standin.until('cancel', from);
+    const besideAnswer = beside?.();
+    // The call beside reached the stuck server: its request was compared there too.
+    if (besideAnswer) await standin.until('compare', from, 2);
     mock.timers.tick(1_000);
     await standin.until('closed', from);
-    return raw;
+    return { raw, beside: besideAnswer && (await besideAnswer) };
   } finally {
     mock.timers.reset();
   }
@@ -1081,20 +1095,31 @@ if (process.argv[2] === '--child') {
     drainCodeGraphCache();
   }
   const calls = [];
-  for (const call of scenario.calls) {
+  const runOf = (call) => {
     const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
+    return () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd));
+  };
+  // Node's outcome of a call: an explicit failure, or a text its one classifier calls an error (a navigation miss is a
+  // zero-match there, not a failure).
+  const outcomeOf = (raw, tool) => {
+    const env = normalizeToolEnvelope(raw);
+    const text = typeof env.result === 'string' ? env.result : JSON.stringify(env.result ?? '');
+    const isError = env.explicitFailure || (!env.explicitSuccess && classifyResultKind(text, false, tool) === 'error');
+    return { text: scrub(text), isError };
+  };
+  for (const call of scenario.calls) {
     let outcome;
+    let beside;
     const from = standin?.events.length ?? 0;
     if (call.server) await standin.script(call.server);
     try {
-      const run = () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd));
-      const raw = call.server?.silent ? await silentServerCall(run, standin, from) : await run();
-      const env = normalizeToolEnvelope(raw);
-      const text = typeof env.result === 'string' ? env.result : JSON.stringify(env.result ?? '');
-      // Node's outcome of the call: an explicit failure, or a text its one classifier calls an error (a navigation miss
-      // is a zero-match there, not a failure).
-      const isError = env.explicitFailure || (!env.explicitSuccess && classifyResultKind(text, false, call.tool) === 'error');
-      outcome = { text: scrub(text), isError };
+      if (call.server?.silent) {
+        const answers = await silentServerCall(runOf(call), standin, from, call.beside && runOf(call.beside));
+        outcome = outcomeOf(answers.raw, call.tool);
+        if (call.beside) beside = { ...call.beside, ...outcomeOf(answers.beside, call.beside.tool) };
+      } else {
+        outcome = outcomeOf(await runOf(call)(), call.tool);
+      }
     } catch (error) {
       outcome = { thrown: scrub(String(error?.message ?? error)) };
     }
@@ -1120,7 +1145,7 @@ if (process.argv[2] === '--child') {
         killed: count('closed') > 0 && count('stdin-end') === 0,
       };
     }
-    calls.push({ tool: call.tool, input: call.input, ...(call.server ? { server: call.server } : {}), ...outcome });
+    calls.push({ tool: call.tool, input: call.input, ...(call.server ? { server: call.server } : {}), ...outcome, ...(beside ? { beside } : {}) });
   }
   // The resize service's replies, from the module the extension host answers with, on the original image bytes.
   let resizer;

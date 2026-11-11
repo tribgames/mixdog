@@ -5571,6 +5571,38 @@
             "cacheSafe": true,
             "class": "interactive",
             "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [
+              "u\\d.ts:1:needle four"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 1,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [
+              "u\\d.ts:1:needle four"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 1,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
             "filesScanned": 3,
             "inventoryChecked": true,
             "lines": [
@@ -5604,11 +5636,31 @@
         }
       ],
       "searchServer": {
-        "requests": 1,
+        "requests": 2,
         "answered": 0,
         "cancelled": 1,
         "killed": true
+      },
+      "beside": {
+        "tool": "grep",
+        "input": {
+          "pattern": "needle",
+          "path": "u",
+          "context": 0
+        },
+        "text": "u/d.ts\n  1: needle four",
+        "isError": false
       }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "context": 0
+      },
+      "text": "t/a.ts\n  1: needle one\nt/b.ts\n  1: needle two\nt/c.ts\n  2: needle three",
+      "isError": false
     }
   ]
 }
