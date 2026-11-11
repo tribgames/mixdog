@@ -252,15 +252,9 @@ async fn core_values() -> Value {
     })
 }
 
-/// The core's values equal the file the client test reads. `MIXDOG_WRITE_AGENT_ROOM_CORE=1` writes them there instead.
+/// The file the client test reads holds what the core gives now (`mixdog_testkit::chain_output`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_core_gives_the_client_the_room_lines_the_recording_was_made_from() {
-    let got = core_values().await;
-    let path = core_file();
-    if std::env::var_os("MIXDOG_WRITE_AGENT_ROOM_CORE").is_some() {
-        std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&got).unwrap())).unwrap();
-        return;
-    }
-    let want: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    assert_eq!(got, want, "the core's room lines differ from {}", path.display());
+    let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-room-cases");
+    mixdog_testkit::chain_output(&core_file(), &set, core_values().await, "the core's room lines");
 }

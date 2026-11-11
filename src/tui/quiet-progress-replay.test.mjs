@@ -5,14 +5,18 @@
 // transcript-status.tsx renders `spinner.quiet` through) turns the core's published state into the cue's parts and label, and
 // each case is compared whole, in recorded key order, with the recording.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { exact } from '../../benchmarks/rust-core/recorders/lib/exact.mjs';
 import { buildSpinnerMeta } from './spinner-meta.mjs';
 
-const read = (url) => JSON.parse(readFileSync(url, 'utf8'));
-const golden = read(new URL('../../native/core/fixtures/quiet-progress-cases/golden.json', import.meta.url));
-const core = read(new URL('quiet-progress-core.json', import.meta.url));
+const goldenBytes = readFileSync(new URL('../../native/core/fixtures/quiet-progress-cases/golden.json', import.meta.url));
+const golden = JSON.parse(goldenBytes.toString('utf8'));
+// The core's half (`mixdog_testkit::chain_output`), refused when it was made from another recording.
+const coreFile = JSON.parse(readFileSync(new URL('quiet-progress-core.json', import.meta.url), 'utf8'));
+assert.equal(coreFile.inputs, createHash('sha256').update(goldenBytes).digest('hex'), 'quiet-progress-core.json was made from another golden.json: run the Rust replay');
+const core = coreFile.core;
 
 function recorded(index, name) {
   const c = golden.cases[index];
