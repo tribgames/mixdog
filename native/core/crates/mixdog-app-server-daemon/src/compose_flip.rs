@@ -2588,7 +2588,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let (room_summaries, room_host) = (room_publication.summaries, room_publication.host);
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
-    let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
     // The rooms' first load (`agent-rooms.ts:353-362` `ready`), which every room call, a member forgotten and a member's relay await first: the rooms
     // are hosted and members whose definition is proven deleted leave (`pruneDeleted`). A failed one is forgotten; the next caller loads again.
     let rooms_ready = mixdog_core_rooms::rooms::ready::RoomsReady::new();
@@ -2608,16 +2607,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         })
         .map_err(ComposeError::AlreadyBound)?;
     // Start-up `recover` (`agent-rooms.ts:465-480`), started and not awaited (`session-host.ts:430-432`): its failure is logged, not the core's start's.
-    // After the first load, rooms whose exchange a dead process left running are marked interrupted and republished (flip-rooms-4).
+    // After the first load, rooms whose exchange a dead process left running are marked interrupted (flip-rooms-4) and the catalog
+    // is republished (`agent-rooms.ts:478`), its pass awaited: it reads the rooms before a mutation that awaited the same load writes.
     drop(mixdog_core_rooms::rooms::ready::recover(
         rooms.clone(),
         rooms_ready.clone(),
         {
-            let (live, rooms, republish) = (live_rooms.clone(), rooms.clone(), republish.clone());
+            let (live, rooms, summaries) = (live_rooms.clone(), rooms.clone(), room_summaries.clone());
             move || async move {
-                if !live.recover(&rooms).await?.is_empty() {
-                    republish();
-                }
+                live.recover(&rooms).await?;
+                summaries.publish().await;
                 Ok(())
             }
         },

@@ -56,11 +56,19 @@ impl RoomsReady {
     /// `ready()`: the preparation in flight is joined, a finished one answers at once, and otherwise one starts. It runs to its end
     /// whoever stops waiting (a promise is not cancelled).
     pub async fn ready(&self) -> Result<(), RoomError> {
-        let mut outcome = {
+        self.ready_then(None).await
+    }
+
+    /// `ready()` with the caller's continuation `then`, run once the preparation succeeded and, when this call started it, before
+    /// any caller that joined later hears of the outcome: Node runs a promise's reactions in the order they were registered, so
+    /// the start-up `recover`, the first to await `ready`, goes on (and republishes, `agent-rooms.ts:469-478`) before a mutation
+    /// that awaited the same load writes. A failed preparation does not run it.
+    async fn ready_then(&self, then: Option<Then>) -> Result<(), RoomError> {
+        let (outcome, then) = {
             let mut attempt = self.attempt.lock().unwrap_or_else(|e| e.into_inner());
             match &*attempt {
-                Attempt::Done => return Ok(()),
-                Attempt::Running(outcome) => outcome.clone(),
+                Attempt::Done => (None, then),
+                Attempt::Running(outcome) => (Some(outcome.clone()), then),
                 Attempt::Idle => {
                     let prepare = self.prepare.get().ok_or_else(|| RoomError::Port("the rooms' preparation is not bound".into()))?;
                     let (told, outcome) = watch::channel(None);
@@ -69,36 +77,60 @@ impl RoomsReady {
                     let state = self.attempt.clone();
                     tokio::spawn(async move {
                         let result = preparing.await;
+                        if result.is_ok()
+                            && let Some(then) = then
+                        {
+                            then.await;
+                        }
                         // Forgotten before its callers hear of the failure, as `prepared = null` comes before the rejection.
                         *state.lock().unwrap_or_else(|e| e.into_inner()) = if result.is_ok() { Attempt::Done } else { Attempt::Idle };
                         let _ = told.send(Some(result));
                     });
-                    outcome
+                    (Some(outcome), None)
                 }
             }
         };
-        let ended = outcome.wait_for(Option::is_some).await.map_err(|_| RoomError::Port("the rooms' preparation ended without an outcome".into()))?;
-        ended.clone().expect("an ended preparation has its outcome")
+        let result = match outcome {
+            None => Ok(()),
+            Some(mut outcome) => {
+                let ended = outcome.wait_for(Option::is_some).await.map_err(|_| RoomError::Port("the rooms' preparation ended without an outcome".into()))?;
+                ended.clone().expect("an ended preparation has its outcome")
+            }
+        };
+        if result.is_ok()
+            && let Some(then) = then
+        {
+            then.await;
+        }
+        result
     }
 }
 
+/// A caller's continuation after the rooms' preparation ([`RoomsReady::ready_then`]).
+type Then = Pin<Box<dyn Future<Output = ()> + Send>>;
+
 /// The start-up `recover` (`agent-rooms.ts:465-480`), started and not awaited (`session-host.ts:430-432`): with no rooms nothing
-/// happens; else the rooms are prepared ([`RoomsReady::ready`]) and `after` runs (an exchange a restart cut off is marked
-/// interrupted, the catalog republished). A failure is logged (`[mixdog-rooms] Could not recover group rooms:` and the error) and is
-/// no one's: the next room mutation prepares again.
+/// happens; else the rooms are prepared and `after` runs (an exchange a restart cut off is marked interrupted, the catalog
+/// republished), ahead of the mutations that awaited the same load ([`RoomsReady::ready_then`]). A failure is logged
+/// (`[mixdog-rooms] Could not recover group rooms:` and the error) and is no one's: the next room mutation prepares again.
 pub fn recover<S, F, Fut>(rooms: Arc<Rooms<S>>, ready: Arc<RoomsReady>, after: F, log: Arc<dyn Fn(&str) + Send + Sync>) -> tokio::task::JoinHandle<()>
 where
     S: RoomStore + 'static,
     F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = Result<(), RoomError>> + Send,
+    Fut: Future<Output = Result<(), RoomError>> + Send + 'static,
 {
     tokio::spawn(async move {
         let recovered = async {
             if rooms.list().await?.is_empty() {
                 return Ok(());
             }
-            ready.ready().await?;
-            after().await
+            let (told, after_ended) = tokio::sync::oneshot::channel();
+            ready
+                .ready_then(Some(Box::pin(async move {
+                    let _ = told.send(after().await);
+                })))
+                .await?;
+            after_ended.await.map_err(|_| RoomError::Port("the start-up's recovery ended without an outcome".into()))?
         };
         if let Err(error) = recovered.await {
             log(&format!("Could not recover group rooms: {error}"));
