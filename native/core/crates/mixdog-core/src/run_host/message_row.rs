@@ -444,7 +444,8 @@ fn fresh_row(m: &AgentMessage) -> Row {
     set_or_remove(&mut row, "providerReplay", replay_value(m, None));
     set_or_remove(&mut row, "providerMetadata", m.provider_metadata.clone());
     set_or_remove(&mut row, "nativeToolSearch", m.message.native_tool_search.clone());
-    set_or_remove(&mut row, "turnReminder", m.message.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
+    // The run sets the agent message's own field; the provider message carries it only once sent (`wire`).
+    set_or_remove(&mut row, "turnReminder", m.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
     set_or_remove(&mut row, "stopReason", m.stop_reason.as_ref().map(|s| json!(stop_name(s))));
     set_or_remove(&mut row, "toolKind", m.tool_kind.map(|k| json!(kind_name(k))));
     set_or_remove(&mut row, "toolTiming", m.tool_timing.as_ref().map(timing_row));
@@ -500,8 +501,8 @@ pub fn row_of(message: &AgentMessage) -> Value {
     if m.provider_replay() != w.provider_replay() {
         set_or_remove(&mut row, "providerReplay", replay_value(message, base.get("providerReplay")));
     }
-    if m.turn_reminder != w.turn_reminder {
-        set_or_remove(&mut row, "turnReminder", m.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
+    if message.turn_reminder != was.turn_reminder {
+        set_or_remove(&mut row, "turnReminder", message.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
     }
     if message.stop_reason != was.stop_reason {
         set_or_remove(&mut row, "stopReason", message.stop_reason.as_ref().map(|s| json!(stop_name(s))));

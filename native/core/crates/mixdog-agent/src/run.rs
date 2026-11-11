@@ -317,6 +317,9 @@ pub struct RunOutput {
     pub provider_state: Option<ProviderState>,
     /// `routeUsageSegments`: the turn's usage per model when the route switched mid-turn.
     pub usage_segments: Vec<crate::env::UsageSegment>,
+    /// The tail reminder the terminal request carried: the host commits the terminal answer with it as its
+    /// `turnReminder` (Node's `turnReminderField`).
+    pub last_reminder: Option<String>,
 }
 
 pub struct Run {
@@ -757,6 +760,7 @@ impl Run {
             carry: self.carry,
             provider_state: self.provider_state_changed.then_some(self.provider_state).flatten(),
             usage_segments,
+            last_reminder: self.last_reminder,
             response,
         }
     }
