@@ -4776,6 +4776,7 @@ dependencies = [
  "libc",
  "mixdog-rt",
  "mixdog-workspace-hack",
+ "serde_json",
  "tokio",
  "tokio-util",
  "windows-sys 0.61.2",

@@ -1,0 +1,52 @@
+{
+  "attempts": {
+    "a-promise-queued-before-a-tick": 1,
+    "a-requeued-list-after-an-older-list": 1,
+    "an-interval-rearms-after-its-callback": 1,
+    "armed-inside-a-timer-for-an-instant-already-queued": 1,
+    "clearing-a-refed-timer-recreates-its-list": 1,
+    "clearing-an-unrefed-timer-keeps-its-list": 1,
+    "clearing-due-timers-from-an-earlier-one": 1,
+    "fractions-of-a-millisecond-are-cut": 1,
+    "immediates-after-all-timers-of-a-turn": 2,
+    "many-lists-due-at-once": 1,
+    "reviewer-with-first100": 2,
+    "reviewer-without-first100": 1,
+    "same-due-armed-in-order": 1,
+    "ticks-and-promises-between-timers": 1,
+    "unref-keeps-the-order": 1,
+    "zero-and-one-ms-inside-a-timer": 1
+  },
+  "command": "node benchmarks/rust-core/recorders/record-node-timer-order.mjs",
+  "exclusions": {
+    "a-promise-queued-before-a-tick": "process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them",
+    "clearing-an-unrefed-timer-keeps-its-list": "an unrefed timer cleared from its list leaves the list (and its place) in the queue; the core has no unrefed timers",
+    "immediates-after-all-timers-of-a-turn": "setImmediate runs after every timer of the turn; the core has no check phase (a task a timer spawns runs before the next timer)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 14160,
+      "path": "golden.json",
+      "sha256": "c365ee6ac96488beaacd8b2a8e5b6e6c87ef046874dff6072971dd7e96b364fb"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "tree": "none: Node timers only, no product code is loaded"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-node-timer-order.mjs",
+  "recorderSha256": "888f24b1669da14fec6b1ea746ae8db5c2747aa51dd3cc1f91672d8f2adf2f66",
+  "set": "node-timer-order",
+  "totalBytes": 14160
+}
