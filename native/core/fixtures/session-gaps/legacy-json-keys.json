@@ -6,6 +6,7 @@
       "name": "unique",
       "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[]}",
       "document": {
+        "id": "sess_dup",
         "title": "a",
         "messages": []
       }
@@ -34,6 +35,7 @@
       "name": "nested-repeat",
       "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[{\"role\":\"user\",\"content\":\"x\",\"content\":\"y\"}]}",
       "document": {
+        "id": "sess_dup",
         "title": "a",
         "messages": [
           {
@@ -47,6 +49,7 @@
       "name": "repeat-inside-string",
       "text": "{\"id\":\"sess_dup\",\"title\":\"\\\"title\\\":\",\"messages\":[]}",
       "document": {
+        "id": "sess_dup",
         "title": "\"title\":",
         "messages": []
       }
@@ -55,8 +58,10 @@
       "name": "two-distinct-lone-surrogates",
       "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"\\ud800\":1,\"\\ud801\":2}",
       "document": {
+        "id": "sess_dup",
         "title": "a",
-        "messages": []
+        "messages": [],
+        "�": 2
       }
     },
     {

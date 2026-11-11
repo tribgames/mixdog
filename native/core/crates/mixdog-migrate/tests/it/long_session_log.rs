@@ -162,7 +162,7 @@ fn a_log_that_is_not_the_manifests_publishes_nothing() {
 /// Each legacy session json of `fixtures/session-gaps/legacy-json-keys.json` migrates as 1.4.5's own loader
 /// (`loadLegacySession` over `readTopLevelLifecycleRecord`) read the same bytes: a record 1.4.5 found unreadable
 /// (a top-level key named twice, escaped equivalents included) is quarantined and nothing is published; a record it
-/// read migrates to one session with the title and the message count of the document it read.
+/// read migrates to one session whose header and messages, put back together, are the whole document it read.
 #[test]
 fn every_legacy_session_json_migrates_as_1_4_5_read_it() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/legacy-json-keys.json");
@@ -177,19 +177,17 @@ fn every_legacy_session_json_migrates_as_1_4_5_read_it() {
         std::fs::write(roots.data.join(format!("sessions/{id}.json")), case["text"].as_str().expect("text")).expect("write");
         let complete = run(&roots);
         let sessions = read_sessions(&roots, &complete.manifest_sha256).expect("fold");
-        let document = &case["document"];
+        let document = mixdog_testkit::exact::Exact::decode(&case["document"]).and_then(|e| e.to_plain()).expect("document");
         if document.is_null() {
             assert_eq!((complete.kinds.data.quarantined_unexpected, sessions.len()), (1, 0), "{name}: 1.4.5 could not read it");
             continue;
         }
         assert_eq!((complete.kinds.data.quarantined_unexpected, sessions.len()), (0, 1), "{name}: 1.4.5 read it");
         let session = &sessions[id];
-        let header = serde_json::to_value(&session.header).expect("header");
-        assert_eq!(header["title"], document["title"], "{name}: title");
-        let messages = document["messages"].as_array().expect("messages");
-        assert_eq!(session.rows.len(), messages.len(), "{name}: rows");
-        for (row, message) in session.rows.iter().zip(messages) {
-            assert_eq!(serde_json::to_value(&row.body).expect("body"), *message, "{name}: the message 1.4.5 read");
-        }
+        let mut read = serde_json::to_value(&session.header).expect("header");
+        read["messages"] = session.rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
+        // Through the same number form as the recording (every JS number an f64): `2` and `2.0` are one value.
+        let read = mixdog_testkit::exact::Exact::plain(&read).to_plain().expect("plain");
+        assert_eq!(read, document, "{name}: the document 1.4.5 read");
     }
 }

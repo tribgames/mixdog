@@ -384,8 +384,8 @@
         }
       ],
       "sends": [
-        {
-          "messages": [
+        [
+          [
             {
               "role": "system",
               "content": "You are an anchored context summarization assistant for coding sessions.\n\nSummarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.\n\nIf the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.\n\nAlways follow the exact output structure requested by the user prompt. Keep every section, preserve exact file paths and identifiers when known, and prefer terse bullets over paragraphs.\n\nDo not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation."
@@ -395,10 +395,78 @@
               "content": "Create a new anchored summary from the conversation history below.\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n\n<conversation-history>\n1. user:\nReview this paste.\nstored: pasted line 0  🙂\npasted line 1 é 🙂\npasted line 2 éé 🙂\npasted line 3 ééé 🙂\npasted line 4 éééé 🙂\npasted line 5 ééééé 🙂\npasted line 6 éééééé 🙂\npasted line 7  🙂\npasted line 8 é 🙂\npasted line 9 éé 🙂\npasted line 10 ééé 🙂\npasted line 11 éééé 🙂\npasted line 12 ééééé 🙂\npasted line 13 éééééé 🙂\npasted line 14  🙂\npasted line 15 é 🙂\npasted line 16 éé 🙂\npasted line 17 ééé 🙂\npasted line 18 éééé 🙂\npasted line 19 ééééé 🙂\npasted line 20 éééééé 🙂\npasted line 21  🙂\npasted line 22 é 🙂\npasted line 23 éé 🙂\npasted line 24 ééé 🙂\npasted line 25 éééé 🙂\npasted line 26 ééééé 🙂\npasted line 27 éééééé 🙂\npasted line 28  🙂\npasted line 29 é 🙂\npasted line 30 éé 🙂\npasted line 31 ééé 🙂\npasted line 32 éééé 🙂\npasted line 33 ééééé 🙂\npasted line 34 éééééé 🙂\npasted line 35  🙂\npasted line 36 é 🙂\npasted line 37 éé 🙂\npasted line 38 ééé 🙂\npasted line 39 éééé 🙂\npasted line 40 ééééé 🙂\npasted line 41 éééééé 🙂\npasted line 42  🙂\npasted line 43 é 🙂\npasted line 44 éé 🙂\npasted line 45 ééé 🙂\npasted line 46 éééé 🙂\npasted line 47 ééééé 🙂\npasted line 48 éééééé 🙂\npasted line 49  🙂\npasted line 50 é 🙂\npasted line 51 éé 🙂\npasted line 52 ééé 🙂\npasted line 53 éééé 🙂\npasted line 54 ééééé 🙂\npasted line 55 éééééé 🙂\npasted line 56  🙂\npasted line 57 é 🙂\npasted line 58 éé 🙂\npasted line 59 ééé 🙂\npasted line 60 éééé 🙂\npasted line 61 ééééé 🙂\npasted line 62 éééééé 🙂\npasted line 63  🙂\npasted line 64 é 🙂\npasted line 65 éé 🙂\npasted line 66 ééé 🙂\npasted line 67 éééé 🙂\npasted line 68 ééééé 🙂\npasted line 69 éééééé 🙂\npasted line 70  🙂\npasted line 71 é 🙂\npast\n2. user:\ned line 72 éé 🙂\npasted line 73 ééé 🙂\npasted line 74 éééé 🙂\npasted line 75 ééééé 🙂\npasted line 76 éééééé 🙂\npasted line 77  🙂\npasted line 78 é 🙂\npasted line 79 éé 🙂\npasted line 80 ééé 🙂\npasted line 81 éééé 🙂\npasted line 82 ééééé 🙂\npasted line 83 éééééé 🙂\npasted line 84  🙂\npasted line 85 é 🙂\npasted line 86 éé 🙂\npasted line 87 ééé 🙂\npasted line 88 éééé 🙂\npasted line 89 ééééé 🙂\npasted line 90 éééééé 🙂\npasted line 91  🙂\npasted line 92 é 🙂\npasted line 93 éé 🙂\npasted line 94 ééé 🙂\npasted line 95 éééé 🙂\npasted line 96 ééééé 🙂\npasted line 97 éééééé 🙂\npasted line 98  🙂\npasted line 99 é 🙂\npasted line 100 éé 🙂\npasted line 101 ééé 🙂\npasted line 102 éééé 🙂\npasted line 103 ééééé 🙂\npasted line 104 éééééé 🙂\npasted line 105  🙂\npasted line 106 é 🙂\npasted line 107 éé 🙂\npasted line 108 ééé 🙂\npasted line 109 éééé 🙂\npasted line 110 ééééé 🙂\npasted line 111 éééééé 🙂\npasted line 112  🙂\npasted line 113 é 🙂\npasted line 114 éé 🙂\npasted line 115 ééé 🙂\npasted line 116 éééé 🙂\npasted line 117 ééééé 🙂\npasted line 118 éééééé 🙂\npasted line 119  🙂\npasted line 120 é 🙂\npasted line 121 éé 🙂\npasted line 122 ééé 🙂\npasted line 123 éééé 🙂\npasted line 124 ééééé 🙂\npasted line 125 éééééé 🙂\npasted line 126  🙂\npasted line 127 é 🙂\npasted line 128 éé 🙂\npasted line 129 ééé 🙂\npasted line 130 éééé 🙂\npasted line 131 ééééé 🙂\npasted line 132 éééééé 🙂\npasted line 133  🙂\npasted line 134 é 🙂\npasted line 135 éé 🙂\npasted line 136 ééé 🙂\npasted line 137 éééé 🙂\npasted line 138 ééééé 🙂\npasted line 139 éééééé 🙂\npasted line 140  🙂\npasted line 141 é 🙂\npasted line 142 éé 🙂\n3. user:\npasted line 143 ééé 🙂\npasted line 144 éééé 🙂\npasted line 145 ééééé 🙂\npasted line 146 éééééé 🙂\npasted line 147  🙂\npasted line 148 é 🙂\npasted line 149 éé 🙂\npasted line 150 ééé 🙂\npasted line 151 éééé 🙂\npasted line 152 ééééé 🙂\npasted line 153 éééééé 🙂\npasted line 154  🙂\npasted line 155 é 🙂\npasted line 156 éé 🙂\npasted line 157 ééé 🙂\npasted line 158 éééé 🙂\npasted line 159 ééééé 🙂\npasted line 160 éééééé 🙂\npasted line 161  🙂\npasted line 162 é 🙂\npasted line 163 éé 🙂\npasted line 164 ééé 🙂\npasted line 165 éééé 🙂\npasted line 166 ééééé 🙂\npasted line 167 éééééé 🙂\npasted line 168  🙂\npasted line 169 é 🙂\npasted line 170 éé 🙂\npasted line 171 ééé 🙂\npasted line 172 éééé 🙂\npasted line 173 ééééé 🙂\npasted line 174 éééééé 🙂\npasted line 175  🙂\npasted line 176 é 🙂\npasted line 177 éé 🙂\npasted line 178 ééé 🙂\npasted line 179 éééé 🙂\npasted line 180 ééééé 🙂\npasted line 181 éééééé 🙂\npasted line 182  🙂\npasted line 183 é 🙂\npasted line 184 éé 🙂\npasted line 185 ééé 🙂\npasted line 186 éééé 🙂\npasted line 187 ééééé 🙂\npasted line 188 éééééé 🙂\npasted line 189  🙂\npasted line 190 é 🙂\npasted line 191 éé 🙂\npasted line 192 ééé 🙂\npasted line 193 éééé 🙂\npasted line 194 ééééé 🙂\npasted line 195 éééééé 🙂\npasted line 196  🙂\npasted line 197 é 🙂\npasted line 198 éé 🙂\npasted line 199 ééé 🙂\npasted line 200 éééé 🙂\npasted line 201 ééééé 🙂\npasted line 202 éééééé 🙂\npasted line 203  🙂\npasted line 204 é 🙂\npasted line 205 éé 🙂\npasted line 206 ééé 🙂\npasted line 207 éééé 🙂\npasted line 208 ééééé 🙂\npasted line 209 éééééé 🙂\npasted line 210  🙂\npasted line 211 é 🙂\npasted line\n4. user:\n212 éé 🙂\npasted line 213 ééé 🙂\npasted line 214 éééé 🙂\npasted line 215 ééééé 🙂\npasted line 216 éééééé 🙂\npasted line 217  🙂\npasted line 218 é 🙂\npasted line 219 éé 🙂\npasted line 220 ééé 🙂\npasted line 221 éééé 🙂\npasted line 222 ééééé 🙂\npasted line 223 éééééé 🙂\npasted line 224  🙂\npasted line 225 é 🙂\npasted line 226 éé 🙂\npasted line 227 ééé 🙂\npasted line 228 éééé 🙂\npasted line 229 ééééé 🙂\npasted line 230 éééééé 🙂\npasted line 231  🙂\npasted line 232 é 🙂\npasted line 233 éé 🙂\npasted line 234 ééé 🙂\npasted line 235 éééé 🙂\npasted line 236 ééééé 🙂\npasted line 237 éééééé 🙂\npasted line 238  🙂\npasted line 239 é 🙂\npasted line 240 éé 🙂\npasted line 241 ééé 🙂\npasted line 242 éééé 🙂\npasted line 243 ééééé 🙂\npasted line 244 éééééé 🙂\npasted line 245  🙂\npasted line 246 é 🙂\npasted line 247 éé 🙂\npasted line 248 ééé 🙂\npasted line 249 éééé 🙂\npasted line 250 ééééé 🙂\npasted line 251 éééééé 🙂\npasted line 252  🙂\npasted line 253 é 🙂\npasted line 254 éé 🙂\npasted line 255 ééé 🙂\npasted line 256 éééé 🙂\npasted line 257 ééééé 🙂\npasted line 258 éééééé 🙂\npasted line 259  🙂\npasted line 260 é 🙂\npasted line 261 éé 🙂\npasted line 262 ééé 🙂\npasted line 263 éééé 🙂\npasted line 264 ééééé 🙂\npasted line 265 éééééé 🙂\npasted line 266  🙂\npasted line 267 é 🙂\npasted line 268 éé 🙂\npasted line 269 ééé 🙂\npasted line 270 éééé 🙂\npasted line 271 ééééé 🙂\npasted line 272 éééééé 🙂\npasted line 273  🙂\npasted line 274 é 🙂\npasted line 275 éé 🙂\npasted line 276 ééé 🙂\npasted line 277 éééé 🙂\npasted line 278 ééééé 🙂\npasted line 279 éééééé 🙂\npasted line 280  🙂\npasted line 281 é 🙂\npa\n5. user:\nsted line 282 éé 🙂\npasted line 283 ééé 🙂\npasted line 284 éééé 🙂\npasted line 285 ééééé 🙂\npasted line 286 éééééé 🙂\npasted line 287  🙂\npasted line 288 é 🙂\npasted line 289 éé 🙂\npasted line 290 ééé 🙂\npasted line 291 éééé 🙂\npasted line 292 ééééé 🙂\npasted line 293 éééééé 🙂\npasted line 294  🙂\npasted line 295 é 🙂\npasted line 296 éé 🙂\npasted line 297 ééé 🙂\npasted line 298 éééé 🙂\npasted line 299 ééééé 🙂\npasted line 300 éééééé 🙂\npasted line 301  🙂\npasted line 302 é 🙂\npasted line 303 éé 🙂\npasted line 304 ééé 🙂\npasted line 305 éééé 🙂\npasted line 306 ééééé 🙂\npasted line 307 éééééé 🙂\npasted line 308  🙂\npasted line 309 é 🙂\npasted line 310 éé 🙂\npasted line 311 ééé 🙂\npasted line 312 éééé 🙂\npasted line 313 ééééé 🙂\npasted line 314 éééééé 🙂\npasted line 315  🙂\npasted line 316 é 🙂\npasted line 317 éé 🙂\npasted line 318 ééé 🙂\npasted line 319 éééé 🙂\npasted line 320 ééééé 🙂\npasted line 321 éééééé 🙂\npasted line 322  🙂\npasted line 323 é 🙂\npasted line 324 éé 🙂\npasted line 325 ééé 🙂\npasted line 326 éééé 🙂\npasted line 327 ééééé 🙂\npasted line 328 éééééé 🙂\npasted line 329  🙂\npasted line 330 é 🙂\npasted line 331 éé 🙂\npasted line 332 ééé 🙂\npasted line 333 éééé 🙂\npasted line 334 ééééé 🙂\npasted line 335 éééééé 🙂\npasted line 336  🙂\npasted line 337 é 🙂\npasted line 338 éé 🙂\npasted line 339 ééé 🙂\npasted line 340 éééé 🙂\npasted line 341 ééééé 🙂\npasted line 342 éééééé 🙂\npasted line 343  🙂\npasted line 344 é 🙂\npasted line 345 éé 🙂\npasted line 346 ééé 🙂\npasted line 347 éééé 🙂\npasted line 348 ééééé 🙂\npasted line 349 éééééé 🙂\npasted line 350  🙂\npasted line 3\n6. user:\n51 é 🙂\npasted line 352 éé 🙂\npasted line 353 ééé 🙂\npasted line 354 éééé 🙂\npasted line 355 ééééé 🙂\npasted line 356 éééééé 🙂\npasted line 357  🙂\npasted line 358 é 🙂\npasted line 359 éé 🙂\npasted line 360 ééé 🙂\npasted line 361 éééé 🙂\npasted line 362 ééééé 🙂\npasted line 363 éééééé 🙂\npasted line 364  🙂\npasted line 365 é 🙂\npasted line 366 éé 🙂\npasted line 367 ééé 🙂\npasted line 368 éééé 🙂\npasted line 369 ééééé 🙂\npasted line 370 éééééé 🙂\npasted line 371  🙂\npasted line 372 é 🙂\npasted line 373 éé 🙂\npasted line 374 ééé 🙂\npasted line 375 éééé 🙂\npasted line 376 ééééé 🙂\npasted line 377 éééééé 🙂\npasted line 378  🙂\npasted line 379 é 🙂\npasted line 380 éé 🙂\npasted line 381 ééé 🙂\npasted line 382 éééé 🙂\npasted line 383 ééééé 🙂\npasted line 384 éééééé 🙂\npasted line 385  🙂\npasted line 386 é 🙂\npasted line 387 éé 🙂\npasted line 388 ééé 🙂\npasted line 389 éééé 🙂\npasted line 390 ééééé 🙂\npasted line 391 éééééé 🙂\npasted line 392  🙂\npasted line 393 é 🙂\npasted line 394 éé 🙂\npasted line 395 ééé 🙂\npasted line 396 éééé 🙂\npasted line 397 ééééé 🙂\npasted line 398 éééééé 🙂\npasted line 399  🙂\npasted line 400 é 🙂\npasted line 401 éé 🙂\npasted line 402 ééé 🙂\npasted line 403 éééé 🙂\npasted line 404 ééééé 🙂\npasted line 405 éééééé 🙂\npasted line 406  🙂\npasted line 407 é 🙂\npasted line 408 éé 🙂\npasted line 409 ééé 🙂\npasted line 410 éééé 🙂\npasted line 411 ééééé 🙂\npasted line 412 éééééé 🙂\npasted line 413  🙂\npasted line 414 é 🙂\npasted line 415 éé 🙂\npasted line 416 ééé 🙂\npasted line 417 éééé 🙂\npasted line 418 ééééé 🙂\npasted line 419 éééééé 🙂\npasted line 420  🙂\npas\n7. user:\nted line 421 é 🙂\npasted line 422 éé 🙂\npasted line 423 ééé 🙂\npasted line 424 éééé 🙂\npasted line 425 ééééé 🙂\npasted line 426 éééééé 🙂\npasted line 427  🙂\npasted line 428 é 🙂\npasted line 429 éé 🙂\npasted line 430 ééé 🙂\npasted line 431 éééé 🙂\npasted line 432 ééééé 🙂\npasted line 433 éééééé 🙂\npasted line 434  🙂\npasted line 435 é 🙂\npasted line 436 éé 🙂\npasted line 437 ééé 🙂\npasted line 438 éééé 🙂\npasted line 439 ééééé 🙂\npasted line 440 éééééé 🙂\npasted line 441  🙂\npasted line 442 é 🙂\npasted line 443 éé 🙂\npasted line 444 ééé 🙂\npasted line 445 éééé 🙂\npasted line 446 ééééé 🙂\npasted line 447 éééééé 🙂\npasted line 448  🙂\npasted line 449 é 🙂\npasted line 450 éé 🙂\npasted line 451 ééé 🙂\npasted line 452 éééé 🙂\npasted line 453 ééééé 🙂\npasted line 454 éééééé 🙂\npasted line 455  🙂\npasted line 456 é 🙂\npasted line 457 éé 🙂\npasted line 458 ééé 🙂\npasted line 459 éééé 🙂\npasted line 460 ééééé 🙂\npasted line 461 éééééé 🙂\npasted line 462  🙂\npasted line 463 é 🙂\npasted line 464 éé 🙂\npasted line 465 ééé 🙂\npasted line 466 éééé 🙂\npasted line 467 ééééé 🙂\npasted line 468 éééééé 🙂\npasted line 469  🙂\npasted line 470 é 🙂\npasted line 471 éé 🙂\npasted line 472 ééé 🙂\npasted line 473 éééé 🙂\npasted line 474 ééééé 🙂\npasted line 475 éééééé 🙂\npasted line 476  🙂\npasted line 477 é 🙂\npasted line 478 éé 🙂\npasted line 479 ééé 🙂\npasted line 480 éééé 🙂\npasted line 481 ééééé 🙂\npasted line 482 éééééé 🙂\npasted line 483  🙂\npasted line 484 é 🙂\npasted line 485 éé 🙂\npasted line 486 ééé 🙂\npasted line 487 éééé 🙂\npasted line 488 ééééé 🙂\npasted line 489 éééééé 🙂\npasted line 4\n8. user:\n90  🙂\npasted line 491 é 🙂\npasted line 492 éé 🙂\npasted line 493 ééé 🙂\npasted line 494 éééé 🙂\npasted line 495 ééééé 🙂\npasted line 496 éééééé 🙂\npasted line 497  🙂\npasted line 498 é 🙂\npasted line 499 éé 🙂\npasted line 500 ééé 🙂\npasted line 501 éééé 🙂\npasted line 502 ééééé 🙂\npasted line 503 éééééé 🙂\npasted line 504  🙂\npasted line 505 é 🙂\npasted line 506 éé 🙂\npasted line 507 ééé 🙂\npasted line 508 éééé 🙂\npasted line 509 ééééé 🙂\npasted line 510 éééééé 🙂\npasted line 511  🙂\npasted line 512 é 🙂\npasted line 513 éé 🙂\npasted line 514 ééé 🙂\npasted line 515 éééé 🙂\npasted line 516 ééééé 🙂\npasted line 517 éééééé 🙂\npasted line 518  🙂\npasted line 519 é 🙂\npasted line 520 éé 🙂\npasted line 521 ééé 🙂\npasted line 522 éééé 🙂\npasted line 523 ééééé 🙂\npasted line 524 éééééé 🙂\npasted line 525  🙂\npasted line 526 é 🙂\npasted line 527 éé 🙂\npasted line 528 ééé 🙂\npasted line 529 éééé 🙂\npasted line 530 ééééé 🙂\npasted line 531 éééééé 🙂\npasted line 532  🙂\npasted line 533 é 🙂\npasted line 534 éé 🙂\npasted line 535 ééé 🙂\npasted line 536 éééé 🙂\npasted line 537 ééééé 🙂\npasted line 538 éééééé 🙂\npasted line 539  🙂\npasted line 540 é 🙂\npasted line 541 éé 🙂\npasted line 542 ééé 🙂\npasted line 543 éééé 🙂\npasted line 544 ééééé 🙂\npasted line 545 éééééé 🙂\npasted line 546  🙂\npasted line 547 é 🙂\npasted line 548 éé 🙂\npasted line 549 ééé 🙂\npasted line 550 éééé 🙂\npasted line 551 ééééé 🙂\npasted line 552 éééééé 🙂\npasted line 553  🙂\npasted line 554 é 🙂\npasted line 555 éé 🙂\npasted line 556 ééé 🙂\npasted line 557 éééé 🙂\npasted line 558 ééééé 🙂\npasted line 559 éééééé 🙂\npas\n</conversation-history>"
             }
           ],
-          "model": "gpt-x"
-        },
-        {
-          "messages": [
+          "gpt-x",
+          {
+            "$exact": "undefined"
+          },
+          {
+            "session": {
+              "id": "gaps-pasted-stored:compact",
+              "sourceType": {
+                "$exact": "undefined"
+              },
+              "provider": "openai",
+              "model": "gpt-x",
+              "cwd": {
+                "$exact": "undefined"
+              }
+            },
+            "thinkingBudgetTokens": {
+              "$exact": "undefined"
+            },
+            "xaiReasoningEffort": {
+              "$exact": "undefined"
+            },
+            "reasoningEffort": {
+              "$exact": "undefined"
+            },
+            "effort": "low",
+            "effortConfiguration": {
+              "$exact": "undefined"
+            },
+            "effortConfigurationEnabled": false,
+            "fast": false,
+            "requestKind": "compaction",
+            "maxOutputTokens": 1200,
+            "providerState": {
+              "$exact": "undefined"
+            },
+            "onToolCall": {
+              "$exact": "undefined"
+            },
+            "onToolResult": {
+              "$exact": "undefined"
+            },
+            "onTextDelta": {
+              "$exact": "undefined"
+            },
+            "onReasoningDelta": {
+              "$exact": "undefined"
+            },
+            "onUsageDelta": {
+              "$exact": "undefined"
+            },
+            "onStreamDelta": {
+              "$exact": "undefined"
+            },
+            "onStageChange": {
+              "$exact": "undefined"
+            },
+            "drainSteering": {
+              "$exact": "undefined"
+            },
+            "onSteerMessage": {
+              "$exact": "undefined"
+            },
+            "signal": {
+              "aborted": false
+            },
+            "sessionId": "gaps-pasted-stored:compact",
+            "usageSessionId": "gaps-pasted-stored"
+          }
+        ],
+        [
+          [
             {
               "role": "system",
               "content": "You are an anchored context summarization assistant for coding sessions.\n\nSummarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.\n\nIf the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.\n\nAlways follow the exact output structure requested by the user prompt. Keep every section, preserve exact file paths and identifiers when known, and prefer terse bullets over paragraphs.\n\nDo not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation."
@@ -408,10 +476,78 @@
               "content": "Update the anchored summary below using the conversation history that follows. Preserve still-true details, remove stale details, and merge in the new facts.\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n\n<previous-summary>\n## Goal\n- 90  🙂\npasted line 491 é 🙂\npasted line 492 éé 🙂\npasted line 493 ééé 🙂\npasted line 494 éééé 🙂\npasted line 495 ééééé 🙂\npasted line 496 éééééé 🙂\npasted line 497  🙂\npasted line 498 é 🙂\npasted li … ééé 🙂\npasted line 552 éééééé 🙂\npasted line 553  🙂\npasted line 554 é 🙂\npasted line 555 éé 🙂\npasted line 556 ééé 🙂\npasted line 557 éééé 🙂\npasted line 558 ééééé 🙂\npasted line 559 éééééé 🙂\npas\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- (none)\n### In Progress\n- (none)\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- (none)\n\n## Critical Context\n- SUMMARY of the conversation so far\n\n## Relevant Files\n- (none)\n</previous-summary>\n\n<conversation-history>\n1. user:\nted line 560  🙂\npasted line 561 é 🙂\npasted line 562 éé 🙂\npasted line 563 ééé 🙂\npasted line 564 éééé 🙂\npasted line 565 ééééé 🙂\npasted line 566 éééééé 🙂\npasted line 567  🙂\npasted line 568 é 🙂\npasted line 569 éé 🙂\npasted line 570 ééé 🙂\npasted line 571 éééé 🙂\npasted line 572 ééééé 🙂\npasted line 573 éééééé 🙂\npasted line 574  🙂\npasted line 575 é 🙂\npasted line 576 éé 🙂\npasted line 577 ééé 🙂\npasted line 578 éééé 🙂\npasted line 579 ééééé 🙂\npasted line 580 éééééé 🙂\npasted line 581  🙂\npasted line 582 é 🙂\npasted line 583 éé 🙂\npasted line 584 ééé 🙂\npasted line 585 éééé 🙂\npasted line 586 ééééé 🙂\npasted line 587 éééééé 🙂\npasted line 588  🙂\npasted line 589 é 🙂\npasted line 590 éé 🙂\npasted line 591 ééé 🙂\npasted line 592 éééé 🙂\npasted line 593 ééééé 🙂\npasted line 594 éééééé 🙂\npasted line 595  🙂\npasted line 596 é 🙂\npasted line 597 éé 🙂\npasted line 598 ééé 🙂\npasted line 599 éééé 🙂\npasted line 600 ééééé 🙂\npasted line 601 éééééé 🙂\npasted line 602  🙂\npasted line 603 é 🙂\npasted line 604 éé 🙂\npasted line 605 ééé 🙂\npasted line 606 éééé 🙂\npasted line 607 ééééé 🙂\npasted line 608 éééééé 🙂\npasted line 609  🙂\npasted line 610 é 🙂\npasted line 611 éé 🙂\npasted line 612 ééé 🙂\npasted line 613 éééé 🙂\npasted line 614 ééééé 🙂\npasted line 615 éééééé 🙂\npasted line 616  🙂\npasted line 617 é 🙂\npasted line 618 éé 🙂\npasted line 619 ééé 🙂\npasted line 620 éééé 🙂\npasted line 621 ééééé 🙂\npasted line 622 éééééé 🙂\npasted line 623  🙂\npasted line 624 é 🙂\npasted line 625 éé 🙂\npasted line 626 ééé 🙂\npasted line 627 éééé 🙂\npasted line 628 ééééé 🙂\npasted line 629 ééé\n2. user:\nééé 🙂\npasted line 630  🙂\npasted line 631 é 🙂\npasted line 632 éé 🙂\npasted line 633 ééé 🙂\npasted line 634 éééé 🙂\npasted line 635 ééééé 🙂\npasted line 636 éééééé 🙂\npasted line 637  🙂\npasted line 638 é 🙂\npasted line 639 éé 🙂\npasted line 640 ééé 🙂\npasted line 641 éééé 🙂\npasted line 642 ééééé 🙂\npasted line 643 éééééé 🙂\npasted line 644  🙂\npasted line 645 é 🙂\npasted line 646 éé 🙂\npasted line 647 ééé 🙂\npasted line 648 éééé 🙂\npasted line 649 ééééé 🙂\npasted line 650 éééééé 🙂\npasted line 651  🙂\npasted line 652 é 🙂\npasted line 653 éé 🙂\npasted line 654 ééé 🙂\npasted line 655 éééé 🙂\npasted line 656 ééééé 🙂\npasted line 657 éééééé 🙂\npasted line 658  🙂\npasted line 659 é 🙂\npasted line 660 éé 🙂\npasted line 661 ééé 🙂\npasted line 662 éééé 🙂\npasted line 663 ééééé 🙂\npasted line 664 éééééé 🙂\npasted line 665  🙂\npasted line 666 é 🙂\npasted line 667 éé 🙂\npasted line 668 ééé 🙂\npasted line 669 éééé 🙂\npasted line 670 ééééé 🙂\npasted line 671 éééééé 🙂\npasted line 672  🙂\npasted line 673 é 🙂\npasted line 674 éé 🙂\npasted line 675 ééé 🙂\npasted line 676 éééé 🙂\npasted line 677 ééééé 🙂\npasted line 678 éééééé 🙂\npasted line 679  🙂\npasted line 680 é 🙂\npasted line 681 éé 🙂\npasted line 682 ééé 🙂\npasted line 683 éééé 🙂\npasted line 684 ééééé 🙂\npasted line 685 éééééé 🙂\npasted line 686  🙂\npasted line 687 é 🙂\npasted line 688 éé 🙂\npasted line 689 ééé 🙂\npasted line 690 éééé 🙂\npasted line 691 ééééé 🙂\npasted line 692 éééééé 🙂\npasted line 693  🙂\npasted line 694 é 🙂\npasted line 695 éé 🙂\npasted line 696 ééé 🙂\npasted line 697 éééé 🙂\npasted line 698 ééééé 🙂\npasted li\n3. user:\nne 699 éééééé 🙂\npasted line 700  🙂\npasted line 701 é 🙂\npasted line 702 éé 🙂\npasted line 703 ééé 🙂\npasted line 704 éééé 🙂\npasted line 705 ééééé 🙂\npasted line 706 éééééé 🙂\npasted line 707  🙂\npasted line 708 é 🙂\npasted line 709 éé 🙂\npasted line 710 ééé 🙂\npasted line 711 éééé 🙂\npasted line 712 ééééé 🙂\npasted line 713 éééééé 🙂\npasted line 714  🙂\npasted line 715 é 🙂\npasted line 716 éé 🙂\npasted line 717 ééé 🙂\npasted line 718 éééé 🙂\npasted line 719 ééééé 🙂\npasted line 720 éééééé 🙂\npasted line 721  🙂\npasted line 722 é 🙂\npasted line 723 éé 🙂\npasted line 724 ééé 🙂\npasted line 725 éééé 🙂\npasted line 726 ééééé 🙂\npasted line 727 éééééé 🙂\npasted line 728  🙂\npasted line 729 é 🙂\npasted line 730 éé 🙂\npasted line 731 ééé 🙂\npasted line 732 éééé 🙂\npasted line 733 ééééé 🙂\npasted line 734 éééééé 🙂\npasted line 735  🙂\npasted line 736 é 🙂\npasted line 737 éé 🙂\npasted line 738 ééé 🙂\npasted line 739 éééé 🙂\npasted line 740 ééééé 🙂\npasted line 741 éééééé 🙂\npasted line 742  🙂\npasted line 743 é 🙂\npasted line 744 éé 🙂\npasted line 745 ééé 🙂\npasted line 746 éééé 🙂\npasted line 747 ééééé 🙂\npasted line 748 éééééé 🙂\npasted line 749  🙂\npasted line 750 é 🙂\npasted line 751 éé 🙂\npasted line 752 ééé 🙂\npasted line 753 éééé 🙂\npasted line 754 ééééé 🙂\npasted line 755 éééééé 🙂\npasted line 756  🙂\npasted line 757 é 🙂\npasted line 758 éé 🙂\npasted line 759 ééé 🙂\npasted line 760 éééé 🙂\npasted line 761 ééééé 🙂\npasted line 762 éééééé 🙂\npasted line 763  🙂\npasted line 764 é 🙂\npasted line 765 éé 🙂\npasted line 766 ééé 🙂\npasted line 767 éééé 🙂\npasted line 768 ééééé 🙂\n4. user:\npasted line 769 éééééé 🙂\npasted line 770  🙂\npasted line 771 é 🙂\npasted line 772 éé 🙂\npasted line 773 ééé 🙂\npasted line 774 éééé 🙂\npasted line 775 ééééé 🙂\npasted line 776 éééééé 🙂\npasted line 777  🙂\npasted line 778 é 🙂\npasted line 779 éé 🙂\npasted line 780 ééé 🙂\npasted line 781 éééé 🙂\npasted line 782 ééééé 🙂\npasted line 783 éééééé 🙂\npasted line 784  🙂\npasted line 785 é 🙂\npasted line 786 éé 🙂\npasted line 787 ééé 🙂\npasted line 788 éééé 🙂\npasted line 789 ééééé 🙂\npasted line 790 éééééé 🙂\npasted line 791  🙂\npasted line 792 é 🙂\npasted line 793 éé 🙂\npasted line 794 ééé 🙂\npasted line 795 éééé 🙂\npasted line 796 ééééé 🙂\npasted line 797 éééééé 🙂\npasted line 798  🙂\npasted line 799 é 🙂\npasted line 800 éé 🙂\npasted line 801 ééé 🙂\npasted line 802 éééé 🙂\npasted line 803 ééééé 🙂\npasted line 804 éééééé 🙂\npasted line 805  🙂\npasted line 806 é 🙂\npasted line 807 éé 🙂\npasted line 808 ééé 🙂\npasted line 809 éééé 🙂\npasted line 810 ééééé 🙂\npasted line 811 éééééé 🙂\npasted line 812  🙂\npasted line 813 é 🙂\npasted line 814 éé 🙂\npasted line 815 ééé 🙂\npasted line 816 éééé 🙂\npasted line 817 ééééé 🙂\npasted line 818 éééééé 🙂\npasted line 819  🙂\npasted line 820 é 🙂\npasted line 821 éé 🙂\npasted line 822 ééé 🙂\npasted line 823 éééé 🙂\npasted line 824 ééééé 🙂\npasted line 825 éééééé 🙂\npasted line 826  🙂\npasted line 827 é 🙂\npasted line 828 éé 🙂\npasted line 829 ééé 🙂\npasted line 830 éééé 🙂\npasted line 831 ééééé 🙂\npasted line 832 éééééé 🙂\npasted line 833  🙂\npasted line 834 é 🙂\npasted line 835 éé 🙂\npasted line 836 ééé 🙂\npasted line 837 éééé 🙂\npasted line 83\n5. user:\n8 ééééé 🙂\npasted line 839 éééééé 🙂\npasted line 840  🙂\npasted line 841 é 🙂\npasted line 842 éé 🙂\npasted line 843 ééé 🙂\npasted line 844 éééé 🙂\npasted line 845 ééééé 🙂\npasted line 846 éééééé 🙂\npasted line 847  🙂\npasted line 848 é 🙂\npasted line 849 éé 🙂\npasted line 850 ééé 🙂\npasted line 851 éééé 🙂\npasted line 852 ééééé 🙂\npasted line 853 éééééé 🙂\npasted line 854  🙂\npasted line 855 é 🙂\npasted line 856 éé 🙂\npasted line 857 ééé 🙂\npasted line 858 éééé 🙂\npasted line 859 ééééé 🙂\npasted line 860 éééééé 🙂\npasted line 861  🙂\npasted line 862 é 🙂\npasted line 863 éé 🙂\npasted line 864 ééé 🙂\npasted line 865 éééé 🙂\npasted line 866 ééééé 🙂\npasted line 867 éééééé 🙂\npasted line 868  🙂\npasted line 869 é 🙂\npasted line 870 éé 🙂\npasted line 871 ééé 🙂\npasted line 872 éééé 🙂\npasted line 873 ééééé 🙂\npasted line 874 éééééé 🙂\npasted line 875  🙂\npasted line 876 é 🙂\npasted line 877 éé 🙂\npasted line 878 ééé 🙂\npasted line 879 éééé 🙂\npasted line 880 ééééé 🙂\npasted line 881 éééééé 🙂\npasted line 882  🙂\npasted line 883 é 🙂\npasted line 884 éé 🙂\npasted line 885 ééé 🙂\npasted line 886 éééé 🙂\npasted line 887 ééééé 🙂\npasted line 888 éééééé 🙂\npasted line 889  🙂\npasted line 890 é 🙂\npasted line 891 éé 🙂\npasted line 892 ééé 🙂\npasted line 893 éééé 🙂\npasted line 894 ééééé 🙂\npasted line 895 éééééé 🙂\npasted line 896  🙂\npasted line 897 é 🙂\npasted line 898 éé 🙂\npasted line 899 ééé 🙂\n6. assistant:\na0_0 a0_1 a0_2 a0_3 a0_4 a0_5 a0_6 a0_7 a0_8 a0_9 a0_10 a0_11 a0_12 a0_13 a0_14 a0_15 a0_16 a0_17 a0_18 a0_19 a0_20 a0_21 a0_22 a0_23 a0_24 a0_25 a0_26 a0_27 a0_28 a0_29 a0_30 a0_31 a0_32 a0_33 a0_34 a0_35 a0_36 a0_37 a0_38 a0_39 a0_40 a0_41 a0_42 a0_43 a0_44 a0_45 a0_46 a0_47 a0_48 a0_49 a0_50 a0_51 a0_52 a0_53 a0_54 a0_55 a0_56 a0_57 a0_58 a0_59 a0_60 a0_61 a0_62 a0_63 a0_64 a0_65 a0_66 a0_67 a0_68 a0_69 a0_70 a0_71 a0_72 a0_73 a0_74 a0_75 a0_76 a0_77 a0_78 a0_79\n7. user:\nu1_0 u1_1 u1_2 u1_3 u1_4 u1_5 u1_6 u1_7 u1_8 u1_9 u1_10 u1_11 u1_12 u1_13 u1_14 u1_15 u1_16 u1_17 u1_18 u1_19 u1_20 u1_21 u1_22 u1_23 u1_24 u1_25 u1_26 u1_27 u1_28 u1_29 u1_30 u1_31 u1_32 u1_33 u1_34 u1_35 u1_36 u1_37 u1_38 u1_39 u1_40 u1_41 u1_42 u1_43 u1_44 u1_45 u1_46 u1_47 u1_48 u1_49 u1_50 u1_51 u1_52 u1_53 u1_54 u1_55 u1_56 u1_57 u1_58 u1_59 u1_60 u1_61 u1_62 u1_63 u1_64 u1_65 u1_66 u1_67 u1_68 u1_69 u1_70 u1_71 u1_72 u1_73 u1_74 u1_75 u1_76 u1_77 u1_78 u1_79\n8. assistant:\na2_0 a2_1 a2_2 a2_3 a2_4 a2_5 a2_6 a2_7 a2_8 a2_9 a2_10 a2_11 a2_12 a2_13 a2_14 a2_15 a2_16 a2_17 a2_18 a2_19 a2_20 a2_21 a2_22 a2_23 a2_24 a2_25 a2_26 a2_27 a2_28 a2_29 a2_30 a2_31 a2_32 a2_33 a2_34 a2_35 a2_36 a2_37 a2_38 a2_39 a2_40 a2_41 a2_42 a2_43 a2_44 a2_45 a2_46 a2_47 a2_48 a2_49 a2_50 a2_51 a2_52 a2_53 a2_54 a2_55 a2_56 a2_57 a2_58 a2_59 a2_60 a2_61 a2_62 a2_63 a2_64 a2_65 a2_66 a2_67 a2_68 a2_69 a2_70 a2_71 a2_72 a2_73 a2_74 a2_75 a2_76 a2_77 a2_78 a2_79\n9. user:\nu3_0 u3_1 u3_2 u3_3 u3_4 u3_5 u3_6 u3_7 u3_8 u3_9 u3_10 u3_11 u3_12 u3_13 u3_14 u3_15 u3_16 u3_17 u3_18 u3_19 u3_20 u3_21 u3_22 u3_23 u3_24 u3_25 u3_26 u3_27 u3_28 u3_29 u3_30 u3_31 u3_32 u3_33 u3_34 u3_35 u3_36 u3_37 u3_38 u3_39 u3_40 u3_41 u3_42 u3_43 u3_44 u3_45 u3_46 u3_47 u3_48 u3_49 u3_50 u3_51 u3_52 u3_53 u3_54 u3_55 u3_56 u3_57 u3_58 u3_59 u3_60 u3_61 u3_62 u3_63 u3_64 u3_65 u3_66 u3_67 u3_68 u3_69 u3_70 u3_71 u3_72 u3_73 u3_74 u3_75 u3_76 u3_77 u3_78 u3_79\n10. assistant:\na4_0 a4_1 a4_2 a4_3 a4_4 a4_5 a4_6 a4_7 a4_8 a4_9 a4_10 a4_11 a4_12 a4_13 a4_14 a4_15 a4_16 a4_17 a4_18 a4_19 a4_20 a4_21 a4_22 a4_23 a4_24 a4_25 a4_26 a4_27 a4_28 a4_29 a4_30 a4_31 a4_32 a4_33 a4_34 a4_35 a4_36 a4_37 a4_38 a4_39 a4_40 a4_41 a4_42 a4_43 a4_44 a4_45 a4_46 a4_47 a4_48 a4_49 a4_50 a4_51 a4_52 a4_53 a4_54 a4_55 a4_56 a4_57 a4_58 a4_59 a4_60 a4_61 a4_62 a4_63 a4_64 a4_65 a4_66 a4_67 a4_68 a4_69 a4_70 a4_71 a4_72 a4_73 a4_74 a4_75 a4_76 a4_77 a4_78 a4_79\n11. user:\nu5_0 u5_1 u5_2 u5_3 u5_4 u5_5 u5_6 u5_7 u5_8 u5_9 u5_10 u5_11 u5_12 u5_13 u5_14 u5_15 u5_16 u5_17 u5_18 u5_19 u5_20 u5_21 u5_22 u5_23 u5_24 u5_25 u5_26 u5_27 u5_28 u5_29 u5_30 u5_31 u5_32 u5_33 u5_34 u5_35 u5_36 u5_37 u5_38 u5_39 u5_40 u5_41 u5_42 u5_43 u5_44 u5_45 u5_46 u5_47 u5_48 u5_49 u5_50 u5_51 u5_52 u5_53 u5_54 u5_55 u5_56 u5_57 u5_58 u5_59 u5_60 u5_61 u5_62 u5_63 u5_64 u5_65 u5_66 u5_67 u5_68 u5_69 u5_70 u5_71 u5_72 u5_73 u5_74 u5_75 u5_76 u5_77 u5_78 u5_79\n12. assistant:\na6_0 a6_1 a6_2 a6_3 a6_4 a6_5 a6_6 a6_7 a6_8 a6_9 a6_10 a6_11 a6_12 a6_13 a6_14 a6_15 a6_16 a6_17 a6_18 a6_19 a6_20 a6_21 a6_22 a6_23 a6_24 a6_25 a6_26 a6_27 a6_28 a6_29 a6_30 a6_31 a6_32 a6_33 a6_34 a6_35 a6_36 a6_37 a6_38 a6_39 a6_40 a6_41 a6_42 a6_43 a6_44 a6_45 a6_46 a6_47 a6_48 a6_49 a6_50 a6_51 a6_52 a6_53 a6_54 a6_55 a6_56 a6_57 a6_58 a6_59 a6_60 a6_61 a6_62 a6_63 a6_64 a6_65 a6_66 a6_67 a6_68 a6_69 a6_70 a6_71 a6_72 a6_73 a6_74 a6_75 a6_76 a6_77 a6_78 a6_79\n13. user:\nu7_0 u7_1 u7_2 u7_3 u7_4 u7_5 u7_6 u7_7 u7_8 u7_9 u7_10 u7_11 u7_12 u7_13 u7_14 u7_15 u7_16 u7_17 u7_18 u7_19 u7_20 u7_21 u7_22 u7_23 u7_24 u7_25 u7_26 u7_27 u7_28 u7_29 u7_30 u7_31 u7_32 u7_33 u7_34 u7_35 u7_36 u7_37 u7_38 u7_39 u7_40 u7_41 u7_42 u7_43 u7_44 u7_45 u7_46 u7_47 u7_48 u7_49 u7_50 u7_51 u7_52 u7_53 u7_54 u7_55 u7_56 u7_57 u7_58 u7_59 u7_60 u7_61 u7_62 u7_63 u7_64 u7_65 u7_66 u7_67 u7_68 u7_69 u7_70 u7_71 u7_72 u7_73 u7_74 u7_75 u7_76 u7_77 u7_78 u7_79\n14. assistant:\na8_0 a8_1 a8_2 a8_3 a8_4 a8_5 a8_6 a8_7 a8_8 a8_9 a8_10 a8_11 a8_12 a8_13 a8_14 a8_15 a8_16 a8_17 a8_18 a8_19 a8_20 a8_21 a8_22 a8_23 a8_24 a8_25 a8_26 a8_27 a8_28 a8_29 a8_30 a8_31 a8_32 a8_33 a8_34 a8_35 a8_36 a8_37 a8_38 a8_39 a8_40 a8_41 a8_42 a8_43 a8_44 a8_45 a8_46 a8_47 a8_48 a8_49 a8_50 a8_51 a8_52 a8_53 a8_54 a8_55 a8_56 a8_57 a8_58 a8_59 a8_60 a8_61 a8_62 a8_63 a8_64 a8_65 a8_66 a8_67 a8_68 a8_69 a8_70 a8_71 a8_72 a8_73 a8_74 a8_75 a8_76 a8_77 a8_78 a8_79\n15. user:\nu9_0 u9_1 u9_2 u9_3 u9_4 u9_5 u9_6 u9_7 u9_8 u9_9 u9_10 u9_11 u9_12 u9_13 u9_14 u9_15 u9_16 u9_17 u9_18 u9_19 u9_20 u9_21 u9_22 u9_23 u9_24 u9_25 u9_26 u9_27 u9_28 u9_29 u9_30 u9_31 u9_32 u9_33 u9_34 u9_35 u9_36 u9_37 u9_38 u9_39 u9_40 u9_41 u9_42 u9_43 u9_44 u9_45 u9_46 u9_47 u9_48 u9_49 u9_50 u9_51 u9_52 u9_53 u9_54 u9_55 u9_56 u9_57 u9_58 u9_59 u9_60 u9_61 u9_62 u9_63 u9_64 u9_65 u9_66 u9_67 u9_68 u9_69 u9_70 u9_71 u9_72 u9_73 u9_74 u9_75 u9_76 u9_77 u9_78 u9_79\n16. assistant:\na10_0 a10_1 a10_2 a10_3 a10_4 a10_5 a10_6 a10_7 a10_8 a10_9 a10_10 a10_11 a10_12 a10_13 a10_14 a10_15 a10_16 a10_17 a10_18 a10_19 a10_20 a10_21 a10_22 a10_23 a10_24 a10_25 a10_26 a10_27 a10_28 a10_29 a10_30 a10_31 a10_32 a10_33 a10_34 a10_35 a10_36 a10_37 a10_38 a10_39 a10_40 a10_41 a10_42 a10_43 a10_44 a10_45 a10_46 a10_47 a10_48 a10_49 a10_50 a10_51 a10_52 a10_53 a10_54 a10_55 a10_56 a10_57 a10_58 a10_59 a10_60 a10_61 a10_62 a10_63 a10_64 a10_65 a10_66 a10_67 a10_68 a10_69 a10_70 a10_71 a10_72 a10_73 a10_74 a10_75 a10_76 a10_77 a10_78 a10_79\n17. user:\nu11_0 u11_1 u11_2 u11_3 u11_4 u11_5 u11_6 u11_7 u11_8 u11_9 u11_10 u11_11 u11_12 u11_13 u11_14 u11_15 u11_16 u11_17 u11_18 u11_19 u11_20 u11_21 u11_22 u11_23 u11_24 u11_25 u11_26 u11_27 u11_28 u11_29 u11_30 u11_31 u11_32 u11_33 u11_34 u11_35 u11_36 u11_37 u11_38 u11_39 u11_40 u11_41 u11_42 u11_43 u11_44 u11_45 u11_46 u11_47 u11_48 u11_49 u11_50 u11_51 u11_52 u11_53 u11_54 u11_55 u11_56 u11_57 u11_58 u11_59 u11_60 u11_61 u11_62 u11_63 u11_64 u11_65 u11_66 u11_67 u11_68 u11_69 u11_70 u11_71 u11_72 u11_73 u11_74 u11_75 u11_76 u11_77 u11_78 u11_79\n18. assistant:\na12_0 a12_1 a12_2 a12_3 a12_4 a12_5 a12_6 a12_7 a12_8 a12_9 a12_10 a12_11 a12_12 a12_13 a12_14 a12_15 a12_16 a12_17 a12_18 a12_19 a12_20 a12_21 a12_22 a12_23 a12_24 a12_25 a12_26 a12_27 a12_28 a12_29 a12_30 a12_31 a12_32 a12_33 a12_34 a12_35 a12_36 a12_37 a12_38 a12_39 a12_40 a12_41 a12_42 a12_43 a12_44 a12_45 a12_46 a12_47 a12_48 a12_49 a12_50 a12_51 a12_52 a12_53 a12_54 a12_55 a12_56 a12_57 a12_58 a12_59 a12_60 a12_61 a12_62 a12_63 a12_64 a12_65 a12_66 a12_67 a12_68 a12_69 a12_70 a12_71 a12_72 a12_73 a12_74 a12_75 a12_76 a12_77 a12_78 a12_79\n19. user:\nu13_0 u13_1 u13_2 u13_3 u13_4 u13_5 u13_6 u13_7 u13_8 u13_9 u13_10 u13_11 u13_12 u13_13 u13_14 u13_15 u13_16 u13_17 u13_18 u13_19 u13_20 u13_21 u13_22 u13_23 u13_24 u13_25 u13_26 u13_27 u13_28 u13_29 u13_30 u13_31 u13_32 u13_33 u13_34 u13_35 u13_36 u13_37 u13_38 u13_39 u13_40 u13_41 u13_42 u13_43 u13_44 u13_45 u13_46 u13_47 u13_48 u13_49 u13_50 u13_51 u13_52 u13_53 u13_54 u13_55 u13_56 u13_57 u13_58 u13_59 u13_60 u13_61 u13_62 u13_63 u13_64 u13_65 u13_66 u13_67 u13_68 u13_69 u13_70 u13_71 u13_72 u13_73 u13_74 u13_75 u13_76 u13_77 u13_78 u13_79\n20. assistant:\na14_0 a14_1 a14_2 a14_3 a14_4 a14_5 a14_6 a14_7 a14_8 a14_9 a14_10 a14_11 a14_12 a14_13 a14_14 a14_15 a14_16 a14_17 a14_18 a14_19 a14_20 a14_21 a14_22 a14_23 a14_24 a14_25 a14_26 a14_27 a14_28 a14_29 a14_30 a14_31 a14_32 a14_33 a14_34 a14_35 a14_36 a14_37 a14_38 a14_39 a14_40 a14_41 a14_42 a14_43 a14_44 a14_45 a14_46 a14_47 a14_48 a14_49 a14_50 a14_51 a14_52 a14_53 a14_54 a14_55 a14_56 a14_57 a14_58 a14_59 a14_60 a14_61 a14_62 a14_63 a14_64 a14_65 a14_66 a14_67 a14_68 a14_69 a14_70 a14_71 a14_72 a14_73 a14_74 a14_75 a14_76 a14_77 a14_78 a14_79\n21. user:\nu15_0 u15_1 u15_2 u15_3 u15_4 u15_5 u15_6 u15_7 u15_8 u15_9 u15_10 u15_11 u15_12 u15_13 u15_14 u15_15 u15_16 u15_17 u15_18 u15_19 u15_20 u15_21 u15_22 u15_23 u15_24 u15_25 u15_26 u15_27 u15_28 u15_29 u15_30 u15_31 u15_32 u15_33 u15_34 u15_35 u15_36 u15_37 u15_38 u15_39 u15_40 u15_41 u15_42 u15_43 u15_44 u15_45 u15_46 u15_47 u15_48 u15_49 u15_50 u15_51 u15_52 u15_53 u15_54 u15_55 u15_56 u15_57 u15_58 u15_59 u15_60 u15_61 u15_62 u15_63 u15_64 u15_65 u15_66 u15_67 u15_68 u15_69 u15_70 u15_71 u15_72 u15_73 u15_74 u15_75 u15_76 u15_77 u15_78 u15_79\n</conversation-history>"
             }
           ],
-          "model": "gpt-x"
-        },
-        {
-          "messages": [
+          "gpt-x",
+          {
+            "$exact": "undefined"
+          },
+          {
+            "session": {
+              "id": "gaps-pasted-stored:compact",
+              "sourceType": {
+                "$exact": "undefined"
+              },
+              "provider": "openai",
+              "model": "gpt-x",
+              "cwd": {
+                "$exact": "undefined"
+              }
+            },
+            "thinkingBudgetTokens": {
+              "$exact": "undefined"
+            },
+            "xaiReasoningEffort": {
+              "$exact": "undefined"
+            },
+            "reasoningEffort": {
+              "$exact": "undefined"
+            },
+            "effort": "low",
+            "effortConfiguration": {
+              "$exact": "undefined"
+            },
+            "effortConfigurationEnabled": false,
+            "fast": false,
+            "requestKind": "compaction",
+            "maxOutputTokens": 1200,
+            "providerState": {
+              "$exact": "undefined"
+            },
+            "onToolCall": {
+              "$exact": "undefined"
+            },
+            "onToolResult": {
+              "$exact": "undefined"
+            },
+            "onTextDelta": {
+              "$exact": "undefined"
+            },
+            "onReasoningDelta": {
+              "$exact": "undefined"
+            },
+            "onUsageDelta": {
+              "$exact": "undefined"
+            },
+            "onStreamDelta": {
+              "$exact": "undefined"
+            },
+            "onStageChange": {
+              "$exact": "undefined"
+            },
+            "drainSteering": {
+              "$exact": "undefined"
+            },
+            "onSteerMessage": {
+              "$exact": "undefined"
+            },
+            "signal": {
+              "aborted": false
+            },
+            "sessionId": "gaps-pasted-stored:compact",
+            "usageSessionId": "gaps-pasted-stored"
+          }
+        ],
+        [
+          [
             {
               "role": "system",
               "content": "You are an anchored context summarization assistant for coding sessions.\n\nSummarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.\n\nIf the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.\n\nAlways follow the exact output structure requested by the user prompt. Keep every section, preserve exact file paths and identifiers when known, and prefer terse bullets over paragraphs.\n\nDo not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation."
@@ -421,11 +557,150 @@
               "content": "Update the anchored summary below using the conversation history that follows. Preserve still-true details, remove stale details, and merge in the new facts.\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n\n<previous-summary>\n## Goal\n- u15_0 u15_1 u15_2 u15_3 u15_4 u15_5 u15_6 u15_7 u15_8 u15_9 u15_10 u15_11 u15_12 u15_13 u15_14 u15_15 u15_16 u15_17 u15_18 u15_19 u15_20 u15_21 u15_22 u15_23 u15_24 u15_25 u15_26 u15_27 u15_28 u15_2 … 1 u15_52 u15_53 u15_54 u15_55 u15_56 u15_57 u15_58 u15_59 u15_60 u15_61 u15_62 u15_63 u15_64 u15_65 u15_66 u15_67 u15_68 u15_69 u15_70 u15_71 u15_72 u15_73 u15_74 u15_75 u15_76 u15_77 u15_78 u15_79\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- (none)\n### In Progress\n- (none)\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- (none)\n\n## Critical Context\n- SUMMARY of the conversation so far\n\n## Relevant Files\n- (none)\n</previous-summary>\n\n<conversation-history>\n1. assistant:\na16_0 a16_1 a16_2 a16_3 a16_4 a16_5 a16_6 a16_7 a16_8 a16_9 a16_10 a16_11 a16_12 a16_13 a16_14 a16_15 a16_16 a16_17 a16_18 a16_19 a16_20 a16_21 a16_22 a16_23 a16_24 a16_25 a16_26 a16_27 a16_28 a16_29 a16_30 a16_31 a16_32 a16_33 a16_34 a16_35 a16_36 a16_37 a16_38 a16_39 a16_40 a16_41 a16_42 a16_43 a16_44 a16_45 a16_46 a16_47 a16_48 a16_49 a16_50 a16_51 a16_52 a16_53 a16_54 a16_55 a16_56 a16_57 a16_58 a16_59 a16_60 a16_61 a16_62 a16_63 a16_64 a16_65 a16_66 a16_67 a16_68 a16_69 a16_70 a16_71 a16_72 a16_73 a16_74 a16_75 a16_76 a16_77 a16_78 a16_79\n2. user:\nu17_0 u17_1 u17_2 u17_3 u17_4 u17_5 u17_6 u17_7 u17_8 u17_9 u17_10 u17_11 u17_12 u17_13 u17_14 u17_15 u17_16 u17_17 u17_18 u17_19 u17_20 u17_21 u17_22 u17_23 u17_24 u17_25 u17_26 u17_27 u17_28 u17_29 u17_30 u17_31 u17_32 u17_33 u17_34 u17_35 u17_36 u17_37 u17_38 u17_39 u17_40 u17_41 u17_42 u17_43 u17_44 u17_45 u17_46 u17_47 u17_48 u17_49 u17_50 u17_51 u17_52 u17_53 u17_54 u17_55 u17_56 u17_57 u17_58 u17_59 u17_60 u17_61 u17_62 u17_63 u17_64 u17_65 u17_66 u17_67 u17_68 u17_69 u17_70 u17_71 u17_72 u17_73 u17_74 u17_75 u17_76 u17_77 u17_78 u17_79\n3. assistant:\na18_0 a18_1 a18_2 a18_3 a18_4 a18_5 a18_6 a18_7 a18_8 a18_9 a18_10 a18_11 a18_12 a18_13 a18_14 a18_15 a18_16 a18_17 a18_18 a18_19 a18_20 a18_21 a18_22 a18_23 a18_24 a18_25 a18_26 a18_27 a18_28 a18_29 a18_30 a18_31 a18_32 a18_33 a18_34 a18_35 a18_36 a18_37 a18_38 a18_39 a18_40 a18_41 a18_42 a18_43 a18_44 a18_45 a18_46 a18_47 a18_48 a18_49 a18_50 a18_51 a18_52 a18_53 a18_54 a18_55 a18_56 a18_57 a18_58 a18_59 a18_60 a18_61 a18_62 a18_63 a18_64 a18_65 a18_66 a18_67 a18_68 a18_69 a18_70 a18_71 a18_72 a18_73 a18_74 a18_75 a18_76 a18_77 a18_78 a18_79\n4. user:\nu19_0 u19_1 u19_2 u19_3 u19_4 u19_5 u19_6 u19_7 u19_8 u19_9 u19_10 u19_11 u19_12 u19_13 u19_14 u19_15 u19_16 u19_17 u19_18 u19_19 u19_20 u19_21 u19_22 u19_23 u19_24 u19_25 u19_26 u19_27 u19_28 u19_29 u19_30 u19_31 u19_32 u19_33 u19_34 u19_35 u19_36 u19_37 u19_38 u19_39 u19_40 u19_41 u19_42 u19_43 u19_44 u19_45 u19_46 u19_47 u19_48 u19_49 u19_50 u19_51 u19_52 u19_53 u19_54 u19_55 u19_56 u19_57 u19_58 u19_59 u19_60 u19_61 u19_62 u19_63 u19_64 u19_65 u19_66 u19_67 u19_68 u19_69 u19_70 u19_71 u19_72 u19_73 u19_74 u19_75 u19_76 u19_77 u19_78 u19_79\n5. assistant:\na20_0 a20_1 a20_2 a20_3 a20_4 a20_5 a20_6 a20_7 a20_8 a20_9 a20_10 a20_11 a20_12 a20_13 a20_14 a20_15 a20_16 a20_17 a20_18 a20_19 a20_20 a20_21 a20_22 a20_23 a20_24 a20_25 a20_26 a20_27 a20_28 a20_29 a20_30 a20_31 a20_32 a20_33 a20_34 a20_35 a20_36 a20_37 a20_38 a20_39 a20_40 a20_41 a20_42 a20_43 a20_44 a20_45 a20_46 a20_47 a20_48 a20_49 a20_50 a20_51 a20_52 a20_53 a20_54 a20_55 a20_56 a20_57 a20_58 a20_59 a20_60 a20_61 a20_62 a20_63 a20_64 a20_65 a20_66 a20_67 a20_68 a20_69 a20_70 a20_71 a20_72 a20_73 a20_74 a20_75 a20_76 a20_77 a20_78 a20_79\n6. user:\nu21_0 u21_1 u21_2 u21_3 u21_4 u21_5 u21_6 u21_7 u21_8 u21_9 u21_10 u21_11 u21_12 u21_13 u21_14 u21_15 u21_16 u21_17 u21_18 u21_19 u21_20 u21_21 u21_22 u21_23 u21_24 u21_25 u21_26 u21_27 u21_28 u21_29 u21_30 u21_31 u21_32 u21_33 u21_34 u21_35 u21_36 u21_37 u21_38 u21_39 u21_40 u21_41 u21_42 u21_43 u21_44 u21_45 u21_46 u21_47 u21_48 u21_49 u21_50 u21_51 u21_52 u21_53 u21_54 u21_55 u21_56 u21_57 u21_58 u21_59 u21_60 u21_61 u21_62 u21_63 u21_64 u21_65 u21_66 u21_67 u21_68 u21_69 u21_70 u21_71 u21_72 u21_73 u21_74 u21_75 u21_76 u21_77 u21_78 u21_79\n7. assistant:\na22_0 a22_1 a22_2 a22_3 a22_4 a22_5 a22_6 a22_7 a22_8 a22_9 a22_10 a22_11 a22_12 a22_13 a22_14 a22_15 a22_16 a22_17 a22_18 a22_19 a22_20 a22_21 a22_22 a22_23 a22_24 a22_25 a22_26 a22_27 a22_28 a22_29 a22_30 a22_31 a22_32 a22_33 a22_34 a22_35 a22_36 a22_37 a22_38 a22_39 a22_40 a22_41 a22_42 a22_43 a22_44 a22_45 a22_46 a22_47 a22_48 a22_49 a22_50 a22_51 a22_52 a22_53 a22_54 a22_55 a22_56 a22_57 a22_58 a22_59 a22_60 a22_61 a22_62 a22_63 a22_64 a22_65 a22_66 a22_67 a22_68 a22_69 a22_70 a22_71 a22_72 a22_73 a22_74 a22_75 a22_76 a22_77 a22_78 a22_79\n8. user:\nu23_0 u23_1 u23_2 u23_3 u23_4 u23_5 u23_6 u23_7 u23_8 u23_9 u23_10 u23_11 u23_12 u23_13 u23_14 u23_15 u23_16 u23_17 u23_18 u23_19 u23_20 u23_21 u23_22 u23_23 u23_24 u23_25 u23_26 u23_27 u23_28 u23_29 u23_30 u23_31 u23_32 u23_33 u23_34 u23_35 u23_36 u23_37 u23_38 u23_39 u23_40 u23_41 u23_42 u23_43 u23_44 u23_45 u23_46 u23_47 u23_48 u23_49 u23_50 u23_51 u23_52 u23_53 u23_54 u23_55 u23_56 u23_57 u23_58 u23_59 u23_60 u23_61 u23_62 u23_63 u23_64 u23_65 u23_66 u23_67 u23_68 u23_69 u23_70 u23_71 u23_72 u23_73 u23_74 u23_75 u23_76 u23_77 u23_78 u23_79\n9. assistant:\na24_0 a24_1 a24_2 a24_3 a24_4 a24_5 a24_6 a24_7 a24_8 a24_9 a24_10 a24_11 a24_12 a24_13 a24_14 a24_15 a24_16 a24_17 a24_18 a24_19 a24_20 a24_21 a24_22 a24_23 a24_24 a24_25 a24_26 a24_27 a24_28 a24_29 a24_30 a24_31 a24_32 a24_33 a24_34 a24_35 a24_36 a24_37 a24_38 a24_39 a24_40 a24_41 a24_42 a24_43 a24_44 a24_45 a24_46 a24_47 a24_48 a24_49 a24_50 a24_51 a24_52 a24_53 a24_54 a24_55 a24_56 a24_57 a24_58 a24_59 a24_60 a24_61 a24_62 a24_63 a24_64 a24_65 a24_66 a24_67 a24_68 a24_69 a24_70 a24_71 a24_72 a24_73 a24_74 a24_75 a24_76 a24_77 a24_78 a24_79\n10. user:\nu25_0 u25_1 u25_2 u25_3 u25_4 u25_5 u25_6 u25_7 u25_8 u25_9 u25_10 u25_11 u25_12 u25_13 u25_14 u25_15 u25_16 u25_17 u25_18 u25_19 u25_20 u25_21 u25_22 u25_23 u25_24 u25_25 u25_26 u25_27 u25_28 u25_29 u25_30 u25_31 u25_32 u25_33 u25_34 u25_35 u25_36 u25_37 u25_38 u25_39 u25_40 u25_41 u25_42 u25_43 u25_44 u25_45 u25_46 u25_47 u25_48 u25_49 u25_50 u25_51 u25_52 u25_53 u25_54 u25_55 u25_56 u25_57 u25_58 u25_59 u25_60 u25_61 u25_62 u25_63 u25_64 u25_65 u25_66 u25_67 u25_68 u25_69 u25_70 u25_71 u25_72 u25_73 u25_74 u25_75 u25_76 u25_77 u25_78 u25_79\n11. assistant:\na26_0 a26_1 a26_2 a26_3 a26_4 a26_5 a26_6 a26_7 a26_8 a26_9 a26_10 a26_11 a26_12 a26_13 a26_14 a26_15 a26_16 a26_17 a26_18 a26_19 a26_20 a26_21 a26_22 a26_23 a26_24 a26_25 a26_26 a26_27 a26_28 a26_29 a26_30 a26_31 a26_32 a26_33 a26_34 a26_35 a26_36 a26_37 a26_38 a26_39 a26_40 a26_41 a26_42 a26_43 a26_44 a26_45 a26_46 a26_47 a26_48 a26_49 a26_50 a26_51 a26_52 a26_53 a26_54 a26_55 a26_56 a26_57 a26_58 a26_59 a26_60 a26_61 a26_62 a26_63 a26_64 a26_65 a26_66 a26_67 a26_68 a26_69 a26_70 a26_71 a26_72 a26_73 a26_74 a26_75 a26_76 a26_77 a26_78 a26_79\n12. user:\nu27_0 u27_1 u27_2 u27_3 u27_4 u27_5 u27_6 u27_7 u27_8 u27_9 u27_10 u27_11 u27_12 u27_13 u27_14 u27_15 u27_16 u27_17 u27_18 u27_19 u27_20 u27_21 u27_22 u27_23 u27_24 u27_25 u27_26 u27_27 u27_28 u27_29 u27_30 u27_31 u27_32 u27_33 u27_34 u27_35 u27_36 u27_37 u27_38 u27_39 u27_40 u27_41 u27_42 u27_43 u27_44 u27_45 u27_46 u27_47 u27_48 u27_49 u27_50 u27_51 u27_52 u27_53 u27_54 u27_55 u27_56 u27_57 u27_58 u27_59 u27_60 u27_61 u27_62 u27_63 u27_64 u27_65 u27_66 u27_67 u27_68 u27_69 u27_70 u27_71 u27_72 u27_73 u27_74 u27_75 u27_76 u27_77 u27_78 u27_79\n13. assistant:\na28_0 a28_1 a28_2 a28_3 a28_4 a28_5 a28_6 a28_7 a28_8 a28_9 a28_10 a28_11 a28_12 a28_13 a28_14 a28_15 a28_16 a28_17 a28_18 a28_19 a28_20 a28_21 a28_22 a28_23 a28_24 a28_25 a28_26 a28_27 a28_28 a28_29 a28_30 a28_31 a28_32 a28_33 a28_34 a28_35 a28_36 a28_37 a28_38 a28_39 a28_40 a28_41 a28_42 a28_43 a28_44 a28_45 a28_46 a28_47 a28_48 a28_49 a28_50 a28_51 a28_52 a28_53 a28_54 a28_55 a28_56 a28_57 a28_58 a28_59 a28_60 a28_61 a28_62 a28_63 a28_64 a28_65 a28_66 a28_67 a28_68 a28_69 a28_70 a28_71 a28_72 a28_73 a28_74 a28_75 a28_76 a28_77 a28_78 a28_79\n14. user:\nu29_0 u29_1 u29_2 u29_3 u29_4 u29_5 u29_6 u29_7 u29_8 u29_9 u29_10 u29_11 u29_12 u29_13 u29_14 u29_15 u29_16 u29_17 u29_18 u29_19 u29_20 u29_21 u29_22 u29_23 u29_24 u29_25 u29_26 u29_27 u29_28 u29_29 u29_30 u29_31 u29_32 u29_33 u29_34 u29_35 u29_36 u29_37 u29_38 u29_39 u29_40 u29_41 u29_42 u29_43 u29_44 u29_45 u29_46 u29_47 u29_48 u29_49 u29_50 u29_51 u29_52 u29_53 u29_54 u29_55 u29_56 u29_57 u29_58 u29_59 u29_60 u29_61 u29_62 u29_63 u29_64 u29_65 u29_66 u29_67 u29_68 u29_69 u29_70 u29_71 u29_72 u29_73 u29_74 u29_75 u29_76 u29_77 u29_78 u29_79\n15. assistant:\na30_0 a30_1 a30_2 a30_3 a30_4 a30_5 a30_6 a30_7 a30_8 a30_9 a30_10 a30_11 a30_12 a30_13 a30_14 a30_15 a30_16 a30_17 a30_18 a30_19 a30_20 a30_21 a30_22 a30_23 a30_24 a30_25 a30_26 a30_27 a30_28 a30_29 a30_30 a30_31 a30_32 a30_33 a30_34 a30_35 a30_36 a30_37 a30_38 a30_39 a30_40 a30_41 a30_42 a30_43 a30_44 a30_45 a30_46 a30_47 a30_48 a30_49 a30_50 a30_51 a30_52 a30_53 a30_54 a30_55 a30_56 a30_57 a30_58 a30_59 a30_60 a30_61 a30_62 a30_63 a30_64 a30_65 a30_66 a30_67 a30_68 a30_69 a30_70 a30_71 a30_72 a30_73 a30_74 a30_75 a30_76 a30_77 a30_78 a30_79\n16. user:\nu31_0 u31_1 u31_2 u31_3 u31_4 u31_5 u31_6 u31_7 u31_8 u31_9 u31_10 u31_11 u31_12 u31_13 u31_14 u31_15 u31_16 u31_17 u31_18 u31_19 u31_20 u31_21 u31_22 u31_23 u31_24 u31_25 u31_26 u31_27 u31_28 u31_29 u31_30 u31_31 u31_32 u31_33 u31_34 u31_35 u31_36 u31_37 u31_38 u31_39 u31_40 u31_41 u31_42 u31_43 u31_44 u31_45 u31_46 u31_47 u31_48 u31_49 u31_50 u31_51 u31_52 u31_53 u31_54 u31_55 u31_56 u31_57 u31_58 u31_59 u31_60 u31_61 u31_62 u31_63 u31_64 u31_65 u31_66 u31_67 u31_68 u31_69 u31_70 u31_71 u31_72 u31_73 u31_74 u31_75 u31_76 u31_77 u31_78 u31_79\n17. assistant:\na32_0 a32_1 a32_2 a32_3 a32_4 a32_5 a32_6 a32_7 a32_8 a32_9 a32_10 a32_11 a32_12 a32_13 a32_14 a32_15 a32_16 a32_17 a32_18 a32_19 a32_20 a32_21 a32_22 a32_23 a32_24 a32_25 a32_26 a32_27 a32_28 a32_29 a32_30 a32_31 a32_32 a32_33 a32_34 a32_35 a32_36 a32_37 a32_38 a32_39 a32_40 a32_41 a32_42 a32_43 a32_44 a32_45 a32_46 a32_47 a32_48 a32_49 a32_50 a32_51 a32_52 a32_53 a32_54 a32_55 a32_56 a32_57 a32_58 a32_59 a32_60 a32_61 a32_62 a32_63 a32_64 a32_65 a32_66 a32_67 a32_68 a32_69 a32_70 a32_71 a32_72 a32_73 a32_74 a32_75 a32_76 a32_77 a32_78 a32_79\n18. user:\nu33_0 u33_1 u33_2 u33_3 u33_4 u33_5 u33_6 u33_7 u33_8 u33_9 u33_10 u33_11 u33_12 u33_13 u33_14 u33_15 u33_16 u33_17 u33_18 u33_19 u33_20 u33_21 u33_22 u33_23 u33_24 u33_25 u33_26 u33_27 u33_28 u33_29 u33_30 u33_31 u33_32 u33_33 u33_34 u33_35 u33_36 u33_37 u33_38 u33_39 u33_40 u33_41 u33_42 u33_43 u33_44 u33_45 u33_46 u33_47 u33_48 u33_49 u33_50 u33_51 u33_52 u33_53 u33_54 u33_55 u33_56 u33_57 u33_58 u33_59 u33_60 u33_61 u33_62 u33_63 u33_64 u33_65 u33_66 u33_67 u33_68 u33_69 u33_70 u33_71 u33_72 u33_73 u33_74 u33_75 u33_76 u33_77 u33_78 u33_79\n19. assistant:\na34_0 a34_1 a34_2 a34_3 a34_4 a34_5 a34_6 a34_7 a34_8 a34_9 a34_10 a34_11 a34_12 a34_13 a34_14 a34_15 a34_16 a34_17 a34_18 a34_19 a34_20 a34_21 a34_22 a34_23 a34_24 a34_25 a34_26 a34_27 a34_28 a34_29 a34_30 a34_31 a34_32 a34_33 a34_34 a34_35 a34_36 a34_37 a34_38 a34_39 a34_40 a34_41 a34_42 a34_43 a34_44 a34_45 a34_46 a34_47 a34_48 a34_49 a34_50 a34_51 a34_52 a34_53 a34_54 a34_55 a34_56 a34_57 a34_58 a34_59 a34_60 a34_61 a34_62 a34_63 a34_64 a34_65 a34_66 a34_67 a34_68 a34_69 a34_70 a34_71 a34_72 a34_73 a34_74 a34_75 a34_76 a34_77 a34_78 a34_79\n20. user:\nu35_0 u35_1 u35_2 u35_3 u35_4 u35_5 u35_6 u35_7 u35_8 u35_9 u35_10 u35_11 u35_12 u35_13 u35_14 u35_15 u35_16 u35_17 u35_18 u35_19 u35_20 u35_21 u35_22 u35_23 u35_24 u35_25 u35_26 u35_27 u35_28 u35_29 u35_30 u35_31 u35_32 u35_33 u35_34 u35_35 u35_36 u35_37 u35_38 u35_39 u35_40 u35_41 u35_42 u35_43 u35_44 u35_45 u35_46 u35_47 u35_48 u35_49 u35_50 u35_51 u35_52 u35_53 u35_54 u35_55 u35_56 u35_57 u35_58 u35_59 u35_60 u35_61 u35_62 u35_63 u35_64 u35_65 u35_66 u35_67 u35_68 u35_69 u35_70 u35_71 u35_72 u35_73 u35_74 u35_75 u35_76 u35_77 u35_78 u35_79\n21. assistant:\na36_0 a36_1 a36_2 a36_3 a36_4 a36_5 a36_6 a36_7 a36_8 a36_9 a36_10 a36_11 a36_12 a36_13 a36_14 a36_15 a36_16 a36_17 a36_18 a36_19 a36_20 a36_21 a36_22 a36_23 a36_24 a36_25 a36_26 a36_27 a36_28 a36_29 a36_30 a36_31 a36_32 a36_33 a36_34 a36_35 a36_36 a36_37 a36_38 a36_39 a36_40 a36_41 a36_42 a36_43 a36_44 a36_45 a36_46 a36_47 a36_48 a36_49 a36_50 a36_51 a36_52 a36_53 a36_54 a36_55 a36_56 a36_57 a36_58 a36_59 a36_60 a36_61 a36_62 a36_63 a36_64 a36_65 a36_66 a36_67 a36_68 a36_69 a36_70 a36_71 a36_72 a36_73 a36_74 a36_75 a36_76 a36_77 a36_78 a36_79\n22. assistant:\na38_0 a38_1 a38_2 a38_3 a38_4 a38_5 a38_6 a38_7 a38_8 a38_9 a38_10 a38_11 a38_12 a38_13 a38_14 a38_15 a38_16 a38_17 a38_18 a38_19 a38_20 a38_21 a38_22 a38_23 a38_24 a38_25 a38_26 a38_27 a38_28 a38_29 a38_30 a38_31 a38_32 a38_33 a38_34 a38_35 a38_36 a38_37 a38_38 a38_39 a38_40 a38_41 a38_42 a38_43 a38_44 a38_45 a38_46 a38_47 a38_48 a38_49 a38_50 a38_51 a38_52 a38_53 a38_54 a38_55 a38_56 a38_57 a38_58 a38_59 a38_60 a38_61 a38_62 a38_63 a38_64 a38_65 a38_66 a38_67 a38_68 a38_69 a38_70 a38_71 a38_72 a38_73 a38_74 a38_75 a38_76 a38_77 a38_78 a38_79\n</conversation-history>"
             }
           ],
-          "model": "gpt-x"
-        }
+          "gpt-x",
+          {
+            "$exact": "undefined"
+          },
+          {
+            "session": {
+              "id": "gaps-pasted-stored:compact",
+              "sourceType": {
+                "$exact": "undefined"
+              },
+              "provider": "openai",
+              "model": "gpt-x",
+              "cwd": {
+                "$exact": "undefined"
+              }
+            },
+            "thinkingBudgetTokens": {
+              "$exact": "undefined"
+            },
+            "xaiReasoningEffort": {
+              "$exact": "undefined"
+            },
+            "reasoningEffort": {
+              "$exact": "undefined"
+            },
+            "effort": "low",
+            "effortConfiguration": {
+              "$exact": "undefined"
+            },
+            "effortConfigurationEnabled": false,
+            "fast": false,
+            "requestKind": "compaction",
+            "maxOutputTokens": 1200,
+            "providerState": {
+              "$exact": "undefined"
+            },
+            "onToolCall": {
+              "$exact": "undefined"
+            },
+            "onToolResult": {
+              "$exact": "undefined"
+            },
+            "onTextDelta": {
+              "$exact": "undefined"
+            },
+            "onReasoningDelta": {
+              "$exact": "undefined"
+            },
+            "onUsageDelta": {
+              "$exact": "undefined"
+            },
+            "onStreamDelta": {
+              "$exact": "undefined"
+            },
+            "onStageChange": {
+              "$exact": "undefined"
+            },
+            "drainSteering": {
+              "$exact": "undefined"
+            },
+            "onSteerMessage": {
+              "$exact": "undefined"
+            },
+            "signal": {
+              "aborted": false
+            },
+            "sessionId": "gaps-pasted-stored:compact",
+            "usageSessionId": "gaps-pasted-stored"
+          }
+        ]
       ],
       "result": {
-        "ok": true
+        "value": {
+          "changed": true,
+          "reason": null,
+          "beforeMessages": 40,
+          "afterMessages": 3,
+          "beforeTokens": 12788,
+          "afterTokens": 410,
+          "beforeMessageTokens": 12788,
+          "afterMessageTokens": 410,
+          "pressureTokens": 12788,
+          "triggerTokens": 8000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "boundaryTokens": 8000,
+          "budgetTokens": 8000,
+          "targetBudgetTokens": 4000,
+          "reserveTokens": 0,
+          "freshContext": true,
+          "freshContextError": null,
+          "handoffSource": "session-local",
+          "usage": {
+            "inputTokens": 3000,
+            "outputTokens": 150,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "droppedMessages": 39,
+          "droppedIdentities": {
+            "messageIds": [
+              "msg_479803c9ca5495717de7e1da4b208c8a",
+              "msg_dfc896c62bfa0dd9680094c39461ba87",
+              "msg_4c203b702f6f29eea62f8de2bf2c85f9",
+              "msg_10df9d21b64003fb86094946744900df",
+              "msg_c4dfbb87a2824c2486f7ec5ddad6c856",
+              "msg_b5dbec94d87070499535966822c31a00",
+              "msg_3f0f509e9f8fc442cbb8d1d359c43cff",
+              "msg_8876631dfeffe00ea78a388b8c3b0e13",
+              "msg_cf0fe51620302691d5fef8816fd35588",
+              "msg_a3245b3954916a2b92c768bc9af3aa55",
+              "msg_b9a1a6b7f75bef5640a6378f01c2cfbb",
+              "msg_b4e4b888102c7aba20a87d9b9e0722a0",
+              "msg_1999fd176f55f1dae7e59e618c4c4234",
+              "msg_d8719934f40bbc437c3536511d8cce36",
+              "msg_5e75b5deae3afb56ec081c3ae09fc576",
+              "msg_219ae18e3eda9477050cfa14053f6ab5",
+              "msg_73707f34b8dd00d7fdb765bc73097023",
+              "msg_19b59e8f023e3e9496b7a560512819f6",
+              "msg_b4ad1e75265be950be83c63df061752c",
+              "msg_c7fdcc08f055e027e8e4464b63056cec",
+              "msg_12179d4e42c60018b8df18e5b15292fd",
+              "msg_632e23f34df5c35645888985e08452ea",
+              "msg_d855ed7fbbe7b6fb5d4d082ad1a4b16a",
+              "msg_a6f672bb50b84f4b288a20b944e8b2dc",
+              "msg_a234a42ab601f5632a2643db13c52606",
+              "msg_1a16f99bf37c6cbb0bb7a872a9546772",
+              "msg_c3eec6b58fd3f5fd5716cc4e433ec9ca",
+              "msg_8528edcc7024e0c21cf5377dbb9a17e5",
+              "msg_d670cac2c8f6a6106651a8ae134049ba",
+              "msg_2807c994042b347bdfa25018ac4a40ab",
+              "msg_3c72635b855f577ea195710a7b54d7a7",
+              "msg_033eecb66dd96b86325f1c7424b886dc",
+              "msg_f8d719a2172fd30528d3dddd369b9156",
+              "msg_ba1837317b387d8758503876ff5e3299",
+              "msg_a5b4a177cdfa15244e0fbbb28a92a40b",
+              "msg_ad7bfd160663d03a0d61fab1b14286d3",
+              "msg_414c796cf4b7c0afa77f6e128df1138b",
+              "msg_46a3d848db000a1df1f7550cc5f0d66a",
+              "msg_2da1b87aac50000ef407de502c367912"
+            ],
+            "callIds": []
+          }
+        }
       }
     },
     {
@@ -811,8 +1086,8 @@
         }
       ],
       "sends": [
-        {
-          "messages": [
+        [
+          [
             {
               "role": "system",
               "content": "You are an anchored context summarization assistant for coding sessions.\n\nSummarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.\n\nIf the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.\n\nAlways follow the exact output structure requested by the user prompt. Keep every section, preserve exact file paths and identifiers when known, and prefer terse bullets over paragraphs.\n\nDo not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation."
@@ -822,11 +1097,150 @@
               "content": "Create a new anchored summary from the conversation history below.\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n\n<conversation-history>\n1. user:\nReview this paste.\n[attachment unavailable]\n2. assistant:\na0_0 a0_1 a0_2 a0_3 a0_4 a0_5 a0_6 a0_7 a0_8 a0_9 a0_10 a0_11 a0_12 a0_13 a0_14 a0_15 a0_16 a0_17 a0_18 a0_19 a0_20 a0_21 a0_22 a0_23 a0_24 a0_25 a0_26 a0_27 a0_28 a0_29 a0_30 a0_31 a0_32 a0_33 a0_34 a0_35 a0_36 a0_37 a0_38 a0_39 a0_40 a0_41 a0_42 a0_43 a0_44 a0_45 a0_46 a0_47 a0_48 a0_49 a0_50 a0_51 a0_52 a0_53 a0_54 a0_55 a0_56 a0_57 a0_58 a0_59 a0_60 a0_61 a0_62 a0_63 a0_64 a0_65 a0_66 a0_67 a0_68 a0_69 a0_70 a0_71 a0_72 a0_73 a0_74 a0_75 a0_76 a0_77 a0_78 a0_79\n3. user:\nu1_0 u1_1 u1_2 u1_3 u1_4 u1_5 u1_6 u1_7 u1_8 u1_9 u1_10 u1_11 u1_12 u1_13 u1_14 u1_15 u1_16 u1_17 u1_18 u1_19 u1_20 u1_21 u1_22 u1_23 u1_24 u1_25 u1_26 u1_27 u1_28 u1_29 u1_30 u1_31 u1_32 u1_33 u1_34 u1_35 u1_36 u1_37 u1_38 u1_39 u1_40 u1_41 u1_42 u1_43 u1_44 u1_45 u1_46 u1_47 u1_48 u1_49 u1_50 u1_51 u1_52 u1_53 u1_54 u1_55 u1_56 u1_57 u1_58 u1_59 u1_60 u1_61 u1_62 u1_63 u1_64 u1_65 u1_66 u1_67 u1_68 u1_69 u1_70 u1_71 u1_72 u1_73 u1_74 u1_75 u1_76 u1_77 u1_78 u1_79\n4. assistant:\na2_0 a2_1 a2_2 a2_3 a2_4 a2_5 a2_6 a2_7 a2_8 a2_9 a2_10 a2_11 a2_12 a2_13 a2_14 a2_15 a2_16 a2_17 a2_18 a2_19 a2_20 a2_21 a2_22 a2_23 a2_24 a2_25 a2_26 a2_27 a2_28 a2_29 a2_30 a2_31 a2_32 a2_33 a2_34 a2_35 a2_36 a2_37 a2_38 a2_39 a2_40 a2_41 a2_42 a2_43 a2_44 a2_45 a2_46 a2_47 a2_48 a2_49 a2_50 a2_51 a2_52 a2_53 a2_54 a2_55 a2_56 a2_57 a2_58 a2_59 a2_60 a2_61 a2_62 a2_63 a2_64 a2_65 a2_66 a2_67 a2_68 a2_69 a2_70 a2_71 a2_72 a2_73 a2_74 a2_75 a2_76 a2_77 a2_78 a2_79\n5. user:\nu3_0 u3_1 u3_2 u3_3 u3_4 u3_5 u3_6 u3_7 u3_8 u3_9 u3_10 u3_11 u3_12 u3_13 u3_14 u3_15 u3_16 u3_17 u3_18 u3_19 u3_20 u3_21 u3_22 u3_23 u3_24 u3_25 u3_26 u3_27 u3_28 u3_29 u3_30 u3_31 u3_32 u3_33 u3_34 u3_35 u3_36 u3_37 u3_38 u3_39 u3_40 u3_41 u3_42 u3_43 u3_44 u3_45 u3_46 u3_47 u3_48 u3_49 u3_50 u3_51 u3_52 u3_53 u3_54 u3_55 u3_56 u3_57 u3_58 u3_59 u3_60 u3_61 u3_62 u3_63 u3_64 u3_65 u3_66 u3_67 u3_68 u3_69 u3_70 u3_71 u3_72 u3_73 u3_74 u3_75 u3_76 u3_77 u3_78 u3_79\n6. assistant:\na4_0 a4_1 a4_2 a4_3 a4_4 a4_5 a4_6 a4_7 a4_8 a4_9 a4_10 a4_11 a4_12 a4_13 a4_14 a4_15 a4_16 a4_17 a4_18 a4_19 a4_20 a4_21 a4_22 a4_23 a4_24 a4_25 a4_26 a4_27 a4_28 a4_29 a4_30 a4_31 a4_32 a4_33 a4_34 a4_35 a4_36 a4_37 a4_38 a4_39 a4_40 a4_41 a4_42 a4_43 a4_44 a4_45 a4_46 a4_47 a4_48 a4_49 a4_50 a4_51 a4_52 a4_53 a4_54 a4_55 a4_56 a4_57 a4_58 a4_59 a4_60 a4_61 a4_62 a4_63 a4_64 a4_65 a4_66 a4_67 a4_68 a4_69 a4_70 a4_71 a4_72 a4_73 a4_74 a4_75 a4_76 a4_77 a4_78 a4_79\n7. user:\nu5_0 u5_1 u5_2 u5_3 u5_4 u5_5 u5_6 u5_7 u5_8 u5_9 u5_10 u5_11 u5_12 u5_13 u5_14 u5_15 u5_16 u5_17 u5_18 u5_19 u5_20 u5_21 u5_22 u5_23 u5_24 u5_25 u5_26 u5_27 u5_28 u5_29 u5_30 u5_31 u5_32 u5_33 u5_34 u5_35 u5_36 u5_37 u5_38 u5_39 u5_40 u5_41 u5_42 u5_43 u5_44 u5_45 u5_46 u5_47 u5_48 u5_49 u5_50 u5_51 u5_52 u5_53 u5_54 u5_55 u5_56 u5_57 u5_58 u5_59 u5_60 u5_61 u5_62 u5_63 u5_64 u5_65 u5_66 u5_67 u5_68 u5_69 u5_70 u5_71 u5_72 u5_73 u5_74 u5_75 u5_76 u5_77 u5_78 u5_79\n8. assistant:\na6_0 a6_1 a6_2 a6_3 a6_4 a6_5 a6_6 a6_7 a6_8 a6_9 a6_10 a6_11 a6_12 a6_13 a6_14 a6_15 a6_16 a6_17 a6_18 a6_19 a6_20 a6_21 a6_22 a6_23 a6_24 a6_25 a6_26 a6_27 a6_28 a6_29 a6_30 a6_31 a6_32 a6_33 a6_34 a6_35 a6_36 a6_37 a6_38 a6_39 a6_40 a6_41 a6_42 a6_43 a6_44 a6_45 a6_46 a6_47 a6_48 a6_49 a6_50 a6_51 a6_52 a6_53 a6_54 a6_55 a6_56 a6_57 a6_58 a6_59 a6_60 a6_61 a6_62 a6_63 a6_64 a6_65 a6_66 a6_67 a6_68 a6_69 a6_70 a6_71 a6_72 a6_73 a6_74 a6_75 a6_76 a6_77 a6_78 a6_79\n9. user:\nu7_0 u7_1 u7_2 u7_3 u7_4 u7_5 u7_6 u7_7 u7_8 u7_9 u7_10 u7_11 u7_12 u7_13 u7_14 u7_15 u7_16 u7_17 u7_18 u7_19 u7_20 u7_21 u7_22 u7_23 u7_24 u7_25 u7_26 u7_27 u7_28 u7_29 u7_30 u7_31 u7_32 u7_33 u7_34 u7_35 u7_36 u7_37 u7_38 u7_39 u7_40 u7_41 u7_42 u7_43 u7_44 u7_45 u7_46 u7_47 u7_48 u7_49 u7_50 u7_51 u7_52 u7_53 u7_54 u7_55 u7_56 u7_57 u7_58 u7_59 u7_60 u7_61 u7_62 u7_63 u7_64 u7_65 u7_66 u7_67 u7_68 u7_69 u7_70 u7_71 u7_72 u7_73 u7_74 u7_75 u7_76 u7_77 u7_78 u7_79\n10. assistant:\na8_0 a8_1 a8_2 a8_3 a8_4 a8_5 a8_6 a8_7 a8_8 a8_9 a8_10 a8_11 a8_12 a8_13 a8_14 a8_15 a8_16 a8_17 a8_18 a8_19 a8_20 a8_21 a8_22 a8_23 a8_24 a8_25 a8_26 a8_27 a8_28 a8_29 a8_30 a8_31 a8_32 a8_33 a8_34 a8_35 a8_36 a8_37 a8_38 a8_39 a8_40 a8_41 a8_42 a8_43 a8_44 a8_45 a8_46 a8_47 a8_48 a8_49 a8_50 a8_51 a8_52 a8_53 a8_54 a8_55 a8_56 a8_57 a8_58 a8_59 a8_60 a8_61 a8_62 a8_63 a8_64 a8_65 a8_66 a8_67 a8_68 a8_69 a8_70 a8_71 a8_72 a8_73 a8_74 a8_75 a8_76 a8_77 a8_78 a8_79\n11. user:\nu9_0 u9_1 u9_2 u9_3 u9_4 u9_5 u9_6 u9_7 u9_8 u9_9 u9_10 u9_11 u9_12 u9_13 u9_14 u9_15 u9_16 u9_17 u9_18 u9_19 u9_20 u9_21 u9_22 u9_23 u9_24 u9_25 u9_26 u9_27 u9_28 u9_29 u9_30 u9_31 u9_32 u9_33 u9_34 u9_35 u9_36 u9_37 u9_38 u9_39 u9_40 u9_41 u9_42 u9_43 u9_44 u9_45 u9_46 u9_47 u9_48 u9_49 u9_50 u9_51 u9_52 u9_53 u9_54 u9_55 u9_56 u9_57 u9_58 u9_59 u9_60 u9_61 u9_62 u9_63 u9_64 u9_65 u9_66 u9_67 u9_68 u9_69 u9_70 u9_71 u9_72 u9_73 u9_74 u9_75 u9_76 u9_77 u9_78 u9_79\n12. assistant:\na10_0 a10_1 a10_2 a10_3 a10_4 a10_5 a10_6 a10_7 a10_8 a10_9 a10_10 a10_11 a10_12 a10_13 a10_14 a10_15 a10_16 a10_17 a10_18 a10_19 a10_20 a10_21 a10_22 a10_23 a10_24 a10_25 a10_26 a10_27 a10_28 a10_29 a10_30 a10_31 a10_32 a10_33 a10_34 a10_35 a10_36 a10_37 a10_38 a10_39 a10_40 a10_41 a10_42 a10_43 a10_44 a10_45 a10_46 a10_47 a10_48 a10_49 a10_50 a10_51 a10_52 a10_53 a10_54 a10_55 a10_56 a10_57 a10_58 a10_59 a10_60 a10_61 a10_62 a10_63 a10_64 a10_65 a10_66 a10_67 a10_68 a10_69 a10_70 a10_71 a10_72 a10_73 a10_74 a10_75 a10_76 a10_77 a10_78 a10_79\n13. user:\nu11_0 u11_1 u11_2 u11_3 u11_4 u11_5 u11_6 u11_7 u11_8 u11_9 u11_10 u11_11 u11_12 u11_13 u11_14 u11_15 u11_16 u11_17 u11_18 u11_19 u11_20 u11_21 u11_22 u11_23 u11_24 u11_25 u11_26 u11_27 u11_28 u11_29 u11_30 u11_31 u11_32 u11_33 u11_34 u11_35 u11_36 u11_37 u11_38 u11_39 u11_40 u11_41 u11_42 u11_43 u11_44 u11_45 u11_46 u11_47 u11_48 u11_49 u11_50 u11_51 u11_52 u11_53 u11_54 u11_55 u11_56 u11_57 u11_58 u11_59 u11_60 u11_61 u11_62 u11_63 u11_64 u11_65 u11_66 u11_67 u11_68 u11_69 u11_70 u11_71 u11_72 u11_73 u11_74 u11_75 u11_76 u11_77 u11_78 u11_79\n14. assistant:\na12_0 a12_1 a12_2 a12_3 a12_4 a12_5 a12_6 a12_7 a12_8 a12_9 a12_10 a12_11 a12_12 a12_13 a12_14 a12_15 a12_16 a12_17 a12_18 a12_19 a12_20 a12_21 a12_22 a12_23 a12_24 a12_25 a12_26 a12_27 a12_28 a12_29 a12_30 a12_31 a12_32 a12_33 a12_34 a12_35 a12_36 a12_37 a12_38 a12_39 a12_40 a12_41 a12_42 a12_43 a12_44 a12_45 a12_46 a12_47 a12_48 a12_49 a12_50 a12_51 a12_52 a12_53 a12_54 a12_55 a12_56 a12_57 a12_58 a12_59 a12_60 a12_61 a12_62 a12_63 a12_64 a12_65 a12_66 a12_67 a12_68 a12_69 a12_70 a12_71 a12_72 a12_73 a12_74 a12_75 a12_76 a12_77 a12_78 a12_79\n15. user:\nu13_0 u13_1 u13_2 u13_3 u13_4 u13_5 u13_6 u13_7 u13_8 u13_9 u13_10 u13_11 u13_12 u13_13 u13_14 u13_15 u13_16 u13_17 u13_18 u13_19 u13_20 u13_21 u13_22 u13_23 u13_24 u13_25 u13_26 u13_27 u13_28 u13_29 u13_30 u13_31 u13_32 u13_33 u13_34 u13_35 u13_36 u13_37 u13_38 u13_39 u13_40 u13_41 u13_42 u13_43 u13_44 u13_45 u13_46 u13_47 u13_48 u13_49 u13_50 u13_51 u13_52 u13_53 u13_54 u13_55 u13_56 u13_57 u13_58 u13_59 u13_60 u13_61 u13_62 u13_63 u13_64 u13_65 u13_66 u13_67 u13_68 u13_69 u13_70 u13_71 u13_72 u13_73 u13_74 u13_75 u13_76 u13_77 u13_78 u13_79\n16. assistant:\na14_0 a14_1 a14_2 a14_3 a14_4 a14_5 a14_6 a14_7 a14_8 a14_9 a14_10 a14_11 a14_12 a14_13 a14_14 a14_15 a14_16 a14_17 a14_18 a14_19 a14_20 a14_21 a14_22 a14_23 a14_24 a14_25 a14_26 a14_27 a14_28 a14_29 a14_30 a14_31 a14_32 a14_33 a14_34 a14_35 a14_36 a14_37 a14_38 a14_39 a14_40 a14_41 a14_42 a14_43 a14_44 a14_45 a14_46 a14_47 a14_48 a14_49 a14_50 a14_51 a14_52 a14_53 a14_54 a14_55 a14_56 a14_57 a14_58 a14_59 a14_60 a14_61 a14_62 a14_63 a14_64 a14_65 a14_66 a14_67 a14_68 a14_69 a14_70 a14_71 a14_72 a14_73 a14_74 a14_75 a14_76 a14_77 a14_78 a14_79\n17. user:\nu15_0 u15_1 u15_2 u15_3 u15_4 u15_5 u15_6 u15_7 u15_8 u15_9 u15_10 u15_11 u15_12 u15_13 u15_14 u15_15 u15_16 u15_17 u15_18 u15_19 u15_20 u15_21 u15_22 u15_23 u15_24 u15_25 u15_26 u15_27 u15_28 u15_29 u15_30 u15_31 u15_32 u15_33 u15_34 u15_35 u15_36 u15_37 u15_38 u15_39 u15_40 u15_41 u15_42 u15_43 u15_44 u15_45 u15_46 u15_47 u15_48 u15_49 u15_50 u15_51 u15_52 u15_53 u15_54 u15_55 u15_56 u15_57 u15_58 u15_59 u15_60 u15_61 u15_62 u15_63 u15_64 u15_65 u15_66 u15_67 u15_68 u15_69 u15_70 u15_71 u15_72 u15_73 u15_74 u15_75 u15_76 u15_77 u15_78 u15_79\n18. assistant:\na16_0 a16_1 a16_2 a16_3 a16_4 a16_5 a16_6 a16_7 a16_8 a16_9 a16_10 a16_11 a16_12 a16_13 a16_14 a16_15 a16_16 a16_17 a16_18 a16_19 a16_20 a16_21 a16_22 a16_23 a16_24 a16_25 a16_26 a16_27 a16_28 a16_29 a16_30 a16_31 a16_32 a16_33 a16_34 a16_35 a16_36 a16_37 a16_38 a16_39 a16_40 a16_41 a16_42 a16_43 a16_44 a16_45 a16_46 a16_47 a16_48 a16_49 a16_50 a16_51 a16_52 a16_53 a16_54 a16_55 a16_56 a16_57 a16_58 a16_59 a16_60 a16_61 a16_62 a16_63 a16_64 a16_65 a16_66 a16_67 a16_68 a16_69 a16_70 a16_71 a16_72 a16_73 a16_74 a16_75 a16_76 a16_77 a16_78 a16_79\n19. user:\nu17_0 u17_1 u17_2 u17_3 u17_4 u17_5 u17_6 u17_7 u17_8 u17_9 u17_10 u17_11 u17_12 u17_13 u17_14 u17_15 u17_16 u17_17 u17_18 u17_19 u17_20 u17_21 u17_22 u17_23 u17_24 u17_25 u17_26 u17_27 u17_28 u17_29 u17_30 u17_31 u17_32 u17_33 u17_34 u17_35 u17_36 u17_37 u17_38 u17_39 u17_40 u17_41 u17_42 u17_43 u17_44 u17_45 u17_46 u17_47 u17_48 u17_49 u17_50 u17_51 u17_52 u17_53 u17_54 u17_55 u17_56 u17_57 u17_58 u17_59 u17_60 u17_61 u17_62 u17_63 u17_64 u17_65 u17_66 u17_67 u17_68 u17_69 u17_70 u17_71 u17_72 u17_73 u17_74 u17_75 u17_76 u17_77 u17_78 u17_79\n20. assistant:\na18_0 a18_1 a18_2 a18_3 a18_4 a18_5 a18_6 a18_7 a18_8 a18_9 a18_10 a18_11 a18_12 a18_13 a18_14 a18_15 a18_16 a18_17 a18_18 a18_19 a18_20 a18_21 a18_22 a18_23 a18_24 a18_25 a18_26 a18_27 a18_28 a18_29 a18_30 a18_31 a18_32 a18_33 a18_34 a18_35 a18_36 a18_37 a18_38 a18_39 a18_40 a18_41 a18_42 a18_43 a18_44 a18_45 a18_46 a18_47 a18_48 a18_49 a18_50 a18_51 a18_52 a18_53 a18_54 a18_55 a18_56 a18_57 a18_58 a18_59 a18_60 a18_61 a18_62 a18_63 a18_64 a18_65 a18_66 a18_67 a18_68 a18_69 a18_70 a18_71 a18_72 a18_73 a18_74 a18_75 a18_76 a18_77 a18_78 a18_79\n21. user:\nu19_0 u19_1 u19_2 u19_3 u19_4 u19_5 u19_6 u19_7 u19_8 u19_9 u19_10 u19_11 u19_12 u19_13 u19_14 u19_15 u19_16 u19_17 u19_18 u19_19 u19_20 u19_21 u19_22 u19_23 u19_24 u19_25 u19_26 u19_27 u19_28 u19_29 u19_30 u19_31 u19_32 u19_33 u19_34 u19_35 u19_36 u19_37 u19_38 u19_39 u19_40 u19_41 u19_42 u19_43 u19_44 u19_45 u19_46 u19_47 u19_48 u19_49 u19_50 u19_51 u19_52 u19_53 u19_54 u19_55 u19_56 u19_57 u19_58 u19_59 u19_60 u19_61 u19_62 u19_63 u19_64 u19_65 u19_66 u19_67 u19_68 u19_69 u19_70 u19_71 u19_72 u19_73 u19_74 u19_75 u19_76 u19_77 u19_78 u19_79\n22. assistant:\na20_0 a20_1 a20_2 a20_3 a20_4 a20_5 a20_6 a20_7 a20_8 a20_9 a20_10 a20_11 a20_12 a20_13 a20_14 a20_15 a20_16 a20_17 a20_18 a20_19 a20_20 a20_21 a20_22 a20_23 a20_24 a20_25 a20_26 a20_27 a20_28 a20_29 a20_30 a20_31 a20_32 a20_33 a20_34 a20_35 a20_36 a20_37 a20_38 a20_39 a20_40 a20_41 a20_42 a20_43 a20_44 a20_45 a20_46 a20_47 a20_48 a20_49 a20_50 a20_51 a20_52 a20_53 a20_54 a20_55 a20_56 a20_57 a20_58 a20_59 a20_60 a20_61 a20_62 a20_63 a20_64 a20_65 a20_66 a20_67 a20_68 a20_69 a20_70 a20_71 a20_72 a20_73 a20_74 a20_75 a20_76 a20_77 a20_78 a20_79\n23. user:\nu21_0 u21_1 u21_2 u21_3 u21_4 u21_5 u21_6 u21_7 u21_8 u21_9 u21_10 u21_11 u21_12 u21_13 u21_14 u21_15 u21_16 u21_17 u21_18 u21_19 u21_20 u21_21 u21_22 u21_23 u21_24 u21_25 u21_26 u21_27 u21_28 u21_29 u21_30 u21_31 u21_32 u21_33 u21_34 u21_35 u21_36 u21_37 u21_38 u21_39 u21_40 u21_41 u21_42 u21_43 u21_44 u21_45 u21_46 u21_47 u21_48 u21_49 u21_50 u21_51 u21_52 u21_53 u21_54 u21_55 u21_56 u21_57 u21_58 u21_59 u21_60 u21_61 u21_62 u21_63 u21_64 u21_65 u21_66 u21_67 u21_68 u21_69 u21_70 u21_71 u21_72 u21_73 u21_74 u21_75 u21_76 u21_77 u21_78 u21_79\n24. assistant:\na22_0 a22_1 a22_2 a22_3 a22_4 a22_5 a22_6 a22_7 a22_8 a22_9 a22_10 a22_11 a22_12 a22_13 a22_14 a22_15 a22_16 a22_17 a22_18 a22_19 a22_20 a22_21 a22_22 a22_23 a22_24 a22_25 a22_26 a22_27 a22_28 a22_29 a22_30 a22_31 a22_32 a22_33 a22_34 a22_35 a22_36 a22_37 a22_38 a22_39 a22_40 a22_41 a22_42 a22_43 a22_44 a22_45 a22_46 a22_47 a22_48 a22_49 a22_50 a22_51 a22_52 a22_53 a22_54 a22_55 a22_56 a22_57 a22_58 a22_59 a22_60 a22_61 a22_62 a22_63 a22_64 a22_65 a22_66 a22_67 a22_68 a22_69 a22_70 a22_71 a22_72 a22_73 a22_74 a22_75 a22_76 a22_77 a22_78 a22_79\n25. user:\nu23_0 u23_1 u23_2 u23_3 u23_4 u23_5 u23_6 u23_7 u23_8 u23_9 u23_10 u23_11 u23_12 u23_13 u23_14 u23_15 u23_16 u23_17 u23_18 u23_19 u23_20 u23_21 u23_22 u23_23 u23_24 u23_25 u23_26 u23_27 u23_28 u23_29 u23_30 u23_31 u23_32 u23_33 u23_34 u23_35 u23_36 u23_37 u23_38 u23_39 u23_40 u23_41 u23_42 u23_43 u23_44 u23_45 u23_46 u23_47 u23_48 u23_49 u23_50 u23_51 u23_52 u23_53 u23_54 u23_55 u23_56 u23_57 u23_58 u23_59 u23_60 u23_61 u23_62 u23_63 u23_64 u23_65 u23_66 u23_67 u23_68 u23_69 u23_70 u23_71 u23_72 u23_73 u23_74 u23_75 u23_76 u23_77 u23_78 u23_79\n26. assistant:\na24_0 a24_1 a24_2 a24_3 a24_4 a24_5 a24_6 a24_7 a24_8 a24_9 a24_10 a24_11 a24_12 a24_13 a24_14 a24_15 a24_16 a24_17 a24_18 a24_19 a24_20 a24_21 a24_22 a24_23 a24_24 a24_25 a24_26 a24_27 a24_28 a24_29 a24_30 a24_31 a24_32 a24_33 a24_34 a24_35 a24_36 a24_37 a24_38 a24_39 a24_40 a24_41 a24_42 a24_43 a24_44 a24_45 a24_46 a24_47 a24_48 a24_49 a24_50 a24_51 a24_52 a24_53 a24_54 a24_55 a24_56 a24_57 a24_58 a24_59 a24_60 a24_61 a24_62 a24_63 a24_64 a24_65 a24_66 a24_67 a24_68 a24_69 a24_70 a24_71 a24_72 a24_73 a24_74 a24_75 a24_76 a24_77 a24_78 a24_79\n27. user:\nu25_0 u25_1 u25_2 u25_3 u25_4 u25_5 u25_6 u25_7 u25_8 u25_9 u25_10 u25_11 u25_12 u25_13 u25_14 u25_15 u25_16 u25_17 u25_18 u25_19 u25_20 u25_21 u25_22 u25_23 u25_24 u25_25 u25_26 u25_27 u25_28 u25_29 u25_30 u25_31 u25_32 u25_33 u25_34 u25_35 u25_36 u25_37 u25_38 u25_39 u25_40 u25_41 u25_42 u25_43 u25_44 u25_45 u25_46 u25_47 u25_48 u25_49 u25_50 u25_51 u25_52 u25_53 u25_54 u25_55 u25_56 u25_57 u25_58 u25_59 u25_60 u25_61 u25_62 u25_63 u25_64 u25_65 u25_66 u25_67 u25_68 u25_69 u25_70 u25_71 u25_72 u25_73 u25_74 u25_75 u25_76 u25_77 u25_78 u25_79\n28. assistant:\na26_0 a26_1 a26_2 a26_3 a26_4 a26_5 a26_6 a26_7 a26_8 a26_9 a26_10 a26_11 a26_12 a26_13 a26_14 a26_15 a26_16 a26_17 a26_18 a26_19 a26_20 a26_21 a26_22 a26_23 a26_24 a26_25 a26_26 a26_27 a26_28 a26_29 a26_30 a26_31 a26_32 a26_33 a26_34 a26_35 a26_36 a26_37 a26_38 a26_39 a26_40 a26_41 a26_42 a26_43 a26_44 a26_45 a26_46 a26_47 a26_48 a26_49 a26_50 a26_51 a26_52 a26_53 a26_54 a26_55 a26_56 a26_57 a26_58 a26_59 a26_60 a26_61 a26_62 a26_63 a26_64 a26_65 a26_66 a26_67 a26_68 a26_69 a26_70 a26_71 a26_72 a26_73 a26_74 a26_75 a26_76 a26_77 a26_78 a26_79\n29. user:\nu27_0 u27_1 u27_2 u27_3 u27_4 u27_5 u27_6 u27_7 u27_8 u27_9 u27_10 u27_11 u27_12 u27_13 u27_14 u27_15 u27_16 u27_17 u27_18 u27_19 u27_20 u27_21 u27_22 u27_23 u27_24 u27_25 u27_26 u27_27 u27_28 u27_29 u27_30 u27_31 u27_32 u27_33 u27_34 u27_35 u27_36 u27_37 u27_38 u27_39 u27_40 u27_41 u27_42 u27_43 u27_44 u27_45 u27_46 u27_47 u27_48 u27_49 u27_50 u27_51 u27_52 u27_53 u27_54 u27_55 u27_56 u27_57 u27_58 u27_59 u27_60 u27_61 u27_62 u27_63 u27_64 u27_65 u27_66 u27_67 u27_68 u27_69 u27_70 u27_71 u27_72 u27_73 u27_74 u27_75 u27_76 u27_77 u27_78 u27_79\n30. assistant:\na28_0 a28_1 a28_2 a28_3 a28_4 a28_5 a28_6 a28_7 a28_8 a28_9 a28_10 a28_11 a28_12 a28_13 a28_14 a28_15 a28_16 a28_17 a28_18 a28_19 a28_20 a28_21 a28_22 a28_23 a28_24 a28_25 a28_26 a28_27 a28_28 a28_29 a28_30 a28_31 a28_32 a28_33 a28_34 a28_35 a28_36 a28_37 a28_38 a28_39 a28_40 a28_41 a28_42 a28_43 a28_44 a28_45 a28_46 a28_47 a28_48 a28_49 a28_50 a28_51 a28_52 a28_53 a28_54 a28_55 a28_56 a28_57 a28_58 a28_59 a28_60 a28_61 a28_62 a28_63 a28_64 a28_65 a28_66 a28_67 a28_68 a28_69 a28_70 a28_71 a28_72 a28_73 a28_74 a28_75 a28_76 a28_77 a28_78 a28_79\n31. user:\nu29_0 u29_1 u29_2 u29_3 u29_4 u29_5 u29_6 u29_7 u29_8 u29_9 u29_10 u29_11 u29_12 u29_13 u29_14 u29_15 u29_16 u29_17 u29_18 u29_19 u29_20 u29_21 u29_22 u29_23 u29_24 u29_25 u29_26 u29_27 u29_28 u29_29 u29_30 u29_31 u29_32 u29_33 u29_34 u29_35 u29_36 u29_37 u29_38 u29_39 u29_40 u29_41 u29_42 u29_43 u29_44 u29_45 u29_46 u29_47 u29_48 u29_49 u29_50 u29_51 u29_52 u29_53 u29_54 u29_55 u29_56 u29_57 u29_58 u29_59 u29_60 u29_61 u29_62 u29_63 u29_64 u29_65 u29_66 u29_67 u29_68 u29_69 u29_70 u29_71 u29_72 u29_73 u29_74 u29_75 u29_76 u29_77 u29_78 u29_79\n32. assistant:\na30_0 a30_1 a30_2 a30_3 a30_4 a30_5 a30_6 a30_7 a30_8 a30_9 a30_10 a30_11 a30_12 a30_13 a30_14 a30_15 a30_16 a30_17 a30_18 a30_19 a30_20 a30_21 a30_22 a30_23 a30_24 a30_25 a30_26 a30_27 a30_28 a30_29 a30_30 a30_31 a30_32 a30_33 a30_34 a30_35 a30_36 a30_37 a30_38 a30_39 a30_40 a30_41 a30_42 a30_43 a30_44 a30_45 a30_46 a30_47 a30_48 a30_49 a30_50 a30_51 a30_52 a30_53 a30_54 a30_55 a30_56 a30_57 a30_58 a30_59 a30_60 a30_61 a30_62 a30_63 a30_64 a30_65 a30_66 a30_67 a30_68 a30_69 a30_70 a30_71 a30_72 a30_73 a30_74 a30_75 a30_76 a30_77 a30_78 a30_79\n33. user:\nu31_0 u31_1 u31_2 u31_3 u31_4 u31_5 u31_6 u31_7 u31_8 u31_9 u31_10 u31_11 u31_12 u31_13 u31_14 u31_15 u31_16 u31_17 u31_18 u31_19 u31_20 u31_21 u31_22 u31_23 u31_24 u31_25 u31_26 u31_27 u31_28 u31_29 u31_30 u31_31 u31_32 u31_33 u31_34 u31_35 u31_36 u31_37 u31_38 u31_39 u31_40 u31_41 u31_42 u31_43 u31_44 u31_45 u31_46 u31_47 u31_48 u31_49 u31_50 u31_51 u31_52 u31_53 u31_54 u31_55 u31_56 u31_57 u31_58 u31_59 u31_60 u31_61 u31_62 u31_63 u31_64 u31_65 u31_66 u31_67 u31_68 u31_69 u31_70 u31_71 u31_72 u31_73 u31_74 u31_75 u31_76 u31_77 u31_78 u31_79\n34. assistant:\na32_0 a32_1 a32_2 a32_3 a32_4 a32_5 a32_6 a32_7 a32_8 a32_9 a32_10 a32_11 a32_12 a32_13 a32_14 a32_15 a32_16 a32_17 a32_18 a32_19 a32_20 a32_21 a32_22 a32_23 a32_24 a32_25 a32_26 a32_27 a32_28 a32_29 a32_30 a32_31 a32_32 a32_33 a32_34 a32_35 a32_36 a32_37 a32_38 a32_39 a32_40 a32_41 a32_42 a32_43 a32_44 a32_45 a32_46 a32_47 a32_48 a32_49 a32_50 a32_51 a32_52 a32_53 a32_54 a32_55 a32_56 a32_57 a32_58 a32_59 a32_60 a32_61 a32_62 a32_63 a32_64 a32_65 a32_66 a32_67 a32_68 a32_69 a32_70 a32_71 a32_72 a32_73 a32_74 a32_75 a32_76 a32_77 a32_78 a32_79\n35. user:\nu33_0 u33_1 u33_2 u33_3 u33_4 u33_5 u33_6 u33_7 u33_8 u33_9 u33_10 u33_11 u33_12 u33_13 u33_14 u33_15 u33_16 u33_17 u33_18 u33_19 u33_20 u33_21 u33_22 u33_23 u33_24 u33_25 u33_26 u33_27 u33_28 u33_29 u33_30 u33_31 u33_32 u33_33 u33_34 u33_35 u33_36 u33_37 u33_38 u33_39 u33_40 u33_41 u33_42 u33_43 u33_44 u33_45 u33_46 u33_47 u33_48 u33_49 u33_50 u33_51 u33_52 u33_53 u33_54 u33_55 u33_56 u33_57 u33_58 u33_59 u33_60 u33_61 u33_62 u33_63 u33_64 u33_65 u33_66 u33_67 u33_68 u33_69 u33_70 u33_71 u33_72 u33_73 u33_74 u33_75 u33_76 u33_77 u33_78 u33_79\n36. assistant:\na34_0 a34_1 a34_2 a34_3 a34_4 a34_5 a34_6 a34_7 a34_8 a34_9 a34_10 a34_11 a34_12 a34_13 a34_14 a34_15 a34_16 a34_17 a34_18 a34_19 a34_20 a34_21 a34_22 a34_23 a34_24 a34_25 a34_26 a34_27 a34_28 a34_29 a34_30 a34_31 a34_32 a34_33 a34_34 a34_35 a34_36 a34_37 a34_38 a34_39 a34_40 a34_41 a34_42 a34_43 a34_44 a34_45 a34_46 a34_47 a34_48 a34_49 a34_50 a34_51 a34_52 a34_53 a34_54 a34_55 a34_56 a34_57 a34_58 a34_59 a34_60 a34_61 a34_62 a34_63 a34_64 a34_65 a34_66 a34_67 a34_68 a34_69 a34_70 a34_71 a34_72 a34_73 a34_74 a34_75 a34_76 a34_77 a34_78 a34_79\n37. user:\nu35_0 u35_1 u35_2 u35_3 u35_4 u35_5 u35_6 u35_7 u35_8 u35_9 u35_10 u35_11 u35_12 u35_13 u35_14 u35_15 u35_16 u35_17 u35_18 u35_19 u35_20 u35_21 u35_22 u35_23 u35_24 u35_25 u35_26 u35_27 u35_28 u35_29 u35_30 u35_31 u35_32 u35_33 u35_34 u35_35 u35_36 u35_37 u35_38 u35_39 u35_40 u35_41 u35_42 u35_43 u35_44 u35_45 u35_46 u35_47 u35_48 u35_49 u35_50 u35_51 u35_52 u35_53 u35_54 u35_55 u35_56 u35_57 u35_58 u35_59 u35_60 u35_61 u35_62 u35_63 u35_64 u35_65 u35_66 u35_67 u35_68 u35_69 u35_70 u35_71 u35_72 u35_73 u35_74 u35_75 u35_76 u35_77 u35_78 u35_79\n38. assistant:\na36_0 a36_1 a36_2 a36_3 a36_4 a36_5 a36_6 a36_7 a36_8 a36_9 a36_10 a36_11 a36_12 a36_13 a36_14 a36_15 a36_16 a36_17 a36_18 a36_19 a36_20 a36_21 a36_22 a36_23 a36_24 a36_25 a36_26 a36_27 a36_28 a36_29 a36_30 a36_31 a36_32 a36_33 a36_34 a36_35 a36_36 a36_37 a36_38 a36_39 a36_40 a36_41 a36_42 a36_43 a36_44 a36_45 a36_46 a36_47 a36_48 a36_49 a36_50 a36_51 a36_52 a36_53 a36_54 a36_55 a36_56 a36_57 a36_58 a36_59 a36_60 a36_61 a36_62 a36_63 a36_64 a36_65 a36_66 a36_67 a36_68 a36_69 a36_70 a36_71 a36_72 a36_73 a36_74 a36_75 a36_76 a36_77 a36_78 a36_79\n39. assistant:\na38_0 a38_1 a38_2 a38_3 a38_4 a38_5 a38_6 a38_7 a38_8 a38_9 a38_10 a38_11 a38_12 a38_13 a38_14 a38_15 a38_16 a38_17 a38_18 a38_19 a38_20 a38_21 a38_22 a38_23 a38_24 a38_25 a38_26 a38_27 a38_28 a38_29 a38_30 a38_31 a38_32 a38_33 a38_34 a38_35 a38_36 a38_37 a38_38 a38_39 a38_40 a38_41 a38_42 a38_43 a38_44 a38_45 a38_46 a38_47 a38_48 a38_49 a38_50 a38_51 a38_52 a38_53 a38_54 a38_55 a38_56 a38_57 a38_58 a38_59 a38_60 a38_61 a38_62 a38_63 a38_64 a38_65 a38_66 a38_67 a38_68 a38_69 a38_70 a38_71 a38_72 a38_73 a38_74 a38_75 a38_76 a38_77 a38_78 a38_79\n</conversation-history>"
             }
           ],
-          "model": "gpt-x"
-        }
+          "gpt-x",
+          {
+            "$exact": "undefined"
+          },
+          {
+            "session": {
+              "id": "gaps-pasted-gone:compact",
+              "sourceType": {
+                "$exact": "undefined"
+              },
+              "provider": "openai",
+              "model": "gpt-x",
+              "cwd": {
+                "$exact": "undefined"
+              }
+            },
+            "thinkingBudgetTokens": {
+              "$exact": "undefined"
+            },
+            "xaiReasoningEffort": {
+              "$exact": "undefined"
+            },
+            "reasoningEffort": {
+              "$exact": "undefined"
+            },
+            "effort": "low",
+            "effortConfiguration": {
+              "$exact": "undefined"
+            },
+            "effortConfigurationEnabled": false,
+            "fast": false,
+            "requestKind": "compaction",
+            "maxOutputTokens": 1200,
+            "providerState": {
+              "$exact": "undefined"
+            },
+            "onToolCall": {
+              "$exact": "undefined"
+            },
+            "onToolResult": {
+              "$exact": "undefined"
+            },
+            "onTextDelta": {
+              "$exact": "undefined"
+            },
+            "onReasoningDelta": {
+              "$exact": "undefined"
+            },
+            "onUsageDelta": {
+              "$exact": "undefined"
+            },
+            "onStreamDelta": {
+              "$exact": "undefined"
+            },
+            "onStageChange": {
+              "$exact": "undefined"
+            },
+            "drainSteering": {
+              "$exact": "undefined"
+            },
+            "onSteerMessage": {
+              "$exact": "undefined"
+            },
+            "signal": {
+              "aborted": false
+            },
+            "sessionId": "gaps-pasted-gone:compact",
+            "usageSessionId": "gaps-pasted-gone"
+          }
+        ]
       ],
       "result": {
-        "ok": true
+        "value": {
+          "changed": true,
+          "reason": null,
+          "beforeMessages": 40,
+          "afterMessages": 3,
+          "beforeTokens": 5430,
+          "afterTokens": 410,
+          "beforeMessageTokens": 5430,
+          "afterMessageTokens": 410,
+          "pressureTokens": 5430,
+          "triggerTokens": 8000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "boundaryTokens": 8000,
+          "budgetTokens": 8000,
+          "targetBudgetTokens": 4000,
+          "reserveTokens": 0,
+          "freshContext": true,
+          "freshContextError": null,
+          "handoffSource": "session-local",
+          "usage": {
+            "inputTokens": 1000,
+            "outputTokens": 50,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "droppedMessages": 39,
+          "droppedIdentities": {
+            "messageIds": [
+              "msg_e6694b099cd8151b7980e83570308f94",
+              "msg_c0ce52de6b11ebbd610f5b4f749eceac",
+              "msg_bdc93cbd0eee406796472c64d3f52ec6",
+              "msg_b7fdd372448b47cf08a7f31967b95437",
+              "msg_f5e0e0a60b2dc2a047b89bf83569caa4",
+              "msg_7157c631ad97dc243d51a11f39984fde",
+              "msg_0203e70f5d6b135524b42bbd24fd9f8d",
+              "msg_d633ed077cb864d03042e5b567e97710",
+              "msg_39ef389747aca63be7c091fd109ab736",
+              "msg_ca4f97379b89ab59eaf373a07b9af357",
+              "msg_8ffe8b43c0dd1f5b4da400896604b776",
+              "msg_452a0c9cd8c133959979b607f501b659",
+              "msg_99e88187a78c17d5be4d06af744a89a1",
+              "msg_66cfbe96749dc4149dc79e895f99fe3d",
+              "msg_903e6e86db17e473744babe4070588dc",
+              "msg_a7fbc9a1e025d9dac1effe40be0faf34",
+              "msg_68e25e2bf4d3ec7c9fd63ee1393fbb97",
+              "msg_e71aaf8b4de665afd17239fca418ae96",
+              "msg_3d1ddc679abef235482e9ef65b7e34a1",
+              "msg_240d4161dc85b3920883851326cce366",
+              "msg_690ba6f255be43b3f006de296d17f204",
+              "msg_365d549911a1d04ec5556ab6c365c7c5",
+              "msg_2f5b0040722fa89983213a75134e9293",
+              "msg_5401b145ad4d39902691b6911975cca7",
+              "msg_209f7a7756281857466c0e02116eb044",
+              "msg_dd2a6da74d57f3ee2260d2e537da3c19",
+              "msg_3343f59fe71f77364e580e86c56dded8",
+              "msg_6bdce75ad28a7430d7ca7a3dad430cfe",
+              "msg_2e77f0986492c2f26e3f3560680e34f0",
+              "msg_894f9f35c11a380308d5bf7548ae4fea",
+              "msg_ef4ac1bfa460b8bc58b8a25dedb10f34",
+              "msg_05810d3526d27958287ff0c0d47e572e",
+              "msg_91ff0da7f9b3c2ae874101754a223733",
+              "msg_98b27c471ad1b7ba0e4f38b19a45b6bf",
+              "msg_ed900ed55120bb8759de287d130b8b8e",
+              "msg_043314f7776d3c7a8676dc83635af9f6",
+              "msg_15402755ef54168eb1b99bdd38025568",
+              "msg_2fdf3cf4ed76fd040240172c5fa20ca9",
+              "msg_f2c48e66408f9c3b5ef534e260db9792"
+            ],
+            "callIds": []
+          }
+        }
       }
     },
     {
@@ -1013,7 +1427,17 @@
       ],
       "sends": [],
       "result": {
-        "error": "EBUSY"
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "EBUSY: resource busy or locked, open '<data>\\prompt-attachments\\sha256\\62\\62ca685b4b20384b880c38cc38d5b887077360220cbaf2668ed39d206cf3351b'",
+          "code": "EBUSY",
+          "props": {
+            "errno": -4082,
+            "syscall": "open",
+            "path": "<data>\\prompt-attachments\\sha256\\62\\62ca685b4b20384b880c38cc38d5b887077360220cbaf2668ed39d206cf3351b"
+          }
+        }
       }
     }
   ]

@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
+import { exact, exactArgs } from './lib/exact.mjs';
 
 const RECORDER = 'benchmarks/rust-core/recorders/record-session-gaps.mjs';
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -22,6 +23,8 @@ const load = (path) => import(pathToFileURL(join(tree, path)).href);
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-session-gaps-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 process.on('exit', () => rmSync(dataDir, { recursive: true, force: true }));
+// The fresh data directory inside a recorded value (a reference path, an error's path) is written `<data>`.
+const scrubData = (value) => JSON.parse(JSON.stringify(value).split(JSON.stringify(dataDir).slice(1, -1)).join('<data>'));
 
 // ---- item 11: a legacy session json naming a top-level key twice ----
 
@@ -40,16 +43,20 @@ const legacyTexts = [
   ['whitespace-around-colon', '{ "id" : "sess_dup" , "title" : "a" , "messages" : [] , "title" : "b" }'],
 ];
 
+const wellFormed = (v) => {
+  if (typeof v === 'string') return v.toWellFormed();
+  if (Array.isArray(v)) return v.map(wellFormed);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k.toWellFormed(), wellFormed(x)]));
+  return v;
+};
+
 async function legacyJsonKeys() {
   const { loadLegacySession } = await load('src/runtime/agent/orchestrator/session/store/legacy-session.mjs');
   return {
     sessionId: LEGACY_ID,
-    // What a migrated session carries of the document: its title and messages. The whole document is not kept, since a
-    // lone-surrogate key 1.4.5 read is not text a strict JSON reader accepts back.
-    cases: legacyTexts.map(([name, text]) => {
-      const document = loadLegacySession(text, LEGACY_ID);
-      return { name, text, document: document && { title: document.title, messages: document.messages } };
-    }),
+    // The whole document 1.4.5 read, each key and string well-formed (a lone surrogate as U+FFFD: declared in the
+    // manifest, since no JSON a Rust reader takes holds one).
+    cases: legacyTexts.map(([name, text]) => ({ name, text, document: exact(wellFormed(loadLegacySession(text, LEGACY_ID))) })),
   };
 }
 
@@ -116,7 +123,7 @@ async function imageStrip() {
   const rows = (list) => list.map((m) => structuredClone(m));
   const scripted = (script, sends) => ({
     async send(sent) {
-      sends.push(rows(sent).filter((m) => m.role !== 'system').map(({ role, content, toolCalls, toolCallId }) => ({ role, content, ...(toolCalls ? { toolCalls } : {}), ...(toolCallId ? { toolCallId } : {}) })));
+      sends.push(exact(rows(sent)));
       const step = script[sends.length - 1];
       if (!step) throw new Error(`script exhausted at send ${sends.length}`);
       if (step.error) throw Object.assign(new Error(step.error.message), { httpStatus: step.error.status, ...(step.error.code ? { code: step.error.code } : {}) });
@@ -131,9 +138,9 @@ async function imageStrip() {
       const out = await agentLoop(scripted(script, sends), messages, 'fake-model', tools, null, process.cwd(), { session, sessionId: session.id });
       result = out.content;
     } catch (e) {
-      error = String(e?.message || e);
+      error = exact(e);
     }
-    return { sends, result, error, transcript: rows(messages).map(({ role, content }) => ({ role, content })) };
+    return { sends, result, error, transcript: exact(rows(messages)) };
   };
   const cases = [];
   for (const c of imageCases) {
@@ -198,8 +205,7 @@ const attachmentCases = [
 
 async function attachmentPreflight() {
   const store = await load('src/runtime/attachments/store.mjs');
-  const { runPreSendCompactPass } = await load('src/runtime/agent/orchestrator/session/pre-send-compact.mjs');
-  const data = process.env.MIXDOG_DATA_DIR;
+  const { agentLoop } = await load('src/runtime/agent/orchestrator/session/agent-loop.mjs');
   const blobs = {};
   const intake = async (items, nativePdf) => {
     const prompt = items.map((item) => {
@@ -212,7 +218,7 @@ async function attachmentPreflight() {
     });
     return (await store.preparePromptSubmissionForProvider({ prompt }, { nativePdf })).prompt;
   };
-  const scrub = (value) => JSON.parse(JSON.stringify(value).split(JSON.stringify(data).slice(1, -1)).join('<data>'));
+  const scrub = scrubData;
   const { _withRegisteredProviderForTestAsync } = await load('src/runtime/agent/orchestrator/providers/registry.mjs');
   const cases = [];
   for (const c of attachmentCases) {
@@ -222,6 +228,10 @@ async function attachmentPreflight() {
   }
   return { blobs, cases };
 
+  // Each turn runs Node's `agentLoop` (its request boundary runs `runPreSendCompactPass` before the send) over the
+  // session's transcript with the Responses continuation the previous turn's reply left; the provider records what it
+  // is sent (the messages and the continuation, whole) and answers with a new continuation, as the Responses adapter
+  // writes `opts.providerState` back.
   async function attachmentCase(c) {
     const session = {
       id: `gaps-preflight-${c.name}`,
@@ -232,27 +242,24 @@ async function attachmentPreflight() {
       messages: [{ role: 'system', content: 'rules' }],
     };
     const turns = [];
+    let providerState = { responseId: 'resp_0' };
     for (const [text, items] of c.turns) {
       const parts = await intake(items, c.nativePdf);
       if (session.messages.length > 1) session.messages.push({ role: 'assistant', content: 'ok' });
       session.messages.push({ role: 'user', content: parts.length ? [{ type: 'text', text }, ...parts] : text });
       const before = structuredClone(session.messages);
-      const opts = {};
-      const pass = await runPreSendCompactPass({
-        sessionRef: session,
-        sessionId: session.id,
-        messages: session.messages,
-        requestTools: [],
-        providerState: { responseId: `resp_${turns.length + 1}` },
-        opts,
-      });
-      turns.push({
-        messages: scrub(before),
-        after: scrub(session.messages),
-        providerStateKept: pass.providerState !== undefined,
-        compactChanged: pass.compactChanged,
-        cacheBreakIntent: opts.cacheBreakIntent ?? null,
-      });
+      const sends = [];
+      const reply = { responseId: `resp_${turns.length + 1}` };
+      const provider = {
+        name: session.provider,
+        async send(messages, _model, _tools, opts) {
+          sends.push({ messages: structuredClone(messages), providerState: structuredClone(opts?.providerState) });
+          return { content: 'ok', toolCalls: [], stopReason: 'end_turn', providerState: reply };
+        },
+      };
+      const out = await agentLoop(provider, session.messages, session.model, [], null, process.cwd(), { session, sessionId: session.id, providerState });
+      providerState = out.providerState;
+      turns.push(scrub(exact({ messages: before, sends, after: session.messages, providerState: out.providerState })));
     }
     return { name: c.name, contextWindow: c.contextWindow, nativePdf: c.nativePdf, turns };
   }
@@ -307,24 +314,24 @@ async function compactionPastedText() {
     const sends = [];
     const provider = {
       name: 'openai',
-      send: async (sent, model) => {
-        sends.push({ messages: structuredClone(sent), model });
+      send: async (...sendArgs) => {
+        // Every argument as sent (the options carry the abort signal: recorded as its state).
+        sends.push(exactArgs(sendArgs, { classes: { AbortSignal: (s) => ({ aborted: s.aborted }) } }));
         return { content: 'SUMMARY of the conversation so far', usage: { inputTokens: 1000, outputTokens: 50, cachedTokens: 0 } };
       },
     };
     let result;
     try {
-      const value = await runSessionCompaction(live, { mode: 'manual', force: true, provider, sessionId: live.id });
-      result = { ok: Boolean(value?.ok ?? value) };
+      result = { value: exact(await runSessionCompaction(live, { mode: 'manual', force: true, provider, sessionId: live.id })) };
     } catch (error) {
-      result = { error: String(error?.code || error?.message || error) };
+      result = { error: exact(error) };
     } finally {
       if (holder) {
         holder.stdin.end('\n');
         await new Promise((resolve) => holder.once('exit', resolve));
       }
     }
-    cases.push({ name, blob: name === 'gone' ? null : bytes.toString('base64'), part, messages, sends, result });
+    cases.push(scrubData({ name, blob: name === 'gone' ? null : bytes.toString('base64'), part: exact(part), messages: exact(messages), sends, result }));
   }
   return { cases };
 }
@@ -349,7 +356,15 @@ writeSetManifest(outDir, {
   set: 'session-gaps',
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <exact export of b6f10295a>`,
-  extra: { scenarios: Object.keys(scenarios), ...recorderProvenance(import.meta.url) },
+  extra: {
+    scenarios: Object.keys(scenarios),
+    values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
+    exclusions: [
+      'legacy-json-keys: each key and string of the document is recorded well-formed (String.prototype.toWellFormed: a lone surrogate as U+FFFD, and two keys that differ only there as one, last wins); no JSON a Rust reader accepts holds a lone surrogate, and the core reads one as U+FFFD (mixdog-migrate json::replace_lone_surrogates)',
+      'attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>',
+    ],
+    ...recorderProvenance(import.meta.url),
+  },
   identity,
 });
 commitStage(outDir, finalDir);
