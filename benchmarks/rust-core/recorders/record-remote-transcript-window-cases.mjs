@@ -3,12 +3,10 @@
 // Real remote-transcript-window.ts (encodePhoneSessionState, requestPhoneTranscriptPage), the snapshot delta encoder/decoder
 // (prepend wire), remote-transcript.ts (remoteToolOutput, REMOTE_HISTORY_OUTPUT_CHARS), remote-view-staleness.ts, the host's live
 // window (standalone/session-service/projection/transcript-window.mjs) over a transcript spill buffer (tui/session/transcript-spill.mjs)
-// with a live compaction (compaction-view.mjs archiveItemsForCompaction). Rows and wires are recorded whole where small; a row or
-// wire past 2 KB is recorded as its length and sha256 (declared in the manifest).
+// with a live compaction (compaction-view.mjs archiveItemsForCompaction). Rows, snapshots and wires are recorded whole.
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-remote-transcript-window-cases.mjs --tree <export of b6f10295a with node_modules>
-import { createHash } from 'node:crypto';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('remote-transcript-window-cases', import.meta.url);
@@ -21,11 +19,6 @@ const { encodePhoneSessionState, requestPhoneTranscriptPage } = await set.load('
 const { viewIsStale } = await set.load('apps/desktop/src/main/remote-view-staleness.ts');
 const { createSnapshotDeltaDecoder, createSnapshotDeltaEncoder } = await set.load('apps/desktop/src/main/state-delta.ts');
 
-const sha = (text) => createHash('sha256').update(text).digest('hex');
-/** A value as itself when it is small, else its JSON length and sha256. */
-const fp = (value) => { const text = JSON.stringify(value); return text.length <= 2048 ? value : { jsonChars: text.length, sha256: sha(text) }; };
-const rowFp = (item) => ({ id: item.id, kind: item.kind, ...(item.result !== undefined ? { resultChars: String(item.result).length } : {}), ...(item.remoteOutputTruncated !== undefined ? { remoteOutputTruncated: item.remoteOutputTruncated } : {}), bytes: Buffer.byteLength(JSON.stringify(item)), sha256: sha(JSON.stringify(item)) });
-
 function phone() {
   const encoder = createSnapshotDeltaEncoder({ prepend: true });
   const decoder = createSnapshotDeltaDecoder();
@@ -37,9 +30,10 @@ function phone() {
       const wire = encodePhoneSessionState(encoder, snapshot, true);
       const text = JSON.stringify(wire);
       const decoded = decoder.decode(JSON.parse(text));
+      const heldSnapshot = structuredClone(decoded.snapshot);
       if (!decoded.ok) throw new Error('the phone decoder refused a frame');
-      held = decoded.snapshot;
-      wires.push({ bytes: Buffer.byteLength(text), wire: fp(wire) });
+      held = heldSnapshot;
+      wires.push({ bytes: Buffer.byteLength(text), wire: structuredClone(wire) });
       return { snapshot: held, bytes: Buffer.byteLength(text) };
     },
     get held() { return held; },
@@ -58,10 +52,7 @@ await set.run('a page revealed above a short first page arrives as history, the 
   const { snapshot } = reader.deliver({ items: [...paged, ...held], transcriptHasOlder: false });
   return {
     heldRows: 8, pagedRows: 8, rowChars: 1_500, historyOutputChars: REMOTE_HISTORY_OUTPUT_CHARS,
-    openedResultsEqualHeld: JSON.stringify(opened.items.map((i) => i.result)) === JSON.stringify(held.map((i) => i.result)),
-    pageLimitRequested: 8 + 64, rows: snapshot.items.map(rowFp), wires: reader.wires,
-    pagedRowsCutAsHistory: paged.map((row, i) => ({ id: row.id, resultChars: snapshot.items[i].result.length, truncated: snapshot.items[i].remoteOutputTruncated })),
-    openedRowsStillWhole: held.map((row, i) => snapshot.items[8 + i].result === row.result),
+    opened, pageLimitRequested: 8 + 64, snapshot, wires: reader.wires,
   };
 });
 await set.run("a phone's first page stays within its byte budget however wide the shared window is", () => {
@@ -75,9 +66,9 @@ await set.run("a phone's first page stays within its byte budget however wide th
   const shortSnapshot = shortReader.deliver({ items: short }).snapshot;
   return {
     tailBytes: REMOTE_TRANSCRIPT_TAIL_BYTES, tailItems: REMOTE_TRANSCRIPT_TAIL_ITEMS,
-    wide: { sharedRows: 32, rowChars: 20_000, ids: snapshot.items.map((i) => i.id), bytes: itemBytes(snapshot.items), hasOlder: snapshot.transcriptHasOlder, wires: reader.wires },
-    floor: { ids: floor.items.map((i) => i.id), bytes: itemBytes(floor.items), hasOlder: floor.transcriptHasOlder },
-    short: { count: shortSnapshot.items.length, ids: shortSnapshot.items.map((i) => i.id) },
+    wide: { sharedRows: 32, rowChars: 20_000, snapshot, bytes: itemBytes(snapshot.items), wires: reader.wires },
+    floor: { snapshot: floor, bytes: itemBytes(floor.items) },
+    short: { snapshot: shortSnapshot },
   };
 });
 await set.run('live rows append past the first page; older rows reveal only on the phone request, within the page', () => {
@@ -90,8 +81,8 @@ await set.run('live rows append past the first page; older rows reveal only on t
   const paged = reader.deliver({ items: live, transcriptHasOlder: false }).snapshot;
   const latest = [{ ...rows[0], device: 'desktop' }, ...live.slice(1)];
   return {
-    afterLiveRow: { ids: snapshot.items.map((i) => i.id) }, pageLimitRequested: REMOTE_TRANSCRIPT_TAIL_ITEMS + 1 + 5,
-    paged: { count: paged.items.length, ids: paged.items.map((i) => i.id), hasOlder: paged.transcriptHasOlder },
+    afterLiveRow: snapshot, pageLimitRequested: REMOTE_TRANSCRIPT_TAIL_ITEMS + 1 + 5,
+    paged,
     staleWhenDesktopPromptAbove: viewIsStale(paged.items, latest, 'phone'),
     staleWhenNewDesktopRow: viewIsStale(paged.items, [...latest, { id: 'new', kind: 'user', device: 'desktop' }], 'phone'),
     wires: reader.wires,
@@ -110,7 +101,7 @@ await set.run('a phone page reveals at most 512 rows a request, whatever limit i
     held = snapshot.items.length;
     counts.push(held);
   }
-  return { rows: 2_000, counts, revealed, firstId: reader.held.items[0].id, hasOlder: reader.held.transcriptHasOlder, wireBytes: reader.wires.map((w) => w.bytes) };
+  return { rows: 2_000, counts, revealed, finalHeld: reader.held, wireBytes: reader.wires.map((w) => w.bytes) };
 });
 await set.run('an oversized newest tool row goes with its outputs cut to fit, readable whole through Show full output', () => {
   const members = Array.from({ length: 40 }, (_, n) => ({ id: `m${n}`, name: 'read', result: 'r'.repeat(8_000) }));
@@ -119,8 +110,8 @@ await set.run('an oversized newest tool row goes with its outputs cut to fit, re
   const { snapshot } = reader.deliver({ items: [user('old', 10), aggregate], transcriptHasOlder: false });
   const [sent] = snapshot.items;
   return {
-    tailBytes: REMOTE_TRANSCRIPT_TAIL_BYTES, count: snapshot.items.length, sentBytes: itemBytes([sent]),
-    members: sent.toolMembers.map((record, index) => ({ id: record.id, resultChars: record.result.length, note: record.remoteOutputNotes?.result ?? null, remoteOutputTruncated: record.remoteOutputTruncated ?? null, readBackWhole: remoteToolOutput({ items: [aggregate] }, record.id).result === members[index].result })),
+    tailBytes: REMOTE_TRANSCRIPT_TAIL_BYTES, snapshot, sentBytes: itemBytes([sent]),
+    readBack: sent.toolMembers.map((record) => remoteToolOutput({ items: [aggregate] }, record.id)),
     wires: reader.wires,
   };
 });
@@ -158,7 +149,7 @@ await set.run('a compacted live session whose runtime spilled rows pages back on
     }
     return {
       rows: 700, compactionAfterRow: 400, firstLiveRowAfterCap: firstLive, steps, tailBytes: REMOTE_TRANSCRIPT_TAIL_BYTES, tailItems: REMOTE_TRANSCRIPT_TAIL_ITEMS, pageBytes: DESKTOP_TRANSCRIPT_PAGE_BYTES,
-      heldIdsEqualAll: JSON.stringify(held.items.map((i) => i.id)) === JSON.stringify(all.map((i) => i.id)), heldIds: held.items.map((i) => i.id), firstId: held.items[0].id, hasOlder: held.transcriptHasOlder,
+      held, all,
     };
   } finally { spill.dispose(); }
 });
@@ -166,11 +157,11 @@ await set.run('an oversized message row is sent whole, so a first page with it i
   const message = user('big', 400_000);
   const reader = phone();
   const { snapshot } = reader.deliver({ items: [user('old', 10), message], transcriptHasOlder: false });
-  return { rowChars: 400_000, ids: snapshot.items.map((i) => i.id), bytes: itemBytes(snapshot.items), sentWhole: JSON.stringify(snapshot.items) === JSON.stringify([message]), tailBytes: REMOTE_TRANSCRIPT_TAIL_BYTES, hasOlder: snapshot.transcriptHasOlder, wires: reader.wires };
+  return { rowChars: 400_000, message, snapshot, bytes: itemBytes(snapshot.items), tailBytes: REMOTE_TRANSCRIPT_TAIL_BYTES, wires: reader.wires };
 });
 
 await set.finish({
   entry: { runs: 'encodePhoneSessionState / requestPhoneTranscriptPage over the snapshot delta encoder (prepend) and decoder; remoteToolOutput; viewIsStale; the host live window (requestLiveTranscriptWindow, windowTranscriptSnapshot, loadLiveTranscriptHead) over a transcript spill buffer with a stubbed worker, archiveItemsForCompaction', notRun: 'the relay transport; the spill worker thread is a stub, the spill buffer is the runtime\'s' },
-  replay: { entry: 'mixdog-app-server thread/items/list paging and the phone transcript window: feed each case\'s rows and page requests; compare ids, byte counts, truncation fields, notes and wires (whole, or length + sha256 where the recording holds a fingerprint)', normalised: { fingerprints: 'rows and wires over 2 KB are recorded as {jsonChars, sha256} (fp) or per-row {bytes, sha256} (rowFp), not whole, to keep the fixture small' } },
+  replay: { entry: 'mixdog-app-server thread/items/list paging and the phone transcript window: feed each case\'s rows and page requests; compare ids, byte counts, truncation fields, notes and wires (whole)', normalised: {} },
 });
 process.exit(0);
