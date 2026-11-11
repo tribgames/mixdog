@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 139089,
+      "bytes": 139155,
       "path": "golden.json",
-      "sha256": "8c46d3e6de320dfe75c33232767d1046b76b8161b2a5c35c5d96a38edc7f078f"
+      "sha256": "f585716746b7e72ef9e02801c98a53866982560750f47de25a168d241f59e263"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-query-handlers.mjs",
-  "recorderSha256": "ec69ad072e891649ca5feb4e28158af0db76adfbaf601097fb26c2bf5754d4dc",
-  "replay": "mixdog-services memory: mem/recall search (plan.rs caps 100/500 and page_bounds, retrieve_candidates limit, expand_and_bound, page_rows) over a candidate seam that returns the scripted rows; compares the rendered text (whole, error flag included), the search options handed to the seam (limit, offset, rootOnly, period bounds) and the browse statements in order",
+  "recorderSha256": "a64445810a54f8b893d50e66744321df42912d6f0d8880b12999b2ac3996778f",
+  "replay": "The `memory/recall` request (memory/service.rs:273) -> Recall::recall (memory/recall/mod.rs:240; page cursor next_cursor :85, enrichment :600). A replay sends each recorded request over the same rows and compares the returned page (rows, cursor, boundaries) exactly",
   "set": "memory-query-handlers",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 139089,
-  "uuidsNormalised": "none"
+  "totalBytes": 139155,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
