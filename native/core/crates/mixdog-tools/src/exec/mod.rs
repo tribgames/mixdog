@@ -25,6 +25,7 @@ mod shell_choice;
 pub mod shell_control;
 mod snapshot;
 mod spill;
+mod standby;
 mod task;
 mod text;
 mod wake;

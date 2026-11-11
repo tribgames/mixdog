@@ -256,6 +256,7 @@ fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNoti
         script_syntax: Arc::new(AwaitIsTopLevel),
         windows: false,
         powershell: false,
+        warm_standby: false,
         now_ms: Arc::new(golden_ms),
     });
     let processes = Arc::new(FakeProcesses::default());

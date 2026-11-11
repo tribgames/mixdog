@@ -311,7 +311,8 @@ impl HungUp {
 pub(crate) struct Proc {
     handle: ProcessHandle,
     pid: u32,
-    owner: ProcessOwner,
+    /// Changes once at most: a process spawned ahead of its use is claimed by its user ([`ProcessManager::claim`]).
+    owner: Mutex<ProcessOwner>,
     pty_size: Mutex<Option<PtySize>>,
     feed: Arc<Feed>,
     containment: Containment,
@@ -338,6 +339,10 @@ impl Proc {
 
     fn life(&self) -> MutexGuard<'_, Life> {
         self.life.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn owner(&self) -> MutexGuard<'_, ProcessOwner> {
+        self.owner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Tree kill, issued inline; the first reason wins. The exit follows as an event. The root's
@@ -375,7 +380,7 @@ impl Proc {
         ProcessInfo {
             handle: self.handle.clone(),
             pid: self.pid,
-            owner: self.owner.clone(),
+            owner: self.owner().clone(),
             pty: *self.pty_size.lock().unwrap_or_else(|e| e.into_inner()),
             exit: self.exit.get().copied(),
         }
@@ -930,7 +935,7 @@ fn launch_process(
     let proc = Arc::new(Proc {
         handle: request.handle.clone(),
         pid,
-        owner: request.owner.clone(),
+        owner: Mutex::new(request.owner.clone()),
         pty_size: Mutex::new(request.pty),
         feed: Arc::clone(&feed),
         containment,
@@ -1079,7 +1084,7 @@ impl LocalProcessManager {
             .table()
             .values()
             .filter_map(|slot| match slot {
-                Slot::Live(proc) if matches(&proc.owner) => Some(Arc::clone(proc)),
+                Slot::Live(proc) if matches(&proc.owner()) => Some(Arc::clone(proc)),
                 _ => None,
             })
             .collect();
@@ -1276,6 +1281,21 @@ impl ProcessManager for LocalProcessManager {
                 Slot::Reserved => None,
             })
             .collect()
+    }
+
+    fn claim(&self, handle: &ProcessHandle, owner: ProcessOwner, time_limit: Option<Duration>) -> Result<(), ProcessError> {
+        let proc = self.inner.lookup(handle)?;
+        // Under the lifecycle lock: a process whose exit is final is not handed over.
+        let life = proc.life();
+        if life.finalized || !life.running {
+            return Err(ProcessError::AlreadyExited);
+        }
+        *proc.owner() = owner;
+        drop(life);
+        if let Some(limit) = time_limit {
+            self.inner.deadlines().add(Instant::now() + limit, &proc);
+        }
+        Ok(())
     }
 }
 

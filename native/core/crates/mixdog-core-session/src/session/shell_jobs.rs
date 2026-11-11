@@ -364,6 +364,7 @@ mod tests {
             script_syntax: Arc::new(TopLevel),
             windows: false,
             powershell: false,
+            warm_standby: false,
             now_ms: Arc::new(|| 1_767_323_045_678),
         });
         let processes = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
