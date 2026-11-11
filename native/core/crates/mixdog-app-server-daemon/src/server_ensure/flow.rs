@@ -122,7 +122,13 @@ fn ensure(
     if let Some(core) = found {
         // A core already leaving is not one to attach to: it is waited out like a replaced one.
         if decision == Decision::Attach && core.state != DiscoveryPhase::Draining {
-            let report = report.with_core(&core, args);
+            let mut report = report.with_core(&core, args);
+            // A record whose core does not answer is neither healthy nor current, as Node's `daemonSummary` without
+            // `health`: the desktop then refuses it (`daemon-unhealthy`).
+            if !access.answers(&core) {
+                report.healthy = false;
+                report.core_current = false;
+            }
             let state = record_current(&paths, &args.install_id)?;
             return Ok(Report { gc_removed: collect_garbage(&paths, host, state), ..report });
         }

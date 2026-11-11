@@ -107,6 +107,9 @@ pub trait CoreAccess {
     /// The core named by discovery whose process is alive and that announces a `core` block.
     /// A 1.4.5 daemon has none; the starting core waits for it (LR §3.1 `waitExit`).
     fn discovery(&self) -> Result<Option<ServerCore>, EnsureError>;
+    /// `GET /mgmt/status` answered by the core discovery names (the same `instanceId`): Node's proof of a daemon to reuse,
+    /// its `/health` answered as the pid daemon.json names (`remote-install-daemon.ts` `readDaemonState`).
+    fn answers(&self, core: &ServerCore) -> bool;
     /// `POST /mgmt/hold{on}`.
     fn hold(&self, core: &ServerCore, on: bool) -> Result<(), EnsureError>;
     /// `POST /mgmt/stop{whenIdle, reason}`: idempotent on a core already draining.

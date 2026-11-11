@@ -86,6 +86,9 @@ impl CoreAccess for Access {
     fn discovery(&self) -> Result<Option<ServerCore>, EnsureError> {
         Ok(self.found.borrow().clone())
     }
+    fn answers(&self, _: &ServerCore) -> bool {
+        true
+    }
     fn hold(&self, _: &ServerCore, on: bool) -> Result<(), EnsureError> {
         self.calls.borrow_mut().push(format!("hold:{on}"));
         Ok(())
@@ -370,37 +373,108 @@ impl EnsureHost for LockWaiter<'_> {
     }
 }
 
+/// The discovery file a serving core of 1.4.6/b6 publishes, naming this test process (alive, its real start time) and a
+/// control listener on `control_port`.
+fn publish_core(paths: &RemotePaths, control_port: u16, instance_id: &str) -> String {
+    use crate::verdict::ProcessTable;
+    let pid = std::process::id();
+    let start_ms = crate::verdict::OsProcessTable.query(u64::from(pid)).unwrap().unwrap().identity.start_ms;
+    let raw = serde_json::json!({
+        "pid": pid,
+        "endpoints": { "session": { "port": 1, "token": "bootstrap-test-token" }, "modelProxy": { "port": 2 } },
+        "core": {
+            "control": { "port": control_port },
+            "state": "serving",
+            "version": "1.4.6",
+            "build": "b6",
+            "instanceId": instance_id,
+            "processStartTime": start_ms.to_string(),
+        },
+    })
+    .to_string();
+    std::fs::create_dir_all(&paths.runtime_root).unwrap();
+    std::fs::write(crate::discovery::path(&paths.runtime_root), &raw).unwrap();
+    raw
+}
+
+/// The install lock of another run (a live pid, fresh) that has not published its core yet.
+fn hold_install_lock(env: &Env) {
+    let lock = env.paths().lock;
+    let token = "0123456789abcdef01234567";
+    std::fs::create_dir_all(lock.join(token)).unwrap();
+    std::fs::write(
+        lock.join(token).join("owner.json"),
+        format!(r#"{{"token":"{token}","pid":77,"host":"h","purpose":"install","startedAt":{}}}"#, env.host().now_ms()),
+    )
+    .unwrap();
+}
+
 /// Node's daemon-bootstrap test (`scripts/daemon-bootstrap-test.mjs`): a client that meets a live owner before that owner
 /// has published discovery waits for the publication and is served by it. Here the owner is the run holding the install
-/// lock (a live pid, a fresh lock) whose core is not in discovery yet: this run waits on the lock with the shipped wait,
-/// and once the other run has published its core and released the lock, attaches to that core. Nothing is launched,
-/// held or stopped.
+/// lock (a live pid, a fresh lock) whose core is not in discovery yet: this run waits on the lock with the shipped wait.
+/// When the other run ends, a real core control listener is serving, its discovery file is published and the lock is
+/// released; this run reads that file through the real `OsAccess`, gets the core's `GET /mgmt/status` answer over the
+/// socket and attaches. Nothing is launched, held or stopped (a fake access would have to be asked).
 #[test]
 fn a_run_that_meets_a_live_install_before_its_core_is_published_waits_and_is_served_by_it() {
     let env = env();
     let paths = env.paths();
-    let token = "0123456789abcdef01234567";
-    std::fs::create_dir_all(paths.lock.join(token)).unwrap();
-    std::fs::write(
-        paths.lock.join(token).join("owner.json"),
-        format!(r#"{{"token":"{token}","pid":77,"host":"h","purpose":"install","startedAt":{}}}"#, env.host().now_ms()),
-    )
-    .unwrap();
-    let access = Access::new(None);
+    hold_install_lock(&env);
+    let fx = crate::lifecycle::testing::fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let instance_id = fx.lifecycle.status().instance_id.clone();
+    let serving = RefCell::new(None);
+    let published = RefCell::new(String::new());
     let host = LockWaiter {
         host: env.host(),
         other_run_ends: RefCell::new(Some(Box::new(|| {
-            *access.found.borrow_mut() = Some(core("1.4.6", "b6", DiscoveryPhase::Serving));
+            let token = "bootstrap-test-token".to_owned();
+            let legacy = crate::control::Legacy {
+                pid: std::process::id(),
+                version: "1.4.6".into(),
+                instance_id: instance_id.clone(),
+                build: "b6".into(),
+                update_text: String::new(),
+            };
+            let server = crate::control::ControlServer::start(crate::control::ControlConfig { token, legacy }, std::sync::Arc::clone(&fx.lifecycle)).unwrap();
+            *published.borrow_mut() = publish_core(&paths, server.port(), &instance_id);
+            *serving.borrow_mut() = Some(server);
             std::fs::remove_dir_all(&paths.lock).unwrap();
         }))),
     };
+    let access = super::os::OsAccess::new(&host);
     let mut waiting = args("1.4.6", "b6");
     waiting.lock_wait_ms = None;
     let report = run(&waiting, &host, &access, &env.exe).unwrap();
     assert!(host.other_run_ends.borrow().is_none(), "the run did not wait for the lock's holder");
     assert!(report.healthy && report.core_current && !report.started, "{report:?}");
-    assert_eq!(report.daemon_json.as_deref(), Some(r#"{"pid":900}"#));
-    assert!(access.calls().is_empty(), "attached: nothing launched, held or stopped: {:?}", access.calls());
+    assert_eq!(report.daemon_json.as_deref(), Some(published.borrow().as_str()));
+}
+
+/// The same published record, but nothing answers on its control port (or another core does): the run reports the core
+/// neither healthy nor current, as Node's `daemonSummary` without `/health`, and the desktop refuses it.
+#[test]
+fn a_published_core_that_does_not_answer_is_not_attached_as_healthy() {
+    let env = env();
+    let paths = env.paths();
+    let closed = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port();
+    publish_core(&paths, closed, "instance-1");
+    let host = env.host();
+    let access = super::os::OsAccess::new(&host);
+    let report = run(&args("1.4.6", "b6"), &host, &access, &env.exe).unwrap();
+    assert!(!report.healthy && !report.core_current && !report.started, "{report:?}");
+
+    let fx = crate::lifecycle::testing::fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let legacy = crate::control::Legacy { pid: 1, version: "1.4.6".into(), instance_id: "other".into(), build: "b6".into(), update_text: String::new() };
+    let other = crate::control::ControlServer::start(
+        crate::control::ControlConfig { token: "bootstrap-test-token".into(), legacy },
+        std::sync::Arc::clone(&fx.lifecycle),
+    )
+    .unwrap();
+    publish_core(&paths, other.port(), "not-the-answering-instance");
+    let report = run(&args("1.4.6", "b6"), &host, &access, &env.exe).unwrap();
+    assert!(!report.healthy && !report.core_current, "another core's answer proves nothing: {report:?}");
 }
 
 #[test]
