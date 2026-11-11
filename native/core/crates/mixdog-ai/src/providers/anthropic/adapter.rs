@@ -661,7 +661,8 @@ impl ProviderAdapter for AnthropicAdapter {
                     if matches!(err.kind, ErrorKind::Transient | ErrorKind::Overloaded) {
                         err.message = format!("Anthropic OAuth API {status}");
                     } else {
-                        let shown = mixdog_js::slice_utf16(&refusal, 200);
+                        // `scrubTokens(text).slice(0, 200)`: a credential the server echoed is redacted before it is logged or returned.
+                        let shown = crate::oauth::scrub::scrubbed_prefix(&refusal, &[], 200);
                         mixdog_rt::node_stderr!("[anthropic-oauth] API error {status}: {shown}");
                         err.message = format!("Anthropic OAuth API {status}: {shown}");
                     }
