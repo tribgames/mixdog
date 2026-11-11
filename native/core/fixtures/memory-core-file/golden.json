@@ -443,7 +443,7 @@
     {
       "name": "session core context reads the file without starting memory runtime (test line 91)",
       "env": {
-        "MIXDOG_DATA_DIR": "D:\\mixdog-build\\tmp\\w32\\mixdog-core-memory-A3r7ni\\r2",
+        "MIXDOG_DATA_DIR": "<data-dir>",
         "MIXDOG_FEATURE_MEMORY": "1",
         "MIXDOG_BOOT_CORE_MEMORY": "1"
       },
