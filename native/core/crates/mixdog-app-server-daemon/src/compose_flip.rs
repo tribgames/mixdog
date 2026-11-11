@@ -27,6 +27,10 @@ use crate::compose_core::{McpParts, PolicyParts, build_mcp, build_policy};
 use crate::compose_domains::{DomainInputs, DomainPaths, DomainSeams, OpScopeSource, PluginSeams, PostSeams, build_local_provider, compose_domains_post, compose_domains_pre};
 use crate::compose_mcp::{AgentSeams, McpInputs, SetupSeams, build_agents, mcp_services};
 
+/// How long the start-up's catalog republish after the rooms' first load may take: every room mutation that awaited that load waits
+/// for it (`ready::recover`), so it is bounded (Node's `republishCatalog` only starts its listing, `session-host.ts:353-356`).
+const ROOM_RECOVERY_REPUBLISH: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// What `compose()` has built before the real core starts.
 pub struct Built {
     /// What `real_core` registers a release for as it acquires it; `compose` runs them if `real_core` fails.
@@ -2608,7 +2612,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(ComposeError::AlreadyBound)?;
     // Start-up `recover` (`agent-rooms.ts:465-480`), started and not awaited (`session-host.ts:430-432`): its failure is logged, not the core's start's.
     // After the first load, rooms whose exchange a dead process left running are marked interrupted (flip-rooms-4) and the catalog
-    // is republished (`agent-rooms.ts:478`), its pass awaited: it reads the rooms before a mutation that awaited the same load writes.
+    // is republished (`agent-rooms.ts:479`), ahead of the mutations that awaited the same load (`ready::recover`). Those wait for it, so
+    // its pass is bounded: one that does not end in time is the recovery's logged failure, and they go on.
     drop(mixdog_core_rooms::rooms::ready::recover(
         rooms.clone(),
         rooms_ready.clone(),
@@ -2616,8 +2621,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let (live, rooms, summaries) = (live_rooms.clone(), rooms.clone(), room_summaries.clone());
             move || async move {
                 live.recover(&rooms).await?;
-                summaries.publish().await;
-                Ok(())
+                tokio::time::timeout(ROOM_RECOVERY_REPUBLISH, summaries.republish_now()).await.map_err(|_| {
+                    mixdog_core_rooms::rooms::RoomError::Port(format!(
+                        "the catalog's republish after the rooms' first load did not end within {} s",
+                        ROOM_RECOVERY_REPUBLISH.as_secs()
+                    ))
+                })
             }
         },
         room_log.clone(),
