@@ -306,7 +306,7 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
     assert!(!embed_install::installed(&embed_config(&cache.path().join("nowhere"))));
 
     let vector = provider.query_vector("how do I restart the staging cluster").await.expect("vector");
-    let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/tools/memory/embeddings/golden.json")).expect("golden");
+    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools/memory/embeddings/golden.json")).expect("golden");
     let want: Vec<f64> = golden["cases"][0]["vector"].as_array().expect("vector").iter().filter_map(|v| v.as_f64()).collect();
     let worst = vector.iter().zip(&want).map(|(a, b)| (f64::from(*a) - b).abs()).fold(0.0, f64::max);
     assert!(worst < 2e-5, "{worst}");

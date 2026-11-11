@@ -25,7 +25,7 @@ use crate::bots::routine::RoutineKind;
 use crate::bots::state_json::StateJson;
 use crate::scheduler::Clock;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/home-delivery/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/home-delivery/golden.json");
 const T0: i64 = 1_800_000_000_000;
 
 struct FixedClock(Mutex<i64>);
@@ -378,7 +378,7 @@ impl Replay {
 
 #[tokio::test(start_paused = true)]
 async fn replays_the_node_delivery_script() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let mut replay = Replay::new();
     let (mut seen_notices, mut seen_wakes, mut seen_delays) = (0, 0, 0);
     for (index, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
