@@ -130,7 +130,7 @@ mod tests {
     /// providers under each auto-clear setting, and the other providers' shared scope.
     #[test]
     fn every_policy_equals_nodes() {
-        let golden: Value = serde_json::from_str(include_str!("golden/session_cache_opts.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/session_cache_opts.json")).expect("fixture");
         let cases = golden["cases"].as_array().expect("cases");
         assert!(cases.len() > 1000);
         for case in cases {

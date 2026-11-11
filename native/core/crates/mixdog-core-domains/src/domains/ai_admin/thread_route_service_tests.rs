@@ -25,7 +25,7 @@ use mixdog_core_base::support::testing::with_op;
 use mixdog_core_base::quota_resume::QuotaResumeStore;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-service-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-service-twin.json")).unwrap()
 }
 
 struct Sessions {

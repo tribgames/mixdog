@@ -156,7 +156,7 @@ fn tree(dir: &Path, root: &Path, base: &str, out: &mut Map<String, Value>) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_skill_method_answers_and_leaves_what_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../golden/skillsapi.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/skillsapi.json")).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let base = scratch.path().to_string_lossy().into_owned();
     let data = Path::new(&base).join("data");

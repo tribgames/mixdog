@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::{CoreMemoryContext, format_core_memory_lines};
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/tools/memory/core-memory-context/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/core-memory-context/golden.json");
 
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().expect("array").iter().map(|v| v.as_str().expect("string").to_owned()).collect()
@@ -18,7 +18,7 @@ fn strings(value: &Value) -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_block_matches_what_node_injects() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
     let lane = mixdog_rt::testing::tokens().durability_io;
     let mut loaded = 0;
     for case in golden["cases"].as_array().expect("cases") {

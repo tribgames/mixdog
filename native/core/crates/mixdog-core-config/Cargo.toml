@@ -44,9 +44,9 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 count-work = []
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 chrono-tz = { workspace = true }
-mixdog-testkit = { workspace = true }
 mixdog-services = { workspace = true, features = ["test-support"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
@@ -69,3 +69,6 @@ mixdog-protocol = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-agent = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
