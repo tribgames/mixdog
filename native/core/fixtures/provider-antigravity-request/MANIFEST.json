@@ -1,16 +1,19 @@
 {
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-antigravity-request.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "entry": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test's asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is recorded per tool as the declaration's sha256 (the declarations are the product's own schemas), `computer` and the Gemini projection in full. Ajv (the tree's own dependency) answers the validity / validate() checks.",
+  "compare": "mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.",
+  "entry": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test's asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is the input, and every declaration the Claude path produces is recorded whole. Ajv (the tree's own dependency) answers the validity / validate() checks.",
   "exclusions": [
-    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
-    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 147143,
+      "bytes": 870588,
       "path": "cases.json",
-      "sha256": "e27572ef482d819f38ba95f70dd1f72bb0d36d859e781b0f5ac70150ddb43f32"
+      "sha256": "0223a603f13b5d3dc334f24d9c81d53e423e99f4851c1ba8459c4f21ace7b20e"
     }
   ],
   "inputs": [
@@ -23,12 +26,16 @@
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -50,8 +57,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-antigravity-request.mjs",
-  "recorderSha256": "777402c67bb76d8788f2b704dd97d450814cb5e9fc0e518b089624c0991a04c9",
-  "replay": "mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.",
+  "recorderSha256": "f9f49b910b4f41de5f823dcb8f7588b70c724adde9e81317c2e54a6258b29b38",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:71) and build_request (google/request.rs:638), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "set": "provider-antigravity-request",
-  "totalBytes": 147143
+  "totalBytes": 870588,
+  "valueTags": {
+    "{\"$bigint\":\"<digits>\"}": "bigint",
+    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
+    "{\"$cycle\":true}": "a reference back to an ancestor object",
+    "{\"$date\":\"<ISO>\"}": "Date",
+    "{\"$function\":\"<name>\"}": "a function",
+    "{\"$map\":[[k,v]...]}": "Map, insertion order",
+    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
+    "{\"$set\":[v...]}": "Set, insertion order",
+    "{\"$symbol\":\"<text>\"}": "a symbol",
+    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
+  }
 }
