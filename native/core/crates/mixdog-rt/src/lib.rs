@@ -60,6 +60,8 @@ pub use ticker::TimerHandle;
 pub use ticker::ticker;
 
 pub use exec::job_progress;
+pub use lanes::in_tool_call;
+pub use lanes::tool_label;
 pub use lanes::JobDropped;
 pub use lanes::JobHandle;
 pub use lanes::JobRun;

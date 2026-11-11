@@ -25,9 +25,11 @@ pub enum LaneKind {
     /// Directory scans, git inspection, backups, integrity hashes, GC, migration checks.
     /// Below-normal priority.
     MaintenanceIo,
-    /// Process creation, job-object and process-group setup.
+    /// Process creation, job-object and process-group setup, and the per-call preparation of a
+    /// process (its log files, scratch and launcher directories, program lookup).
     SpawnIo,
-    /// PTY reads and writes (DS §6.4).
+    /// PTY reads and writes (DS §6.4), and the log drains of shell jobs: blocking I/O that must
+    /// own a thread per job so one job's slow device never stalls another's.
     PtyIo,
 }
 
@@ -111,10 +113,42 @@ impl std::fmt::Display for SubmitWaitError {
 
 impl std::error::Error for SubmitWaitError {}
 
+tokio::task_local! {
+    /// The tool whose call the current task runs ([`in_tool_call`]).
+    static TOOL_CALL: &'static str;
+}
+
+/// Runs `fut` as the body of a call of the tool `name` ([`tool_label`]): a lane job it submits
+/// that waits in its queue past the lanes' slow-wait threshold is logged with the tool's name.
+pub async fn in_tool_call<F: Future>(name: &'static str, fut: F) -> F::Output {
+    TOOL_CALL.scope(name, fut).await
+}
+
+/// The process-lifetime copy of a tool name, made once per distinct name (the tool catalog is
+/// small), so tagging a call costs a lookup and no allocation.
+pub fn tool_label(name: &str) -> &'static str {
+    use std::collections::HashSet;
+    use std::sync::RwLock;
+    static NAMES: RwLock<Option<HashSet<&'static str>>> = RwLock::new(None);
+    if let Some(found) = NAMES.read().unwrap_or_else(|p| p.into_inner()).as_ref().and_then(|names| names.get(name)) {
+        return *found;
+    }
+    let mut names = NAMES.write().unwrap_or_else(|p| p.into_inner());
+    let names = names.get_or_insert_with(HashSet::new);
+    if let Some(found) = names.get(name) {
+        return *found;
+    }
+    let label: &'static str = Box::leak(name.to_owned().into_boxed_str());
+    names.insert(label);
+    label
+}
+
 /// A job waiting in a lane queue. Created only by [`crate::LaneToken::submit`].
 pub struct QueuedJob {
     lane: LaneKind,
     enqueued_at: Instant,
+    /// The tool whose call submitted the job, if a tool call did.
+    tool: Option<&'static str>,
     cancel: CancellationToken,
     run: Box<dyn FnOnce() + Send>,
 }
@@ -136,9 +170,16 @@ impl QueuedJob {
         Self {
             lane,
             enqueued_at: Instant::now(),
+            tool: TOOL_CALL.try_with(|tool| *tool).ok(),
             cancel,
             run,
         }
+    }
+
+    /// A job of `tool` enqueued at `enqueued_at`.
+    #[cfg(test)]
+    pub(crate) fn queued_at(lane: LaneKind, tool: Option<&'static str>, enqueued_at: Instant, run: Box<dyn FnOnce() + Send>) -> Self {
+        Self { lane, enqueued_at, tool, cancel: CancellationToken::new(), run }
     }
 
     pub fn lane(&self) -> LaneKind {
@@ -150,6 +191,11 @@ impl QueuedJob {
         self.enqueued_at
     }
 
+    /// The tool whose call submitted the job ([`in_tool_call`]).
+    pub fn tool(&self) -> Option<&'static str> {
+        self.tool
+    }
+
     pub fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
     }
@@ -157,7 +203,7 @@ impl QueuedJob {
     /// The same job with its body wrapped by `wrap` (the replay's clock counts it while it is queued or running).
     #[cfg(feature = "virtual-clock")]
     pub(crate) fn map_run(self, wrap: impl FnOnce(Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send>) -> Self {
-        Self { lane: self.lane, enqueued_at: self.enqueued_at, cancel: self.cancel, run: wrap(self.run) }
+        Self { lane: self.lane, enqueued_at: self.enqueued_at, tool: self.tool, cancel: self.cancel, run: wrap(self.run) }
     }
 
     /// Runs the job on the calling lane thread, or drops it if it was cancelled while queued.
@@ -204,5 +250,22 @@ impl<R> Future for JobHandle<R> {
         Pin::new(&mut self.rx)
             .poll(cx)
             .map(|r| r.map_err(|_| JobDropped))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn queued() -> QueuedJob {
+        QueuedJob::new(LaneKind::SpawnIo, CancellationToken::new(), Box::new(|| {}))
+    }
+
+    #[tokio::test]
+    async fn a_job_queued_inside_a_tool_call_names_the_tool_and_others_name_none() {
+        let label = tool_label("shell");
+        assert!(std::ptr::eq(label, tool_label(&String::from("shell"))), "one copy per name");
+        assert_eq!(in_tool_call(label, async { queued().tool() }).await, Some("shell"));
+        assert_eq!(queued().tool(), None);
     }
 }
