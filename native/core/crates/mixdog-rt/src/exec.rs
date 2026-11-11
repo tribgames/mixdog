@@ -206,8 +206,11 @@ impl RtConfig {
             // Every shell call's start: a few single filesystem calls and one process creation,
             // milliseconds each. The lease table's slow case (a first-run scan) may hold a thread
             // for seconds, so two may stall while two keep serving; more threads buy nothing at
-            // millisecond service times. A call has one job in flight at a time, so the queue
-            // holds a start per concurrent call (30 agents x 8 parallel calls), as io-durability's.
+            // millisecond service times. A shell call's start steps run one after another (the
+            // program probe, hoisted script, scratch and launcher directories, PATH lookup, then
+            // the spawn; its log files are made on the job's io-pty writer), so a call has at most
+            // one io-spawn job in flight: 30 agents x 8 parallel calls = 240 jobs <= 256 queued
+            // + 4 running, as io-durability's queue.
             spawn_io: PoolParams {
                 threads: 4,
                 queue: 256,
