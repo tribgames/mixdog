@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -68,6 +68,7 @@
   "replay": {
     "compare": "mixdog-app-server thread/items/list paging and the phone transcript window: feed each case's rows and page requests; compare ids, byte counts, truncation fields, notes and wires (whole)",
     "entry": "Drive these public items on o1: thread/items/list (mixdog-app-protocol/src/methods.rs:185).",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the phone transcript window (encodePhoneSessionState, requestPhoneTranscriptPage, remoteToolOutput): no counterpart found"
     ],
