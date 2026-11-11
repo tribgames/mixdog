@@ -23,6 +23,23 @@
     },
     "noSession": "sess_daemon_0000000000000_nobody"
   },
+  "beforeEachCase": {
+    "steps": [
+      {
+        "markAll": true,
+        "ms": 1000
+      },
+      {
+        "markAll": true,
+        "ms": 1000
+      },
+      {
+        "markAll": true,
+        "ms": 1000
+      }
+    ],
+    "read": "getWorktreeSettings"
+  },
   "cases": [
     {
       "group": "project",
@@ -503,9 +520,9 @@
             "goal": null,
             "quotaResume": null,
             "todo": null,
-            "displayContextWindow": 0,
-            "compactBoundaryTokens": 0,
-            "autoCompactTokenLimit": 0,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
@@ -1081,8 +1098,8 @@
             "clientHostPid": "<pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
-            "sessionProvider": "custom-fixture",
-            "sessionModel": "fixture-model",
+            "sessionProvider": null,
+            "sessionModel": null,
             "effort": null,
             "turnEffort": null,
             "effortOptions": [],
@@ -1091,9 +1108,9 @@
             "autoEffort": true,
             "modelParameters": {},
             "contextPercent": null,
-            "contextWindow": 128000,
-            "rawContextWindow": 128000,
-            "effectiveContextWindowPercent": 100,
+            "contextWindow": null,
+            "rawContextWindow": null,
+            "effectiveContextWindowPercent": null,
             "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "workspace": null,
             "systemShell": {
@@ -1152,9 +1169,7 @@
             "autoCompactTokenLimit": 0,
             "agentWorkers": [],
             "agentJobs": [],
-            "agentScope": {
-              "sessionId": "<control>"
-            },
+            "agentScope": null,
             "toolMode": "full",
             "themeEpoch": 0,
             "remoteEnabled": false,
@@ -2171,8 +2186,8 @@
             "clientHostPid": "<pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
-            "sessionProvider": "custom-fixture",
-            "sessionModel": "fixture-model",
+            "sessionProvider": null,
+            "sessionModel": null,
             "effort": null,
             "turnEffort": null,
             "effortOptions": [],
@@ -2181,9 +2196,9 @@
             "autoEffort": true,
             "modelParameters": {},
             "contextPercent": null,
-            "contextWindow": 128000,
-            "rawContextWindow": 128000,
-            "effectiveContextWindowPercent": 100,
+            "contextWindow": null,
+            "rawContextWindow": null,
+            "effectiveContextWindowPercent": null,
             "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "workspace": null,
             "systemShell": {
@@ -2242,9 +2257,7 @@
             "autoCompactTokenLimit": 0,
             "agentWorkers": [],
             "agentJobs": [],
-            "agentScope": {
-              "sessionId": "<control>"
-            },
+            "agentScope": null,
             "toolMode": "full",
             "themeEpoch": 0,
             "remoteEnabled": false,
@@ -3863,8 +3876,8 @@
             "clientHostPid": "<pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
-            "sessionProvider": "custom-fixture",
-            "sessionModel": "fixture-model",
+            "sessionProvider": null,
+            "sessionModel": null,
             "effort": null,
             "turnEffort": null,
             "effortOptions": [],
@@ -3873,9 +3886,9 @@
             "autoEffort": true,
             "modelParameters": {},
             "contextPercent": null,
-            "contextWindow": 128000,
-            "rawContextWindow": 128000,
-            "effectiveContextWindowPercent": 100,
+            "contextWindow": null,
+            "rawContextWindow": null,
+            "effectiveContextWindowPercent": null,
             "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "workspace": null,
             "systemShell": {
@@ -3934,9 +3947,7 @@
             "autoCompactTokenLimit": 0,
             "agentWorkers": [],
             "agentJobs": [],
-            "agentScope": {
-              "sessionId": "<control>"
-            },
+            "agentScope": null,
             "toolMode": "full",
             "themeEpoch": 0,
             "remoteEnabled": false,
@@ -4297,8 +4308,8 @@
             "clientHostPid": "<pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
-            "sessionProvider": null,
-            "sessionModel": null,
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
             "effort": null,
             "turnEffort": null,
             "effortOptions": [],
@@ -4307,9 +4318,9 @@
             "autoEffort": true,
             "modelParameters": {},
             "contextPercent": null,
-            "contextWindow": null,
-            "rawContextWindow": null,
-            "effectiveContextWindowPercent": null,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
             "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
@@ -4376,13 +4387,13 @@
             "goal": null,
             "quotaResume": null,
             "todo": null,
-            "displayContextWindow": 0,
-            "compactBoundaryTokens": 0,
-            "autoCompactTokenLimit": 0,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "sessionId": "<session>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
@@ -4520,8 +4531,8 @@
             "clientHostPid": "<pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
-            "sessionProvider": null,
-            "sessionModel": null,
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
             "effort": null,
             "turnEffort": null,
             "effortOptions": [],
@@ -4530,9 +4541,9 @@
             "autoEffort": true,
             "modelParameters": {},
             "contextPercent": null,
-            "contextWindow": null,
-            "rawContextWindow": null,
-            "effectiveContextWindowPercent": null,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
             "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
@@ -4599,13 +4610,13 @@
             "goal": null,
             "quotaResume": null,
             "todo": null,
-            "displayContextWindow": 0,
-            "compactBoundaryTokens": 0,
-            "autoCompactTokenLimit": 0,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "sessionId": "<session>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
@@ -4773,9 +4784,9 @@
             "goal": null,
             "quotaResume": null,
             "todo": null,
-            "displayContextWindow": 0,
-            "compactBoundaryTokens": 0,
-            "autoCompactTokenLimit": 0,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
@@ -5183,8 +5194,8 @@
               "mergeTarget": null,
               "revision": 0,
               "transition": {
-                "state": "switching",
-                "txId": "<tx>"
+                "state": "idle",
+                "txId": null
               }
             },
             "systemShell": {
@@ -5238,9 +5249,9 @@
             "goal": null,
             "quotaResume": null,
             "todo": null,
-            "displayContextWindow": 0,
-            "compactBoundaryTokens": 0,
-            "autoCompactTokenLimit": 0,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
@@ -9081,11 +9092,400 @@
     },
     {
       "group": "session",
+      "switchRoute": {
+        "provider": "custom-fixture",
+        "model": "fixture-wide"
+      }
+    },
+    {
+      "group": "session",
+      "request": {
+        "capability": "getBranchMenu",
+        "args": [],
+        "sessionId": "$SESSION"
+      },
+      "frame": {
+        "ok": true,
+        "value": {
+          "value": {
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "pendingWorktree": null,
+            "branches": [
+              {
+                "name": "feature",
+                "current": false,
+                "remote": false,
+                "upstream": "",
+                "lastCommitAt": "2026-01-02T03:04:05Z"
+              },
+              {
+                "name": "main",
+                "current": true,
+                "remote": false,
+                "upstream": "",
+                "lastCommitAt": "2026-01-02T03:04:05Z"
+              },
+              {
+                "name": "spare",
+                "current": false,
+                "remote": false,
+                "upstream": "",
+                "lastCommitAt": "2026-01-02T03:04:05Z"
+              }
+            ],
+            "occupancy": [
+              {
+                "branch": "feature",
+                "kind": "free"
+              },
+              {
+                "branch": "main",
+                "kind": "current",
+                "path": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project"
+              },
+              {
+                "branch": "spare",
+                "kind": "free"
+              }
+            ],
+            "retainedWorktree": null,
+            "warnings": []
+          },
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<session>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<pid>",
+            "model": "fixture-wide",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": 100,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+            "workspace": {
+              "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 6,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<session>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "repository": {
+        "head": "main",
+        "refs": [
+          "refs/heads/feature e879a8aafc2c6e489890f6dec514feec356938c5",
+          "refs/heads/main 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
+          "refs/heads/spare 97d5df85c8e63c9fcd9c90910559df5be12aeeb8"
+        ],
+        "worktrees": [
+          "worktree D:/mixdog-build/tmp/w30-phone-worktree/project",
+          "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
+          "branch refs/heads/main"
+        ]
+      }
+    },
+    {
+      "group": "session",
+      "request": {
+        "capability": "listWorktrees",
+        "args": []
+      },
+      "frame": {
+        "ok": true,
+        "value": {
+          "value": [],
+          "snapshot": {
+            "items": [],
+            "transcriptViewItems": null,
+            "transcriptViewRevision": 0,
+            "transcriptHistoryBefore": false,
+            "transcriptHistoryAfter": false,
+            "transcriptArchive": null,
+            "structureRevision": 0,
+            "streamingTail": null,
+            "toasts": [],
+            "progressHint": null,
+            "busy": false,
+            "commandBusy": false,
+            "commandStatus": null,
+            "spinner": null,
+            "queued": [],
+            "thinking": null,
+            "toolApproval": null,
+            "toolApprovalsWaiting": 0,
+            "toolApprovalResult": null,
+            "promptRestore": null,
+            "lastTurn": null,
+            "stats": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 0,
+              "latestInputTokens": 0,
+              "latestOutputTokens": 0,
+              "latestCachedTokens": 0,
+              "latestCacheWriteTokens": 0,
+              "latestPromptTokens": 0,
+              "costUsd": 0,
+              "turns": 0,
+              "currentContextTokens": null,
+              "currentEstimatedContextTokens": 0,
+              "currentContextSource": "pending",
+              "currentContextUpdatedAt": null,
+              "usageReadout": null
+            },
+            "activeToolSummary": null,
+            "activeTools": null,
+            "promptHistoryList": [],
+            "sessionId": "<control>",
+            "sessionForkedFrom": null,
+            "clientHostPid": "<pid>",
+            "model": "fixture-model",
+            "provider": "custom-fixture",
+            "sessionProvider": "custom-fixture",
+            "sessionModel": "fixture-model",
+            "effort": null,
+            "turnEffort": null,
+            "effortOptions": [],
+            "fast": false,
+            "fastCapable": false,
+            "autoEffort": true,
+            "modelParameters": {},
+            "contextPercent": null,
+            "contextWindow": 128000,
+            "rawContextWindow": 128000,
+            "effectiveContextWindowPercent": 100,
+            "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+            "workspace": null,
+            "systemShell": {
+              "command": "",
+              "effective": "",
+              "source": "auto"
+            },
+            "webSearchRoute": {
+              "provider": "default",
+              "model": "default"
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 3600000,
+              "unlimited": false,
+              "label": "1h",
+              "custom": false,
+              "providerCustom": false,
+              "providerDefault": 3600000,
+              "provider": "custom-fixture",
+              "providerDefaults": [
+                {
+                  "provider": "custom-fixture",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                },
+                {
+                  "provider": "default",
+                  "idleMs": 3600000,
+                  "builtInMs": 3600000,
+                  "unlimited": false,
+                  "builtInUnlimited": false,
+                  "custom": false
+                }
+              ],
+              "minContextPercent": 10
+            },
+            "workflow": {
+              "id": "default",
+              "name": "Default",
+              "description": "Handle tasks as requested.",
+              "source": "built-in",
+              "delegatesAgents": true
+            },
+            "orchestrationMode": "balanced",
+            "pendingWorkflowSwitch": false,
+            "pendingOrchestrationModeSwitch": false,
+            "goal": null,
+            "quotaResume": null,
+            "todo": null,
+            "displayContextWindow": 128000,
+            "compactBoundaryTokens": 128000,
+            "autoCompactTokenLimit": 128000,
+            "agentWorkers": [],
+            "agentJobs": [],
+            "agentScope": {
+              "sessionId": "<control>"
+            },
+            "toolMode": "full",
+            "themeEpoch": 0,
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        }
+      },
+      "repository": {
+        "head": "main",
+        "refs": [
+          "refs/heads/feature e879a8aafc2c6e489890f6dec514feec356938c5",
+          "refs/heads/main 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
+          "refs/heads/spare 97d5df85c8e63c9fcd9c90910559df5be12aeeb8"
+        ],
+        "worktrees": [
+          "worktree D:/mixdog-build/tmp/w30-phone-worktree/project",
+          "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
+          "branch refs/heads/main"
+        ]
+      }
+    },
+    {
+      "group": "session",
       "settled": {
-        "control": null,
-        "session": {
+        "control": {
           "action": "settings_changed",
           "seq": 1,
+          "at": "<time>"
+        },
+        "session": {
+          "action": "settings_changed",
+          "seq": 2,
           "at": "<time>"
         }
       }

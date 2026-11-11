@@ -18,7 +18,7 @@
 // Each group runs in a world of its own (made again, a daemon of its own), so `--only` records or replays exactly what the full run
 // holds for that group.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -35,7 +35,8 @@ const SUPERVISOR = 'D:\\mixdog-build\\tmp\\real-turn-harness\\cache\\supervisor-
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
 const ONLY = args.get('only') ?? null;
-const PROVENANCE = recorderProvenance(import.meta.url);
+// The daemon's preload (and its hooks) is loaded by Node's daemon, not by this module: named as inputs.
+const PROVENANCE = recorderProvenance(import.meta.url, ['benchmarks/rust-core/recorders/lib/status-clock-preload.mjs', 'benchmarks/rust-core/recorders/lib/status-clock-hooks.mjs']);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 
@@ -75,13 +76,15 @@ const SEED_CONFIG = {
         baseURL: 'http://127.0.0.1:9/v1',
         auth: 'none',
         enabled: true,
-        modelOverrides: { 'fixture-model': { manual: true } },
+        modelOverrides: { 'fixture-model': { manual: true }, 'fixture-wide': { manual: true, contextWindow: 200000 } },
       },
     },
   },
 };
 /** The session's route: the fixture's model. */
 const ROUTE = { provider: 'custom-fixture', model: 'fixture-model' };
+/** The model a session switches to mid-group: its configured window differs from the fixture model's. */
+const WIDE_ROUTE = { provider: 'custom-fixture', model: 'fixture-wide' };
 /** The profile both products run in: a parent variable that could reach a real profile, service or key is dropped. */
 function isolatedEnv() {
   const env = {};
@@ -323,6 +326,11 @@ const GROUPS = {
     cap('removeWorktree', [{ expectedRevision: '$REVISION' }], S),
     cap('removeWorktree', [{ expectedRevision: '$REVISION' }], S),
     cap('getBranchMenu', [], S),
+    // A model switch moves the context windows (content, not timing): the session's route set to the wider model, then the
+    // answers carry its window.
+    { switchRoute: WIDE_ROUTE },
+    cap('getBranchMenu', [], S),
+    cap('listWorktrees', []),
   ],
   settings: [
     cap('getWorktreeSettings', []),
@@ -551,8 +559,42 @@ const { createSessionProtocolClient } = await importFrom(tree, 'src/standalone/s
 const { SessionHost } = await importFrom(tree, 'apps/desktop/src/main/session-host.ts');
 const { createRemoteMethods, executeRemoteFrame } = await importFrom(tree, 'apps/desktop/src/main/remote-methods.ts');
 
+/** Before every case Node's session status is brought to the state it settles in (STATUS_SETTLE): its daemon's status scheduler runs
+ *  on the virtual clock of status-clock-preload.mjs, which the recorder moves; this is the order's folder and its count. */
+const statusClock = { dir: join(WORK, 'status-clock'), sent: 0 };
+/** The ordered input before each case: three times every session's pass marked (a daemon-wide change) and the clock moved 1 s - past
+ *  the scheduler's settle beat and minimum interval (session-status-scheduler.mjs:14-18). Two passes settle the context windows: the
+ *  first publishes the route's window with the display fields 0 (`routeState` keeps them only for an unchanged window,
+ *  context-state.mjs:102-114), the second keeps the display fields `syncContextStats` filled; the third publishes nothing more. Then
+ *  the control session's and the project session's snapshot are read (getWorktreeSettings) so the host holds what the daemon does. */
+const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
+
+async function settleStatus(pid) {
+  statusClock.sent += 1;
+  const n = statusClock.sent;
+  const done = join(statusClock.dir, `done-${n}.json`);
+  const answered = new Promise((resolve, reject) => {
+    const watcher = watch(statusClock.dir, () => existsSync(done) && finish());
+    const deadline = setTimeout(() => finish(new Error(`Node's daemon did not run status-clock order ${n} in 30 s`)), 30_000);
+    const finish = (error) => {
+      watcher.close();
+      clearTimeout(deadline);
+      if (error) reject(error);
+      else resolve(JSON.parse(readFileSync(done, 'utf8')));
+    };
+  });
+  const order = join(statusClock.dir, `advance-${n}.json.tmp`);
+  writeFileSync(order, JSON.stringify({ pid, steps: STATUS_SETTLE.steps }));
+  renameSync(order, join(statusClock.dir, `advance-${n}.json`));
+  return answered;
+}
+
 async function recordGroup(group) {
   makeWorld(group);
+  rmSync(statusClock.dir, { recursive: true, force: true });
+  mkdirSync(statusClock.dir, { recursive: true });
+  process.env.MIXDOG_REC_STATUS_CLOCK = statusClock.dir;
+  process.execArgv.push('--import', pathToFileURL(join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'status-clock-preload.mjs')).href);
   const discovery = await sessionClient.ensureDaemon({ cwd: PATHS.project, attempts: 2, readyTimeoutMs: 120_000 });
   const daemonPid = Number(discovery.pid);
   let host = null;
@@ -589,6 +631,15 @@ async function recordGroup(group) {
     const cases = [];
     let frameId = 0;
     for (const request of GROUPS[group]) {
+      if (request.switchRoute) {
+        // The desktop's model switch of the session (configureDraft's setRoute on the current session), an ordered input.
+        await attachments[0].call('session.configure', { sessionId: ctx.session, action: 'setRoute', args: [{ ...request.switchRoute, applyToCurrentSession: true, keepMainModel: false }] });
+        cases.push({ group, switchRoute: request.switchRoute });
+        continue;
+      }
+      await settleStatus(daemonPid);
+      await host.invokeCapability(STATUS_SETTLE.read, []);
+      if (ctx.session) await host.invokeCapability(STATUS_SETTLE.read, [], ctx.session);
       const sent = filled(request, ctx);
       const { id: _id, ...frame } = clone(await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params: [sent] })));
       // A lost daemon socket is the run's failure, not Node's answer: the recording is refused rather than kept with it.
@@ -645,6 +696,9 @@ const stage = stageSet(FIXTURES);
 writeJson(join(stage, 'golden.json'), {
   note: "Node host (b6f10295a) answers to a paired phone's invokeCapability for the worktree capabilities and the review reads: per call the request the page sent ($NAME filled from the world when it runs), the relay frame, whole (session id as <session>, run times as <time>) and the repository afterwards.",
   world: { paths: PATHS, git: GIT_IDENTITY, noSession: NO_SESSION },
+  // Before every case, in this order: Node's status clock (status-clock-preload.mjs) and the host's reads of the control and the
+  // project session (`read`, which the replay sends as well).
+  beforeEachCase: STATUS_SETTLE,
   cases,
 });
 writeSetManifest(stage, {
@@ -670,6 +724,12 @@ writeSetManifest(stage, {
       tx: "a workspace transition's txId is <tx> (a random id each run makes)",
       setupChanged:
         "a call's snapshot leaves out setupChanged: Node hands the settings_changed notice to the session asynchronously (notification-router.mjs:33-36), so which answer first carries it, and its seq, differ between two recordings of this recorder; each group ends with one `settled` entry, the control (and project) session's setupChanged once it holds still, compared whole",
+    },
+    settledStatus: {
+      fields: ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens'],
+      node: "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values. Which of these a call answered depended on whether a pass had landed",
+      recording: 'holds the settled state: before every case the daemon\'s scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, three marks of every session each followed by 1 s), no real wait',
+      core: 'has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case',
     },
     notRecorded: {
       notProducible: "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself",
@@ -752,8 +812,16 @@ async function replay(exe) {
       const host = { ctx: { browserId: PHONE_ID, fanOut() {} }, client: () => phone, declareLane() {}, onClient: (listener) => (listener(phone), () => undefined) };
       const router = createProtocolRouter(adapters, { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false });
       router.install();
-      const wanted = golden.cases.filter((entry) => entry.group === group && entry.request !== undefined);
+      const wanted = golden.cases.filter((entry) => entry.group === group && (entry.request !== undefined || entry.switchRoute));
       for (const [index, expected] of wanted.entries()) {
+        if (expected.switchRoute) {
+          // The desktop window's model switch of the session (route/set), as the recording's input.
+          await window.call('route/set', { threadId: ctx.session, route: expected.switchRoute });
+          continue;
+        }
+        // The recording's reads before each case; the core needs no clock moved (its status is settled from the start).
+        await router.call('invokeCapability', [{ capability: golden.beforeEachCase.read, args: [] }]);
+        if (ctx.session) await router.call('invokeCapability', [{ capability: golden.beforeEachCase.read, args: [], sessionId: ctx.session }]);
         const sent = filled(expected.request, ctx);
         const label = `${group} #${index} ${JSON.stringify(expected.request).slice(0, 140)}`;
         let frame;
