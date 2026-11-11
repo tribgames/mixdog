@@ -742,6 +742,8 @@ pub struct CrashedRows {
     pub rows: Vec<super::run::ItemCommit>,
     /// The model context to restart on (a silent compaction), when the finalization changed it.
     pub context: Option<Vec<(mixdog_core_api::ids::ItemId, Value)>>,
+    /// The draft's last context reading, restored as `lastContextTokens` (`restoreCheckpointContext`).
+    pub context_tokens: Option<u64>,
 }
 
 /// The run loop (RL §5.2): owned by the actor, reports only to it.
