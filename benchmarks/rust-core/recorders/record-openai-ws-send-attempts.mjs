@@ -3,6 +3,13 @@
 // `createWsSendContext` reconnect stage, `emitProviderRetryStage`, `retryReasonClass`, `safeRetryErrorCode` and `providerTimeoutError`. The
 // retry sleep is the test's injected `sleepFn` (it records the requested ms and returns at once), the progress / stage / trace callbacks
 // record every argument, and the clock is the virtual clock (`retryAt` is `Date.now()` of it plus the advised wait).
+// The cases whose failure comes from the wire (:86 an HTTP 401 on the upgrade, :124/:142/:374 a dropped connection, :153 a rate-limited response.failed frame, :431 a 1009
+// close on the retry) are ALSO recorded over a real loopback WebSocket (`ws-*` case ids): the real `sendViaWebSocket` connects to it, the server's scripted answers
+// are the inputs, and the case is ONE ordered list (dial, upgrade request with every header, frames each way, closes, the retry sleeps the product requests, the
+// stage/progress callbacks). The retry sleep is the product's own `_sleepFn` injection point (records the requested ms, returns at once: no real waiting).
+// Not over a socket: :74/:97/:111 (the handshake retry classifier table and budget are driven with constructed errors: the handshake retry layer sleeps with its own
+// real timers, openai-ws-send/handshake-retry), :165/:180/:214/:284/:297/:325/:354/:362 (pure formatting of an already-built error or stage: no transport call exists),
+// :392/:417/:464/:478 (they need a prior stored response id / duplicate-item server text the loopback cannot reproduce without a full session: kept on the state machine).
 //   node benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
@@ -10,6 +17,15 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-openai-ws-send-attempts',
   net: false,
+  exclusions: ['result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)'],
+  maskRow: (row) => {
+    const walk = (value) => {
+      if (!value || typeof value !== 'object') return;
+      if (value.transportTiming && typeof value.transportTiming === 'object') for (const [k, v] of Object.entries(value.transportTiming)) if (/Ms$/.test(k) && typeof v === 'number') value.transportTiming[k] = '<ms, real clock>';
+      for (const child of Object.values(value)) walk(child);
+    };
+    if (row.id?.startsWith('ws-')) walk(row.result);
+  },
   entry: 'src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. Every failure is a scripted Error (own properties are the inputs); `attempts.state` and the error objects are read after each call.',
   compare: 'mixdog-agent send.rs:541-664 (retry loop, advised wait, reasons), mixdog-ai retry decider.rs:55-57,172-185 and retry advice.rs, openai adapter.rs: feed each case\'s scripted errors / midState and compare `results`, `progress`, `sleeps`, `details`, `traces`, `stages` and the error fields. K1 gap G10 (exhaustion surfaces the first error, not the last) and G1 (xAI WS carry-forward) are OPEN in the core, so those cases are expected to differ.',
   replay: "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
@@ -21,6 +37,8 @@ const { createWsSendContext } = await rec.P(`${P}openai-ws-send/send-context.mjs
 const { retryReasonClass, safeRetryErrorCode } = await rec.P(`${P}provider-error-kind.mjs`);
 const { providerTimeoutError } = await rec.P('agent/orchestrator/stall-policy.mjs');
 const { emitProviderRetryStage } = await rec.P(`${P}retry-executor.mjs`);
+const { sendViaWebSocket } = await rec.P(`${P}openai-oauth-ws.mjs`);
+const world = await rec.wsWorld();
 const SRC = 'src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs';
 
 function harness(overrides = {}) {
@@ -205,4 +223,41 @@ await rec.run('exhausted-falls-back-to-first-error-or-unreachable-marker', `${SR
   const afterFirst = h.attempts.exhausted();
   return { unreachable, afterFirstIsTheFirstError: afterFirst === first, afterFirst, maxMidstreamRetries: h.attempts.maxMidstreamRetries, limit: LIMIT };
 });
+// ---- over a real loopback WebSocket ----
+const completed = (id) => [{ type: 'response.created', response: { id, model: 'gpt-fixture' } }, { type: 'response.completed', response: { id, model: 'gpt-fixture', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }], usage: { input_tokens: 1, output_tokens: 1 } } }];
+async function overSocket(plans, { refusals = [], poolKey }) {
+  let connections = 0;
+  world.reset({
+    refuse: (_req, n) => refusals[n - 1],
+    onFrame: (conn) => {
+      const plan = plans[connections++];
+      for (const frame of plan.frames) conn.send(frame);
+      if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
+    },
+  });
+  const sleeps = [];
+  let outcome;
+  try {
+    const out = await sendViaWebSocket({
+      auth: { type: 'xai', access_token: 'fixture-access-token' }, body: { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] }, poolKey, cacheKey: 'send-attempts-ws', iteration: 0, useModel: 'gpt-fixture', traceProvider: 'xai', forceFresh: true,
+      onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail: detail ?? null }),
+      onTextDelta: (chunk) => world.note({ event: 'text', chunk }),
+      onStreamDelta: (kind) => world.note({ event: 'progress', kind }),
+      _sleepFn: async (ms) => { sleeps.push(ms); world.note({ event: 'sleep-requested', ms }); },
+      _sendSpanTraceFn: () => {}, _agentTraceFn: () => {},
+    });
+    outcome = { result: out };
+  } catch (error) {
+    outcome = { error };
+  }
+  for (const conn of world.conns) conn.close(1000, 'recorder-end');
+  await world.until((trace) => trace.every((e) => e.event !== 'open') || trace.filter((e) => e.event === 'closed').length >= trace.filter((e) => e.event === 'open').length, 'all sockets closed');
+  return { ...outcome, sleeps, events: world.trace.map((e) => ({ ...e })) };
+}
+await rec.run('ws-http-401-on-upgrade-surfaces-immediately', `${SRC}:86`, { refusals: [401] }, () => overSocket([], { refusals: [{ status: 401, headers: [['content-type', 'application/json']], body: '{"error":{"message":"unauthorized"}}' }], poolKey: 'sa-401' }));
+await rec.run('ws-abnormal-close-before-output-retries-on-a-new-socket', `${SRC}:124`, { connections: ['frames: none, then the server drops the connection (1006)', 'completed'] }, () => overSocket([{ frames: [], close: [1006, ''] }, { frames: completed('resp_retry') }], { poolKey: 'sa-1006' }));
+await rec.run('ws-cut-while-tool-input-streams-surfaces', `${SRC}:142`, { connections: ['created + function_call item added, then the drop (1006)'] }, () => overSocket([{ frames: [{ type: 'response.created', response: { id: 'resp_cut', model: 'gpt-fixture' } }, { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read' } }], close: [1006, ''] }], { poolKey: 'sa-cut' }));
+await rec.run('ws-rate-limited-response-failed-waits-advised-time', `${SRC}:153`, { connections: ['response.failed rate_limit_exceeded "try again in 1.5s"', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_rl', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 1.5s.' } } }] }, { frames: completed('resp_after') }], { poolKey: 'sa-rl' }));
+await rec.run('ws-relayed-text-then-drop-surfaces-without-replay', `${SRC}:374`, { connections: ['created + text delta, then the drop (1006)'] }, () => overSocket([{ frames: [{ type: 'response.created', response: { id: 'resp_t', model: 'gpt-fixture' } }, { type: 'response.output_text.delta', delta: 'half' }], close: [1006, ''] }], { poolKey: 'sa-text' }));
+await rec.run('ws-server-1009-on-retry-surfaces-itself', `${SRC}:431`, { connections: ['drop (1006)', 'close 1009 message too big'] }, () => overSocket([{ frames: [], close: [1006, ''] }, { frames: [], close: [1009, 'too big'] }], { poolKey: 'sa-1009' }));
 await rec.finish();
