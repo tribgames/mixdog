@@ -248,6 +248,9 @@ for (const scenario of [
   const { messages: _omitted, cwd: _temporary, ...initialHeader } = structuredClone(record);
   const transcript = compactionSystem.map((message) => ({ ...message }));
   const steps = [];
+  // Every request the provider received, in the order it arrived: the compaction pass's summary requests and each turn's sends.
+  const sends = [];
+  const wire = (messages) => messages.map(({ role, content }) => ({ role, content }));
   let summaries = 0;
   const run = async (name, prompt) => {
     transcript.push({ role: 'user', content: prompt });
@@ -265,6 +268,7 @@ for (const scenario of [
           const summary = messages.at(-1)?.content !== prompt;
           if (summary) summaries += 1;
           sent.push({ summary, messages: messages.length });
+          sends.push({ step: name, summary, messages: wire(messages) });
           return { content: summary ? SUMMARY_TEXT : answer, toolCalls: [], stopReason: 'end_turn', usage: usage(10, 0, 100) };
         },
       },
@@ -285,7 +289,7 @@ for (const scenario of [
     let summaryRequests = 0;
     const outcome = await runSessionCompaction(record, {
       mode: 'manual', force: true, config: {}, model: record.model, sessionId: record.id,
-      provider: { name: 'anthropic', async send() { summaryRequests += 1; return { content: SUMMARY_TEXT, usage: usage(10, 0, 100) }; } },
+      provider: { name: 'anthropic', async send(messages) { summaryRequests += 1; sends.push({ step: 'compaction', summary: true, messages: wire(messages) }); return { content: SUMMARY_TEXT, usage: usage(10, 0, 100) }; } },
     });
     transcript.splice(0, transcript.length, ...record.messages);
     compaction = { before: before.map(({ role, content }) => ({ role, content })), outcome: { changed: outcome.changed, error: outcome.error ?? null }, summaryRequests, pending: record.pendingCacheBreakIntent ?? null };
@@ -293,7 +297,7 @@ for (const scenario of [
   await run('after', words(scenario.words, 'after_'));  compactionRoutes.push({
     name: scenario.name, session: scenario.session, model: record.model, provider: record.provider, contextWindow: scenario.window,
     header: initialHeader, tokenCalibration: providerTokenCalibration(record.provider), system: compactionSystem[0].content,
-    summaryText: SUMMARY_TEXT, compaction, summaries,
+    summaryText: SUMMARY_TEXT, compaction, summaries, sends,
     transcript: transcript.map(({ role, content }) => ({ role, content })), steps,
   });
 }
@@ -410,7 +414,7 @@ writeSetManifest(out, {
       request_properties_changed: 'no product path reaches it: request-projection.mjs:52-58 hands the guard a prefix of the two tool lists only, and provider-prefix-guard.mjs:176-196 digests each list on its own, so a changed prefix with the same provider, model and both list digests cannot occur (the guard cases give the guard a prefix with another key)',
       post_turn_compaction: 'no product path sets it: compaction-runner.mjs:737 sets it only for mode "auto", and runSessionCompaction is called only with mode "manual" (session-crud.mjs:164 and :391, via session-ops.mjs:75 for /compact and auto-clear); the guard cases still give the comparison that intent',
     },
-    keptWhole: 'the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request\'s message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per compaction scenario its compaction outcome, summary request count, parked intent, the transcript after, and per turn the sends (summary or turn, message count), rows, stderr lines and the parked intent, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes',
+    keptWhole: 'the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request\'s message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per compaction scenario its compaction outcome, summary request count, parked intent, the transcript after, the sends of the whole scenario in the order the provider received them (the compaction pass\'s summary requests and each turn\'s: summary or turn, every message\'s role and content), and per turn the sends (summary or turn, message count), rows, stderr lines and the parked intent, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes',
   },
 });
 commitStage(out, finalOut);

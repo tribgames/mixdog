@@ -141,7 +141,16 @@ struct Scripted {
     requests: Mutex<Vec<Arc<ModelRequest>>>,
     /// Every `settle_send` the loop made, in order.
     settled: Mutex<Vec<(String, mixdog_core_api::domain::provider::SendEnd)>>,
+    /// The log each request is appended to as it arrives, where the sends of other senders (a summary route) are too.
+    order: Option<Arc<SendLog>>,
 }
+
+/// One send as it was received: whether it is a summary request, and its messages as (role, text).
+type Sent = (bool, Vec<(String, String)>);
+
+/// Every send of a scenario in the order it arrived, whoever sent it.
+#[derive(Default)]
+struct SendLog(Mutex<Vec<Sent>>);
 
 impl Scripted {
     fn new(script: Vec<Attempt>) -> Arc<Self> {
@@ -157,6 +166,7 @@ impl Scripted {
             script: Mutex::new(script.into()),
             requests: Mutex::new(Vec::new()),
             settled: Mutex::new(Vec::new()),
+            order: None,
         })
     }
 
@@ -191,6 +201,10 @@ impl ProviderAdapter for Scripted {
         &self,
         request: Arc<ModelRequest>,
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if let Some(log) = &self.order {
+            let messages = request.messages.iter().map(|m| (wire_role(&AgentMessage::new(m.clone())).to_owned(), AgentMessage::new(m.clone()).text())).collect();
+            log.0.lock().unwrap().push((false, messages));
+        }
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
             Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None))),
@@ -2289,6 +2303,7 @@ async fn an_image_strip_replay_traces_the_cache_break_node_traces() {
         script: Mutex::new(vec![rejection(ErrorKind::ImageRejected, None), turn(vec![text("ok"), done(StopReason::EndTurn)])].into()),
         requests: Mutex::new(Vec::new()),
         settled: Mutex::new(Vec::new()),
+        order: None,
     });
     let breaks = Arc::new(CacheBreaks::default());
     h.failures = Some(breaks.clone());
@@ -2409,6 +2424,7 @@ async fn a_sessions_turns_trace_the_cache_breaks_node_traces() {
             script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
             requests: Mutex::new(Vec::new()),
             settled: Mutex::new(Vec::new()),
+            order: None,
         });
         let breaks = Arc::new(CacheBreaks::default());
         h.failures = Some(breaks.clone());
@@ -2483,6 +2499,7 @@ async fn real_turns_trace_and_refuse_the_breaks_node_does() {
                 script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text("answer"), done(StopReason::EndTurn)])].into()),
                 requests: Mutex::new(Vec::new()),
                 settled: Mutex::new(Vec::new()),
+                order: None,
             });
             let breaks = Arc::new(CacheBreaks::default());
             h.failures = Some(breaks.clone());
@@ -2522,17 +2539,20 @@ async fn real_turns_trace_and_refuse_the_breaks_node_does() {
 struct FixedSummary {
     text: String,
     calls: std::sync::atomic::AtomicUsize,
+    /// Each request is appended here as it arrives: the instructions as the system message, the prompt as the user's.
+    log: Arc<SendLog>,
 }
 
 #[async_trait]
 impl mixdog_agent::compact::summary_run::SummarySender for FixedSummary {
     async fn send(
         &self,
-        _system: &str,
-        _prompt: &str,
+        system: &str,
+        prompt: &str,
         _call: &mixdog_agent::compact::summary_run::SummaryCall,
     ) -> Result<mixdog_agent::compact::summary_run::SummaryResponse, mixdog_agent::compact::summary_run::SummaryFailure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.log.0.lock().unwrap().push((true, vec![("system".to_owned(), system.to_owned()), ("user".to_owned(), prompt.to_owned())]));
         Ok(mixdog_agent::compact::summary_run::SummaryResponse {
             text: self.text.clone(),
             tool_call: false,
@@ -2670,7 +2690,8 @@ async fn real_compactions_trace_the_cache_breaks_node_traces() {
         let calibration = scenario["tokenCalibration"].as_f64().unwrap();
         let auto = session["compaction"]["auto"] == true;
         let settings = CompactSettings { auto: true, context_window: Some(window), token_calibration: calibration, ..CompactSettings::default() };
-        let summary = Arc::new(FixedSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default() });
+        let log = Arc::new(SendLog::default());
+        let summary = Arc::new(FixedSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default(), log: log.clone() });
         let plain = Arc::new(PlainText);
         let compactor = FreshCompactor::for_session(SessionCompactor {
             settings: settings.clone(),
@@ -2727,7 +2748,8 @@ async fn real_compactions_trace_the_cache_breaks_node_traces() {
                 messages.extend(compacted.messages);
                 assert_eq!(summary.calls.load(Ordering::SeqCst) as u64, compaction["summaryRequests"].as_u64().unwrap(), "{step_name}: the summary requests of the forced pass");
                 summary.calls.store(0, Ordering::SeqCst);
-                assert_eq!(compaction["pending"], "manual_compaction", "{step_name}: the intent a forced pass parks");
+                // The intent the core's own manual compaction parks is checked where that path runs (`mixdog-core`
+                // `manual_compaction`); the loop is handed it here, as the session header hands it on.
                 config.cache_break_intent = compaction["pending"].as_str().map(str::to_owned);
             }
             messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
@@ -2742,6 +2764,7 @@ async fn real_compactions_trace_the_cache_breaks_node_traces() {
                 script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
                 requests: Mutex::new(Vec::new()),
                 settled: Mutex::new(Vec::new()),
+                order: Some(log.clone()),
             });
             let breaks = Arc::new(CacheBreaks::default());
             h.failures = Some(breaks.clone());
@@ -2760,11 +2783,7 @@ async fn real_compactions_trace_the_cache_breaks_node_traces() {
                 messages.push(AgentMessage::assistant(answer, Vec::new()));
             }
 
-            let sent: Vec<&JsonValue> = step["sent"].as_array().unwrap().iter().filter(|s| s["summary"] == false).collect();
-            let reached: Vec<u64> = h.provider.requests().iter().map(|r| r.messages.len() as u64).collect();
-            assert_eq!(reached, sent.iter().map(|s| s["messages"].as_u64().unwrap()).collect::<Vec<_>>(), "{step_name}: what reached the provider");
-            let summarized = step["sent"].as_array().unwrap().iter().filter(|s| s["summary"] == true).count();
-            assert_eq!(summary.calls.swap(0, Ordering::SeqCst), summarized, "{step_name}: the summary requests the turn made");
+            summary.calls.store(0, Ordering::SeqCst);
             let records = breaks.0.lock().unwrap().clone();
             let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
             let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
@@ -2776,6 +2795,14 @@ async fn real_compactions_trace_the_cache_breaks_node_traces() {
         let transcript: Vec<(String, String)> = messages.iter().map(|m| (wire_role(m).to_owned(), m.text())).collect();
         let want: Vec<(String, String)> = scenario["transcript"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect();
         assert_eq!(transcript, want, "{name}: the transcript the compaction and the turns left");
+        // Every send of the scenario, summary requests and turns, whole and in the order the provider received them.
+        let want: Vec<Sent> = scenario["sends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|send| (send["summary"].as_bool().unwrap(), send["messages"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect()))
+            .collect();
+        assert_eq!(*log.0.lock().unwrap(), want, "{name}: the sends, in the order they arrived");
         compared += 1;
     }
     assert_eq!(compared, 2, "a manual and an automatic compaction");
