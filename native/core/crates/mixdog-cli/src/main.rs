@@ -364,13 +364,7 @@ fn serve() -> ExitCode {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
-    match mixdog_app_server_daemon::run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
-            eprintln!("mixdogd: {err}");
-            ExitCode::FAILURE
-        }
-    }
+    ExitCode::from(mixdog_app_server_daemon::crash_record::serve_recorded(mixdog_app_server_daemon::run) as u8)
 }
 
 #[cfg(test)]

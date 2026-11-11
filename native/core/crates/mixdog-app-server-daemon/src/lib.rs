@@ -43,6 +43,7 @@ pub mod late_seams;
 pub mod late_tool_surface;
 pub mod os_probe;
 pub mod control;
+pub mod crash_record;
 pub mod daemon_log;
 pub mod desktop_defaults;
 pub mod discovery;
@@ -137,6 +138,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     };
     // Node's `resolvePluginData()`, the dir `mixdogd migrate` converts.
     let data_dir = mixdog_store::paths::Paths::from_process(&js_runtime.package_root).ok_or(ServeError::NoDataDir)?.data_dir;
+    crash_record::install(&data_dir, &|pid| verdict::ProcessTable::query(&verdict::OsProcessTable, u64::from(pid)).is_ok_and(|info| info.is_some()));
     let outgoing = mixdog_app_server::Outgoing::new();
     // LR §3 steps 1 to 5 (`boot`): the data-directory lock `L` (every log writer revalidates it), the control listener, the prior-owner verdict, barrier `B` and the
     // migration, all before the core is composed. The release decision of a blocked verdict is bound on `Booting::release`. The idle sweep and the event pipeline
