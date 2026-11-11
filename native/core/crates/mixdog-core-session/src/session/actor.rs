@@ -5809,17 +5809,11 @@ impl SessionActor {
         }
         // The last run is the turn the process died in.
         let died_in = runs.last().cloned();
-        for rid in runs {
-            let record = Record::Run(RunRecord {
-                rid: id(&rid),
-                phase: RunPhase::Interrupted,
-                attribution: None,
-                attempt: None,
-                at: Some(at),
-                op: None,
-                detail: None,
-            });
-            self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        // Its own marker is written last, behind the recovery rows ([`Self::recovered`]): a marker that landed first would take the run
+        // out of the next open's recovery while the cancelled results and the restart line were never saved (Node keeps the checkpoint
+        // until the recovery is saved).
+        for rid in runs.into_iter().filter(|rid| Some(rid) != died_in.as_ref()) {
+            self.accept_record(interrupted_run(&rid, at), Class::Control, Display::None, Vec::new(), Vec::new());
         }
         if let Some(rid) = died_in {
             self.recover_interrupted_turn(rid);
@@ -5919,10 +5913,9 @@ impl SessionActor {
             ));
             self.transcript_rewritten = true;
         }
-        let Some(last) = records.len().checked_sub(1) else {
-            self.recovery_ended();
-            return;
-        };
+        // The run's end is the last record, so a crash before it leaves the run to be recovered again, and an ack of it covers every row.
+        records.push((interrupted_run(turn.as_str(), self.deps.clock.now_ms()), Display::None));
+        let last = records.len() - 1;
         let (ack, durable) = oneshot::channel();
         let jobs = self.jobs_tx.clone();
         tokio::spawn(async move {
@@ -6181,4 +6174,9 @@ async fn mark_go(mark: &mut Option<oneshot::Receiver<serde_json::Map<String, Val
         Some(mark) => mark.await,
         None => std::future::pending().await,
     }
+}
+
+/// The record that ends a run the process died in.
+fn interrupted_run(rid: &str, at: i64) -> Record {
+    Record::Run(RunRecord { rid: id(rid), phase: RunPhase::Interrupted, attribution: None, attempt: None, at: Some(at), op: None, detail: None })
 }

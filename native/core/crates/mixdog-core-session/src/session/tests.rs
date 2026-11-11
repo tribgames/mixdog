@@ -4025,6 +4025,42 @@ async fn a_turn_the_process_died_in_is_recovered_at_open_before_any_read() {
     assert_eq!(messages[2]["toolCallId"], "call_1");
 }
 
+/// A second crash during recovery must find the run still unfinished: the run's `Interrupted` marker is the last record the
+/// recovery writes, behind the cancelled result and the restart line (Node keeps the checkpoint until the recovery is saved).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_marker_of_a_recovered_run_lands_behind_its_recovery_rows() {
+    use mixdog_store::schema::record::{Record, RunPhase};
+    let rig = Rig::new();
+    let committed = Arc::new(tokio::sync::Notify::new());
+    let told = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
+            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
+            run.port.commit_item(item).await.expect("commit");
+            told.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    let id = handle.id.clone();
+    turn(&handle, "read a", "op-1").await;
+    crate::session::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
+
+    let second = SessionDirectory::new(rig.deps());
+    second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let records = rig.store.records(&id);
+    let marker = records.iter().position(|(_, record)| matches!(record, Record::Run(run) if run.phase == RunPhase::Interrupted)).expect("the run ended");
+    let restart = records
+        .iter()
+        .position(|(_, record)| matches!(record, Record::Item(row) if format!("{:?}", row.body).contains("process restart")))
+        .expect("the restart line was saved");
+    assert!(restart < marker, "the marker ends the recovery: {records:?}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_real_store_reopens_a_thread_and_appends_after_it() {
     let data = tempfile::tempdir().expect("data dir");

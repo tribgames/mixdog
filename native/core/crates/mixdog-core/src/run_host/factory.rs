@@ -20,7 +20,7 @@ use mixdog_agent::env::{
     ToolHooks, TranscriptSink, TurnGuards,
 };
 use mixdog_agent::compact::blob_reads::with_blobs;
-use mixdog_agent::env::CommitError;
+use mixdog_agent::env::{CommitError, NotDurable};
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{AgentError, Run, RunCarry, RunConfig};
@@ -248,6 +248,10 @@ fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
 
 // ---- the commit sink ---------------------------------------------------------------------------------
 
+/// How long a model request or a tool batch waits for the row it follows to reach the store before the turn fails with the storage
+/// error (Node has no bound: its checkpoint write is synchronous and a failure throws at once).
+const DURABLE_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
 enum Job {
     Commit(u64, ItemCommit),
     Compact(u64, mixdog_core_session::session::run::Compaction),
@@ -258,6 +262,8 @@ enum Job {
 struct PortSink {
     jobs: mpsc::UnboundedSender<Job>,
     done: watch::Receiver<u64>,
+    /// Each commit the store refused, by ticket: a settled ticket that is listed here was never made durable.
+    failed: Arc<Mutex<Vec<(u64, String)>>>,
     seq: AtomicU64,
     port: RunPort,
     rows: Arc<StoredRows>,
@@ -329,19 +335,24 @@ impl PortSink {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
         let worker = port.clone();
+        let failed = Arc::new(Mutex::new(Vec::new()));
+        let failures = failed.clone();
         drop(mixdog_rt::spawn("run-commit", TaskClass::Work, async move {
             while let Some(job) = queue.recv().await {
+                // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`); the failure is also kept
+                // for the wait that gates the next step, which must never take a refused row for a saved one.
                 let n = match job {
                     Job::Commit(n, item) => {
-                        // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
                         if let Err(error) = worker.commit_item(item).await {
                             tracing::warn!("[session] message save failed: {error:?}");
+                            lock(&failures).push((n, format!("{error:?}")));
                         }
                         n
                     }
                     Job::Compact(n, compaction) => {
                         if let Err(error) = worker.compacted(compaction).await {
                             tracing::warn!("[session] compaction save failed: {error:?}");
+                            lock(&failures).push((n, format!("{error:?}")));
                         }
                         n
                     }
@@ -349,7 +360,7 @@ impl PortSink {
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None) })
+        Arc::new(Self { jobs, done, failed, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None) })
     }
 
     /// What Node's loop and turn commit write on an assistant row besides its content: its id, time and
@@ -515,13 +526,23 @@ impl TranscriptSink for PortSink {
         format!("msg_{}", uuid::Uuid::new_v4().simple())
     }
 
-    async fn durable(&self, ticket: Ticket) {
-        if ticket.0 == 0 {
-            let _ = self.port.input_durable().await;
-            return;
+    async fn durable(&self, ticket: Ticket) -> Result<(), NotDurable> {
+        let not_saved = |cause: String| NotDurable(format!("Session {}: the conversation is not saved to disk, so the next turn cannot start ({cause})", self.port.thread().as_str()));
+        let wait = async {
+            if ticket.0 == 0 {
+                return self.port.input_durable().await.map_err(|error| format!("{error:?}"));
+            }
+            let mut done = self.done.clone();
+            done.wait_for(|d| *d >= ticket.0).await.map_err(|_| "the session's writer ended".to_owned())?;
+            match lock(&self.failed).iter().find(|(n, _)| *n <= ticket.0) {
+                Some((_, cause)) => Err(cause.clone()),
+                None => Ok(()),
+            }
+        };
+        match mixdog_rt::time::timeout(DURABLE_WAIT, wait).await {
+            Ok(saved) => saved.map_err(not_saved),
+            Err(_) => Err(not_saved(format!("the store did not acknowledge the save within {}s", DURABLE_WAIT.as_secs()))),
         }
-        let mut done = self.done.clone();
-        let _ = done.wait_for(|d| *d >= ticket.0).await;
     }
 }
 

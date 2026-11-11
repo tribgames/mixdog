@@ -164,7 +164,9 @@ impl TranscriptSink for DiscardSink {
     fn message_id(&self) -> String {
         String::new()
     }
-    async fn durable(&self, _ticket: Ticket) {}
+    async fn durable(&self, _ticket: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
+        Ok(())
+    }
 }
 
 fn env() -> RunEnv {

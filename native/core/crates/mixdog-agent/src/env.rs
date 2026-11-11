@@ -465,9 +465,15 @@ pub trait TranscriptSink: Send + Sync {
     /// A fresh stable id for a message that arrives without one.
     fn message_id(&self) -> String;
 
-    /// Cancel-safe.
-    async fn durable(&self, ticket: Ticket);
+    /// Resolves once the message of `ticket` (and every one before it) is on disk; an `Err` is a row that did not land or a store that
+    /// did not answer, never an acknowledgement. Cancel-safe.
+    async fn durable(&self, ticket: Ticket) -> Result<(), NotDurable>;
 }
+
+/// A committed row that did not reach the store; the text is the error the turn fails with (Node's `TurnPersistenceError`,
+/// `turn-durability.mjs:20`: `Session <id>: <what> (<cause>)`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotDurable(pub String);
 
 // ---------------------------------------------------------------------------
 // Compaction
