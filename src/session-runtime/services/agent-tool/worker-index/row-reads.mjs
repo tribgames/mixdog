@@ -2,7 +2,7 @@
 // Scoped reads of the worker rows and tag tombstones: a row a tombstone still
 // blocks never reads as work, and a legacy tombstone without an owner takes
 // the one its session resolves to (resolved off the read, see below).
-import { clean, rowMatchesContext } from '../helpers.mjs';
+import { callerSessionForContext, clean, rowMatchesContext, terminalPidForContext } from '../helpers.mjs';
 import { recoverTagTombstoneOwner } from '../worker-rows.mjs';
 import {
   findTagTombstone,
@@ -10,18 +10,70 @@ import {
   tombstoneBlocksWork,
 } from '../../../../runtime/shared/agent-reap-state.mjs';
 
+// The fields rowMatchesContext reads off a context.
+const contextKey = (context) => `${callerSessionForContext(context) || ''}\0${terminalPidForContext(context) || ''}`;
+
+const SCOPED_VIEWS_MAX = 256;
+
+// Test seam: `onRowWork(n)` hears every n rows or tombstones a read projects.
+let onRowWork = null;
+export function _setRowWorkCounterForTest(listener) {
+  onRowWork = typeof listener === 'function' ? listener : null;
+}
+
 export function createWorkerRowReads(store, mgr) {
+  // Every projection below is a pure function of the store's parsed arrays
+  // (whose identity changes exactly when the store's document does: a write,
+  // or a re-read of a changed file) and of the owners resolved so far
+  // (`version`), so a read of an unchanged index does no per-row work.
+  let tombstoneView = null; // { saved, version, tombstones, unresolved, byKey }
+  let rowView = null; // { rows, byKey, scoped: context key -> admitted rows }
+
+  function tombstonesOf(saved) {
+    if (tombstoneView?.saved !== saved || tombstoneView.version !== version) {
+      const { rows: tombstones, unresolved } = recoverTombstoneOwners(saved);
+      tombstoneView = { saved, version, tombstones, unresolved, byKey: null };
+    } else if (tombstoneView.unresolved) {
+      queueResolution();
+    }
+    return tombstoneView;
+  }
+
+  function tombstoneIndexOf(view) {
+    if (!view.byKey) {
+      onRowWork?.(view.tombstones.length);
+      view.byKey = new Map();
+      for (const row of view.tombstones) view.byKey.set(tagTombstoneKey(row), row);
+    }
+    return view.byKey;
+  }
+
   function readWorkerRows(context = {}) {
     const { rows, tombstones: savedTombstones } = store.readSnapshot();
     if (rows.length === 0) return rows;
-    const tombstones = new Map(recoverTombstoneOwners(savedTombstones).map((row) => [tagTombstoneKey(row), row]));
-    return rows.filter(
-      (row) => rowMatchesContext(row, context) && !tombstoneBlocksWork(row, findTagTombstone(row, tombstones))
-    );
+    const byKey = tombstoneIndexOf(tombstonesOf(savedTombstones));
+    if (rowView?.rows !== rows || rowView.byKey !== byKey) rowView = { rows, byKey, scoped: new Map() };
+    const key = contextKey(context);
+    let admitted = rowView.scoped.get(key);
+    if (!admitted) {
+      // An index nothing writes to still meets new scopes; their lists are cheap to rebuild.
+      if (rowView.scoped.size >= SCOPED_VIEWS_MAX) rowView.scoped.clear();
+      onRowWork?.(rows.length);
+      admitted = rows.filter(
+        (row) => rowMatchesContext(row, context) && !tombstoneBlocksWork(row, findTagTombstone(row, byKey))
+      );
+      rowView.scoped.set(key, admitted);
+    }
+    return admitted;
   }
 
   function readAllTagTombstones() {
-    return recoverTombstoneOwners(store.readTombstones());
+    return tombstonesOf(store.readTombstones()).tombstones;
+  }
+
+  /** The tombstones keyed by tagTombstoneKey; shared and read-only. */
+  function readTagTombstoneIndex() {
+    return tombstoneIndexOf(tombstonesOf(store.readTombstones()));
   }
 
   // A legacy (owner-less) tombstone takes the owner the session catalog
@@ -36,17 +88,16 @@ export function createWorkerRowReads(store, mgr) {
   const owners = new Map(); // tombstone identity -> recovered owner fields, or null (none)
   const listeners = new Set();
   let version = 0; // bumped by every resolution
-  const recovered = new WeakMap(); // tombstone array -> { version, rows }
   let queued = null;
   let stopped = false;
 
   const isLegacy = (row) => !clean(row.parentSessionId || row.ownerSessionId);
   const identityOf = (row) => `${tagTombstoneKey(row)}\0${String(row.reapedAt ?? '')}\0${clean(row.sessionId)}`;
 
+  // Runs once per stored tombstone array and resolution (tombstonesOf).
   function recoverTombstoneOwners(rows) {
-    if (!rows.some(isLegacy)) return rows;
-    const known = recovered.get(rows);
-    if (known?.version === version) return known.rows;
+    onRowWork?.(rows.length);
+    if (!rows.some(isLegacy)) return { rows, unresolved: false };
     let unresolved = false;
     const result = rows.map((row) => {
       if (!isLegacy(row)) return row;
@@ -58,9 +109,8 @@ export function createWorkerRowReads(store, mgr) {
       const owner = owners.get(id);
       return owner ? { ...row, ...owner } : row;
     });
-    recovered.set(rows, { version, rows: result });
     if (unresolved) queueResolution();
-    return result;
+    return { rows: result, unresolved };
   }
 
   /** Resolve the owner of every legacy tombstone not resolved yet (one catalog
@@ -112,6 +162,7 @@ export function createWorkerRowReads(store, mgr) {
   return {
     readWorkerRows,
     readAllTagTombstones,
+    readTagTombstoneIndex,
     resolveTombstoneOwners,
     /** `listener()` runs when a legacy tombstone's owner was resolved; returns the unsubscribe. */
     onOwnersResolved(listener) {

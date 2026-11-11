@@ -280,11 +280,21 @@ export function createStandaloneAgent({
   // for one re-read of those answers from memory, on the next turn, and the
   // observers are told when any differs from what its reader last got.
   const lastStatus = new Map(); // scope key -> the answer last handed out, serialized
+  // While observers are told, the answers the re-read just computed: an
+  // observer reading its status at once gets that answer instead of a second
+  // read of unchanged sources (scope key -> { readKey, status }).
+  let justRead = null;
+  // Every context field statusFor's reads look at (helpers.mjs scope fields,
+  // background-tasks.mjs task scope).
+  const readKeyOf = (context) =>
+    JSON.stringify([context?.callerSessionId, context?.routingSessionId, context?.sessionId, context?.clientHostPid]);
   let recheckQueued = false;
   let recheckForced = false;
   let disposed = false;
   const scopeKey = (ownerSession, pid) => `${ownerSession || ''}\0${pid || ''}`;
   statusMayHaveChanged = ({ force = false } = {}) => {
+    // A source changed while observers were being told: answers are read anew.
+    justRead = null;
     if (force) recheckForced = true;
     if (recheckQueued || disposed) return;
     recheckQueued = true;
@@ -293,12 +303,15 @@ export function createStandaloneAgent({
       let changed = recheckForced;
       recheckForced = false;
       if (disposed) return;
+      const answers = new Map();
       // The records these answers read are exactly the ones still needed.
       sessionRecords.retainRead(() => {
         for (const [key, scope] of statusScopes) {
           let answer = '';
           try {
-            answer = JSON.stringify(statusFor(scope.context));
+            const status = statusFor(scope.context);
+            answer = JSON.stringify(status);
+            answers.set(key, { readKey: readKeyOf(scope.context), status, handedOut: false });
           } catch {
             /* an unreadable answer counts as changed */
           }
@@ -308,12 +321,17 @@ export function createStandaloneAgent({
         }
       });
       if (!changed) return;
-      for (const listener of [...statusListeners]) {
-        try {
-          listener();
-        } catch {
-          /* status observers never affect agent lifecycle */
+      justRead = answers;
+      try {
+        for (const listener of [...statusListeners]) {
+          try {
+            listener();
+          } catch {
+            /* status observers never affect agent lifecycle */
+          }
         }
+      } finally {
+        justRead = null;
       }
     });
   };
@@ -365,8 +383,15 @@ export function createStandaloneAgent({
     const ownerSession = callerSessionForContext(scopedContext);
     const pid = terminalPidForContext(scopedContext);
     noteStatusScope(scopedContext, ownerSession, pid);
+    const key = scopeKey(ownerSession, pid);
+    // Each answer object is handed out once: a caller may keep or change it.
+    const fresh = justRead?.get(key);
+    if (fresh && !fresh.handedOut && fresh.readKey === readKeyOf(scopedContext)) {
+      fresh.handedOut = true;
+      return fresh.status;
+    }
     const status = statusFor(scopedContext);
-    lastStatus.set(scopeKey(ownerSession, pid), JSON.stringify(status));
+    lastStatus.set(key, JSON.stringify(status));
     return status;
   }
 

@@ -839,3 +839,89 @@ test('a sessions folder created after the first read is watched from its parent,
   const seen = await pulseUntil(workerStatus, (status) => status === 'running');
   assert.deepEqual(seen.calls, []);
 });
+
+test('activity bursts over a large unchanged index do no per-row work; index changes are still seen', async (t) => {
+  const { _setRowWorkCounterForTest } = await import('./worker-index/row-reads.mjs');
+  let rowWork = 0;
+  _setRowWorkCounterForTest((n) => {
+    rowWork += n;
+  });
+  t.after(() => _setRowWorkCounterForTest(null));
+  const ctx = await scenario(t, { leads: 1 });
+  const [lead] = ctx.leadIds;
+  const [agent] = ctx.agents;
+  const now = Date.now();
+  // 300 rows (30 live running workers, the rest finished) and 500 tombstones.
+  const live = [];
+  const rows = [];
+  // (The scenario's own long-finished rows are dropped by the write: 2 stay.)
+  for (let i = 0; i < 298; i += 1) {
+    const status = i < 30 ? 'running' : 'completed';
+    const row = workerRow(lead, `${lead}_bulk${i}`, `bulk${i}-w`, status, i < 30 ? 1000 : 60 * 60_000, now);
+    if (i < 30) {
+      await saveWorkerSession(row);
+      live.push(row);
+    }
+    rows.push(row);
+  }
+  const tombstones = Array.from({ length: 500 }, (_, i) => ({
+    tag: `reaped${i}-w`,
+    agent: 'worker',
+    clientHostPid: process.pid,
+    sessionId: `${lead}_reaped${i}`,
+    parentSessionId: lead,
+    ownerSessionId: lead,
+    reapedAt: iso(now - 60_000 - i),
+  }));
+  const writer = indexWriter(t, ctx);
+  writer.writeWorkerRows((byKey, tombstonesByKey) => {
+    for (const row of rows) byKey.set(row.sessionId, row);
+    tombstonesByKey.clear();
+    for (const row of tombstones) tombstonesByKey.set(tagTombstoneKey(row), row);
+  });
+  await settleBookkeeping(ctx);
+  // The Lead's scope and one per live worker runtime, as in the daemon.
+  const status = () => agent.getStatus({ callerSessionId: lead, clientHostPid: process.pid });
+  for (const row of live) agent.getStatus({ callerSessionId: row.sessionId, clientHostPid: process.pid });
+  assert.equal(status().workers.length, 1 + live.length);
+  assert.equal(writer.readAllWorkerRows().length, 300);
+  assert.equal(writer.readAllTagTombstones().length, 500);
+  // Whatever the setup's writes still had in flight has landed.
+  await flushAllIndexWrites();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  status();
+
+  rowWork = 0;
+  let told = 0;
+  agent.onStatusChange(() => {
+    told += 1;
+    status();
+  });
+  for (let turn = 0; turn < 100; turn += 1) {
+    for (let i = 0; i < 10; i += 1) emitSessionActivityChange(live[(turn * 10 + i) % live.length].sessionId);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  // At most one projection of the rows for a scope not read before (a row the
+  // reaper holds looks itself up unscoped: stale-rows.mjs heldRowFor).
+  assert.ok(rowWork <= 300, `1,000 activity events over an unchanged index projected ${rowWork} rows/tombstones`);
+  assert.equal(told, 0, 'nothing changed, nothing announced');
+
+  // This process's index write: seen by the next read.
+  const added = workerRow(lead, `${lead}_added`, 'added-w', 'running', 0, Date.now());
+  await saveWorkerSession(added);
+  writer.writeWorkerRows((byKey) => byKey.set(added.sessionId, added));
+  assert.ok(status().workers.some((row) => row.sessionId === added.sessionId));
+  assert.ok(rowWork > 0 && rowWork <= 4 * (301 + 500), `one rebuild per changed array, got ${rowWork}`);
+
+  // Another process's tombstone reaping a live worker: seen once the file changed.
+  await flushAllIndexWrites();
+  const reaped = live[0];
+  const doc = JSON.parse(fs.readFileSync(ctx.file, 'utf8'));
+  const tombstone = { ...tombstones[0], tag: reaped.tag, sessionId: reaped.sessionId, reapedAt: iso(Date.now()) };
+  doc.tombstones[tagTombstoneKey(tombstone)] = tombstone;
+  writeFileSync(ctx.file, JSON.stringify(doc));
+  const stamp = new Date(Date.now() + 5000);
+  utimesSync(ctx.file, stamp, stamp);
+  await eventually(() => !status().workers.some((row) => row.sessionId === reaped.sessionId));
+});

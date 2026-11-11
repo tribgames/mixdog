@@ -156,7 +156,11 @@ export function createSessionProgress({ mgr, sessionRecords = null }) {
       queuedFollowups,
       taskStatus,
       lastToolCall: runtime?.lastToolCall || null,
-      toolSilence: runtime?.taskWaits > 0 ? waitedJobSilence(runtime.taskWaitJobIds, { now }) : null,
+      // The waited job's silence stats its output files, and it only feeds
+      // `tool_silent_for` and `diagnostic`, which a status read from memory
+      // drops (liveAgentStatusRow): that read never stats.
+      toolSilence:
+        runtime?.taskWaits > 0 && !memoryOnly ? waitedJobSilence(runtime.taskWaitJobIds, { now }) : null,
     });
   }
 
