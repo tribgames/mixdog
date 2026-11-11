@@ -1,12 +1,9 @@
 //! Node's recording `fixtures/session-route-state/recording.json` (`record-session-route-state.mjs`, test file
 //! `src/session-runtime/session-lifecycle.test.mjs`), read when the test runs and decoded with [`Exact`]: each case's
 //! recorded inputs go through the core's own route functions (the ones `refreshRouteEffort`, `setRoute` and the
-//! inheritance carry call) and the whole recorded result is compared.
-//!
-//! Cases 149, 306 and 372 are not replayed: the recorder encoded a nested tagged value of their results twice
-//! (`exact()` of a value `exact()` already returned, `record-session-route-state.mjs:30` over :89, :152-190), so the
-//! recording states an object `{"$exact": "undefined"}` or `{"$exact": "error", ...}` where Node had `undefined` or an
-//! error.
+//! inheritance carry call) and the whole recorded result is compared. The `inheritFrom` cases (306, 372) are played
+//! through the protocol on a real session directory and compared at what a client observes: the preflight verdict, the
+//! carry's answer and the heir's conversation; the compactor calls Node's mocks counted are not observable.
 
 use std::sync::Arc;
 
@@ -140,6 +137,34 @@ fn the_context_share_has_a_model_default_and_ten_point_steps() {
     assert_eq!(Exact::Array(got), *case.get("result"));
 }
 
+/// Line 149: a placeholder row (no windows of its own) takes the catalog's cached windows, asked once per resolve as
+/// the route chain asks (`chain.rs` `window_meta`: `catalog.cached_windows` then `window_meta_of`); the recorded table
+/// is the catalog.
+#[test]
+fn a_placeholder_row_takes_the_catalogs_windows() {
+    let recording = recording();
+    let case = case(&recording, 149.0);
+    let table = plain(case.get("input").get("table"));
+    let got: Vec<Exact> = case
+        .get("result")
+        .as_array()
+        .iter()
+        .map(|row| {
+            let (route, meta) = (obj(row.get("route")), plain(row.get("meta")));
+            let (provider, model) = (route["provider"].as_str().unwrap(), route["model"].as_str().unwrap());
+            let cached = table.get(format!("{provider}/{model}")).cloned();
+            let state = context_state(resolve_route_context_state(&route, window_meta_of(Some(&meta), cached.as_ref())));
+            Exact::Object(vec![
+                ("route".into(), Exact::plain(&Value::Object(route.clone()))),
+                ("meta".into(), Exact::plain(&meta)),
+                ("state".into(), state),
+                ("lookups".into(), Exact::plain(&json!([[provider, model]]))),
+            ])
+        })
+        .collect();
+    assert_eq!(Exact::Array(got), *case.get("result"));
+}
+
 /// Line 229: `resolveRoute` reads a cleared saved percent as the model's default (no `contextPercent`).
 #[test]
 fn a_cleared_saved_share_is_the_model_default() {
@@ -149,6 +174,152 @@ fn a_cleared_saved_share_is_the_model_default() {
     let default = input.get("defaultProvider").as_str().to_owned();
     let route = resolve_route(&obj(input.get("config")), &obj(input.get("route")), &|provider, _| provider == default).expect("resolves");
     assert_eq!(route.get("contextPercent").map_or(Exact::Undefined, Exact::plain), *case.get("result"));
+}
+
+/// One recorded `inheritFrom` scenario of lines 306 and 372, played through the protocol a client uses on a real
+/// session directory: a source holding `CONVERSATION` on openai-oauth/gpt-6-astra, a heir opened on Node's heir route
+/// (the target the recording shows before the carry), the real heir-route policy ([`HostInheritanceFit`] over the
+/// empty catalog), and the compactor answering what Node's scripted compactor answered.
+struct Carry {
+    directory: mixdog_core_session::session::SessionDirectory,
+    _rig: mixdog_core_session::session::testing::Rig,
+}
+
+/// What Node's scripted compactor did: rows to answer, nothing, or a throw.
+enum Compactor {
+    Rows(Vec<Value>),
+    Nothing,
+    Throws,
+    Unused,
+}
+
+impl Carry {
+    async fn open(conversation: &[Value], heir: &Header, window: u64, compactor: Compactor, dir: &std::path::Path) -> Self {
+        use mixdog_core_session::session::testing::{Rig, lock};
+        let rig = Rig::new();
+        rig.clock.0.store(1_700_000_000_000, std::sync::atomic::Ordering::SeqCst);
+        match compactor {
+            Compactor::Rows(rows) => *lock(&rig.compaction.heir_rows) = Some(rows),
+            Compactor::Nothing => *lock(&rig.compaction.heir_rows) = Some(Vec::new()),
+            Compactor::Throws => rig.compaction.heir_fails.store(true, std::sync::atomic::Ordering::SeqCst),
+            Compactor::Unused => {}
+        }
+        let mut header = heir.clone();
+        // Node's route carries the picked window (`getRoute().selectedContextWindow`); the core keeps it on the header.
+        header.insert("selectedContextWindow".into(), json!(window));
+        let (_config_dir, config) = seams().await;
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.inherit = Arc::new(HostInheritanceFit::new(Arc::new(catalog(dir).await), config, Arc::new(Heir(header.clone()))));
+        let directory = mixdog_core_session::session::SessionDirectory::new(Arc::new(deps));
+        let source: Header = json!({ "provider": "openai-oauth", "model": "gpt-6-astra" }).as_object().cloned().unwrap();
+        directory.create_with_id(ThreadId::from("source"), source, json!({})).await.expect("the source");
+        directory.create_with_id(ThreadId::from("heir"), header, json!({})).await.expect("the heir");
+        Self::call(&directory, "thread/inheritedRows/append", json!({ "threadId": "source", "messages": conversation })).await.expect("the conversation");
+        Self { directory, _rig: rig }
+    }
+
+    async fn call(directory: &mixdog_core_session::session::SessionDirectory, method: &'static str, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
+        use mixdog_core_api::ThreadDirectory;
+        use mixdog_core_api::call::{CallContext, CoreRequest};
+        use mixdog_core_api::ids::Method;
+        let ctx = CallContext::internal("replay");
+        let op = params.get("opId").and_then(Value::as_str).map(|op| mixdog_core_api::ids::OpId::from(op));
+        let request = CoreRequest { method: Method(method), params: params.clone(), op, ctx: ctx.clone() };
+        let reply = match params.get("threadId").and_then(Value::as_str).filter(|_| !method.starts_with("thread/inheritancePreflight") && method != "thread/fork") {
+            Some(id) => {
+                use mixdog_core_api::ThreadHandle;
+                directory.open_handle(&ThreadId::from(id.to_owned()), &ctx).await?.request(request).await?
+            }
+            None => directory.request(request).await?,
+        };
+        match reply {
+            mixdog_core_api::Reply::Value(value) => Ok(value),
+            mixdog_core_api::Reply::Subscribe(_) => panic!("a value reply"),
+        }
+    }
+
+    async fn preflight(&self) -> Value {
+        Self::call(&self.directory, "thread/inheritancePreflight", json!({ "threadId": "heir", "sourceThreadId": "source" })).await.expect("preflight")
+    }
+
+    /// `inheritFrom(source, { compact })` as Node answers it: `{ ok: { sessionId, sourceSessionId, messages, provider,
+    /// model } }` or `{ error }` with the refusal's text.
+    async fn inherit(&self, compact: Option<bool>) -> Value {
+        let mut params = json!({ "threadId": "source", "opId": "op-inherit", "intoThreadId": "heir" });
+        if let Some(compact) = compact {
+            params["compact"] = json!(compact);
+        }
+        match Self::call(&self.directory, "thread/fork", params).await {
+            Ok(done) => {
+                let header = Self::call(&self.directory, "thread/header/read", json!({ "threadId": "heir" })).await.expect("header");
+                json!({ "ok": {
+                    "sessionId": done["thread"]["id"],
+                    "sourceSessionId": header["header"]["inheritedFromSessionId"],
+                    "messages": done["messages"],
+                    "provider": done["provider"],
+                    "model": done["model"],
+                } })
+            }
+            Err(mixdog_core_api::CoreError::DomainError { message: Some(message), .. }) => json!({ "error": message }),
+            Err(error) => panic!("an inheritance refusal, not {error:?}"),
+        }
+    }
+
+    /// The heir's conversation as a client reads it.
+    async fn messages(&self) -> Value {
+        Self::call(&self.directory, "thread/messages/read", json!({ "threadId": "heir" })).await.expect("messages")["messages"].clone()
+    }
+}
+
+/// A recorded `inheritFrom` answer as a client sees it: the `ok` object, or the refusal's text.
+fn answer(recorded: &Exact) -> Value {
+    match (recorded.try_get("ok"), recorded.try_get("error")) {
+        (Some(ok), None) => json!({ "ok": plain(ok) }),
+        (None, Some(Exact::Error { message, .. })) => json!({ "error": message }),
+        _ => panic!("an ok or an error answer, not {recorded:?}"),
+    }
+}
+
+/// Lines 306 and 372: the verdict `thread/inheritancePreflight` gives, the answer of the carry it predicts (compacted,
+/// refused after an empty compaction — twice, accepted whole; with `compact` asked: summarized, refused when the
+/// compactor throws or answers nothing, whole when `compact` is absent or false), and the heir's conversation after it.
+#[tokio::test(start_paused = true)]
+async fn the_inheritance_carry_answers_what_node_recorded() {
+    let recording = recording();
+    let dir = tempfile::tempdir().unwrap();
+    let (pre, asked) = (case(&recording, 306.0).get("result"), case(&recording, 372.0).get("result"));
+    let conversation: Vec<Value> = case(&recording, 306.0).get("input").get("conversation").as_array().iter().map(plain).collect();
+    let untouched = |target: &Exact| -> Header {
+        let mut header = obj(target);
+        header.remove("id");
+        header.remove("messages");
+        header
+    };
+    let heir_small = untouched(pre.get("emptyCompaction").get("target"));
+    let heir_roomy = untouched(pre.get("accepted").get("target"));
+    let compacted = |target: &Exact| Compactor::Rows(vec![json!({ "role": "user", "content": target.get("messages").as_array()[0].get("content").as_str() })]);
+    let preflight = plain(asked.get("preflight"));
+    let mut scenarios = vec![
+        ("306 compacting", &heir_small, 20_000, compacted(pre.get("compacting").get("target")), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target")),
+        ("306 emptyCompaction", &heir_small, 20_000, Compactor::Nothing, vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target")),
+        ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target")),
+        ("372 compact", &heir_roomy, 500_000, compacted(asked.get("compact").get("target")), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target")),
+        ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target")),
+        ("372 empty", &heir_roomy, 500_000, Compactor::Nothing, vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target")),
+    ];
+    for default in asked.get("default").as_array() {
+        let args = default.get("args").as_array();
+        let compact = args.first().map(|options| options.get("compact").as_bool());
+        scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target")));
+    }
+    for (label, heir, window, compactor, calls, fit, answers, target) in scenarios {
+        let carry = Carry::open(&conversation, heir, window, compactor, dir.path()).await;
+        assert_eq!(Exact::plain(&carry.preflight().await), Exact::plain(&fit), "{label}: the preflight");
+        for (compact, want) in calls.into_iter().zip(answers) {
+            assert_eq!(Exact::plain(&carry.inherit(compact).await), Exact::plain(&want), "{label}: the answer");
+        }
+        assert_eq!(Exact::plain(&carry.messages().await), *target.get("messages"), "{label}: the heir's conversation");
+    }
 }
 
 /// The recorded heir sessions (`inheritanceFit(CONVERSATION, heir)`): the heir is the session measured, it sends no
