@@ -151,7 +151,15 @@ pub(crate) struct LiveCounts {
     thinking_ms: i64,
     /// `stream.thinkingSegmentStartedAt`: the open segment's start.
     segment_since: Option<i64>,
+    /// The reply's text so far (`stream.currentAssistantText`), and when its text batch flushes (`scheduleStreamFlush`).
+    reply_text: String,
+    flush_due: Option<i64>,
+    /// `streamingTail.at`: the flush that first showed a completed visible line of the reply.
+    tail_at: Option<i64>,
 }
+
+/// `STREAM_BATCH_INTERVAL_MS` (`turn-stream.mjs:15`): `TUI_FRAME_MS`, `Math.ceil(1000 / 120)` (render-timing.mjs:26).
+const STREAM_BATCH_MS: i64 = 9;
 
 fn units(text: &str) -> u64 {
     text.encode_utf16().count() as u64
@@ -171,6 +179,26 @@ impl LiveCounts {
         }
         self.end_thinking(now);
         self.reply_units += units(text);
+        self.flush_until(now);
+        self.reply_text.push_str(text);
+        self.flush_due.get_or_insert(now + STREAM_BATCH_MS);
+    }
+
+    /// The text batch due by `now` flushes (`flushTextBatch`): the reply's row shows once a completed line has visible text
+    /// (`streamingVisibleTextNow`, `visibleText.trim()`), and keeps the time it first showed (`at: current?.at || Date.now()`).
+    fn flush_until(&mut self, now: i64) {
+        let Some(due) = self.flush_due.filter(|due| *due <= now) else { return };
+        self.flush_due = None;
+        let visible = self.reply_text.rfind('\n').map_or("", |end| &self.reply_text[..=end]);
+        if self.tail_at.is_none() && !js_trim(visible).is_empty() {
+            self.tail_at = Some(due);
+        }
+    }
+
+    /// When the reply shown so far first showed (`streamingTail.at`), read at `now`; `None`: no row showed.
+    pub(crate) fn tail_at(&mut self, now: i64) -> Option<i64> {
+        self.flush_until(now);
+        self.tail_at
     }
 
     /// A reasoning delta (`appendReasoningDelta`): a segment opens unless one is open.
@@ -200,6 +228,9 @@ impl LiveCounts {
             .count();
         self.end_thinking(now);
         self.tool_cards += shown as u64;
+        // The reply before the calls is settled (`finalizeAssistant`); the next text opens a row of its own.
+        self.flush_until(now);
+        (self.reply_text, self.flush_due, self.tail_at) = (String::new(), None, None);
     }
 
     /// `closeThinkingSegment` at the turn's close.
@@ -358,6 +389,21 @@ mod tests {
         assert_eq!(counts.tool_cards, 4, "a call with no id keeps its card");
         counts.tool_batch(&[json!({ "id": "c6", "name": "skill", "arguments": { "name": "browser use" } })], &Names(None), 0);
         assert_eq!(counts.tool_cards, 5, "an unreadable skill source hides nothing");
+    }
+
+    /// `streamingTail.at` (turn-stream.mjs `flushTextBatch`): the reply's row shows at the first text batch (9 ms after the delta
+    /// that armed it) holding a completed visible line, not at the delta, and a later batch keeps that time.
+    #[test]
+    fn a_replys_row_shows_at_the_first_batch_with_a_completed_line() {
+        let mut counts = LiveCounts::default();
+        counts.text("no line yet", 2000);
+        assert_eq!(counts.tail_at(2009), None, "a batch with no completed line shows no row");
+        counts.text(" ends\nmore", 2020);
+        assert_eq!(counts.tail_at(2028), None, "the batch is not due before 2029");
+        counts.text("\nlast\n", 2040);
+        assert_eq!(counts.tail_at(4000), Some(2029), "the row showed with the batch armed at 2020");
+        counts.tool_batch(&[json!({ "id": "c1", "name": "read" })], &Names(None), 4000);
+        assert_eq!(counts.tail_at(4000), None, "a call ends the reply; the next text opens a row of its own");
     }
 
     #[test]

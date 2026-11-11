@@ -1394,6 +1394,8 @@ impl SessionActor {
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
         let abort_ended = self.abort_ended.clone();
         let at = self.deps.clock.now_ms();
+        // A reply the history does not stamp shows at the time its row first showed (`streamingTail.at`), else now.
+        let reply_at = self.run.as_mut().and_then(|slot| slot.live.tail_at(at)).unwrap_or(at);
         let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
             let result = deps.codec.encode(lane, &record).map(|encoded| {
                 let Record::Item(row) = &*record else {
@@ -1415,8 +1417,8 @@ impl SessionActor {
                             _ => (None, None),
                         };
                         match shown {
-                            Shown::Item(item) => Shown::Item(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at)),
-                            Shown::Update(item) => Shown::Update(super::live_end::live_result(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at), at, &abort_ended)),
+                            Shown::Item(item) => Shown::Item(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, reply_at)),
+                            Shown::Update(item) => Shown::Update(super::live_end::live_result(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, reply_at), at, &abort_ended)),
                         }
                     })
                     .collect();
