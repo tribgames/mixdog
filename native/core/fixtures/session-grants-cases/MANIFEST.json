@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 75965,
+      "bytes": 80770,
       "path": "golden.json",
-      "sha256": "a08b40a61af106ca071b1952784e7721a82339f920296d2610381b141ce8a619"
+      "sha256": "a754e40ccce32c21d45d9de9a301fcf131bc6d7d16cee745e237907e916d1f0b"
     }
   ],
   "inputs": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-grants-cases.mjs",
-  "recorderSha256": "b50e3f59974c46241f7a5149e920b78244d61218a93686084a3c1c996139a13d",
+  "recorderSha256": "cd9f2d4973840828829656629d6326acc2897bb214377672687a598f9e891ddb",
   "replay": {
     "compare": "mixdog-tools policy/session_grants.rs (and gate.rs/grants.rs): replay each log step in order on a store and a registry with the recorded clock (start 1_000_000 ms) and compare every step's output and the grants/audit views",
     "entry": "Drive these public items on o1: mixdog-tools/src/policy/gate.rs:237 decide; mixdog-tools/src/policy/session_grants.rs:49 grant; mixdog-tools/src/policy/session_grants.rs:68 has; mixdog-tools/src/policy/grants.rs:158 set_mode; mixdog-tools/src/policy/grants.rs:321 GrantStore.",
@@ -104,6 +104,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-grants-cases",
-  "totalBytes": 75965,
+  "totalBytes": 80770,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
