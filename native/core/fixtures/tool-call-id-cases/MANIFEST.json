@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-tool-call-id-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "resolver cases: the ids every round the model asks ends with; the reuse case: the final text, the number of sends, every message of the last request (role, call ids, result id, text) and the distinct ids onToolResult saw, in order (Node calls it twice per result; the Rust replay reads the results from the transcript)",
+  "excluded": {
+    "src/runtime/agent/orchestrator/session/tool-call-ids.test.mjs :: resolver: history {a}, batch {a, a-2} yields two distinct ids": "difference: Node resolves a batch it did not see streamed as a whole, keeping the unclaimed a-2 and moving the clash past it ([a-3, a-2]); Rust resolves every call as it streams, which gives [a-2, a-2-2] (what Node's streamed path gives for the same calls)",
+    "src/runtime/agent/orchestrator/session/tool-call-ids.test.mjs :: resolver: only ids the history already carries are renamed, consistently within a round :: a call without an id": "not representable: a Rust stream call always carries an id (the codec gives one to a call the provider sent without), so the id-less call has no replay"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 5740,
+      "path": "golden.json",
+      "sha256": "8ef1b0134c0fce1e8fe8fee34737c7736e2776eec32eec2f369d7d26c8983302"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tool-call-id-cases.mjs",
+  "recorderSha256": "208f8f92579588a4dbf5f87fc63537af6daa44dbb1dc44abc22b569333492cbe",
+  "set": "tool-call-id-cases",
+  "totalBytes": 5740
+}
