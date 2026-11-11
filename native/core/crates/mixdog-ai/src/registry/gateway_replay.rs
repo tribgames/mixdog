@@ -629,9 +629,14 @@ async fn wire_left_through(id: &str) -> (Vec<Option<StreamEvent>>, Vec<bool>) {
             }
         }));
     }
-    while let Some(item) = stream.next().await {
-        seen.lock().unwrap().push(Some(item.unwrap_or_else(|e| panic!("{id}: {e:?}"))));
-    }
+    // Every answer is served from the recording: a stream still pending after this hangs.
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while let Some(item) = stream.next().await {
+            seen.lock().unwrap().push(Some(item.unwrap_or_else(|e| panic!("{id}: {e:?}"))));
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{id}: the stream did not end within 30 s"));
     let events = std::mem::take(&mut *seen.lock().unwrap());
     let rows = ledger.1.lock().unwrap().clone();
     (events, rows)
