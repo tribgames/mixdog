@@ -83,7 +83,7 @@ async fn real_turn(name: &str, cancelled: bool) {
         deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), parts.clone()));
         Arc::new(deps)
     };
-    let world = World::new(name, Rig::new(), deps).await;
+    let world = World::new(name, mixdog_testkit::fixture!("../../fixtures/offload-prune-order/golden.json"), Rig::new(), deps).await;
     assert_eq!(world.commit().await.expect("answered"), CompactionCommit::Applied);
     let turn = json!({ "threadId": world.handle.id().as_str(), "opId": "op-turn", "input": { "prompt": "do the thing" } });
     let Reply::Value(started) = within("the turn is asked", world.handle.request(request("turn/start", turn, "op-turn"))).await.expect("turn/start") else {

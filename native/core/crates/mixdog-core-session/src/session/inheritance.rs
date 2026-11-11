@@ -150,7 +150,18 @@ impl SessionDirectory {
                 return Err(refused(&fit_message(&target.provider, &target.model, fit.used, fit.limit)));
             }
         }
-        let source_title = clean(self.read_of(source, "thread/header/read").await?.pointer("/header/title"));
+        let source_header = self.read_of(source, "thread/header/read").await?;
+        // `recordOffloadFork` (node-fix-prune-after-save.patch): the heir's rows name the source's sidecars, so every
+        // prune of the source reads the heir's stored transcript (`offloadForks`, as a clear's fork's), recorded before
+        // the heir holds them.
+        let forks: Vec<Value> = source_header.pointer("/header/offloadForks").and_then(Value::as_array).cloned().unwrap_or_default();
+        if !forks.iter().any(|fork| fork.as_str() == Some(heir.as_str())) {
+            let ctx = CallContext::internal("inheritance");
+            let set = json!({ "offloadForks": forks.into_iter().chain([json!(heir.as_str())]).collect::<Vec<_>>() });
+            let params = json!({ "threadId": source, "set": set, "unset": [] });
+            self.open_handle(source, &ctx).await?.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx }).await?;
+        }
+        let source_title = clean(source_header.pointer("/header/title"));
         let mut set = Map::new();
         set.insert("inheritedFromSessionId".into(), json!(source.as_str()));
         if clean(held.get("title")).is_empty() && !source_title.is_empty() {
