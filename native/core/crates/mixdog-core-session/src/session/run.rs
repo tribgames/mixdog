@@ -416,6 +416,9 @@ pub struct RunPort {
     /// The provider the thread is on right now: a hop to another route moves it mid-run, and the meters
     /// are prepared for the provider the reports will be priced on.
     pub(crate) meters_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    /// The run a replay's settled signal counts this port's waits on (a tool's approval waits on the tool's task).
+    #[cfg(feature = "replay-settled")]
+    pub(crate) replay_run: mixdog_ai::transport::replay_bytes::Run,
 }
 
 impl RunPort {
@@ -674,7 +677,7 @@ impl ApprovalGate for RunPort {
                 self.ctl.send(msg).await.map_err(|_| RunError::Closed)?;
                 // The user's decision is a replay's input (its settled signal).
                 #[cfg(feature = "replay-settled")]
-                let decided = mixdog_ai::transport::replay_bytes::turn_parked(&mut rx).await;
+                let decided = mixdog_ai::transport::replay_bytes::turn_parked(Some(&self.replay_run), &mut rx).await;
                 #[cfg(not(feature = "replay-settled"))]
                 let decided = (&mut rx).await;
                 decided.map_err(|_| RunError::Closed)
@@ -714,6 +717,8 @@ mod cancel_tests {
             provider: None,
             meters: Arc::new(crate::session::testing::TestCompaction::default()),
             meters_provider: Arc::new(String::new),
+            #[cfg(feature = "replay-settled")]
+            replay_run: Default::default(),
         };
         (port, rx, ctl_rx, cancel)
     }
