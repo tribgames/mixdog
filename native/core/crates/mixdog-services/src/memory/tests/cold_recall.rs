@@ -23,7 +23,7 @@ use crate::memory::tests::support::TestPg;
 
 #[tokio::test]
 async fn a_recall_while_the_model_loads_answers_as_node_and_the_load_goes_on() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/memory-cold-recall/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/memory-cold-recall/golden.json")).expect("golden");
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &json!({ "model": DEFAULT_MODEL_ID })).await.expect("schema");

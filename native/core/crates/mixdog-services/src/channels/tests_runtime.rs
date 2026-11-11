@@ -655,7 +655,7 @@ impl super::call::ChannelCallHandler for Observed {
 /// and no bot send to replay (the recording's manifest).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores_it() {
-    let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/channel-remote-restore/golden.json")).unwrap();
+    let gold: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/channel-remote-restore/golden.json")).unwrap();
     let frozen = gold["frozenNow"].as_f64().unwrap();
     for case in gold["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
@@ -1573,7 +1573,7 @@ async fn deliver(port: u16, rec: &Value) -> Value {
 /// it again, and the delivery was refused (with the relay tunnel, which the listener's stop closes).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_delivery_during_a_late_reload_is_answered_as_node_answers_it() {
-    let rec: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-late-reload/golden.json")).unwrap();
+    let rec: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-late-reload/golden.json")).unwrap();
     let rig = rig_holding_the_reload().await;
     // The recording's port, bound for real: the later steps move it.
     rig.e.settings.webhook.lock().unwrap().port = rec["port"].clone();
