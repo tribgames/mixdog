@@ -9,7 +9,6 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-compat-responses-effort',
-  net: false,
   entry: 'effort-configuration.mjs effortConfigurationMode / prepareTurnEffortConfiguration / stepEffortConfiguration, openai-compat-responses.mjs sendCompatResponses over an OpenAICompatProvider-prototype instance with a scripted `client.responses.create` and the scripted model row (getCachedModelInfo) and customConfig.protocol as inputs. Not run: the SDK transport.',
   compare: 'mixdog-ai providers::custom::reasoning (reasoning.rs:121-200, :149 opt-out) and the compat Responses codec / openai effort_retry.rs:22: feed each row\'s `input` (turn efforts, levels, protocol, rejection) and compare `result` (modes, snapshots) and every `requests[*]` (body incl. reasoning, configuration_update items, prompt_cache_key, headers) in order.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::custom::normalize_request_body (custom/mod.rs:126) / CustomRequestConfig (custom/mod.rs:67) on top of CompatAdapter (compat/adapter.rs:63), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
@@ -21,21 +20,23 @@ const { OpenAICompatProvider } = await rec.P(`${P}openai-compat.mjs`);
 const SRC = 'src/runtime/agent/orchestrator/providers/openai-compat-responses-effort.test.mjs';
 const LEVELS = ['low', 'medium', 'high'];
 const rowFor = (id, levels = LEVELS) => ({ id, reasoningLevels: levels, customReasoning: { wireFormat: 'standard', wireValues: { high: 'H' }, replay: false } });
+// The provider is the real `OpenAICompatProvider` (its real SDK client) sending to the loopback endpoint; the instance fields the Node test sets (protocol, cached
+// model row, native-PDF flag) are set the same way. `requests` are the request records as they arrived (head and body bytes); `reject(n)` is the scripted behaviour of the
+// endpoint (an error with a status answers request n as that HTTP error), otherwise one response.completed frame (text "ok") is served.
 function fixture(name, model, { protocol = 'openai-responses', levels, reject, config = {} } = {}) {
   const requests = [];
   const row = rowFor(model, levels);
-  const provider = Object.assign(Object.create(OpenAICompatProvider.prototype), {
-    name, config: { preconnect: false, ...config }, customConfig: { protocol }, nativePdf: false, getCachedModelInfo: (id) => (id === model ? row : null),
-    client: { responses: { create: async (params, options) => {
-      requests.push({ body: structuredClone(params), headers: options?.headers ?? null });
-      const error = reject?.(requests.length);
-      if (error) throw error;
-      return (async function* () {
-        yield { type: 'response.completed', response: { id: `resp-${requests.length}`, model: params.model, status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }] } };
-      })();
-    } } },
+  const endpoint = rec.net;
+  endpoint.reply = (request) => {
+    requests.push(request);
+    const error = reject?.(requests.length);
+    if (error) return { status: error.status, contentType: 'application/json', body: JSON.stringify({ error: { message: error.message.replace(/^\d{3} /, ''), type: 'invalid_request_error' } }) };
+    const completed = { type: 'response.completed', response: { id: `resp-${requests.length}`, model: JSON.parse(request.body).model, status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }] } };
+    return { status: 200, contentType: 'text/event-stream', chunks: [`event: ${completed.type}\ndata: ${JSON.stringify(completed)}\n\n`] };
+  };
+  const provider = Object.assign(new OpenAICompatProvider(name, { apiKey: 'fixture-key', baseURL: 'https://gateway.example/v1', preconnect: false, ...config }), {
+    customConfig: { protocol }, nativePdf: false, getCachedModelInfo: (id) => (id === model ? row : null),
   });
-  rec.describe(provider, { $instance: 'OpenAICompatProvider (prototype instance, fields as set)', name, config: provider.config, customConfig: { protocol }, nativePdf: false, cachedModelInfo: { model, row }, client: { responses: { create: { scripted: 'records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)', reject: reject ? { callback: 'reject' } : null } } } });
   return { provider, requests };
 }
 const SESSION = { sessionId: 'sess-1', promptCacheKey: 'mixdog-custom-g', providerCacheKey: 'mixdog-custom-g' };
@@ -68,7 +69,7 @@ await rec.run('mode-resolution-by-model-and-options', `${SRC}:105`, {}, () => {
 await rec.run('turn-preparation-mode', `${SRC}:95`, {}, () => {
   const mode = (model, options) => {
     const { provider } = fixture('custom-g', model, options);
-    return prepareTurnEffortConfiguration(newSession(provider, model), provider)?.mode ?? null;
+    return prepareTurnEffortConfiguration(newSession(provider, model), provider)?.mode;
   };
   return { gpt6Responses: mode('openai/gpt-6.1-sol'), gpt6Chat: mode('openai/gpt-6.1-sol', { protocol: 'openai-chat' }), gpt5: mode('openai/gpt-5.6-sol'), noLevels: mode('openai/gpt-6.1-sol', { levels: [] }) };
 });
