@@ -435,7 +435,9 @@ impl SensitiveStore {
 
     /// `values` reach every session of `targets` and, from each that gains one, its own carries; never back to
     /// `origin` unless it is a target, nor to a session reached already. The journal is told every session that gained
-    /// one before any listener is; the carried listener hears each but `origin`. True when one gained.
+    /// one before any listener is; the carried listener hears each but an `origin` a listener of its own (a running turn)
+    /// hears: a mark with none (a restored one, or one made outside a turn) has no barrier to rewrite its log, and its
+    /// journal entry holds the value until every listed session's log was rewritten. True when one gained.
     fn spread(&self, origin: &str, targets: &[String], values: Vec<String>) -> bool {
         let mut seen: BTreeSet<String> = BTreeSet::new();
         if !targets.iter().any(|t| t == origin) {
@@ -463,7 +465,7 @@ impl SensitiveStore {
             for listener in listeners {
                 listener(*version);
             }
-            if session != origin
+            if (session != origin || listeners.is_empty())
                 && let Some(listener) = self.carried.get()
             {
                 listener(session);

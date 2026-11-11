@@ -4393,24 +4393,26 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
         "name": "browser",
         "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } },
     });
-    // Outside a turn a mark re-ingests nothing.
+    // Outside a turn no barrier of a turn follows the mark: the thread rewrites its log and re-ingests its copy itself,
+    // once.
     assert!(rig.sensitive.remember(handle.id.as_str(), std::slice::from_ref(&fill)));
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
     turn(&handle, "hold", "op-1").await;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(lock(&rig.ingests.0).is_empty());
+    assert_eq!(lock(&rig.ingests.0).len(), 1);
 
     let again = json!({
         "name": "browser",
         "arguments": { "action": "fill", "input": { "sensitive": true, "text": "s3cret" } },
     });
     assert!(rig.sensitive.remember(handle.id.as_str(), &[again]));
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
-    let (thread, messages) = lock(&rig.ingests.0)[0].clone();
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
+    let (thread, messages) = lock(&rig.ingests.0)[1].clone();
     assert_eq!(thread, handle.id);
     assert_eq!(messages.len(), 1, "the turn's durable input row: {messages:?}");
 
     release.send(true).expect("release");
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 3).then_some(())).await;
 }
 
 /// A value a call marked sensitive (`rememberSensitiveValues`, before the assistant row carrying it is committed) is in
