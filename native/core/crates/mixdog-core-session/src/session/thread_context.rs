@@ -11,6 +11,7 @@ use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::estimate::MessageMeter;
 use mixdog_agent::compact::execution_tail::MessageRows;
 use mixdog_agent::compact::pressure::ImageIdentities;
+use mixdog_agent::compact::pressure::Inspections;
 use mixdog_agent::compact::pressure::Route;
 use mixdog_agent::compact::pressure::StatusInput;
 use mixdog_agent::compact::pressure::TranscriptSigner;
@@ -123,17 +124,19 @@ pub trait ContextWorld: Send + Sync {
 /// code) fed by the session's own snapshot. No loaded session is Node's status of no session, `null`.
 pub struct LiveContextStatus {
     world: Arc<dyn ContextWorld>,
+    /// The readings the Context inspector listed, for its entry previews.
+    inspections: Inspections,
 }
 
 impl LiveContextStatus {
     pub fn new(world: Arc<dyn ContextWorld>) -> Self {
-        Self { world }
+        Self { world, inspections: Inspections::new() }
     }
 }
 
 #[async_trait]
 impl ContextStatusHost for LiveContextStatus {
-    async fn context_status(&self, thread: Option<ThreadId>, _options: Option<Value>) -> Result<Value, CoreError> {
+    async fn context_status(&self, thread: Option<ThreadId>, options: Option<Value>) -> Result<Value, CoreError> {
         let Some(snapshot) = self.world.snapshot(thread.as_ref()).await? else { return Ok(Value::Null) };
         let meter = MessageMeter { media: &*snapshot.media, replay_owner: &snapshot.replay_owner };
         let signer = TranscriptSigner { meter: &meter, images: &*snapshot.images, rows: &*snapshot.rows };
@@ -154,7 +157,8 @@ impl ContextStatusHost for LiveContextStatus {
             meter: &meter,
             signer: &signer,
         };
-        Ok(context_status(&input))
+        let annotations_of = |name: &str| snapshot.annotations.get(name).cloned().unwrap_or_default();
+        Ok(self.inspections.attach(context_status(&input), &input, &annotations_of, options.as_ref()))
     }
 }
 #[cfg(test)]

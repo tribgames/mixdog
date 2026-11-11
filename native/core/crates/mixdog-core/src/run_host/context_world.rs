@@ -407,6 +407,26 @@ mod tests {
         assert_eq!(host.context_status(Some(ThreadId::from("absent".to_owned())), None).await.expect("status"), Value::Null);
     }
 
+    /// The Context inspector's calls answer what Node's live gauge answered (`fixtures/context-inspection`, recorded by
+    /// `record-context-inspection.mjs`): per case, every call on one status host in the order made (the plain status, the
+    /// list, a preview of each listed entry, an entry never listed, a revision not the list's, the list again).
+    #[tokio::test]
+    async fn the_inspector_calls_answer_what_node_answered() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-inspection/golden.json")).expect("golden");
+        let mut compared = 0;
+        for case in golden["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().expect("name");
+            let host = LiveContextStatus::new(Arc::new(world(case)));
+            for (at, call) in case["calls"].as_array().expect("calls").iter().enumerate() {
+                let options = Some(call["options"].clone()).filter(|o| !o.is_null());
+                let answer = host.context_status(Some(ThreadId::from(name.to_owned())), options).await.expect("status");
+                assert_eq!(answer, call["status"], "{name}: call {at} {}", call["options"]);
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, 196);
+    }
+
     /// The status counts the request's messages as Node's `session.messages` hold them: the header's system blocks (the ones
     /// `system_messages` sends) lead the stored rows (the recorded task session of `fixtures/context-status-route` answers
     /// 4 system messages after its turn, with the text not recorded, so the blocks here are stated).
