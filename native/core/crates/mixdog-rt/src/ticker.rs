@@ -147,19 +147,29 @@ pub fn ticker() -> &'static Ticker {
 /// every other test's callbacks inside that runtime, with their deadlines converted on one clock
 /// and fired on another (a paused test's on a real one). So with `test-support` the ticker is per
 /// runtime: started inside the calling runtime, on its clock (paused or not), and gone with it.
-/// Outside a runtime it is the one process-wide ticker, as in production.
+/// Outside a runtime it is the one process-wide ticker, as in production. Only a process in which a
+/// test installed its own backend ([`crate::install`]) gets this: one whose executors came from
+/// [`crate::exec::boot`] (every product process, also when built with `test-support`) has process-long
+/// runtimes and keeps the one production ticker.
 #[cfg(feature = "test-support")]
 pub fn ticker() -> &'static Ticker {
     use std::collections::HashMap;
 
     static GLOBAL: OnceLock<Ticker> = OnceLock::new();
     static PER_RUNTIME: OnceLock<Mutex<HashMap<tokio::runtime::Id, &'static Ticker>>> = OnceLock::new();
+    if !TEST_BACKEND.load(std::sync::atomic::Ordering::SeqCst) {
+        return GLOBAL.get_or_init(Ticker::start);
+    }
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return GLOBAL.get_or_init(Ticker::start);
     };
     let mut tickers = PER_RUNTIME.get_or_init(Default::default).lock().unwrap_or_else(|p| p.into_inner());
     tickers.entry(runtime.id()).or_insert_with(|| Box::leak(Box::new(Ticker::start())))
 }
+
+/// Set by [`crate::install`], which only a test calls itself: the backend is a test's, so [`ticker`] is per runtime.
+#[cfg(feature = "test-support")]
+pub(crate) static TEST_BACKEND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 async fn run(shared: Arc<Shared>) {
     loop {

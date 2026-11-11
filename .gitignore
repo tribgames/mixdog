@@ -206,6 +206,7 @@ benchmarks/terminal-bench-2.1/benchmarks/
 
 # Rust core workspace build output
 native/core/target/
+scripts/rust-core/tree-helper/target/
 
 # PowerShell's module cache, written beside the working directory by a child started with an isolated profile.
 native/core/Microsoft/
