@@ -679,6 +679,9 @@ const SCENARIOS = [
         `needle ${'z'.repeat(600)}`,
         'q7 posix class',
       ][i]),
+      // JavaScript's `\d` is ASCII: an Arabic-Indic digit between colons does not split the output line, so the second
+      // line is attributed (its `zed` past the clip unattributed) rather than ambiguous and rescanned per pattern.
+      'attr2/b.ts': `needle:\u0661:other\nneedle:\u0661:${'y'.repeat(600)} zed\n`,
     };
     const mtimes = {};
     for (const d of ['f1', 'f2', 'f3', 'f4', 'f5']) {
@@ -760,10 +763,13 @@ const SCENARIOS = [
         ...both({ pattern: ['q[[:digit:]]', 'other'], context: 0 }, ['attr', 'edge'], 'attr'),
         ...both({ pattern: ['zzz1', 'zzz2'] }, ['attr', 'edge'], 'attr'),
         ...both({ pattern: ['zzz1', 'zzz2'], context: 0 }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['needle', 'other'], context: 0 }, ['attr2', 'edge'], 'attr2'),
+        ...both({ pattern: ['needle', 'other'], context: 2 }, ['attr2', 'edge'], 'attr2'),
+        ...both({ pattern: ['needle', 'zed'], context: 0 }, ['attr2', 'edge'], 'attr2'),
         // The pattern list (grep-request.mjs resolveGrepRequest): non-empty, each once, the first 10 with a note.
         ...both({ pattern: ['other', '', 'other'], context: 0 }, ['attr', 'edge'], 'attr'),
         ...both({ pattern: ['just', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'other'], context: 0 }, ['attr', 'edge'], 'attr'),
-        ...both({ pattern: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'just'], output_mode: 'files_with_matches' }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'just'], mode: 'files' }, ['attr', 'edge'], 'attr'),
       ],
     }];
   })(),
