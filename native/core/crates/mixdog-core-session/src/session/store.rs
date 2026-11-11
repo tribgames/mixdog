@@ -928,6 +928,11 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("history", &e))
     }
 
+    fn indexed(&self) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let projector = self.projector.clone();
+        Box::pin(async move { projector.caught_up().await })
+    }
+
     fn session_meta(
         &self,
         id: &ThreadId,
