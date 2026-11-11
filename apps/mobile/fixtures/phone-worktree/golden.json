@@ -4171,6 +4171,17 @@
       }
     },
     {
+      "group": "project",
+      "settled": {
+        "control": null,
+        "session": {
+          "action": "settings_changed",
+          "seq": 1,
+          "at": "<time>"
+        }
+      }
+    },
+    {
       "group": "session",
       "request": {
         "capability": "getBranchMenu",
@@ -4375,11 +4386,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -4603,11 +4609,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -5183,7 +5184,7 @@
               "revision": 0,
               "transition": {
                 "state": "switching",
-                "txId": "1a0c357a-918b-4860-ba9b-c423ece7aced"
+                "txId": "<tx>"
               }
             },
             "systemShell": {
@@ -5247,11 +5248,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -5682,11 +5678,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -5931,11 +5922,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -6129,11 +6115,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -6328,11 +6309,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -6531,11 +6507,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -7227,11 +7198,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -7494,11 +7460,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -8678,11 +8639,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -8880,11 +8836,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -9109,11 +9060,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -9131,6 +9077,17 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
+      }
+    },
+    {
+      "group": "session",
+      "settled": {
+        "control": null,
+        "session": {
+          "action": "settings_changed",
+          "seq": 1,
+          "at": "<time>"
+        }
       }
     },
     {
@@ -10181,11 +10138,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 1,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -10361,11 +10313,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 2,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -10537,11 +10484,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -10704,11 +10646,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -10899,11 +10836,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11122,11 +11054,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11349,11 +11276,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11689,11 +11611,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11862,11 +11779,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12035,11 +11947,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12212,11 +12119,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12475,11 +12377,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12656,11 +12553,6 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
-            "setupChanged": {
-              "action": "settings_changed",
-              "seq": 3,
-              "at": "<time>"
-            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -13007,6 +12899,12 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
+      }
+    },
+    {
+      "group": "settings",
+      "settled": {
+        "control": null
       }
     },
     {
@@ -14792,6 +14690,17 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
+      }
+    },
+    {
+      "group": "review",
+      "settled": {
+        "control": null,
+        "session": {
+          "action": "settings_changed",
+          "seq": 1,
+          "at": "<time>"
+        }
       }
     }
   ]
