@@ -22,6 +22,8 @@ mod ssrf;
 mod tools;
 
 #[cfg(test)]
+mod document_node_cases;
+#[cfg(test)]
 mod hosted_native_tests;
 #[cfg(test)]
 mod render_tests;
