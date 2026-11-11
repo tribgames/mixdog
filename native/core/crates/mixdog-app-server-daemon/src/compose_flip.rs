@@ -2442,7 +2442,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         processes: b.process_manager.clone(),
         tracked: Arc::new(mixdog_scm::tracked::GixTrackedFiles::new(b.tokens.maintenance_io)),
         state: b.core_state.clone(),
-        recovery_dir: b.data_dir.join("recovery"),
+        recovery_dir: b.data_dir.join(mixdog_workspace::recovery::JOURNALS_DIR),
         user_data_dir: b.user_data_dir.clone(),
         sources: composed.transfer_sources.clone(),
         code_graph: Some(Arc::new(mixdog_tools::code_graph::WorkspaceCodeGraph::new(code_graph.clone(), b.tokens.maintenance_io))), // code-graph-adapter-1: the SAME `Arc<CodeGraphTool>` the pool registers
@@ -2512,6 +2512,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
     )))?;
     builder.register(screen.clone())?;
+    builder.register(Arc::new(mixdog_core_domains::notify::timeline::ConnectionTimeline::new(built_remote.registry.clone(), {
+        let log = b.log.clone();
+        Arc::new(move |line: &str| log.console("info", line))
+    })))?;
     builder.register(Arc::new(mixdog_core_domains::notify::service::NotifyService::new(
         notify_engine.clone(),
         audience.clone(),
