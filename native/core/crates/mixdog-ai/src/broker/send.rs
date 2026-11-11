@@ -226,6 +226,6 @@ fn truncated(delivery: mixdog_core_api::domain::provider::DeliveryState) -> Prov
 async fn pause(delay: Duration, cancel: &CancellationToken) -> bool {
     tokio::select! {
         _ = cancel.cancelled() => false,
-        _ = tokio::time::sleep(delay) => true,
+        _ = mixdog_rt::time::sleep(delay) => true,
     }
 }

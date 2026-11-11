@@ -31,7 +31,6 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
-use mixdog_core_base::support::on_lane;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
 use serde_json::Value;
@@ -112,7 +111,7 @@ impl TurnActionsService {
             max_bytes: STAGED_ORIGINALS_MAX_BYTES,
             ttl_ms: STAGED_ORIGINALS_TTL_MS,
         };
-        on_lane(deps.lanes.durability, &mixdog_rt::CancellationToken::new(), move |lane| originals.stage(lane, &bytes, limits))
+        mixdog_core_base::support::on_lane_wait(deps.lanes.durability, &mixdog_rt::CancellationToken::new(), move |lane| originals.stage(lane, &bytes, limits))
             .await
             .map_err(|error| format!("{error:?}"))?
     }

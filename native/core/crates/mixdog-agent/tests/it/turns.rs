@@ -60,7 +60,7 @@ fn backend() {
 
 async fn settle() {
     for _ in 0..4 {
-        tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(15)).await;
     }
 }
 
@@ -95,6 +95,9 @@ struct World {
     steps: Vec<Value>,
     board: std::sync::OnceLock<JobBoard>,
     job: Mutex<Option<String>>,
+    /// A session and the value it marked sensitive; the carries the runner asked for.
+    secret: Option<(String, String)>,
+    carried: Mutex<Vec<(String, String)>>,
 }
 
 impl World {
@@ -152,6 +155,53 @@ impl TurnSessions for Sess {
     fn unload_runtime(&self, _: &str, reason: &str) {
         self.0.log(format!("unload:{reason}"));
     }
+
+    fn carry_marks(&self, session_id: &str, owner_session_id: &str) {
+        lock(&self.0.carried).push((session_id.to_owned(), owner_session_id.to_owned()));
+    }
+
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        match &self.0.secret {
+            Some((session, value)) if session == session_id => text.replace(value.as_str(), "[redacted]"),
+            _ => text.to_owned(),
+        }
+    }
+}
+
+/// A worker's prompt leaves its owner with the owner's sensitive values as the marker, and the marks of each follow
+/// the text both ways (a value marked later in either reaches the other).
+#[tokio::test(start_paused = true)]
+async fn a_workers_prompt_leaves_its_owner_redacted_and_marks_carry_both_ways() {
+    backend();
+    let world = Arc::new(World { secret: Some(("lead".into(), "482913".into())), ..World::default() });
+    let clock: Arc<dyn Clock> = Arc::new(FixedClock);
+    let early = Arc::new(EarlyNotice::new(Arc::new(Owner(world.clone())), clock));
+    let runner = TurnRunner::new(
+        Arc::new(Sess(world.clone())),
+        Arc::new(TurnsOwner(world.clone())),
+        Arc::new(Reviews(world.clone())),
+        Arc::new(Events(world.clone())),
+        Arc::new(NoInbox),
+        early,
+    );
+    let plan = TurnPlan {
+        kind: TurnKind::Send,
+        session_id: "sess_w1".into(),
+        parent_session_id: Some("lead".into()),
+        session_owner_id: None,
+        tag: "scout".into(),
+        agent: "worker".into(),
+        identity: identity(false, "worker"),
+        prompt: "enter 482913".into(),
+        attachments: Vec::new(),
+        context: None,
+        cwd: "/work".into(),
+        skill_selection: None,
+        canonical: false,
+    };
+    runner.run(plan, None, None).await.ok();
+    assert!(lock(&world.calls).contains(&json!("ask:enter [redacted]@/work")), "{:?}", lock(&world.calls));
+    assert_eq!(*lock(&world.carried), [("sess_w1".to_owned(), "lead".to_owned()), ("lead".to_owned(), "sess_w1".to_owned())]);
 }
 
 struct Events(Arc<World>);

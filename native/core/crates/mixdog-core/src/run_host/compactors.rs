@@ -18,8 +18,12 @@ use mixdog_protocol::ProviderId;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 
+use mixdog_agent::compact::execution_tail::MessageRows;
+use mixdog_agent::message::AgentMessage;
+
 use super::assemble::CompactorInput;
 use super::host_seams::CompactorSource;
+use super::message_row::{message_of, row_of};
 use super::summary_routes::{ForkSender, SavedRequest, SessionFork, SummaryHost, SummaryRoutes};
 
 /// What a compaction reads of the session beyond the run's own rows, archive and blobs. Each field
@@ -96,18 +100,23 @@ impl CompactorSource for SessionCompactors {
 impl SessionCompactors {
     /// The session's compactor; `None` when the session knows no boundary (Node has no policy).
     async fn fresh(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<FreshCompactor>> {
+        FreshCompactor::for_session(self.session(thread, header, prior, input).await)
+    }
+
+    /// What the session's compactor is wired from: the world's facts of the session, its settings and its summary plan.
+    pub(crate) async fn session(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> SessionCompactor {
         let facts = self.world.facts(thread, header, prior).await;
         let provider = header.get("provider").and_then(Value::as_str).map_or("", mixdog_js::js_trim);
         let parts = Arc::new(FreshParts {
             media: facts.media,
             replay_owner: ProviderId::from(provider),
-            rows: input.rows,
+            rows: Arc::new(CompactionRows(input.rows)),
             archive: input.archive,
             attachments: facts.attachments,
             redactor: facts.redactor,
             blobs: input.blobs,
         });
-        FreshCompactor::for_session(SessionCompactor {
+        SessionCompactor {
             settings: input.settings,
             parts,
             triggers: TriggerSeams { tool_media: facts.tool_media, native_pdf: facts.native_pdf, cache: facts.cache },
@@ -115,7 +124,25 @@ impl SessionCompactors {
             resolver: Arc::new(SummaryRoutes::new(facts.summary)),
             summary_mode: summary_mode(self.world.compaction_config().as_ref()),
             conversation_threshold_tokens: conversation_threshold(header),
-        })
+        }
+    }
+}
+
+/// The rows a compaction measures and archives: Node measures each message as it now is. A
+/// message the run holds unchanged is its stored row; one the compaction rewrote (a shed body, a
+/// dropped replay) or built (the recovery reminder) is the row it is written as.
+pub(crate) struct CompactionRows(pub Arc<dyn MessageRows>);
+
+impl MessageRows for CompactionRows {
+    fn row(&self, message: &AgentMessage) -> Value {
+        let stored = self.0.row(message);
+        // A row found by id is the message's only while the message is still what was read from it.
+        let unchanged = !stored.is_null()
+            && (message.message_id.is_none()
+                || message_of(&stored).is_ok_and(|was| {
+                    was.message == message.message && (message.stored.is_none() || was.stored == message.stored)
+                }));
+        if unchanged { stored } else { row_of(message) }
     }
 }
 
@@ -126,7 +153,6 @@ mod tests {
     use async_trait::async_trait;
     use mixdog_agent::boundary::CompactSettings;
     use mixdog_agent::compact::estimate::PartMeter;
-    use mixdog_agent::compact::execution_tail::MessageRows;
     use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummaryRoute, SummarySender};
     use mixdog_agent::compact::triggers::CacheWarmLedger;
     use mixdog_agent::message::AgentMessage;
@@ -212,7 +238,7 @@ mod tests {
         fn maintainer_route(&self) -> Option<MaintainerRoute> {
             None
         }
-        async fn provider_ready(&self, _: &str) -> Result<bool, SummaryFailure> {
+        async fn provider_ready(&self, _: &str, _: bool) -> Result<bool, SummaryFailure> {
             Ok(true)
         }
         fn whole_window(&self, _: &str, _: &str) -> u64 {
@@ -359,8 +385,14 @@ mod tests {
         let (compactors, _) = source(None);
         let compactor = compactors.fresh(&thread(), &header(" anthropic ", json!({})), &[], input(Some(200_000), &rows)).await.unwrap();
         assert_eq!(compactor.parts.replay_owner, ProviderId::from("anthropic"));
-        let run_rows: Arc<dyn MessageRows> = rows.clone();
-        assert!(std::ptr::addr_eq(Arc::as_ptr(&compactor.parts.rows), Arc::as_ptr(&run_rows)));
+        // A message the run holds reads as its stored row; one the compaction rewrote reads as itself.
+        let body = json!({ "role": "tool", "toolCallId": "c1", "content": "full body", "meta": { "transcript": { "messageId": "m1" } } });
+        let held = super::message_of(&body).unwrap();
+        rows.record(&held, body.clone());
+        assert_eq!(compactor.parts.rows.row(&held), body);
+        let mut shed = held.clone();
+        shed.message.content = mixdog_core_api::domain::provider::Content::Text("[archived]".into());
+        assert_eq!(compactor.parts.rows.row(&shed)["content"], json!("[archived]"));
     }
 
     #[test]

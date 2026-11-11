@@ -1,0 +1,306 @@
+{
+  "note": "what Node (b6f10295a with the sensitive-value patches) sent its model per provider call, as the conversation, the call's place in it, whether each code is there in plain and how many markers it holds; the Lead answers; and the search of every file under its profile for the codes (hits only in knownOpen)",
+  "codes": {
+    "s1": "482913",
+    "s2": "730215",
+    "s3": "915604"
+  },
+  "knownOpen": {
+    "mixdog_data_dir/history/agent-trace.jsonl": "the diagnostic trace's rows written before a value reached the session (here the Lead's spawn of the keeper, quoting the code before the first worker marked it): the patches redact a row when it is written, never one already written; the core writes no such file"
+  },
+  "calls": [
+    {
+      "key": "S1 brief:",
+      "at": 0,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S1 brief:",
+      "at": 1,
+      "plain": {
+        "s1": true,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S1 lead.",
+      "at": 0,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S1 lead.",
+      "at": 1,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S1 lead.",
+      "at": 2,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S1 lead.",
+      "at": 3,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 1
+    },
+    {
+      "key": "S2 brief:",
+      "at": 0,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 brief:",
+      "at": 1,
+      "plain": {
+        "s1": false,
+        "s2": true,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 brief:",
+      "at": 2,
+      "plain": {
+        "s1": false,
+        "s2": true,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 lead.",
+      "at": 0,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 lead.",
+      "at": 1,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 lead.",
+      "at": 2,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 lead.",
+      "at": 3,
+      "plain": {
+        "s1": false,
+        "s2": true,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 lead.",
+      "at": 4,
+      "plain": {
+        "s1": false,
+        "s2": true,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S2 lead.",
+      "at": 5,
+      "plain": {
+        "s1": false,
+        "s2": true,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 brief:",
+      "at": 0,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 brief:",
+      "at": 1,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 brief:",
+      "at": 2,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 keeper brief:",
+      "at": 0,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 0,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 1,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 2,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": false
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 3,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 4,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 5,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 6,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    },
+    {
+      "key": "S3 lead.",
+      "at": 7,
+      "plain": {
+        "s1": false,
+        "s2": false,
+        "s3": true
+      },
+      "markers": 0
+    }
+  ],
+  "answers": [
+    "Asked.",
+    "Noted.\n\nNoted.",
+    "Asked.",
+    "Sent.",
+    "Noted.\n\nNoted.",
+    "Asked.",
+    "Asked another.",
+    "Sent.",
+    "Noted.\n\nNoted."
+  ],
+  "scan": [
+    {
+      "file": "mixdog_data_dir/history/agent-trace.jsonl",
+      "encoding": "utf8",
+      "value": "915604"
+    },
+    {
+      "file": "mixdog_data_dir/history/agent-trace.jsonl",
+      "encoding": "utf8",
+      "value": "915604"
+    }
+  ]
+}

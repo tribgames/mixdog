@@ -853,7 +853,7 @@ mod tests {
                 break;
             }
             assert!(std::time::Instant::now() < deadline, "the output never arrived: {:?}", read.raw);
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
         }
         tabs.dispose_all();
     }

@@ -33,6 +33,8 @@ pub mod signals;
 pub mod status_rows;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_marks_tests;
 
 pub use self::sessions::AgentOwnerTeardown;
 pub use self::sessions::AgentSessions;
@@ -90,8 +92,14 @@ pub trait WorkerStore: Send + Sync {
     /// Whether `path` is an existing directory.
     async fn is_directory(&self, path: &str) -> bool;
     /// Replaces the session's `worker` map (`None` removes it). One session's writes apply in
-    /// call order.
+    /// call order. A kept session's map is written where it is kept.
     fn write(&self, session: &str, worker: Option<Row>);
+    /// Keeps the map of a session deleted while its rows still count: Node's index file keeps every row its forget does not take
+    /// (`gone-rows.mjs:214-226`), and a restart reads it again. From now on [`worker_maps`](Self::worker_maps) lists it and
+    /// [`write`](Self::write) writes it there.
+    fn keep(&self, session: &str, worker: Option<Row>);
+    /// Whether `session`'s map is a kept one (its session record is gone).
+    fn kept(&self, session: &str) -> bool;
 }
 
 /// What this process knows of its loaded sessions now.
@@ -446,7 +454,15 @@ impl AgentRegistry {
         };
         let mut st = self.lock();
         if st.maps != maps {
+            // Node's index file keeps a deleted session's rows until its forget takes them (`gone-rows.mjs:214`) and every
+            // listing shows them with no header; the core's index drops them at the purge, so a row it stops listing is kept
+            // by the store, durably, and lives on as Node's does (a row this registry removed is no longer in `st.maps`).
+            let gone: Vec<(String, Row)> = st.maps.iter().filter(|(id, _)| !maps.iter().any(|(m, _)| m == id)).cloned().collect();
             st.maps = maps;
+            for (id, map) in gone {
+                self.store.keep(&id, Some(map.clone()));
+                st.put(&id, Some(map));
+            }
             st.changed();
         }
         st.sessions = sessions;
@@ -749,13 +765,48 @@ impl AgentRegistry {
                 now >= nonterminal_reap_deadline(&reap, row)
             })
             .collect();
-        self.tombstone_rows(st, &stale);
+        // `sweepGoneRows` (`gone-rows.mjs:107-115`, `:162-200`, a maintenance step of `agent-tool.mjs:207`): a kept row of a
+        // deleted session, whoever owns it, leaves once settled: terminal, no restart failure still owed, past the settled
+        // retention, no live work.
+        let gone: Vec<Row> = st
+            .maps
+            .iter()
+            .filter(|(id, _)| self.store.kept(id))
+            .filter_map(|(id, map)| st.row(id, map, now))
+            .filter(|row| {
+                !is_lead_pool_agent(row.get("agent"))
+                    && is_terminal_row(row)
+                    && !is_unnotified_restart_failure(row)
+                    && past_settled_retention(&reap, row, now)
+                    && !self.live.has_live_work(&clean(row.get("sessionId")))
+                    && !stale.iter().any(|kept| kept.get("sessionId") == row.get("sessionId"))
+            })
+            .collect();
+        self.tombstone_rows(st, &[stale, gone].concat());
+    }
+
+    /// A kept map (a deleted session's) that holds no row and no live release any more, only a tombstone past the TTL or beyond
+    /// the newest `MAX_TAG_TOMBSTONES`, leaves the kept table: Node rewrites its index file with only those tombstones
+    /// (`worker-rows.mjs:7`, `:96-102`).
+    fn drop_expired_kept(&self, st: &mut State) {
+        let now = self.now();
+        let live: HashSet<String> = st.stored_tombstones(now).iter().map(|t| clean(t.get("sessionId"))).collect();
+        let gone: Vec<String> = st
+            .maps
+            .iter()
+            .filter(|(id, map)| self.store.kept(id) && clean(map.get("sessionId")).is_empty() && !released_at(map, now) && !live.contains(id.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in gone {
+            self.persist(st, &id, None);
+        }
     }
 
     /// `refreshTagsFromSessions` over the index as loaded.
     fn refresh(&self, st: &mut State, scan_sessions: bool, scope: &Scope) {
         self.resolve_owners(st);
         self.transition_stale(st, scope);
+        self.drop_expired_kept(st);
         let now = self.now();
         let indexed = st.rows(scope, now);
         for row in &indexed {
@@ -1188,15 +1239,126 @@ pub struct StoreWorkers {
     index: SqliteStore,
     threads: Arc<dyn ThreadState>,
     writes: mpsc::UnboundedSender<WriteOp>,
+    /// Each write numbered as it is queued, reported once its patch was applied or failed.
+    marks: Arc<mixdog_rt::WriteMarks>,
     io: InteractiveIo,
     /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
     signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
+    kept: Arc<KeptRows>,
 }
 
-/// What the writer task is asked: one session's map, or to say when everything before it was applied.
+/// What the writer task is asked: one session's map, a kept session's map, or to say when everything before it was applied.
+/// A map from `WorkerStore::write` carries its number in [`StoreWorkers::marks`].
 enum WriteOp {
-    Write(String, Option<Row>),
-    Barrier(tokio::sync::oneshot::Sender<()>),
+    Write(String, Option<Row>, u64),
+    Keep(String, Option<Row>, Option<u64>),
+    Barrier(tokio::sync::oneshot::Sender<Result<(), String>>),
+}
+
+/// The worker maps of sessions deleted while their rows still count (`WorkerStore::keep`), in `state/core.sqlite`'s meta
+/// (`agent-kept-worker:<session>`): they outlive the session's header and a restart, as Node's index file rows do.
+pub struct KeptRows {
+    state: mixdog_store::state::CoreState,
+    /// The kept sessions as last loaded, with this process's keeps.
+    ids: Mutex<HashSet<String>>,
+    /// The kept maps, read from the table once and kept current by every [`Self::put`]: a listing reads memory. The lock
+    /// is held for memory alone, never across the table's read or write: the puts come one at a time (`StoreWorkers`'
+    /// one writer task), so memory follows the table in the table's order.
+    rows: Mutex<Option<Vec<(String, Row)>>>,
+}
+
+const KEPT_PREFIX: &str = "agent-kept-worker:";
+
+impl KeptRows {
+    pub fn new(state: mixdog_store::state::CoreState) -> Self {
+        Self { state, ids: Mutex::default(), rows: Mutex::new(None) }
+    }
+
+    fn ids(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.ids.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn rows(&self) -> MutexGuard<'_, Option<Vec<(String, Row)>>> {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Reads the table into memory the first time. A read that finds memory filled meanwhile leaves it as it is: from then
+    /// on only a put changes it, and a put fills memory before it writes, so a table read from before that write is never
+    /// what memory ends with.
+    async fn loaded(&self) -> Result<(), String> {
+        let filled = self.rows().is_some();
+        if filled {
+            return Ok(());
+        }
+        let stored = self.state.meta_prefix(KEPT_PREFIX).await.map_err(|e| format!("kept worker rows: {e}"))?;
+        let mut out = Vec::new();
+        for (key, text) in stored {
+            let session = key.trim_start_matches(KEPT_PREFIX).to_owned();
+            let map: Row = serde_json::from_str(&text).map_err(|e| format!("kept worker row {session}: {e}"))?;
+            out.push((session, map));
+        }
+        let mut rows = self.rows();
+        if rows.is_none() {
+            self.ids().extend(out.iter().map(|(session, _)| session.clone()));
+            *rows = Some(out);
+        }
+        Ok(())
+    }
+
+    /// Every kept map, by session.
+    pub async fn load(&self) -> Result<Vec<(String, Row)>, String> {
+        self.loaded().await?;
+        Ok(self.rows().clone().unwrap_or_default())
+    }
+
+    pub fn holds(&self, session: &str) -> bool {
+        self.ids().contains(session)
+    }
+
+    /// Writes `session`'s kept map (`None`: it is kept no more, and its row leaves the table). Memory follows the table: it
+    /// changes only once the write is committed, so a failed write leaves every later listing as the table is. (Node's index
+    /// queue keeps a failed write queued and retries it, `index-write-queue.mjs:231-245`; `StoreWorkers`' writer does the same.)
+    pub async fn put(&self, session: &str, worker: Option<Row>) -> Result<(), String> {
+        self.loaded().await?;
+        let key = format!("{KEPT_PREFIX}{session}");
+        let written = match &worker {
+            Some(map) => {
+                let text = serde_json::to_string(map).map_err(|e| e.to_string())?;
+                self.state.write(move |tx| tx.put_meta(&key, &text)).await
+            }
+            None => self.state.write(move |tx| tx.delete_meta(&key).map(drop)).await,
+        };
+        written.map_err(|e| format!("kept worker row {session}: {e}"))?;
+        let mut rows = self.rows();
+        let kept = rows.get_or_insert_with(Vec::new);
+        kept.retain(|(id, _)| id != session);
+        match worker {
+            Some(map) => {
+                self.ids().insert(session.to_owned());
+                kept.push((session.to_owned(), map));
+            }
+            None => {
+                self.ids().remove(session);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Node's `RETRY_AFTER_FAILURE_MS`: how long a failed kept write waits for a retry when nothing else writes.
+const KEPT_RETRY_AFTER: std::time::Duration = std::time::Duration::from_millis(15_000);
+
+/// Puts the owed kept writes again, in order; those the table refuses again stay owed. The last refusal, if any.
+async fn retry_owed(keeper: &KeptRows, owed: &mut Vec<(String, Option<Row>)>) -> Option<String> {
+    let mut refused = None;
+    for (session, worker) in std::mem::take(owed) {
+        if let Err(error) = keeper.put(&session, worker.clone()).await {
+            tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
+            refused = Some(error);
+            owed.push((session, worker));
+        }
+    }
+    refused
 }
 
 /// Whether `path` names a directory.
@@ -1207,22 +1369,66 @@ fn is_dir(_lane: &InLane<InteractiveIo>, path: &str) -> bool {
 
 impl StoreWorkers {
     /// Call on the runtime the session tasks run on.
-    pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo) -> Self {
+    pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo, kept: Arc<KeptRows>) -> Self {
         let (writes, mut rx) = mpsc::unbounded_channel::<WriteOp>();
-        let patcher = threads.clone();
+        let (patcher, keeper) = (threads.clone(), kept.clone());
+        let marks = Arc::new(mixdog_rt::WriteMarks::new("the agent index"));
+        let reported = marks.clone();
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
-            while let Some(op) = rx.recv().await {
-                let (session, worker) = match op {
-                    WriteOp::Write(session, worker) => (session, worker),
+            // Kept writes the table refused, in order, each session's newest only: they stay queued ahead of newer writes and
+            // are retried by the next write, a flush (`settled`) or the retry timer, as Node's index queue requeues a failed
+            // batch (`index-write-queue.mjs:231-245`).
+            let mut owed: Vec<(String, Option<Row>)> = Vec::new();
+            loop {
+                let op = if owed.is_empty() {
+                    rx.recv().await
+                } else {
+                    tokio::select! {
+                        op = rx.recv() => op,
+                        () = mixdog_rt::time::sleep(KEPT_RETRY_AFTER) => {
+                            retry_owed(&keeper, &mut owed).await;
+                            continue;
+                        }
+                    }
+                };
+                let Some(op) = op else { break };
+                if let WriteOp::Keep(session, ..) = &op {
+                    owed.retain(|(id, _)| id != session);
+                }
+                let refused = retry_owed(&keeper, &mut owed).await;
+                let (session, worker, mark) = match op {
+                    WriteOp::Write(session, worker, mark) => (session, worker, mark),
+                    WriteOp::Keep(session, worker, mark) => {
+                        match keeper.put(&session, worker.clone()).await {
+                            Ok(()) => {
+                                if let Some(mark) = mark {
+                                    reported.written(mark);
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
+                                if let Some(mark) = mark {
+                                    reported.failed(mark, format!("the kept worker row of {session}: {error}"));
+                                }
+                                owed.push((session, worker));
+                            }
+                        }
+                        continue;
+                    }
                     WriteOp::Barrier(done) => {
-                        let _ = done.send(());
+                        // Node's `flush` rejects with the persist's error while a batch is unpersisted
+                        // (`index-write-queue.mjs:203,259-265`); the writes stay queued for a later flush.
+                        let _ = done.send(match refused {
+                            Some(error) => Err(format!("{} unpersisted write(s) kept queued after retries: {error}", owed.len())),
+                            None => Ok(()),
+                        });
                         continue;
                     }
                 };
                 let thread = ThreadId::from(session.as_str());
                 // A failed patch leaves the registry's own copy in force; it is retried by the
                 // next write of the session.
-                let _ = match worker {
+                let patched = match worker {
                     Some(map) => {
                         let mut set = Map::new();
                         set.insert("worker".into(), Value::Object(map));
@@ -1230,17 +1436,37 @@ impl StoreWorkers {
                     }
                     None => patcher.patch_header(&thread, Map::new(), vec!["worker".into()]).await,
                 };
+                match patched {
+                    Ok(()) => reported.written(mark),
+                    Err(error) => reported.failed(mark, format!("the worker row of {session}: {error:?}")),
+                }
             }
         }));
-        Self { index, threads, writes, io, signals: std::sync::OnceLock::new() }
+        Self { index, threads, writes, marks, io, signals: std::sync::OnceLock::new(), kept }
     }
 }
 
 #[async_trait]
 impl WorkerStore for StoreWorkers {
+    /// The index's maps, then the kept maps of sessions the index no longer lists.
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
         let rows = self.index.worker_rows(None, WorkerScope::All).await.map_err(|e| format!("{e:?}"))?;
-        Ok(rows.into_iter().map(|row| (row.session, row.worker)).collect())
+        let mut maps: Vec<(String, Row)> = rows.into_iter().map(|row| (row.session, row.worker)).collect();
+        let kept = self.kept.load().await?;
+        let listed: HashSet<String> = maps.iter().map(|(id, _)| id.clone()).collect();
+        maps.extend(kept.into_iter().filter(|(id, _)| !listed.contains(id)));
+        Ok(maps)
+    }
+
+    fn keep(&self, session: &str, worker: Option<Row>) {
+        if worker.is_some() {
+            self.kept.ids().insert(session.to_owned());
+        }
+        let _ = self.writes.send(WriteOp::Keep(session.to_owned(), worker, None));
+    }
+
+    fn kept(&self, session: &str) -> bool {
+        self.kept.holds(session)
     }
 
     async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
@@ -1263,7 +1489,15 @@ impl WorkerStore for StoreWorkers {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
-        let _ = self.writes.send(WriteOp::Write(session.to_owned(), worker));
+        let mark = self.marks.accept();
+        let op = if self.kept.holds(session) {
+            WriteOp::Keep(session.to_owned(), worker, Some(mark))
+        } else {
+            WriteOp::Write(session.to_owned(), worker, mark)
+        };
+        if self.writes.send(op).is_err() {
+            self.marks.withdrawn(mark);
+        }
         // Node's registry announces a row change where it makes it, not when the file settles.
         if let Some(signals) = self.signals.get() {
             signals.worker_rows(session);
@@ -1273,12 +1507,18 @@ impl WorkerStore for StoreWorkers {
 
 impl StoreWorkers {
     /// Resolves once every write made before the call is applied to the headers: the exit path awaits
-    /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`).
-    pub async fn settled(&self) {
+    /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`). As Node's `flush` rejects when a
+    /// batch could not be persisted, this is `Err` while a kept write is still owed; the write stays queued.
+    pub async fn settled(&self) -> Result<(), String> {
         let (done, applied) = tokio::sync::oneshot::channel();
-        if self.writes.send(WriteOp::Barrier(done)).is_ok() {
-            let _ = applied.await;
-        }
+        self.writes.send(WriteOp::Barrier(done)).map_err(|_| "the worker writer is closed".to_owned())?;
+        applied.await.map_err(|_| "the worker writer ended before the flush".to_owned())?
+    }
+
+    /// The writes' numbers: a barrier takes `accepted()` when it arrives and waits for `reached` of it, every write made
+    /// before it applied to the headers (after `AgentRegistry::flush_active_worker_rows`, Node's `store.flushSync()`).
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.marks
     }
 
     /// Binds the status signals; a second bind is refused.

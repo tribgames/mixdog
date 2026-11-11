@@ -201,6 +201,10 @@ impl Sessions for AgentSessions {
         Some(last_handoff(&header, &messages))
     }
 
+    fn redact_text(&self, session_id: &str, text: String) -> String {
+        self.directory.deps().sensitive.redact_text(&ThreadId::from(session_id), &text)
+    }
+
     /// `closeSession(id, reason, {tombstone: false, ownerClose})`: the durable stamp first
     /// (`bumpSessionGenerationAttempt`: `generation`, `updatedAt`, `detachedReason`, and `ownerClosedAt` on an
     /// owner close), then the running turn is cancelled and the queued input dropped. The

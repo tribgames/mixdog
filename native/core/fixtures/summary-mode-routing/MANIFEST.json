@@ -1,0 +1,52 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-summary-mode-routing.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "calls": "a send's kind is `isolated` when its opts.sessionId is `<id>:compact` (the isolated request), else `fork`",
+    "catalogSaves": "each catalog save is awaited before the next query, so the file on disk is the save's (the test reads the cache's unsettled save; the text is the same)",
+    "fakes": "the test's fake providers are built from a JSON rule (`byCall`, `byModel`, `reply`) instead of closures, so the replay builds the same fakes",
+    "firstCase": ":157 (normalisation) is recorded by record-compact-node-cases.mjs"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 145138,
+      "path": "golden.json",
+      "sha256": "6e0675947be75c2845d65cf634780924b3c761f7592202d558bdc235657ca2b5"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-summary-mode-routing.mjs",
+  "recorderSha256": "859424939fd9f4634a0b0b9f7f861d210780de4b320f470d19f91a98933e272e",
+  "set": "summary-mode-routing",
+  "tests": [
+    "src/runtime/agent/orchestrator/session/compact/summary-mode.test.mjs (:168, :192, :212, :222, :269, :294, :319, :340, :372, :385)"
+  ],
+  "totalBytes": 145138
+}

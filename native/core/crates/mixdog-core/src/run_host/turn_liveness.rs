@@ -25,7 +25,8 @@ pub struct TurnLiveness {
     closed: Arc<Mutex<bool>>,
     _dispatched: Dispatched,
     /// The follower task, for the tests to await.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -51,21 +52,22 @@ impl TurnLiveness {
                 publish(progress.borrow().stage(), &cancel);
             }
         });
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         drop(watcher);
         Self {
             liveness: liveness.clone(),
             _dispatched: liveness.dispatched(&id),
             id,
             closed,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             watcher: Mutex::new(Some(watcher)),
         }
     }
 
     /// Returns once the follower has published every progress change and ended, which it does when
     /// the run's progress sender is gone.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     async fn watcher_ended(&self) {
         let watcher = self.watcher.lock().unwrap_or_else(PoisonError::into_inner).take().expect("awaited once");
         mixdog_core_session::session::testing::awaiting(|| "the follower to publish the last progress and end".to_owned(), watcher).await.unwrap();

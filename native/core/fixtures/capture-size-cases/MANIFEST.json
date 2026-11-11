@@ -70,15 +70,21 @@
   "recorderSha256": "9e6e4a04d439361cd06775f7aa0f3f4a9662a7d91b3a9b8904a78a6d97eee13e",
   "replay": {
     "compare": "mixdog-computer capture size fit: compare each fitted size and the geometry error; the provider preparation case compares the prepared messages whole (image bytes included) and the metadata of the image sent",
-    "entry": "NO RUST ENTRY ON o1: computerCaptureSize (fit to 1280 x 1568 and the 28 / 32 px patch budgets, error capture_geometry_invalid): not in the crates; owner of the new code: mixdog-ai (the capture frame is bound before provider preparation); a public way to run the Anthropic message lowering on a message list with an image part (prepareAnthropicImages).",
+    "entry": "Case 2: the Anthropic request the core sends, mixdog_ai::providers::anthropic::AnthropicCodec through WireCodec::encode (codec.rs:178; body.rs build_body lowers the messages, lowering.rs:134 part_to_block passes a base64 image through); compared: the body's messages whole. Replay: mixdog-ai tests/it/anthropic_bound_frame.rs. Case 1: in K1 a capture is made by the desktop host, which sizes every capture with computerCaptureSize (apps/desktop/src/main/computer/observation/capture-source-plan.ts:43 fitCaptureImage, :59 GNOME shell, :81 compositor thumbnail); replay apps/desktop/src/main/computer/observation/capture-size-replay.test.mjs.",
+    "cases": {
+      "captures fit both encoder budgets before their coordinate frame is registered": "replayed through the desktop host's capture sizing (capture-source-plan.ts imports src/runtime/computer-bridge/capture-size.mjs computerCaptureSize): each recorded screen's fit compared whole, and the geometry error's name and message. The core captures no screen itself (mixdog-tools/src/desktop/computer_backend.rs:640 refuses a whole-screen capture as the desktop host's)",
+      "provider preparation does not rescale an already bound computer frame": "replayed through the codec; sentMetadata (sharp's reading of the bytes sent) is covered by the sent bytes, which the compared messages hold"
+    },
     "existsButNotPublicOnO1": [
       "provider preparation of an image part: mixdog-ai/src/providers/anthropic/lowering.rs:134 `part_to_block` (private; `mod lowering` is private, providers/anthropic/mod.rs:19) passes the base64 image bytes through (:137), which is what the second case records; mixdog-agent/src/compact/image.rs:71 `target_dimensions` is image compaction, a different contract"
     ],
     "missingOnO1": [
       "computerCaptureSize (fit to 1280 x 1568 and the 28 / 32 px patch budgets, error capture_geometry_invalid): not in the crates; owner of the new code: mixdog-ai (the capture frame is bound before provider preparation)",
-      "a public way to run the Anthropic message lowering on a message list with an image part (prepareAnthropicImages)"
+      "prepareAnthropicImages' resize of an image over the 1568 px box or the patch budget: the core's Anthropic lowering passes every base64 image through (lowering.rs:137); the recorded case keeps its frame, so it does not reach this"
     ],
-    "normalised": {},
+    "normalised": {
+      "cacheStrategy": "case 2: the codec's message cache layer is off (CacheStrategy messages: None), as the recorded preparation saw messages without a cache breakpoint"
+    },
     "protocolMethods": [],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"

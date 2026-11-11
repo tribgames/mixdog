@@ -7,6 +7,7 @@ mod compact_suite;
 mod connector_accounts_suite;
 mod discovery_suite;
 mod extension_suite;
+mod global_extensions_suite;
 mod golden_suite;
 mod hookscope_suite;
 mod http_suite;

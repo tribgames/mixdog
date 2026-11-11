@@ -210,18 +210,24 @@ impl<T> Bounded<T> {
 
     /// `setBoundedTextCacheEntry`: false when the entry alone exceeds the byte budget.
     fn set(&mut self, entry: Entry<T>) -> bool {
-        self.remove(&entry.key);
+        self.set_within(entry, MAX_PER_SESSION, TEXT_CACHE_MAX_BYTES).0
+    }
+
+    /// The bounded put, with the keys it dropped in drop order (`onEvict`'s calls): the replaced key first.
+    fn set_within(&mut self, entry: Entry<T>, max_entries: usize, max_bytes: usize) -> (bool, Vec<String>) {
+        let mut dropped: Vec<String> = self.remove(&entry.key).map(|e| e.key).into_iter().collect();
         let incoming = Self::bytes(&entry);
-        if incoming > TEXT_CACHE_MAX_BYTES {
-            return false;
+        if incoming > max_bytes {
+            return (false, dropped);
         }
         let mut retained = incoming + self.entries.iter().map(Self::bytes).sum::<usize>();
-        while self.entries.len() >= MAX_PER_SESSION || retained > TEXT_CACHE_MAX_BYTES {
+        while self.entries.len() >= max_entries || retained > max_bytes {
             let oldest = self.entries.remove(0);
             retained -= Self::bytes(&oldest);
+            dropped.push(oldest.key);
         }
         self.entries.push(entry);
-        true
+        (true, dropped)
     }
 }
 
@@ -887,6 +893,10 @@ impl LiveReuses {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "result_reuse_budget_tests.rs"]
+mod budget_tests;
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
