@@ -41,7 +41,7 @@ const realClearTimeout = globalThis.clearTimeout;
 /** A failure bound on one case on the real clock (the product's own timers are virtual and never fire). */
 export const CASE_DEADLINE_MS = 60_000;
 
-export async function startRecording({ recorderUrl, set, entry, replay, compare, dataFiles = [], exclusions = [], net = true, maskRow = null }) {
+export async function startRecording({ recorderUrl, set, entry, replay, compare, dataFiles = [], exclusions = [], net = true, maskRow = null, pure = {} }) {
   const args = parseArgs();
   const tree = resolveTree(args);
   const only = args.get('only');
@@ -67,10 +67,11 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     seed = (Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) + 0x6d2b79f5) >>> 0;
     return seed / 4294967296;
   };
-  const clock = { seq: 0, timers: new Map() };
+  const clock = { seq: 0, timers: new Map(), armListeners: new Set() };
   globalThis.setTimeout = (fn, ms = 0, ...rest) => {
     const id = ++clock.seq;
-    clock.timers.set(id, { id, due: world.now() + Math.max(0, Number(ms) || 0), fn, rest });
+    clock.timers.set(id, { id, due: world.now() + Math.max(0, Number(ms) || 0), fn, rest, site: new Error().stack });
+    for (const listener of [...clock.armListeners]) listener();
     return { id, unref() { return this; }, ref() { return this; }, hasRef: () => true, refresh() { return this; }, [Symbol.toPrimitive]: () => id };
   };
   globalThis.clearTimeout = (timer) => void clock.timers.delete(timer?.id ?? timer);
@@ -79,7 +80,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
    * not after a fixed number of turns: the callback's returned promise is awaited, then one real event-loop turn (which drains every microtask
    * the callback queued), then, when the case names one, the observable event `until` (polled once per real turn) - each wait has a deadline
    * and names its step. Every step is appended to `clock.trace` (the ordered record of the case): the advance, the clock before and after, the
-   * timers that fired (due time relative to the start of the recording) and the timers still armed.
+   * timers that fired (due time relative to the start of the recording, in firing order; timer ids and the set of still-armed timers are not recorded: they include the product's incidental background timers, whose number varies between runs).
    */
   clock.trace = [];
   const realSetImmediate = globalThis.setImmediate;
@@ -104,7 +105,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       if (!next) break;
       clock.timers.delete(next.id);
       world.advance(Math.max(0, next.due - world.now()));
-      step.fired.push({ id: next.id, dueMs: next.due - T0 });
+      step.fired.push({ dueMs: next.due - T0 });
       const returned = next.fn(...next.rest);
       if (returned && typeof returned.then === 'function') await within(returned, `${what}: timer ${next.id} callback`);
       await within(turn(), `${what}: timer ${next.id} settle`);
@@ -117,9 +118,31 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       await within(waitFor(), `${what}: observable event`);
     }
     step.toMs = world.now() - T0;
-    step.armed = [...clock.timers.values()].map((x) => ({ id: x.id, dueMs: x.due - T0 })).sort((a, b) => a.dueMs - b.dueMs || a.id - b.id);
     clock.trace.push(step);
   };
+  /**
+   * Follows the retries of `promise` (a send that retries): whenever a timer created from `sites` (a pattern over the creating stack: the product's retry sleep function, not its first-byte or idle watchdogs) is armed, the clock
+   * moves to it (one recorded step) - the wait for the next arm is woken by the arming itself, with the case deadline. Returns when `promise` settles.
+   */
+  clock.followRetries = async (promise, { sites = /at (async )?\S*[sS]leep\S* /, what = 'retry backoff' } = {}) => {
+    let settled = false;
+    const done = promise.then(() => { settled = true; }, () => { settled = true; });
+    while (!settled) {
+      const armed = [...clock.timers.values()].filter((t) => sites.test(t.site));
+      if (!armed.length) {
+        let wake;
+        const armedOrDone = new Promise((resolve) => { wake = resolve; clock.armListeners.add(wake); });
+        await within(Promise.race([done, armedOrDone]), `${what}: waiting for a retry timer`);
+        clock.armListeners.delete(wake);
+        continue;
+      }
+      const next = armed.sort((a, b) => a.due - b.due || a.id - b.id)[0];
+      await clock.advance(Math.max(0, next.due - world.now()), { what });
+    }
+    return promise;
+  };
+  /** The armed timers created from a stack matching `sites` (the creating function, e.g. the product's retry sleep), by due time: [{ id, due }]. */
+  clock.pendingFrom = (sites) => [...clock.timers.values()].filter((x) => sites.test(x.site)).map((x) => ({ id: x.id, due: x.due - T0 })).sort((a, b) => a.due - b.due || a.id - b.id);
   clock.pending = () => [...clock.timers.values()].map((t) => ({ due: t.due - T0 })).sort((a, b) => a.due - b.due);
 
   const secrets = {};
@@ -141,6 +164,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
 }`;
   register(`data:text/javascript,${encodeURIComponent(hooks)}`);
 
+  const direct = new Set();
   const hub = { records: [], reply: null };
   let server = null;
   if (net) {
@@ -157,16 +181,28 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       const record = { method: req.method, origin, path: req.url, headers, body: Buffer.from(text, 'utf8').equals(raw) ? text : raw };
       // For the recorder's own code (not recorded): the headers by lower-case name.
       Object.defineProperty(record, 'h', { value: Object.fromEntries(headers.map(([n, v]) => [n.toLowerCase(), v])), enumerable: false });
+      // For the recorder's own waits (not recorded): resolves when the client side of this connection closes.
+      Object.defineProperty(record, 'whenClientClosed', { value: new Promise((resolve) => res.on('close', resolve)) });
       hub.records.push(record);
       const reply = hub.reply?.(record, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
       record.reply = reply;
+      if (reply.destroy) {
+        // The endpoint resets the connection instead of answering (the client sees a network error).
+        req.socket.destroy();
+        return;
+      }
       // `date` is the one wall-clock header Node adds; fixed so the response heads the product records are stable.
       res.setHeader('date', 'Thu, 01 Jan 2026 00:00:00 GMT');
       res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.headers ?? {}) });
       if (reply.chunks) {
+        res.flushHeaders();
         // A scripted stream: every chunk is its own socket write (the write callback is the wait for it), the ordered input of the case.
         for (const chunk of reply.chunks) await new Promise((resolve, reject) => res.write(chunk, (error) => (error ? reject(error) : resolve())));
-        res.end();
+        if (reply.hold) {
+          // The endpoint keeps the response open until the client closes the connection (a cancelled or idle-aborted read); that close is part of the record.
+          await record.whenClientClosed;
+          record.clientClosedConnection = true;
+        } else res.end();
       } else res.end(reply.body);
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -175,11 +211,23 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     globalThis.fetch = (input, init) => {
       const req = input instanceof Request ? input : null;
       const url = new URL(req ? req.url : String(input));
+      // A gateway the recorder started itself (its port registered through `rec.allowDirect`) is reached directly; every other address goes to the scripted endpoint.
+      if (direct.has(url.port)) return realFetch(input, init);
       const headers = new Headers(init?.headers ?? req?.headers ?? {});
       headers.set('x-bench-origin', url.origin);
       const target = `http://127.0.0.1:${port}${url.pathname}${url.search}`;
       // The response says it came from the address the product asked for (the loopback port is random).
       return realFetch(target, req ? { method: req.method, body: req.body, duplex: 'half', signal: req.signal, ...init, headers } : { ...init, headers }).then((response) => Object.defineProperty(response, 'url', { value: url.href }));
+    };
+  }
+
+  if (!net) {
+    // No scripted endpoint in this recording: a fetch to anything but the recorder's own loopback fails at once - the real network is never reached.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (direct.has(url.port)) return realFetch(input, init);
+      return Promise.reject(Object.assign(new Error(`recorder: real network is not allowed (net: false): ${url.origin}`), { code: 'ERECORDERNONET' }));
     };
   }
 
@@ -253,6 +301,10 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     view,
     T0,
     describe,
+    /** Registers the port of a loopback server the recorder itself started: fetches to it are not redirected to the scripted endpoint. */
+    allowDirect: (port) => direct.add(String(port)),
+    /** A function the product returned (a fetch, a callback factory result): every call of it is logged with its arguments, like a product export. */
+    wrapFn: (name, fn) => wrapExport(name, fn),
     /** A scripted fetch Response (status, headers, body chunks as delivered), recorded as such when handed to the product. */
     response: scriptedResponse,
     /** A real WebSocket server on loopback (lib/ws-world.mjs); closed when the recording finishes. */
@@ -291,13 +343,25 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       // Declared real-clock paths (the recorder's `maskRow`, each named in its manifest exclusions) are replaced by a marker here, never by a global rewrite.
       maskRow?.(row);
       if (clock.trace.length) row.clock = clock.trace.map((x) => ({ ...x }));
-      if (hub.records.length) row.requests = hub.records.map((r) => view(r));
+      if (hub.records.length) {
+        row.requests = hub.records.map((r) => view(r));
+        // Declared normalisation (see the manifest exclusions): the three SDK headers that carry the recording host's OS, architecture and Node version.
+        for (const request of row.requests) for (const pair of request.headers ?? []) if (/^x-stainless-(os|arch|runtime-version)$/i.test(pair[0])) pair[1] = `<recording host ${pair[0].toLowerCase()}>`;
+      }
       cases.push(row);
     },
     /** Writes `cases.json` + MANIFEST.json of `<set>` and stops the loopback endpoint. */
     async finish(extra = {}) {
       server?.close();
       wsWorld?.close();
+      // The level of every case (the decided rule): `wire` = the case went through a socket (the request or the upgrade as it arrived is recorded); `pure` = only for a case
+      // whose Node test calls a pure function, with the public Rust function of the same input and output named in `pure` ({ '<case id>' | '<prefix>*' | '*': 'path:line fn' }).
+      const levelOf = (row) => {
+        if (row.requests?.length || JSON.stringify(row.result ?? null).includes('"upgrade-request"')) return { id: row.id, level: 'wire' };
+        const key = Object.keys(pure).find((k) => k === row.id || (k.endsWith('*') && row.id.startsWith(k.slice(0, -1))));
+        return { id: row.id, level: 'pure', rust: key ? pure[key] : null };
+      };
+      const levels = cases.map(levelOf);
       const finalDir = join(FIXTURES_ROOT, set);
       const stage = stageSet(finalDir);
       writeJson(join(stage, 'cases.json'), { set, nodeCommit: NODE_COMMIT, shared, cases, ...extra });
@@ -306,7 +370,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
         recorder: recorderProvenance(recorderUrl).recorder,
         command: `node ${recorderProvenance(recorderUrl).recorder} --tree <exact export of ${NODE_COMMIT}>`,
         identity,
-        extra: { ...recorderProvenance(recorderUrl, dataFiles), entry, replay, compare, calls: 'every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {"$shared": n}', values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {"$exact": <kind>} tag', describedValues: { '{"$stream": [chunk...]}': 'an async stream the recorder handed the product, as the chunks it yields in order', '{"$response": {status, statusText, headers, bodyChunks}}': 'a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)', '{"$instance": name, constructedWith: [args]}': 'an instance of a product class, as the arguments it was constructed with', '{"callback": name}': 'a function the recorder handed the product; its scripted behaviour is the case body' }, ...(net ? { replayExclusions: { 'request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)': 'written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded' } } : {}), exclusions: [...exclusions, 'no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix', 'net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host\'s OS, architecture and Node version', 'net requests: the recorder\'s x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)'] },
+        extra: { ...recorderProvenance(recorderUrl, dataFiles), levels, entry, replay, compare, calls: 'every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {"$shared": n}', values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {"$exact": <kind>} tag', describedValues: { '{"$stream": [chunk...]}': 'an async stream the recorder handed the product, as the chunks it yields in order', '{"$response": {status, statusText, headers, bodyChunks}}': 'a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)', '{"$instance": name, constructedWith: [args]}': 'an instance of a product class, as the arguments it was constructed with', '{"callback": name}': 'a function the recorder handed the product; its scripted behaviour is the case body' }, ...(net ? { replayExclusions: { 'request headers': 'the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library\'s user-agent) and the body bytes; no header is excluded from the comparison' } } : {}), exclusions: [...exclusions, 'no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix', 'net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host\'s OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived', 'net requests: the recorder\'s x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)'] },
       });
       commitStage(stage, finalDir);
       console.log(`${set}: ${cases.length} case(s) recorded`);

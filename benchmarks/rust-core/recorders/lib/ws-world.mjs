@@ -71,6 +71,12 @@ export async function startWsWorld({ tree }) {
   server.on('upgrade', (req, socket, head) => {
     note({ event: 'upgrade-request', method: req.method, target: req.url, httpVersion: req.httpVersion, headers: pairs(req.rawHeaders) });
     const refusal = world.script.refuse?.(req, world.count((e) => e.event === 'upgrade-request'));
+    if (refusal?.reset) {
+      // The server resets the TCP connection instead of answering the upgrade (ECONNRESET at the client).
+      note({ event: 'upgrade-reset' });
+      socket.destroy();
+      return;
+    }
     if (refusal) {
       const headerLines = (refusal.headers ?? []).map(([n, v]) => `${n}: ${v}`);
       const bodyChunks = refusal.bodyChunks ?? [refusal.body ?? ''];
@@ -112,7 +118,9 @@ export async function startWsWorld({ tree }) {
         terminate: () => {
           serverInitiated = true;
           note({ event: 'terminate', by: 'server' });
-          ws.terminate();
+          // The connection ends without a close frame (the client sees 1006), but only after every frame already written has been flushed: `end()` queues the FIN behind them, where
+          // `ws.terminate()` (destroy) can drop frames still in the server's write buffer.
+          socket.end();
         },
         ping: (data = '') => {
           note({ event: 'ping', dir: 'server->client', data: String(data) });
