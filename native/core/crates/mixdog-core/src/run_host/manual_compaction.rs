@@ -276,25 +276,49 @@ impl HostManualCompaction {
     }
 }
 
+/// Where a pass reads the thread's model context and commits its result: the session directory.
 #[async_trait]
-impl ManualCompaction for HostManualCompaction {
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError> {
+pub(crate) trait PassTranscript: Send + Sync {
+    async fn context(&self, thread: &ThreadId) -> Result<Vec<(ItemId, Value)>, CoreError>;
+    async fn commit(&self, thread: &ThreadId, snapshot: Vec<ItemId>, compaction: Compaction, header: CompactionHeader) -> Result<CompactionCommit, CoreError>;
+}
+
+#[async_trait]
+impl PassTranscript for mixdog_core_session::session::SessionDirectory {
+    async fn context(&self, thread: &ThreadId) -> Result<Vec<(ItemId, Value)>, CoreError> {
+        self.model_context(thread).read().await
+    }
+    async fn commit(&self, thread: &ThreadId, snapshot: Vec<ItemId>, compaction: Compaction, header: CompactionHeader) -> Result<CompactionCommit, CoreError> {
+        self.commit_compaction(thread, snapshot, compaction, Some(header)).await
+    }
+}
+
+impl HostManualCompaction {
+    /// The manual pass over `snapshot`'s thread (`runSessionCompaction` with `force`), reading and committing through
+    /// `transcript`.
+    pub(crate) async fn pass(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, snapshot: ContextSnapshot, transcript: &dyn PassTranscript) -> Result<Option<Value>, CoreError> {
         let parts = &self.parts;
-        let Some(snapshot) = parts.world.snapshot(Some(thread)).await? else { return Ok(None) };
-        let Some(directory) = parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
-        let context = directory.model_context(thread).read().await?;
+        let context = transcript.context(thread).await?;
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
         let messages = rows.iter().map(|row| message_of(row).map_err(|e| failed(DOMAIN, e))).collect::<Result<Vec<_>, _>>()?;
         let snapshot = Arc::new(snapshot);
         let session_messages = priced(&snapshot.header, &messages);
+        // Node prices the plan with synchronous blob reads: a stored text attachment counts its text, and a read that
+        // fails for now throws out of `runSessionCompaction` before anything is recorded.
+        snapshot.media.prepare(&messages).await.map_err(|message| failed(DOMAIN, message))?;
         let plan = forced_plan(&snapshot, &session_messages).map_err(|message| failed(DOMAIN, message))?;
         let Some(plan) = plan else { return Ok(None) };
 
         // The compactor of the thread's route: `runSessionHandoff`.
         let Some(settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
+        // What left is reported only when its stored row shows (`prepareCompactionArchive`): the pass reads them here.
+        let stored = StoredRows::new();
+        for (message, row) in messages.iter().zip(&rows) {
+            stored.record(message, row.clone());
+        }
         let input = CompactorInput {
             settings,
-            rows: Arc::new(StoredRows::new()),
+            rows: Arc::new(stored),
             archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, thread.as_str())),
             blobs: parts.blobs.clone(),
         };
@@ -303,7 +327,7 @@ impl ManualCompaction for HostManualCompaction {
         // request's media alone would need the compaction.
         compactor.prepare(&messages).await;
         let require = require_reduction && !compactor.request_media(&messages);
-        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false };
+        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, active_turn: false };
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
@@ -375,7 +399,7 @@ impl ManualCompaction for HostManualCompaction {
             header_change(header, &working)
         });
         let snapshot_ids: Vec<ItemId> = context.iter().map(|(iid, _)| iid.clone()).collect();
-        match directory.commit_compaction(thread, snapshot_ids, compaction, Some(header)).await? {
+        match transcript.commit(thread, snapshot_ids, compaction, header).await? {
             CompactionCommit::Applied => {
                 let result = answer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
@@ -383,6 +407,15 @@ impl ManualCompaction for HostManualCompaction {
             // The conversation moved: nothing was applied, the summary's usage still counts.
             CompactionCommit::Moved => self.record_failure(thread, &snapshot, &session_messages, &plan, usage.as_ref(), TRANSCRIPT_MOVED_ERROR, None).await.map(Some),
         }
+    }
+}
+
+#[async_trait]
+impl ManualCompaction for HostManualCompaction {
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError> {
+        let Some(snapshot) = self.parts.world.snapshot(Some(thread)).await? else { return Ok(None) };
+        let Some(directory) = self.parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
+        self.pass(thread, trigger, require_reduction, snapshot, &*directory).await
     }
 
     /// `compactConversationForHeir`: the source's whole transcript through the source's own compactor, sized by the heir's
@@ -412,7 +445,7 @@ impl ManualCompaction for HostManualCompaction {
         };
         let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
         compactor.prepare(&messages).await;
-        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
+        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false };
         let output = compactor.compact(request).await.map_err(|error| match error {
             CompactError::Overflow(message) | CompactError::Failed(message) => failed(DOMAIN, message),
             CompactError::Aborted => failed(DOMAIN, "compact aborted"),
@@ -462,7 +495,8 @@ impl ManualCompaction for HostManualCompaction {
 
     async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[AgentMessage]) {
         let meters = self.parts.world.lowering(thread, provider);
-        meters.0.prepare(messages).await;
+        // A read that fails for now leaves the gauge pricing the part as unread until the next read.
+        let _ = meters.0.prepare(messages).await;
         self.prepared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert((thread.as_str().to_owned(), provider.to_owned()), meters);
     }
 

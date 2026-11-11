@@ -189,6 +189,9 @@ struct Memo {
     pdf: HashMap<String, String>,
     /// What the store recorded of each reference read so far (`None`: nothing recorded).
     facts: HashMap<String, Option<StoredFacts>>,
+    /// Each stored text attachment's part as its row holds it: a gone blob prices as the stored part's JSON
+    /// (`rawJsonFallbackFromPart` stringifies the part itself, `sizeBytes` and all).
+    stored_parts: HashMap<String, Value>,
 }
 
 enum Lookup {
@@ -229,6 +232,26 @@ fn decoded_text(data: &str) -> String {
 fn file_label(file: &FileInfo) -> String {
     let name = if file.filename.is_empty() { String::new() } else { format!("{} ", file.filename) };
     format!("{name}({}, {} bytes)", file.mime, base64_byte_length(&file.data))
+}
+
+/// The reference of a stored text attachment (`{type: 'text', attachmentRef}`).
+fn stored_text_ref(part: &ContentPart) -> Option<&str> {
+    match part {
+        ContentPart::File { source: BinarySource::AttachmentRef(reference), text: Some(_), .. } => Some(reference),
+        _ => None,
+    }
+}
+
+/// `attachmentTextForPart` over a stored text attachment's bytes: a file is wrapped in its name.
+fn stored_text(part: &ContentPart, bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes).into_owned();
+    let ContentPart::File { filename, text: Some(kind), .. } = part else { return text };
+    if kind.kind.as_deref() != Some("file") {
+        return text;
+    }
+    let name = filename.as_deref().filter(|n| !n.is_empty()).unwrap_or("attachment");
+    let name: String = name.chars().map(|c| if matches!(c, '<' | '>' | '"' | '\'') { '_' } else { c }).collect();
+    format!("<file name=\"{name}\">\n{text}\n</file>")
 }
 
 /// `unavailableAttachmentText`.
@@ -304,19 +327,24 @@ impl MediaLowering {
     /// other failure propagates and nothing is remembered.
     async fn resolve(&self, part: &ContentPart) -> Result<(), Box<ProviderError>> {
         let ContentPart::File { source: BinarySource::AttachmentRef(reference), text: None, .. } = part else { return Ok(()) };
+        self.resolve_ref(reference).await.map_err(failure)
+    }
+
+    /// [`Self::resolve`] by reference; the error is the read's own message.
+    async fn resolve_ref(&self, reference: &str) -> Result<(), String> {
         if self.memo().resolved.contains_key(reference) {
             return Ok(());
         }
         let resolved = match self.reader.read(reference).await {
             Ok(bytes) => Resolved::Bytes(STANDARD.encode(bytes)),
             Err(ReadError::Permanent) => Resolved::Gone,
-            Err(ReadError::Other(message)) => return Err(failure(message)),
+            Err(ReadError::Other(message)) => return Err(message),
         };
         let mut memo = self.memo();
         if memo.resolved.len() > OFFICE_CACHE_CAP {
             memo.resolved.clear();
         }
-        memo.resolved.insert(reference.clone(), resolved);
+        memo.resolved.insert(reference.to_owned(), resolved);
         Ok(())
     }
 
@@ -535,22 +563,46 @@ fn is_pdf_ref(part: &ContentPart) -> Option<&str> {
 #[async_trait]
 impl MediaMeter for MediaLowering {
     /// Reads the facts of every stored image or PDF the messages carry into the memo.
-    async fn prepare(&self, messages: &[AgentMessage]) {
+    async fn prepare(&self, messages: &[AgentMessage]) -> Result<(), String> {
         let mut references: Vec<String> = Vec::new();
+        let mut texts: Vec<&ContentPart> = Vec::new();
         for message in messages {
             if let Content::Parts(parts) = &message.message.content {
                 references.extend(parts.iter().filter_map(|part| is_image_ref(part).or_else(|| is_pdf_ref(part))).map(str::to_owned));
+                texts.extend(parts.iter().filter(|part| stored_text_ref(part).is_some()));
+                // The row's parts, one per typed part (`message_of` reads them in order), envelope or not.
+                let content = message.stored.as_ref().and_then(|row| row.get("content"));
+                let rows = content.and_then(|c| c.as_array().or_else(|| c.get("content").and_then(Value::as_array)));
+                for (part, row) in parts.iter().zip(rows.into_iter().flatten()) {
+                    if let Some(reference) = stored_text_ref(part) {
+                        self.memo().stored_parts.insert(reference.to_owned(), row.clone());
+                    }
+                }
             }
         }
         for reference in references {
             self.prime(&reference).await;
         }
+        for reference in texts.into_iter().filter_map(stored_text_ref) {
+            self.resolve_ref(reference).await?;
+        }
+        Ok(())
     }
 
     /// `rawJsonFallbackFromPart` and the image and document allowances, for a part of a stored
     /// message. A stored file is read from the memo, so [`MediaText::prepare_pdf_text`] (or the
     /// host's warm of the history) comes first.
     fn part(&self, part: &ContentPart) -> PartMeter {
+        if let Some(reference) = stored_text_ref(part) {
+            // `attachmentTextForPart`; a blob gone for good prices as the part's own JSON (`rawJsonFallbackFromPart`).
+            let memo = self.memo();
+            let text = match memo.resolved.get(reference) {
+                Some(Resolved::Bytes(data)) => stored_text(part, &STANDARD.decode(data).unwrap_or_default()),
+                Some(Resolved::Gone) => mixdog_js::json_stringify(&memo.stored_parts.get(reference).cloned().unwrap_or_else(|| super::message_row::part_row(part))),
+                None => String::new(),
+            };
+            return PartMeter { text, tokens: 0 };
+        }
         match part {
             ContentPart::Text(text, _) => PartMeter { text: text.clone(), tokens: 0 },
             ContentPart::Image(_) => PartMeter { text: String::new(), tokens: IMAGE_TOKEN_ALLOWANCE },
@@ -776,7 +828,7 @@ mod tests {
             m.message.content = Content::Parts(vec![reference(r, mime, None)]);
             m
         };
-        l.prepare(&[message("scan", "application/pdf"), message("typed", "application/pdf"), message("shot", "image/png"), message("unknown", "image/png")]).await;
+        l.prepare(&[message("scan", "application/pdf"), message("typed", "application/pdf"), message("shot", "image/png"), message("unknown", "image/png")]).await.unwrap();
         let content = |p: ContentPart| Content::Parts(vec![p]);
         // 37 pages, no text layer measured: 2 500 a page; 3 pages with 4 001 chars: 3*1568 + 2001.
         assert_eq!(l.part(&reference("scan", "application/pdf", None)).tokens, 92_500);
