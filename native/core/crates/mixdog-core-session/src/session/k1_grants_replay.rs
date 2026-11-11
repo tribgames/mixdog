@@ -1,14 +1,14 @@
 //! Replay of Node's K1 recordings `fixtures/hook-ask-grants-cases` and `fixtures/session-grants-cases`
 //! (`record-hook-ask-grants-cases.mjs`, `record-session-grants-cases.mjs`, b6f10295a): one interpreter for the recorded logs.
 //!
-//! Each step drives the product's entry: a `decide` is [`decide`] (`gate.rs`) over the session's facts and settings from
-//! [`SessionGate`] (a live header per session, the unattended runs and the "Allow all actions" option behind its
-//! [`GateEnv`]), the tool's own `outbound_kind` (the registered `github` tool; a connector tool by the MCP rule
-//! `mixdog_mcp::outbound::outbound_kind` with the empty annotations the recorder passed), and the session's grants in
-//! the process registry ([`SessionGrantRegistry`]); a `choose` or `answer` is [`ToolPolicy::authorize`] of the call the
-//! last `decide` decided, its card answered through the approval book the client's response goes through
-//! ([`ApprovalBook::validate`]); the grants, audit and permission views are [`FileGrantStore`] and [`AgentPermissions`]
-//! on a real directory. The store's clock is the recording's held `Date.now`; the session-grant clock starts where the
+//! Each step drives the product's entry: a `decide` runs the call through [`ToolPolicy::authorize`] as a turn does (the recorded
+//! PreToolUse hook, the session's facts and settings from [`SessionGate`], the tool's own `outbound_kind`, the session's grants in
+//! the process registry [`SessionGrantRegistry`]) until it shows the client a card in the client's [`ApprovalBook`] or ends; the
+//! verdict it acted on is read through the development-only `policy-observer`, and a call it let run is rendered from the call it
+//! passed on. A `choose` or `answer` is a client's response to that card, sent as recorded (with the recorded gate) through
+//! [`ApprovalBook::validate`] and resolved into the waiting pipeline, which audits it and stores its grant; a card no longer
+//! pending is the call asked again. The grants, audit and permission views are [`FileGrantStore`] and [`AgentPermissions`]
+//! on a real directory. Every wait has a deadline. The store's clock is the recording's held `Date.now`; the session-grant clock starts where the
 //! recorder's did (1_000_000 ms) and moves only by the recorded advances. A card is what a client is shown for the
 //! request ([`tool_approval`] of the approval book's request), compared on the fields `humanRequestFields` defines.
 //!
@@ -80,12 +80,14 @@ use mixdog_tools::policy::SessionGrants;
 use mixdog_tools::policy::SessionSurface;
 use mixdog_tools::policy::ToolPolicy;
 use mixdog_tools::policy::ToolResolver;
+use mixdog_core_api::domain::tool::ToolError;
+use mixdog_tools::policy::Authorized;
 use mixdog_tools::policy::gate::AskRequest;
 use mixdog_tools::policy::gate::GateAudit;
-use mixdog_tools::policy::gate::GateCall;
-use mixdog_tools::policy::gate::GateCx;
 use mixdog_tools::policy::gate::GateVerdict;
-use mixdog_tools::policy::gate::decide;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use mixdog_tools::policy::run_policy::AUTOMATION_GRANT_REASON;
 use mixdog_tools::policy::session_grants::SESSION_GRANT_TTL;
 use serde_json::Map;
@@ -264,40 +266,48 @@ fn hook_of(hook: &Value) -> Option<HookDecision> {
     })
 }
 
-/// What the card of the call is answered with.
-enum Reply {
-    /// Nobody answers: the card is only looked at.
-    Look,
-    /// A client's response, from `device`.
-    Client { result: Value, device: String },
-    /// The request's own deadline passed.
-    TimedOut,
+/// Every wait of the replay ends here at the latest.
+const DEADLINE: Duration = Duration::from_secs(30);
+
+/// `future`'s output, or a failure naming what did not happen within [`DEADLINE`].
+async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(DEADLINE, future).await.unwrap_or_else(|_| panic!("{what}: nothing within {DEADLINE:?}"))
 }
 
-/// The session's approval surface: the card goes into the approval book, a client's response is validated there.
-struct Surface {
-    reply: Mutex<Reply>,
-    asked: Mutex<Option<ApprovalAsk>>,
-    answered: Mutex<Option<Value>>,
+/// The client side of the session's approvals, as the app server holds it: the approval book a card is inserted into with its
+/// run waiting on it, and a client's response is validated in. Each card is told to the replay as it is shown.
+struct Client {
+    book: Mutex<ApprovalBook>,
+    ids: AtomicU64,
+    /// The session the next card is asked in: one call runs at a time.
+    thread: Mutex<ThreadId>,
+    cards: mpsc::UnboundedSender<(ApprovalId, ApprovalAsk)>,
     now_ms: i64,
 }
 
 #[async_trait]
-impl ApprovalGate for Surface {
+impl ApprovalGate for Client {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
-        *self.asked.lock().unwrap() = Some(ask.clone());
-        match &*self.reply.lock().unwrap() {
-            Reply::Look => ApprovalResolution::Interrupted { at: self.now_ms },
-            Reply::TimedOut => ApprovalResolution::TimedOut { at: self.now_ms },
-            Reply::Client { result, device } => {
-                let accepted = validate(ask, result, device, self.now_ms);
-                if let ApprovalResolution::Decided { decision, .. } = &accepted {
-                    *self.answered.lock().unwrap() = Some(serde_json::to_value(decision).expect("a decision serializes"));
-                }
-                accepted
-            }
-        }
+        let aid = ApprovalId(self.ids.fetch_add(1, Ordering::SeqCst) + 1);
+        let thread = self.thread.lock().unwrap().clone();
+        let (waiter, resolution) = oneshot::channel();
+        let request = ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), ask.clone(), self.now_ms);
+        self.book.lock().unwrap().insert(request, TurnId::from("r"), Some(waiter));
+        let _ = self.cards.send((aid, ask));
+        resolution.await.unwrap_or(ApprovalResolution::Interrupted { at: self.now_ms })
     }
+}
+
+/// How the pipeline's run of a call went on: it showed a card and waits for its answer, or it ended.
+enum Started {
+    Card(ApprovalId, ApprovalAsk, JoinHandle<Result<Authorized, ToolError>>),
+    Ended(Result<Authorized, ToolError>),
+}
+
+/// A shown card and the call waiting on it.
+struct Waiting {
+    aid: ApprovalId,
+    run: JoinHandle<Result<Authorized, ToolError>>,
 }
 
 /// A client's response to `ask` through the approval book: the resolution the waiting run receives.
@@ -411,15 +421,21 @@ struct World {
     tools: Tools,
     hook: Arc<Hook>,
     policy: ToolPolicy,
-    surface: Surface,
+    client: Arc<Client>,
+    cards: tokio::sync::Mutex<mpsc::UnboundedReceiver<(ApprovalId, ApprovalAsk)>>,
+    /// The gate's verdict of the call the pipeline judged last (`policy-observer`).
+    verdict: Arc<Mutex<Option<GateVerdict>>>,
     pending: Mutex<Option<Pending>>,
-    /// The ask of every decided call that asked (outside an unattended run), in log order.
+    /// The card the client was shown last, while its call waits on it.
+    waiting: Mutex<Option<Waiting>>,
+    /// The card of every decided call that showed one, in log order.
     asks: Mutex<Vec<Option<ApprovalAsk>>>,
     lives: AtomicU64,
+    now_ms: i64,
 }
 
 impl World {
-    fn new(now_ms: i64) -> Self {
+    fn new(now_ms: i64) -> Arc<Self> {
         let dir = tempfile::tempdir().expect("a data dir");
         let tokens = mixdog_rt::testing::tokens();
         let store = FileGrantStore::with_clock(dir.path().join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(move || now_ms));
@@ -432,8 +448,14 @@ impl World {
             mixdog_tools::policy::session_grants::MAX_SESSION_GRANTS,
         );
         let hook = Arc::new(Hook::default());
-        let policy = ToolPolicy::new(store.clone(), Arc::new(Connectors)).with_hook(hook.clone());
-        Self {
+        let verdict = Arc::new(Mutex::new(None));
+        let seen = verdict.clone();
+        let policy = ToolPolicy::new(store.clone(), Arc::new(Connectors))
+            .with_hook(hook.clone())
+            .with_observer(move |judged: &GateVerdict| *seen.lock().unwrap() = Some(judged.clone()));
+        let (cards_tx, cards_rx) = mpsc::unbounded_channel();
+        let client = Arc::new(Client { book: Mutex::default(), ids: AtomicU64::new(0), thread: Mutex::new(ThreadId::from(LEAD)), cards: cards_tx, now_ms });
+        Arc::new(Self {
             _dir: dir,
             store,
             registry,
@@ -443,11 +465,15 @@ impl World {
             tools: Tools::new(),
             hook,
             policy,
-            surface: Surface { reply: Mutex::new(Reply::Look), asked: Mutex::default(), answered: Mutex::default(), now_ms },
+            client,
+            cards: tokio::sync::Mutex::new(cards_rx),
+            verdict,
             pending: Mutex::default(),
+            waiting: Mutex::default(),
             asks: Mutex::default(),
             lives: AtomicU64::new(0),
-        }
+            now_ms,
+        })
     }
 
     /// The loaded session `id`: its header names the agent it was started for, its life the moment it was created.
@@ -466,61 +492,18 @@ impl World {
             .clone()
     }
 
-    fn kind_of(&self, name: &str, args: &Value) -> Option<ActionKind> {
-        self.tools.resolve(None, name).and_then(|tool| tool.outbound_kind(args))
-    }
-
-    async fn decide(&self, call: &Value, session: &str, hook: &Value) -> Value {
-        let state = self.session(session);
-        let facts = state.gate.facts().await;
-        let (name, args) = (call["name"].as_str().expect("a tool name"), &call["args"]);
-        let decision = hook_of(hook);
-        let cx = GateCx {
-            facts: &facts,
-            settings: state.gate.settings(),
-            store: self.store.as_ref(),
-            session_grants: &state.grants,
-            enricher: None,
-            mcp_scope: None,
-        };
-        let verdict = decide(
-            &cx,
-            &GateCall {
-                name,
-                args,
-                kind: self.kind_of(name, args),
-                hook: decision.as_ref().map_or(HookAction::Allow, |d| d.action),
-                hook_reason: decision.as_ref().and_then(|d| d.reason.as_deref()),
-            },
-        )
-        .await
-        .expect("the store answers");
-        *self.pending.lock().unwrap() = Some(Pending { call: call.clone(), session: session.to_owned(), hook: hook.clone() });
-        // The card a client is shown (`ask_user` and `handoff_user` are their own prompt: the pipeline shows none for them).
-        if matches!(verdict, GateVerdict::Ask(_)) && facts.run.is_none() {
-            let ask = self.authorize(Reply::Look).await.0;
-            self.asks.lock().unwrap().push(ask);
-        }
-        render(&verdict, hook, session)
-    }
-
-    /// The pending call through the pipeline, its card answered with `reply`: the ask and the client's decision.
-    async fn authorize(&self, reply: Reply) -> (Option<ApprovalAsk>, Option<Value>) {
-        let pending = self.pending.lock().unwrap().clone().expect("a decided call");
-        let state = self.session(&pending.session);
-        let facts = state.gate.facts().await;
-        *self.hook.0.lock().unwrap() = hook_of(&pending.hook);
-        *self.surface.reply.lock().unwrap() = reply;
-        *self.surface.asked.lock().unwrap() = None;
-        *self.surface.answered.lock().unwrap() = None;
-        let thread = ThreadId::from(pending.session.as_str());
-        let _ = self
-            .policy
+    /// The product's pipeline for `call`, as a turn runs it: the session's facts and settings, the PreToolUse hook, the gate,
+    /// the card in the client's approval book and the grant its answer stores.
+    async fn authorize(&self, call: &Pending) -> Result<Authorized, ToolError> {
+        let state = self.session(&call.session);
+        let facts = within("the session's gate facts", state.gate.facts()).await;
+        let thread = ThreadId::from(call.session.as_str());
+        self.policy
             .authorize(AuthorizeRequest {
                 call_id: &ToolCallId::from("call"),
                 thread_id: &thread,
-                name: pending.call["name"].as_str().expect("a tool name"),
-                args: pending.call["args"].clone(),
+                name: call.call["name"].as_str().expect("a tool name"),
+                args: call.call["args"].clone(),
                 cwd: Path::new("C:\\work"),
                 facts: &facts,
                 surface: &SessionSurface::default(),
@@ -529,11 +512,111 @@ impl World {
                 account: None,
                 session_grants: &state.grants,
                 tools: &self.tools,
-                approvals: &self.surface,
+                approvals: self.client.as_ref(),
                 cancel: &CancellationToken::new(),
             })
-            .await;
-        (self.surface.asked.lock().unwrap().take(), self.surface.answered.lock().unwrap().take())
+            .await
+    }
+
+    /// Runs the pipeline for `call` until it shows the client a card or ends.
+    async fn start(self: &Arc<Self>, call: &Pending) -> Started {
+        *self.hook.0.lock().unwrap() = hook_of(&call.hook);
+        *self.client.thread.lock().unwrap() = ThreadId::from(call.session.as_str());
+        *self.verdict.lock().unwrap() = None;
+        let world = self.clone();
+        let running = call.clone();
+        let mut run = tokio::spawn(async move { world.authorize(&running).await });
+        let mut cards = within("the client's card channel", self.cards.lock()).await;
+        let card = within("the pipeline to show a card or end", async {
+            tokio::select! {
+                card = cards.recv() => Ok(card.expect("the client channel stays open")),
+                ended = &mut run => Err(ended.expect("the pipeline's task ran")),
+            }
+        })
+        .await;
+        match card {
+            Ok((aid, ask)) => Started::Card(aid, ask, run),
+            Err(ended) => Started::Ended(ended),
+        }
+    }
+
+    /// The card the client was shown and has not answered is gone with its turn (`interrupted`): its call ends unrun.
+    async fn abandon(&self) {
+        let Some(Waiting { aid, run }) = self.waiting.lock().unwrap().take() else { return };
+        self.client.book.lock().unwrap().resolved(aid, &ApprovalResolution::Interrupted { at: self.now_ms });
+        let ended = within("the abandoned call to end", run).await.expect("the pipeline's task ran");
+        assert!(ended.is_err(), "an unanswered card runs nothing: {ended:?}");
+    }
+
+    async fn decide(self: &Arc<Self>, call: &Value, session: &str, hook: &Value) -> Value {
+        self.abandon().await;
+        let pending = Pending { call: call.clone(), session: session.to_owned(), hook: hook.clone() };
+        *self.pending.lock().unwrap() = Some(pending.clone());
+        let started = self.start(&pending).await;
+        let verdict = self.verdict.lock().unwrap().take();
+        match started {
+            Started::Card(aid, ask, run) => {
+                self.asks.lock().unwrap().push(Some(ask));
+                *self.waiting.lock().unwrap() = Some(Waiting { aid, run });
+                render(&verdict.expect("the gate judged the call it asks for"), hook, session, call, None)
+            }
+            Started::Ended(outcome) => match verdict {
+                // `ask_user` and `handoff_user` never reach the gate (before-hook.mjs:159 in Node too): the call as the pipeline passed it.
+                None => json!({"unjudged": outcome.map(|a| json!({"name": a.name, "args": a.args})).map_err(|e| e.message_for_model).unwrap_or_else(Value::String)}),
+                Some(verdict) => {
+                    match &verdict {
+                        GateVerdict::Deny { .. } => assert!(outcome.is_err(), "the pipeline ran a call its gate denied: {outcome:?}"),
+                        GateVerdict::Run { .. } => assert!(outcome.is_ok(), "the pipeline refused a call its gate let run: {outcome:?}"),
+                        GateVerdict::Ask(_) => {}
+                    }
+                    render(&verdict, hook, session, call, outcome.as_ref().ok())
+                }
+            },
+        }
+    }
+
+    /// A client's response to the card of the decided call, through the client's approval book: the card it was shown while its
+    /// call waits, else the call asked again. A timed-out request is resolved as its deadline resolves it. The answered call's
+    /// outcome is the pipeline's: it runs exactly when the answer approved it. Returns the decision the book accepted.
+    async fn answer(self: &Arc<Self>, result: Value, device: String, timed_out: bool) -> Option<Value> {
+        let waiting = self.waiting.lock().unwrap().take();
+        let waiting = match waiting {
+            Some(waiting) => Some(waiting),
+            None => {
+                let pending = self.pending.lock().unwrap().clone().expect("a decided call");
+                match self.start(&pending).await {
+                    Started::Card(aid, _, run) => Some(Waiting { aid, run }),
+                    Started::Ended(_) => None,
+                }
+            }
+        };
+        let Some(Waiting { aid, run }) = waiting else {
+            // No card is pending (an unattended run answered the call itself): the response reaches none.
+            let last = ApprovalId(self.client.ids.load(Ordering::SeqCst));
+            let accepted = self.client.book.lock().unwrap().validate(&last.request_id(), &result, DeviceInfo { device, kind: ConnectionKind::Desktop }, self.now_ms);
+            assert!(matches!(accepted, Ok(None)), "a response to no pending card is a no-op: {accepted:?}");
+            return None;
+        };
+        let resolution = if timed_out {
+            ApprovalResolution::TimedOut { at: self.now_ms }
+        } else {
+            self.client
+                .book
+                .lock()
+                .unwrap()
+                .validate(&aid.request_id(), &result, DeviceInfo { device, kind: ConnectionKind::Desktop }, self.now_ms)
+                .expect("the response decodes")
+                .expect("the card is pending")
+                .resolution
+        };
+        self.client.book.lock().unwrap().resolved(aid, &resolution);
+        let outcome = within("the answered call to settle", run).await.expect("the pipeline's task ran");
+        let ApprovalResolution::Decided { decision, .. } = resolution else {
+            assert!(outcome.is_err(), "a timed-out card runs nothing: {outcome:?}");
+            return None;
+        };
+        assert_eq!(outcome.is_ok(), decision.approved, "the answered call runs exactly when approved: {outcome:?}");
+        Some(serde_json::to_value(decision).expect("a decision serializes"))
     }
 
     fn ask(&self, index: usize) -> ApprovalAsk {
@@ -587,26 +670,21 @@ impl World {
     }
 
     /// One recorded step, done on the core; the step as the core gives it.
-    async fn step(&self, step: &Exact) -> Exact {
+    async fn step(self: &Arc<Self>, step: &Exact) -> Exact {
         let input = |key: &str| plain(step.get(key));
         let action = step.get("do").as_str().to_owned();
         let out: Vec<(&str, Value)> = match action.as_str() {
             "decide" => vec![("result", self.decide(&input("call"), step.get("sessionId").as_str(), &input("hook")).await)],
             "choose" => {
                 let result = json!({"approved": true, "response": "approve", "remember": step.get("remember").as_str()});
-                let (_, answered) = self.authorize(Reply::Client { result, device: String::new() }).await;
-                vec![("answered", answered.expect("the card was answered"))]
+                vec![("answered", self.answer(result, String::new(), false).await.expect("the card was answered"))]
             }
             "answer" => {
                 let mut approval = input("approval");
                 let fields = approval.as_object_mut().expect("an approval");
-                let reply = if fields.remove("timedOut") == Some(Value::Bool(true)) {
-                    Reply::TimedOut
-                } else {
-                    let device = fields.remove("device").and_then(|d| d.as_str().map(str::to_owned)).unwrap_or_default();
-                    Reply::Client { result: Value::Object(fields.clone()), device }
-                };
-                self.authorize(reply).await;
+                let timed_out = fields.remove("timedOut") == Some(Value::Bool(true));
+                let device = fields.remove("device").and_then(|d| d.as_str().map(str::to_owned)).unwrap_or_default();
+                self.answer(approval, device, timed_out).await;
                 Vec::new()
             }
             "grants" => vec![("grants", self.grants(&input("filter")).await)],
@@ -685,11 +763,12 @@ impl World {
         with_outputs(step, out)
     }
 
-    async fn run(&self, log: &Exact) -> Exact {
+    async fn run(self: &Arc<Self>, log: &Exact) -> Exact {
         let mut steps = Vec::new();
         for step in log.as_array() {
             steps.push(self.step(step).await);
         }
+        self.abandon().await;
         Exact::Array(steps)
     }
 }
@@ -714,16 +793,30 @@ fn with(mut base: Map<String, Value>, key: &str, value: Value) -> Map<String, Va
     base
 }
 
-/// The core's verdict as Node's `{ decision, request, gate, remembered }`.
-fn render(verdict: &GateVerdict, hook: &Value, session: &str) -> Value {
+/// The pipeline's judgement as Node's `{ decision, request, gate, remembered }`: the gate's verdict the pipeline acted on, and for
+/// a call it let run, the call as the pipeline passed it on (`authorized`): an answered hook `ask` runs as `allow`, or as `modify`
+/// with the name and arguments the pipeline runs when they are not the call's own. The hook's reason is the hook's.
+fn render(verdict: &GateVerdict, hook: &Value, session: &str, call: &Value, authorized: Option<&Authorized>) -> Value {
     let base = hook.as_object().cloned().unwrap_or_default();
     let asked = hook.get("action").and_then(Value::as_str) == Some("ask");
     let mut out = Map::new();
     match verdict {
         GateVerdict::Run { remembered } => {
             let decision = if asked {
-                let rewrites = base.contains_key("name") || base.contains_key("args");
-                Value::Object(with(base, "action", json!(if rewrites { "modify" } else { "allow" })))
+                let authorized = authorized.expect("a call the gate let run ran through the pipeline");
+                let mut decision = base;
+                decision.shift_remove("name");
+                decision.shift_remove("args");
+                let renamed = call["name"].as_str() != Some(authorized.name.as_str());
+                let reargued = call["args"] != authorized.args;
+                decision.insert("action".into(), json!(if renamed || reargued { "modify" } else { "allow" }));
+                if renamed {
+                    decision.insert("name".into(), json!(authorized.name));
+                }
+                if reargued {
+                    decision.insert("args".into(), authorized.args.clone());
+                }
+                Value::Object(decision)
             } else {
                 hook.clone()
             };
@@ -804,7 +897,7 @@ fn ex(value: Value) -> Exact {
 }
 
 /// A case of plain logs: the observed object with its log replayed, every other recorded field computed by `extra`.
-async fn replay_log(world: &World, observed: &Exact) -> Exact {
+async fn replay_log(world: &Arc<World>, observed: &Exact) -> Exact {
     world.run(observed.get("log")).await
 }
 
@@ -883,7 +976,24 @@ async fn hook_ask_4_the_key_is_the_tool_or_the_classified_kind() {
 
 #[tokio::test]
 async fn hook_ask_5_tools_that_change_what_agents_may_do_are_asked_once() {
-    log_only(HOOK_ASK, 5, "tools that change what agents may do, and the user prompts, are asked once", false).await;
+    let (expected, now) = recorded(HOOK_ASK, 5, "tools that change what agents may do, and the user prompts, are asked once");
+    let world = World::new(now);
+    let log = replay_log(&world, &expected).await;
+    // `ask_user` and `handoff_user` are themselves the user prompt: the product's pipeline (Node's before-hook.mjs:159 too) passes
+    // them on unjudged, so their decide and its answer were recorded off the product path (the recorder called humanGateDecision
+    // directly). Each passed through unchanged is checked here; those steps are left out of the comparison (declared in the manifest).
+    let prompt = |step: &Exact| ["ask_user", "handoff_user"].contains(&step.try_get("call").or_else(|| step.try_get("gate")).map_or("", |at| at.get(if step.try_get("call").is_some() { "name" } else { "tool" }).as_str()));
+    let mut kept = Vec::new();
+    for step in log.as_array() {
+        if !prompt(step) {
+            kept.push(step.clone());
+        } else if step.get("do").as_str() == "decide" {
+            let passed = obj(vec![("unjudged", obj(vec![("name", step.get("call").get("name").clone()), ("args", step.get("call").get("args").clone())]))]);
+            compare(step.get("result"), &passed, "hook-ask-grants case 5: a user prompt passes the pipeline unjudged");
+        }
+    }
+    let expected_kept: Vec<Exact> = expected.get("log").as_array().iter().filter(|step| !prompt(step)).cloned().collect();
+    compare(&obj(vec![("log", Exact::Array(kept))]), &obj(vec![("log", Exact::Array(expected_kept))]), "hook-ask-grants case 5");
 }
 
 #[tokio::test]
@@ -933,11 +1043,9 @@ async fn hook_ask_11_a_shared_allow_is_listed_in_every_agents_permissions() {
     let log = replay_log(&world, &expected).await;
     let mut results = Vec::new();
     for rejection in expected.get("rejections").as_array() {
-        let refused = world
-            .permissions()
-            .set(&plain(rejection.get("agent")), &plain(rejection.get("action")), &plain(rejection.get("mode")), false)
-            .await
-            .expect_err("the change is refused");
+        let refused = world.permissions().set(&plain(rejection.get("agent")), &plain(rejection.get("action")), &plain(rejection.get("mode")), false)
+        .await
+        .expect_err("the change is refused");
         results.push(obj(vec![(
             "rejected",
             Exact::Error { name: "Error".into(), message: refused.to_string(), code: None, cause: None, props: Vec::new() },
