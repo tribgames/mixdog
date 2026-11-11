@@ -135,7 +135,7 @@ impl Bound {
 
     async fn passed(&self) {
         match self {
-            Self::At(at) => tokio::time::sleep_until(*at).await,
+            Self::At(at) => mixdog_rt::time::sleep_until(*at).await,
             #[cfg(feature = "test-support")]
             Self::Seam(at) => seam::CLOCK.reached(*at).await,
         }
@@ -446,7 +446,7 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
             }
         }
     };
-    tokio::time::timeout(REQUEST_READ_TIMEOUT, read).await.ok()??;
+    mixdog_rt::time::timeout(REQUEST_READ_TIMEOUT, read).await.ok()??;
     let head = String::from_utf8_lossy(&buf);
     let mut lines = head.lines();
     let mut first = lines.next()?.split(' ');
@@ -506,7 +506,7 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         return write_page(&mut stream, "400 Bad Request", &invalid, false).await;
     }
     // The code is only the start: the page stays open until the login reports its outcome.
-    let outcome = tokio::time::timeout(OUTCOME_WAIT, outcome).await;
+    let outcome = mixdog_rt::time::timeout(OUTCOME_WAIT, outcome).await;
     #[cfg(feature = "test-support")]
     let held = seam::HOLD_NEXT_PAGE.swap(false, Ordering::SeqCst);
     #[cfg(not(feature = "test-support"))]

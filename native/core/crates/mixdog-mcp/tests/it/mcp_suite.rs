@@ -123,7 +123,7 @@ async fn caller_cancel_ends_the_call() {
     let cancel = CancellationToken::new();
     let trigger = cancel.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
         trigger.cancel();
     });
     let result = server.call_tool("t", "hang", json!({}), &cancel, None).await;
@@ -194,7 +194,7 @@ async fn a_hung_or_missing_server_never_blocks_another() {
         tokio::spawn(async move { busy.call_tool("t", "hang", json!({}), &cancel, None).await })
     };
     let good = hub.server("good").unwrap();
-    let echoed = tokio::time::timeout(Duration::from_secs(5), call(&good, "echo", json!({"text": "fast"}))).await;
+    let echoed = mixdog_rt::time::timeout(Duration::from_secs(5), call(&good, "echo", json!({"text": "fast"}))).await;
     assert_eq!(echoed.expect("not blocked by the hung server").unwrap(), "fast");
     cancel.cancel();
     assert!(matches!(hanging.await.unwrap(), Err(CallError::Rpc(RpcError::Cancelled))));

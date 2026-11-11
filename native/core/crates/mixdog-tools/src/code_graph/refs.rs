@@ -11,7 +11,6 @@ use super::hits::{augment_no_hit, callee_declaration, find_hits, occurrences};
 use super::outline::{parent_index, symbol_path};
 use super::util::{head_chars, identifier_occurrences, name_cmp};
 
-const REFERENCE_HIT_CAP: usize = 200;
 const TARGET_RELS_MAX: usize = 16;
 const FORWARD_HOP_MAX: usize = 32;
 const SELF_RECEIVERS: [&str; 7] = ["", "this", "self", "super", "Self", "cls", "me"];
@@ -52,19 +51,28 @@ pub(super) fn reference_entries(
     language: Option<&str>,
     scope: Scope<'_>,
 ) -> (Vec<RefEntry>, bool) {
+    let cap = reference_hit_cap(std::env::var("REFERENCE_HIT_CAP").ok().as_deref());
     let mut out = Vec::new();
     for node in graph
         .token_candidates(symbol, language)
         .filter(|n| scope.contains(&n.rel))
     {
         for (line, col) in occurrences(node, symbol) {
-            if out.len() >= REFERENCE_HIT_CAP {
+            if out.len() as f64 >= cap {
                 return (out, true);
             }
             out.push(RefEntry { file: node.rel.clone(), line, col });
         }
     }
     (out, false)
+}
+
+/// `Math.max(1, Number(process.env.REFERENCE_HIT_CAP) || 200)`, read at each scan: a fraction stands
+/// (a cap of 2.5 keeps three mentions), anything that is no number or is 0 is 200.
+fn reference_hit_cap(raw: Option<&str>) -> f64 {
+    let number = raw.map_or(f64::NAN, mixdog_js::string_to_number);
+    let number = if number.is_nan() || number == 0.0 { 200.0 } else { number };
+    number.max(1.0)
 }
 
 fn to_byte_column(line: &str, char_col: u32) -> u32 {

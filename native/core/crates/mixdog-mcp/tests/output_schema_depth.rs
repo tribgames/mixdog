@@ -116,10 +116,10 @@ fn ajvs_stack_bounds_answer_as_node_through_the_products_call() {
         let entry = json!({"command": MOCK, "env": {"MOCK_SCENARIO_FILE": scenario.to_string_lossy()}});
         let config = McpServerConfig::from_entry("srv", &entry, &std::env::vars().collect()).unwrap();
         let server = McpServer::new(config, io, Spiller::new(dir.path().to_path_buf(), io.durability), OutputPolicy::default(), None);
-        tokio::time::timeout(Duration::from_secs(60), server.connect()).await.expect("the mock server connects in 60 s").unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(60), server.connect()).await.expect("the mock server connects in 60 s").unwrap();
         let mut wrong = Vec::new();
         for (name, _, structured, passes) in &cases {
-            let settled = tokio::time::timeout(
+            let settled = mixdog_rt::time::timeout(
                 Duration::from_secs(120),
                 server.call_tool_settled("t", name, json!({"i": 0}), &CancellationToken::new(), None),
             )

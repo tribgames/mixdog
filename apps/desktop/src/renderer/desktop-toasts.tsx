@@ -65,6 +65,14 @@ export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone:
         ),
         tone: 'error',
       };
+    case 'offload-prune-blocked':
+      return {
+        text: t(
+          'Saved tool output cannot be cleaned up because conversation {{name}} cannot be read. Disk use will keep growing until that conversation can be read again or is deleted.',
+          { name }
+        ),
+        tone: 'warn',
+      };
   }
 }
 

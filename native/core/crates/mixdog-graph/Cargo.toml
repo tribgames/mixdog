@@ -1,0 +1,48 @@
+# The core's build of `native/mixdog-graph`'s library, inside the workspace root so its package id (and every crate's
+# above it) does not contain the checkout's path; see crates/mixdog-spawn/Cargo.toml. Node's own build of the package is
+# unchanged. [package], [lib] name, [features] and the dependencies must stay those of `native/mixdog-graph/Cargo.toml`
+# (mixdog-testkit `tests/native_mirrors.rs`). The build script bundles the same rule files with the original's code
+# (`native/mixdog-graph/build_rules.rs`); the original's other work is the version resource of its executable.
+[package]
+name = "mixdog-graph"
+version = "0.1.36"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "mixdog_graph"
+path = "../../../mixdog-graph/src/lib.rs"
+# Its tests run in Node's build of the package, where their fixtures are found relative to its manifest.
+test = false
+doctest = false
+
+[dependencies]
+ignore = "0.4"
+notify = "8.2"
+grep = { version = "0.3.2", features = ["pcre2"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+rayon = "1"
+nucleo-matcher = "0.3.1"
+tree-sitter = "0.27"
+ast-grep-core = "=0.45.3"
+ast-grep-config = "=0.45.3"
+ast-grep-language = { version = "=0.45.3", features = ["builtin-parser"] }
+ast-grep-outline = "=0.45.3"
+tree-sitter-objc = "3.0"
+tree-sitter-zig = "1.1"
+tree-sitter-r = "1.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_UI_Shell",
+] }

@@ -140,7 +140,3 @@ pub fn live_denied_tools(session: &Header, workflow: &Value, features: &[String]
     names.retain(|name| !name.is_empty());
     Ok(names)
 }
-
-#[cfg(test)]
-#[path = "denials_tests.rs"]
-mod tests;

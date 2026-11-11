@@ -212,7 +212,7 @@ impl Standby {
     fn end_when_idle(self: &Arc<Self>, handle: ProcessHandle) -> tokio::task::AbortHandle {
         let standby = Arc::downgrade(self);
         mixdog_rt::spawn("shell-standby-idle", TaskClass::Work, async move {
-            tokio::time::sleep(idle_limit()).await;
+            mixdog_rt::time::sleep(idle_limit()).await;
             let Some(standby) = standby.upgrade() else { return };
             let mut state = standby.state();
             if state.parked.as_ref().is_some_and(|parked| parked.handle == handle) {

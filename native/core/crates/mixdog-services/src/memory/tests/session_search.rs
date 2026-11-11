@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::memory::pg::db::Schema;
-use crate::memory::session_search::db::{SessionSearchDb, search_rows};
+use crate::memory::session_search::db::{ScrubStep, SessionSearchDb, search_rows};
 use crate::memory::session_search::ingest::{IngestSession, SensitiveValues, SessionSearchIngest, StoredSessions};
 use crate::memory::tests::support::TestPg;
 
@@ -105,16 +105,16 @@ async fn closing_a_session_cancels_running_and_queued_writes() {
         .await
         .expect("join");
     ingest.ingest_turn(IngestSession { id: "closing".into(), messages: queued, agent_only: false });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
 
     let closing = {
         let ingest = ingest.clone();
         tokio::spawn(async move { ingest.close_session("closing").await })
     };
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
     assert!(!closing.is_finished(), "close waits for the running write to settle");
     release_tx.send(()).expect("release");
-    tokio::time::timeout(Duration::from_secs(10), closing).await.expect("close settles").expect("join");
+    mixdog_rt::time::timeout(Duration::from_secs(10), closing).await.expect("close settles").expect("join");
 
     assert!(db.search("giraffe", 10).await.expect("search").is_empty(), "a queued write never starts after close");
 
@@ -131,7 +131,7 @@ async fn closing_a_session_cancels_running_and_queued_writes() {
         messages: vec![json!({ "role": "user", "content": "later turn flamingo" })],
         agent_only: false,
     });
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(db.search("flamingo", 10).await.expect("search").len(), 1);
 }
 
@@ -257,4 +257,84 @@ async fn ingest_search_redact_and_delete() {
     ingest.forget_session("s1").await;
     assert!(db.search("staging", 10).await.expect("after delete").is_empty());
     assert!(!db.session_ids().await.expect("ids").contains("s1"));
+}
+
+/// A search and an append arriving while a scrub's `VACUUM FULL` holds the table's exclusive lock wait for it past the
+/// cluster's 5 s `lock_timeout` and then succeed, as Node's session search (no lock timeout) waits. The lock is held
+/// here by an explicit `LOCK TABLE`, released only after a bound longer than that timeout.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_search_and_an_append_wait_out_the_scrubs_exclusive_lock() {
+    let pg = TestPg::start().await;
+    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+    db.append("s1", &[json!({ "role": "user", "content": "Deploy the staging cluster" })]).await.expect("append");
+    let holder = pg.db(Schema::SessionSearch).await;
+    let mut client = holder.client().await.expect("holder");
+    let tx = client.transaction().await.expect("tx");
+    tx.batch_execute("LOCK TABLE session_search.messages IN ACCESS EXCLUSIVE MODE").await.expect("lock");
+    let search = tokio::spawn({
+        let db = db.clone();
+        async move { db.search("staging", 10).await }
+    });
+    let append = tokio::spawn({
+        let db = db.clone();
+        async move { db.append("s2", &[json!({ "role": "user", "content": "Deploy the staging cluster too" })]).await }
+    });
+    tx.batch_execute("SELECT pg_sleep(6)").await.expect("hold past the lock timeout");
+    tx.commit().await.expect("release");
+    // Either order after the release: the append may commit before the search reads.
+    assert!(!search.await.expect("join").expect("the search waited").is_empty());
+    assert_eq!(append.await.expect("join").expect("the append waited"), 1);
+}
+
+/// Every `file@offset` under `root` that holds the bytes of `value`.
+fn holders(root: &std::path::Path, value: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).expect("list") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            // A file the server removes between the listing and the read holds nothing.
+            let Ok(bytes) = std::fs::read(&path) else { continue };
+            for (offset, window) in bytes.windows(value.len()).enumerate() {
+                if window == value.as_bytes() {
+                    found.push(format!("{}@{offset}", path.display()));
+                }
+            }
+        }
+    }
+    found
+}
+
+/// A value marked sensitive after its search rows were stored: once the replacement has run, no
+/// file of the cluster holds it (table, TOAST, indexes, WAL), whichever step a kill ends the
+/// scrub before; the next open finishes it (log_rewrite.rs, M1-M4).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops() {
+    let secret = vec![
+        json!({ "role": "user", "content": "Finish the sign-up." }),
+        json!({ "role": "assistant", "content": "The code is 682419." }),
+    ];
+    let redacted = Mask.redact_messages("masked", &secret);
+    for kill_after in [ScrubStep::Owed, ScrubStep::Rewritten, ScrubStep::WalRemoved] {
+        let mut pg = TestPg::start().await;
+        let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+        db.append("masked", &secret).await.expect("plain rows");
+        db.replace_rows("masked", &secret, &redacted, &|text| Mask.redact_text("masked", text)).await.expect("M1");
+        db.scrub_through(kill_after).await.expect("the steps before the kill");
+        pg.kill_and_restart().await;
+        let before = holders(pg.dir.path(), "682419");
+        if kill_after == ScrubStep::Owed {
+            assert!(!before.is_empty(), "the old row versions are on disk after the kill (the scan sees them)");
+        }
+        let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("the next open");
+        assert_eq!(holders(pg.dir.path(), "682419"), Vec::<String>::new(), "killed after {kill_after:?}");
+        assert!(db.search("682419", 10).await.expect("search").is_empty());
+        assert_eq!(db.search("redacted", 10).await.expect("marker").len(), 1, "the replacement survived the kill");
+    }
 }

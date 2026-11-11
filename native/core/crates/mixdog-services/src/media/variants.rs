@@ -361,7 +361,7 @@ mod tests {
             if tile.exists() {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
         }
         assert_eq!(std::fs::read(&tile).unwrap(), [1, 2, 3]);
     }

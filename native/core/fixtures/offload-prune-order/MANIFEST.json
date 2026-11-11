@@ -1,0 +1,111 @@
+{
+  "baseTree": {
+    "identity": {
+      "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+      "commit": "b6f10295a2f698afc85332467192de28500bd146",
+      "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+      "exact": true,
+      "files": 9139,
+      "refComparison": {
+        "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+        "commitFilesMissingFromTree": 0,
+        "exact": true,
+        "filesDifferingFromCommit": 0
+      },
+      "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+      "tree": "product tree loaded by the recorder",
+      "treeKind": "archive",
+      "version": "1.4.5"
+    },
+    "use": "older-fork: the heir is made by a child process of this recorder on this tree (Node as shipped, without the fix)"
+  },
+  "clock": "Date.now() stands still at 1800000000000 for the whole run (lib/mc-record.mjs freezeClock); every sidecar's mtime is 1799996400000 (an hour older): the prune's ten-minute age gate reads both",
+  "command": "node benchmarks/rust-core/recorders/record-offload-prune-order.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the patch> --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch --base-tree <export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "clearedEnvironment": "after a clear the core's header holds the environment block written for the next request (sessionStartMetaInjected false); Node keeps it outside `messages` (resetSessionBp3Environment, session-crud.mjs) until that request, so the transcript compared after a clear leaves that block out",
+    "forks": "clear-fork, heir-fork, older-fork, unreadable-fork, linkless-fork, deleted-middle and copy-in-progress record the cleared session's directory and transcript; the fork's and the heirs' transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
+    "linklessFork": "linkless-fork's seed holds the shipped fork's id and stored transcript as the replay's input (the core's migration derives the fork's reference set from it); the fork itself is not compared",
+    "olderForkHeir": "older-fork's seed holds the heir's source link and the conversation it carries (its non-system messages) as the replay's input; the heir's system prompt (composed for its own minted id) is left out, and its minted id is <HEIR>",
+    "referenceSets": "Node's stored reference sets (offload-sources.json in the data dir, and each record's offloadSources) and its copy marks (offload-copies/ in the data dir) are Node's format and not compared; the core holds the same sets and marks in each session's header and its index: what they keep shows in the directories recorded",
+    "roomLog": "room-row's seed holds the room log's stored messages as the replay's input; the room log itself is not compared",
+    "sessionFiles": "the session store's own files (sessions/<id>.json, <id>.log.jsonl) are Node's format; the core's store writes its own record log, so their names and bytes are not compared: the stored transcript is, whole, as each store reads it back",
+    "summary": "the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere (compaction-commit)",
+    "systemMessageMeta": "the core holds a session's system prompt in its header's prompt blocks (as the migration stores Node's leading system messages), which carry no message meta: the `meta` (transcript messageId) Node's compaction stamps on its system message is not compared; its role, content and cache tier are"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2992911,
+      "path": "golden.json",
+      "sha256": "fee3c05ef6ff14a27411412be91db88bcdfd018b2ec0d940ebf104d7b33dd4ad"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "attemptId": "a turn completion's `attemptId` (meta.transcript.completion, cancelled-turn and failed-turn) is a random UUID on both sides: it is <ATTEMPT>",
+    "completionVerb": "a turn completion's `verb` is the client's label: Node's runtime has none without a client (`failedTurnCompletion`'s `Thought`), the core's `turn/start` stamps the client's `pickDoneVerb(stats.turns)` (`Mapped` for its first turn); it is <VERB>",
+    "dataDir": "the data dir is a temporary one: every string naming it names <DATA>",
+    "summaryHash": "the summary header's `sha256=` hashes the dropped messages, which name the temporary data dir: it is <SHA>"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9141,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+        "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+        "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+        "src/runtime/agent/orchestrator/session/store.mjs",
+        "src/runtime/agent/orchestrator/session/store/listing.mjs",
+        "src/runtime/agent/orchestrator/session/store/load-session.mjs",
+        "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
+        "src/session-runtime/lifecycle/inheritance.mjs"
+      ],
+      "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 10
+    },
+    "srcSha256": "04d6c544d71bfa75586701ecbaf54a18c4f1262e1e8767a6fe243f5dda8191a0",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-offload-prune-order.mjs",
+  "recorderSha256": "be540668ddc29bd63c493c4565879fa9d9dd0d98380fe741a329f68bc33c3d0b",
+  "set": "offload-prune-order",
+  "tests": [
+    "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs (added by the patch)",
+    "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs (pruneCompactedOffloads)",
+    "src/runtime/agent/orchestrator/session/tool-result-offload.mjs (pruneOffloadSession)"
+  ],
+  "totalBytes": 2992911
+}

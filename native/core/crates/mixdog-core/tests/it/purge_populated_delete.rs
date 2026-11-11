@@ -86,6 +86,13 @@ impl WorkerStore for Workers {
             maps.push((session.to_owned(), worker));
         }
     }
+    /// This index never stops listing a session's map: nothing is kept apart.
+    fn keep(&self, session: &str, worker: Option<Row>) {
+        self.write(session, worker);
+    }
+    fn kept(&self, _: &str) -> bool {
+        false
+    }
 }
 
 impl LiveSessions for Workers {

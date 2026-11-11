@@ -375,12 +375,17 @@ export function spawnInJob(file, args, { env, cwd, stdio, report, testHooks = {}
   return spawn('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { env: hostEnv, cwd, stdio, windowsHide: true });
 }
 
-/** The host's report: the program's exit code and the members it left behind. A missing or incomplete report is a failure of the host. */
-export function readJobReport(report) {
+/**
+ * The host's report: the program's exit code and the members it left behind. A missing or incomplete report is a failure of the host.
+ * With `membership: false`, for a caller that reads only the exit code (the job serves it only to end the whole tree), the members are
+ * not returned, so a membership the reports leave unknown is no failure.
+ */
+export function readJobReport(report, { membership = true } = {}) {
   if (!existsSync(report)) throw new Error(`the job host wrote no report (${report}): it failed before the program's members were listed`);
   const parsed = JSON.parse(readFileSync(report, 'utf8').replace(/^\uFEFF/, ''));
   if (parsed.error) throw new Error(`the job host failed: ${parsed.error}`);
   if (parsed.complete !== true || !Array.isArray(parsed.left)) throw new Error(`the job host's report is incomplete: ${JSON.stringify(parsed)}`);
+  if (!membership) return { exitCode: parsed.exitCode, program: parsed.program };
   if (parsed.unreported) throw new Error(`the job's membership at the program's exit is unknown: ${parsed.unreported}`);
   return { exitCode: parsed.exitCode, program: parsed.program, left: parsed.left };
 }

@@ -64,13 +64,13 @@ pub struct NewTaskReceipts {
     #[allow(clippy::disallowed_types, reason = "a read hold is kept across an attempt's awaits and shutdown waits for the write hold")]
     alive: Arc<tokio::sync::RwLock<()>>,
     /// Told each time a request joins an attempt in flight.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) joined: tokio::sync::Notify,
     /// How many attempts started.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) attempts: watch::Sender<usize>,
     /// When set, each receipt write stops once it has begun (holding its place at shutdown) until the stall releases it.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) stall: Mutex<Option<Arc<WriteStall>>>,
     /// The identity of the folder as it was secured (`securedFolders`); held while it is secured, so a second request joins.
     #[allow(clippy::disallowed_types, reason = "held across the awaited securing of the folder, so a second request waits for the first")]
@@ -105,13 +105,13 @@ fn reused() -> CoreError {
 }
 
 /// A test's hold on the receipt writes: `entered` is told when a write has begun, which then waits for a permit of `release`.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(super) struct WriteStall {
     pub(super) entered: tokio::sync::Notify,
     pub(super) release: tokio::sync::Semaphore,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Default for WriteStall {
     fn default() -> Self {
         Self { entered: tokio::sync::Notify::new(), release: tokio::sync::Semaphore::new(0) }
@@ -190,7 +190,8 @@ fn identity_of(meta: &std::fs::Metadata) -> String {
 }
 
 /// A test-only end of the process at a named point of a request (`MIXDOG_NEW_TASK_CRASH_AT`): what a power cut between two
-/// phases leaves. Compiled only into a build that asks for `crash-gates`.
+/// phases leaves (a new task's phases, a restart notice's store, `agent_registry/restart.rs`). Compiled only into a build that
+/// asks for `crash-gates`.
 #[cfg(feature = "crash-gates")]
 #[allow(clippy::disallowed_methods, reason = "a test build's crash point reads its variable and ends the process")]
 pub(super) fn crash_gate(point: &str) {
@@ -281,11 +282,11 @@ impl NewTaskReceipts {
             active: Mutex::default(),
             closing: CancellationToken::new(),
             alive: Arc::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             joined: tokio::sync::Notify::new(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             attempts: watch::Sender::new(0),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             stall: Mutex::default(),
             #[allow(clippy::disallowed_types, reason = "see the field")]
             secured: tokio::sync::Mutex::new(None),
@@ -302,7 +303,7 @@ impl NewTaskReceipts {
     /// `Err` when a write outlived `bound`.
     pub async fn shutdown(&self, bound: std::time::Duration) -> Result<(), String> {
         self.cut();
-        match tokio::time::timeout(bound, self.alive.write()).await {
+        match mixdog_rt::time::timeout(bound, self.alive.write()).await {
             Ok(_) => Ok(()),
             Err(_) => Err(format!("a new-task receipt write did not end within {bound:?} of shutdown; its receipt holds the phase before or after it")),
         }
@@ -320,7 +321,8 @@ impl NewTaskReceipts {
     }
 
     /// How many requests are in flight.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn in_flight(&self) -> usize {
         lock(&self.active).len()
     }
@@ -376,11 +378,11 @@ impl NewTaskReceipts {
         let opts = mixdog_statefile::Opts { fsync: durable, fsync_dir: durable, ..mixdog_statefile::Opts::default() };
         let alive = hold.clone();
         let (io, written) = (self.io, tokio::sync::oneshot::channel());
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let stall = lock(&self.stall).clone();
         // A write that began ends whole even when its attempt is cut at shutdown, which waits for it.
         drop(mixdog_rt::spawn("new-task-receipt-write", TaskClass::Work, async move {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             if let Some(stall) = stall {
                 stall.entered.notify_one();
                 stall.release.acquire().await.expect("open").forget();
@@ -412,7 +414,7 @@ impl NewTaskReceipts {
                 if existing.signature != signature {
                     return Err(reused());
                 }
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 self.joined.notify_one();
                 Some(existing.done.clone())
             } else {
@@ -449,7 +451,7 @@ impl NewTaskReceipts {
         F: FnOnce(Arc<Request>) -> Fut + Send + 'static,
         Fut: Future<Output = Outcome> + Send + 'static,
     {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.attempts.send_modify(|n| *n += 1);
         let (settled, done) = watch::channel(None);
         active.insert(key.clone(), Active { signature: signature.clone(), done: done.clone() });
@@ -662,6 +664,7 @@ impl SessionDirectory {
     /// Whether the thread's stored history holds a user prompt sent under `submission` (`transcript.clientSubmissionId`), whatever
     /// became of its turn.
     async fn holds_submission(&self, id: &ThreadId, submission: &str) -> Result<bool, CoreError> {
+        self.deps().store.unheld().await;
         let (store, thread) = (self.deps().store.clone(), id.clone());
         let (_, rows) = on_lane(self.deps().lanes.io, &CancellationToken::new(), move |lane| store.history_rows(lane, &thread)).await??;
         Ok(rows.iter().any(|row| {

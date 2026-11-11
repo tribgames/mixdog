@@ -198,6 +198,49 @@ pub struct RoomCalls<R: CallRunner> {
     runner: Arc<R>,
     state: Mutex<State>,
     log: Arc<dyn Fn(&str) + Send + Sync>,
+    intakes: Arc<Intakes>,
+    /// Told when an exchange of a room ends and its held-back relays were handed on (see [`RoomCalls::settled`]).
+    ended: Arc<tokio::sync::Notify>,
+    /// Hears every request as `route` takes it, before it starts or joins an exchange (a replay's record of what the
+    /// scheduler was asked, as Node's recorder records `scheduler.route`).
+    #[cfg(any(test, feature = "test-support"))]
+    routed: std::sync::OnceLock<Arc<dyn Fn(&str, &Request) + Send + Sync>>,
+    /// Called by [`RoomCalls::quiet`] right before it takes the intakes' lock: a test's handshake with the observer, so what
+    /// it holds back there is held after any read the observation made before it.
+    #[cfg(test)]
+    before_intakes: std::sync::OnceLock<Arc<dyn Fn() + Send + Sync>>,
+}
+
+/// Per room, the user messages still on their way to `route` (`intakes`, `agent-room-scheduler.ts:120-138`).
+type Intakes = Mutex<HashMap<String, Vec<Arc<AtomicBool>>>>;
+
+/// One message's latch (`IntakeRequest`): registered before its first await, released when dropped. Stop sets it, so a
+/// message stopped on its way is posted but routes nothing.
+pub struct Intake {
+    room_id: String,
+    stopped: Arc<AtomicBool>,
+    intakes: Arc<Intakes>,
+    ended: Arc<tokio::sync::Notify>,
+}
+
+impl Intake {
+    pub fn stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Intake {
+    fn drop(&mut self) {
+        let mut intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pending) = intakes.get_mut(&self.room_id) {
+            pending.retain(|flag| !Arc::ptr_eq(flag, &self.stopped));
+            if pending.is_empty() {
+                intakes.remove(&self.room_id);
+            }
+        }
+        drop(intakes);
+        self.ended.notify_waiters();
+    }
 }
 
 fn cancel_all(calls: &[RoomCall]) {
@@ -234,7 +277,56 @@ fn merged(prior: Option<Request>, request: Request) -> Request {
 
 impl<R: CallRunner + 'static> RoomCalls<R> {
     pub fn new(runner: Arc<R>, log: Arc<dyn Fn(&str) + Send + Sync>) -> Arc<Self> {
-        Arc::new(Self { runner, state: Mutex::new(State::default()), log })
+        Arc::new(Self {
+            runner,
+            state: Mutex::new(State::default()),
+            log,
+            intakes: Arc::default(),
+            ended: Arc::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            routed: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            before_intakes: std::sync::OnceLock::new(),
+        })
+    }
+
+    /// Resolves once `room_id` is settled: no exchange runs in it, no relay is held back and no user message is on its way
+    /// to `route` — nothing more is routed into it until someone sends again.
+    pub async fn settled(&self, room_id: &str) {
+        loop {
+            let ended = self.ended.notified();
+            tokio::pin!(ended);
+            ended.as_mut().enable();
+            if self.quiet(room_id) {
+                return;
+            }
+            ended.await;
+        }
+    }
+
+    /// One observation of the room: both locks held together, so a sender that routes (state) and only then drops its intake
+    /// is seen either still on its way or already running, never as neither.
+    fn quiet(&self, room_id: &str) -> bool {
+        #[cfg(test)]
+        if let Some(hook) = self.before_intakes.get() {
+            hook();
+        }
+        let intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self.state();
+        !intakes.contains_key(room_id) && !state.running.contains_key(room_id) && state.relays.get(room_id).is_none_or(Vec::is_empty)
+    }
+
+    /// Binds the observer of every request `route` takes (once).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn observe_routes(&self, observer: Arc<dyn Fn(&str, &Request) + Send + Sync>) {
+        let _ = self.routed.set(observer);
+    }
+
+    /// `scheduler.intake(roomId, run)`: the latch of one user message into `room_id`, until it is dropped.
+    pub fn intake(&self, room_id: &str) -> Intake {
+        let stopped = Arc::new(AtomicBool::new(false));
+        self.intakes.lock().unwrap_or_else(|e| e.into_inner()).entry(room_id.to_owned()).or_default().push(stopped.clone());
+        Intake { room_id: room_id.to_owned(), stopped, intakes: self.intakes.clone(), ended: self.ended.clone() }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -250,6 +342,10 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
     /// named; `only` holds when every merged request is `only`), and the member speaking is cut
     /// off. A stopping exchange hands nothing on: calls that arrive now end cancelled.
     pub fn route(self: &Arc<Self>, room_id: &str, mut request: Request) {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(observer) = self.routed.get() {
+            observer(room_id, &request);
+        }
         let active = {
             let mut state = self.state();
             match state.running.get(room_id).cloned() {
@@ -315,6 +411,7 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
                 }
             }
             this.drain_relays(&room_id);
+            this.ended.notify_waiters();
         });
     }
 
@@ -338,13 +435,18 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
     /// An exchange in `room_id` ended: the relays it held back run as one exchange, each member
     /// once, unless another exchange already took the room (its own end drains them).
     fn drain_relays(self: &Arc<Self>, room_id: &str) {
-        let queued = {
+        // The room is marked running in the same lock that takes its relays, so it never looks settled between them.
+        let (queued, run) = {
             let mut state = self.state();
             if state.running.contains_key(room_id) {
                 return;
             }
             match state.relays.remove(room_id) {
-                Some(queued) if !queued.is_empty() => queued,
+                Some(queued) if !queued.is_empty() => {
+                    let run = Arc::new(Run::default());
+                    state.running.insert(room_id.to_owned(), run.clone());
+                    (queued, run)
+                }
                 _ => return,
             }
         };
@@ -354,18 +456,32 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
                 to.push(call.agent_id.clone());
             }
         }
-        self.route(room_id, Request { to, everyone: false, waiting: false, only: true, calls: queued });
+        let request = Request { to, everyone: false, waiting: false, only: true, calls: queued };
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(observer) = self.routed.get() {
+            observer(room_id, &request);
+        }
+        self.start(room_id, request, run);
     }
 
-    /// The stop button: the relays held back end cancelled, the speaking member's turn is cut off
-    /// and no one else gets a turn. True when an exchange was cancelled.
+    /// The stop button: the relays held back end cancelled, the user messages on their way route
+    /// nothing, the speaking member's turn is cut off and no one else gets a turn. True when an
+    /// exchange was cancelled or a message was on its way.
     pub fn stop(self: &Arc<Self>, room_id: &str) -> bool {
         let (queued, active) = {
             let mut state = self.state();
             (state.relays.remove(room_id).unwrap_or_default(), state.running.get(room_id).cloned())
         };
         cancel_all(&queued);
-        let Some(active) = active else { return false };
+        let incoming = {
+            let intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
+            let pending = intakes.get(room_id).map(Vec::as_slice).unwrap_or_default();
+            for flag in pending {
+                flag.store(true, Ordering::SeqCst);
+            }
+            !pending.is_empty()
+        };
+        let Some(active) = active else { return incoming };
         active.set_stopped();
         if let Some(pending) = active.pending().take() {
             cancel_all(&pending.calls);

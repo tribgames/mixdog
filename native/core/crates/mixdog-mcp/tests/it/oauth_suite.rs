@@ -218,7 +218,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
     // Not signed in: the connect fails on the fact, and no browser is opened by itself.
     let server = hub.server("acme").unwrap();
     let mut states = server.subscribe();
-    tokio::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. })))
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. })))
         .await
         .unwrap()
         .unwrap();
