@@ -19,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 40144,
+      "bytes": 40156,
       "path": "cases.json",
-      "sha256": "a9267f58f70e1e196bd519354edf31daa273cf6781b82acd9ecce5437d79dc53"
+      "sha256": "92ce7a37d30d75a3f51bc63f53599a67d56e525067380ef4681c54263e35d4e7"
     }
   ],
   "inputs": [
@@ -69,9 +69,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-connect.mjs",
-  "recorderSha256": "c30eacd296f1969bd34985f2891832bcb688584351081349fb4fd8182142ac73",
+  "recorderSha256": "5e63793416be907a6865458b6ed80238b491322e1404fa21ff1125430a6a73f5",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai WsPool::checkout (openai/pool.rs:178) and mixdog_ai::transport::ws::connect (transport/ws.rs:237). There is no hedge or acquire deadline and no shared DNS resolution in Rust (K1 G6, G15): work for the Rust side.",
   "set": "provider-openai-ws-connect",
-  "totalBytes": 40144,
+  "totalBytes": 40156,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

@@ -205,6 +205,12 @@
             "by": "server",
             "code": 1000,
             "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
           }
         ]
       },
@@ -295,12 +301,6 @@
             "host": "chatgpt.com",
             "port": 443,
             "servername": "chatgpt.com"
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "upgrade-request",
@@ -477,7 +477,7 @@
           "fromMs": 3000,
           "fired": [
             {
-              "id": 8,
+              "id": 9,
               "dueMs": 6000
             }
           ],
@@ -488,7 +488,7 @@
               "dueMs": 9000
             },
             {
-              "id": 7,
+              "id": 8,
               "dueMs": 18000
             },
             {

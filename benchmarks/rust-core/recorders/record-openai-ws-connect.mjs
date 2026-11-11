@@ -37,6 +37,7 @@ const hedgeCase = async (answers) => {
   if (outcome.value) {
     rec.describe(outcome.value.entry, { $connection: 'the provider client socket: a real WebSocket to the loopback server (its wire events are the ordered events)' });
     world.conns.at(-1)?.close?.(1000, 'recorder-end');
+    await world.until((x) => x.some((e) => e.event === 'closed'), 'the recorder-end close handshake finished');
   }
   return { outcome, upgradeRequests: upgrades(), events: snapshot() };
 };
