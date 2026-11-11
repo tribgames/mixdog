@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1499,
+      "bytes": 902143,
       "path": "golden.json",
-      "sha256": "da3e7c2c658660bb4a7e71212f757e139a645918fa52e1e46ff9ac49a2db950c"
+      "sha256": "998a6446b5772f3e40a1fbf033733ba6504f450492049365023c40e793b50775"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,13 +63,19 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-lane-backlog-cases.mjs",
-  "recorderSha256": "d1d85c5a5a0b64550f8c79d13e94e609d8915e2a9c00400c7b39bd4292939a0f",
+  "recorderSha256": "a26ff7f18a127eb0dbc513e9f722af1035392fa244799bf5331cbd344be0d32d",
   "replay": {
-    "entry": "mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order (strings as {chars, head, tail} where long) and that the lane decodes",
-    "normalised": {
-      "longWrites": "a string write is recorded as its length plus its first 200 and last 80 characters"
-    }
+    "compare": "mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order, whole, and that each data event decodes to the recorded snapshot",
+    "entry": "NO RUST ENTRY ON o1: the session frame stream (attachSse, broadcast, drain, maxPendingBytes): no counterpart found.",
+    "missingOnO1": [
+      "the session frame stream (attachSse, broadcast, drain, maxPendingBytes): no counterpart found"
+    ],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-lane-backlog-cases",
-  "totalBytes": 1499
+  "totalBytes": 902143,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

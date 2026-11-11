@@ -38,13 +38,12 @@ await set.run('a backed-up session stream still delivers a lane the desktop deco
     const events = writes.filter((w) => typeof w === 'string').flatMap((value) => value.split('\n\n')).filter((event) => event.startsWith('data:'));
     const decoded = events.map((event) => decoder.decode(JSON.parse(event.slice(6)).message.wire));
     response.end();
-    const shape = (v) => (typeof v === 'string' ? { chars: v.length, head: v.slice(0, 200), tail: v.slice(-80) } : v);
-    return { openedItemChars: 300_000, maxPendingBytes: 8 * 1024 * 1024, writesAfterOpen: afterOpen, writesAfterLive: afterLive, writesTotal: writes.length, writes: writes.map(shape), dataEvents: events.length, decodedOk: decoded.map((r) => r.ok), lastItemIds: decoded.at(-1).snapshot.items.map((i) => i.id) };
+    return { openedItemChars: 300_000, maxPendingBytes: 8 * 1024 * 1024, writesAfterOpen: afterOpen, writesAfterLive: afterLive, writesTotal: writes.length, writes, decoded };
   } finally { mock.timers.reset(); }
 });
 
 await set.finish({
   entry: { runs: 'createSessionFrameStream (attachSse, broadcast, drain handling) with a scripted SSE response (EventEmitter; the first write returns true, later ones false when more than one string has been written), the snapshot delta encoder/decoder', notRun: 'no HTTP server; the stream\'s interval timer is the mocked one' },
-  replay: { entry: 'mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order (strings as {chars, head, tail} where long) and that the lane decodes', normalised: { longWrites: 'a string write is recorded as its length plus its first 200 and last 80 characters' } },
+  replay: { entry: 'mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order, whole, and that each data event decodes to the recorded snapshot', normalised: {} },
 });
 process.exit(0);
