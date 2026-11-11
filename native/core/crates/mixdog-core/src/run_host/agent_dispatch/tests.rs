@@ -18,6 +18,9 @@ use super::*;
 
 const GOLDEN: &str = include_str!("../../../../../fixtures/agent-dispatch/golden.json");
 
+#[path = "inline_node_cases.rs"]
+mod inline_node_cases;
+
 /// The runs the dispatch reports, counted while they are in its table.
 #[derive(Default)]
 struct Watch(Arc<std::sync::atomic::AtomicUsize>, tokio::sync::Notify);

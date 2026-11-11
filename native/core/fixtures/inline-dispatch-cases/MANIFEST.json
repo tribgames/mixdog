@@ -1,0 +1,51 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-inline-dispatch-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "per call: the whole outcome, the dispatch's answer or its error message",
+  "excluded": {
+    "agent graph loading retries after a failure and shares the successful graph": "GONE (row 88): no lazily imported agent graph",
+    "agentControl forwards to the injected executor and the placeholder actions stay inert": "GONE (row 88): JS inline host placeholders",
+    "agentDispatch caches one dispatcher per agent and forwards the call parameters": "GONE (gaps-tools.md row 88): the lazily loaded JS agent graph and its per-config provider preparation",
+    "notifySessionCompletion routes to the runtime that owns the session, hinted or discovered": "GONE (row 88): no in-process runtimes"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1273,
+      "path": "golden.json",
+      "sha256": "b42ec62e28f1505fbed00720d9fbb2b0d90169725f1f83af641654f65f23ba5a"
+    }
+  ],
+  "gate": "the slow host's wait (Node: loading the agent graph) is the core's provider preparation, the step before the dispatcher",
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-inline-dispatch-cases.mjs",
+  "recorderSha256": "dc1629af7256d4e2a65104e7290ad822af22cc68cb9974e9c65f2ec7cd0e182b",
+  "set": "inline-dispatch-cases",
+  "totalBytes": 1273
+}
