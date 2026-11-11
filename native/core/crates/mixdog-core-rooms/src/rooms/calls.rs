@@ -291,15 +291,19 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
             let ended = self.ended.notified();
             tokio::pin!(ended);
             ended.as_mut().enable();
-            let quiet = {
-                let state = self.state();
-                !state.running.contains_key(room_id) && state.relays.get(room_id).is_none_or(Vec::is_empty)
-            };
-            if quiet && !self.intakes.lock().unwrap_or_else(|e| e.into_inner()).contains_key(room_id) {
+            if self.quiet(room_id) {
                 return;
             }
             ended.await;
         }
+    }
+
+    /// One observation of the room: both locks held together, so a sender that routes (state) and only then drops its intake
+    /// is seen either still on its way or already running, never as neither.
+    fn quiet(&self, room_id: &str) -> bool {
+        let intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self.state();
+        !intakes.contains_key(room_id) && !state.running.contains_key(room_id) && state.relays.get(room_id).is_none_or(Vec::is_empty)
     }
 
     /// Binds the observer of every request `route` takes (once).
