@@ -57,7 +57,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'projectScopePredicate and appendProjectScopeClause (memory-recall-scope-filter.mjs)', notRun: 'the queries that embed the clause (hybrid SQL, browse): other test files' },
-    replay: "mixdog-services memory/recall/filters.rs: pub fn append_project_scope (:35); the projectScope argument is read by recall/plan.rs:95 and reaches it through the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay compares the predicate text/params the recorded scope inputs produce (clause, params, and the typing case of non-string scopes)",
+    replay: "mixdog-services memory/recall/filters.rs: pub fn append_project_scope (:35), called by recall/browse.rs:60, :177 and :885 (the browse, session and core-row queries); the projectScope argument is read by recall/plan.rs:95 and reaches those calls through the `memory/recall` request (Recall::recall, recall/mod.rs:240). The hybrid search builds its own filters (recall/hybrid.rs, not append_project_scope). A replay compares the predicate text/params the recorded scope inputs produce (clause, params, and the typing case of non-string scopes)",
     exclusions: 'case 3 (truthy non-string scopes): JS-only typing, recorded as Node behaves; the recording holds the clause and param count',
     normalised: { none: 'no run-dependent value' },
   },
