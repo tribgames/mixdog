@@ -1,0 +1,44 @@
+{
+  "note": "Node's inline host agent dispatch at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-inline-dispatch-cases.mjs",
+  "test": "src/standalone/session-runtime-inline-host.dispatch.test.mjs",
+  "cases": [
+    {
+      "case": "agentDispatch rejects a missing or already-running dispatch id and aborts with the caller signal",
+      "recorded": {
+        "calls": [
+          {
+            "call": "no id",
+            "payload": {
+              "agent": "worker"
+            },
+            "outcome": {
+              "error": "agent dispatch id is required"
+            }
+          },
+          {
+            "call": "duplicate while running",
+            "payload": {
+              "dispatchId": "dup",
+              "agent": "w",
+              "params": {}
+            },
+            "outcome": {
+              "error": "agent dispatch dup is already running"
+            }
+          },
+          {
+            "call": "running, its caller aborted \"caller gave up\"",
+            "payload": {
+              "dispatchId": "dup",
+              "agent": "w",
+              "params": {}
+            },
+            "outcome": {
+              "error": "caller gave up"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
