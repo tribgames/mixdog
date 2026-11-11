@@ -27,7 +27,7 @@ function clock() {
 }
 const items = [{ id: 'user', kind: 'user', text: 'input' }];
 const update = (text, fields = {}) => ({ sessionId: 's', frameSource: 'live', snapshot: { busy: true, items, streamingTail: { id: 'tail', kind: 'assistant', text }, ...fields } });
-const copy = (value) => JSON.parse(JSON.stringify(value));
+const copy = (value) => structuredClone(value);
 
 /** A mailbox on a virtual clock; `ack` is whether the sender acknowledges each frame at once. */
 function rig({ ack }) {
@@ -56,7 +56,7 @@ await set.run('the desktop and daemon partial-append suffix checks agree on ever
     [line, { ...line, id: 'b', text: 'abcde' }], [line, { ...line, tail: { id: 'a' }, text: 'abcde' }], [{ ...line, text: '' }, { ...line, text: 'x' }], [line, { id: 'a', from: 3, text: 7 }],
     [null, line], [line, undefined], ['abc', 'abcd'], [[], []],
   ];
-  return { cases: cases.map(([before, after]) => ({ before: before === undefined ? { undefined: true } : before, after: after === undefined ? { undefined: true } : after, desktop: desktopSuffix(before, after) ?? null, daemon: daemonSuffix(before, after) ?? null })) };
+  return { cases: cases.map(([before, after]) => ({ before, after, desktop: desktopSuffix(before, after), daemon: daemonSuffix(before, after) })) };
 });
 await set.run('a text burst sends its first append at once, then one latest snapshot per batch window', () => {
   const r = rig({ ack: true });
@@ -111,7 +111,7 @@ await set.run('a decoder that predates streamingPartial keeps painting the line-
   send({ busy: true, items, streamingTail: tail('one\n') });
   const received = send({ busy: true, items, streamingTail: tail('one\n'), streamingPartial: { id: 'tail', from: 4, text: 'tw' } });
   const settled = send({ busy: false, items: [...items, { ...tail('one\ntwo'), streaming: false }], streamingTail: null });
-  return { sends, tailText: received.streamingTail.text, streamingPartial: received.streamingPartial, settledHasStreamingPartial: Object.hasOwn(settled, 'streamingPartial') };
+  return { sends, received, settled };
 });
 await set.run('batching reduces real compact packet bytes while preserving decoder state', () => {
   const time = clock();
@@ -135,7 +135,7 @@ await set.run('batching reduces real compact packet bytes while preserving decod
   const publishes = [];
   for (let i = 0; i < 100; i += 1) { text += '응답 '; mailbox.publish(update(text)); publishes.push({ i, atMs: time.now, textChars: text.length }); time.advance(4); }
   time.advance(REMOTE_STREAM_BATCH_MS);
-  return { batchMs: REMOTE_STREAM_BATCH_MS, publishEveryMs: 4, publishes: 100, packets, bytes, receivedTailEqualsLastText: received.streamingTail.text === text, finalTail: received.streamingTail.text, sent };
+  return { batchMs: REMOTE_STREAM_BATCH_MS, publishEveryMs: 4, publishes: 100, packets, bytes, received, text, sent };
 });
 
 await set.finish({
