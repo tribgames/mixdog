@@ -1076,7 +1076,9 @@
             "agentProfileRevision": "coding-lead",
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 0,
-            "closed": false
+            "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2
           },
           "generation": 1,
           "after": {
@@ -2125,6 +2127,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "no live session clients",
             "messages": [
               {
@@ -3222,7 +3226,9 @@
             "agentProfileRevision": "coding-lead",
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 0,
-            "closed": false
+            "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2
           },
           "generation": 1,
           "after": {
@@ -4271,6 +4277,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "no live session clients",
             "messages": [
               {
@@ -5344,6 +5352,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "no live session clients",
             "messages": [
               {
@@ -6413,6 +6423,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 2,
             "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "SIGTERM",
             "messages": [
               {
@@ -7511,7 +7523,9 @@
             "agentProfileRevision": "coding-lead",
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 0,
-            "closed": false
+            "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2
           },
           "generation": 1,
           "after": {
@@ -8560,6 +8574,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "cli-agent-close",
             "ownerClosedAt": 2000,
             "messages": [
@@ -9658,7 +9674,9 @@
             "agentProfileRevision": "coding-lead",
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 0,
-            "closed": false
+            "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2
           },
           "generation": 1,
           "after": {
@@ -10707,6 +10725,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": true,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "closedReason": "idle-sweep",
             "status": "closed",
             "messages": [
@@ -11805,7 +11825,9 @@
             "agentProfileRevision": "coding-lead",
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 0,
-            "closed": false
+            "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2
           },
           "generation": 1,
           "after": {
@@ -12854,6 +12876,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "cli-exit",
             "messages": [
               {
@@ -13927,6 +13951,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "cli-exit",
             "messages": [
               {
@@ -14996,6 +15022,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 2,
             "closed": true,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "detachedReason": "cli-exit",
             "closedReason": "manual",
             "status": "closed",
@@ -16095,7 +16123,9 @@
             "agentProfileRevision": "coding-lead",
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 0,
-            "closed": false
+            "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2
           },
           "generation": 1,
           "after": {
@@ -17144,6 +17174,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": true,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "closedReason": "manual",
             "status": "closed",
             "messages": [
@@ -18218,6 +18250,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": true,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "closedReason": "manual",
             "status": "closed",
             "messages": [
@@ -19288,6 +19322,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": true,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "closedReason": "desktop-session-delete",
             "status": "closed",
             "messages": [
@@ -20386,7 +20422,9 @@
             "agentProfileRevision": "coding-lead",
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 0,
-            "closed": false
+            "closed": false,
+            "offloadSources": [],
+            "offloadSourcesRules": 2
           },
           "generation": 1,
           "after": {
@@ -21435,6 +21473,8 @@
             "agentRosterRevision": "96a296d224f285c67bee93c3",
             "generation": 1,
             "closed": true,
+            "offloadSources": [],
+            "offloadSourcesRules": 2,
             "closedReason": "agent-task-cancel",
             "status": "closed",
             "cancelStatus": "cancelled",
@@ -22532,7 +22572,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "expected": null,
       "late": {
@@ -23604,7 +23646,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -24677,7 +24721,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000007_1000_0102030405060708090a0b0c0d0e0f10",
@@ -25725,6 +25771,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -26818,7 +26866,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "expected": 0,
       "late": {
@@ -27890,7 +27940,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -28963,7 +29015,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000008_1000_0102030405060708090a0b0c0d0e0f10",
@@ -30011,6 +30065,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -31104,7 +31160,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "expected": 1,
       "late": {
@@ -32176,7 +32234,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -33249,7 +33309,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000009_1000_0102030405060708090a0b0c0d0e0f10",
@@ -34297,6 +34359,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -35390,7 +35454,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "expected": 2,
       "late": {
@@ -36462,7 +36528,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -37535,7 +37603,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000010_1000_0102030405060708090a0b0c0d0e0f10",
@@ -38583,6 +38653,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -39657,6 +39729,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -40749,7 +40823,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -41822,7 +41898,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000011_1000_0102030405060708090a0b0c0d0e0f10",
@@ -42870,6 +42948,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -43944,6 +44024,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -45036,7 +45118,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "dropped",
       "dropped": true,
@@ -46109,7 +46193,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000012_1000_0102030405060708090a0b0c0d0e0f10",
@@ -47157,6 +47243,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -48228,6 +48316,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -49320,7 +49410,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -50393,7 +50485,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000013_1000_0102030405060708090a0b0c0d0e0f10",
@@ -51441,6 +51535,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -52515,6 +52611,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -53607,7 +53705,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -54680,7 +54780,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000014_1000_0102030405060708090a0b0c0d0e0f10",
@@ -55728,6 +55830,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -56802,6 +56906,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 2,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -57894,7 +58000,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -58967,7 +59075,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000015_1000_0102030405060708090a0b0c0d0e0f10",
@@ -60015,6 +60125,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -61089,6 +61201,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 2,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -62181,7 +62295,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "dropped",
       "dropped": true,
@@ -63254,7 +63370,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000016_1000_0102030405060708090a0b0c0d0e0f10",
@@ -64302,6 +64420,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 2,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -65373,6 +65493,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 2,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -66465,7 +66587,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "dropped",
       "dropped": true,
@@ -67538,7 +67662,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000017_1000_0102030405060708090a0b0c0d0e0f10",
@@ -68586,6 +68712,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 2,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -69657,6 +69785,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 2,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "detachedReason": "cli-exit",
         "messages": [
           {
@@ -70749,7 +70879,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -71822,7 +71954,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000018_1000_0102030405060708090a0b0c0d0e0f10",
@@ -72870,6 +73004,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -73944,6 +74080,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": true,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "closedReason": "manual",
         "status": "closed",
         "messages": [
@@ -75037,7 +75175,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -76110,7 +76250,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000019_1000_0102030405060708090a0b0c0d0e0f10",
@@ -77158,6 +77300,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",
@@ -78232,6 +78376,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": true,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "closedReason": "manual",
         "status": "closed",
         "messages": [
@@ -79325,7 +79471,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "dropped",
       "dropped": true,
@@ -80398,7 +80546,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000020_1000_0102030405060708090a0b0c0d0e0f10",
@@ -81446,6 +81596,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": true,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "closedReason": "manual",
         "status": "closed",
         "messages": [
@@ -82518,6 +82670,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": true,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "closedReason": "manual",
         "status": "closed",
         "messages": [
@@ -83611,7 +83765,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "dropped",
       "dropped": true,
@@ -84684,7 +84840,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000021_1000_0102030405060708090a0b0c0d0e0f10",
@@ -85732,6 +85890,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": true,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "closedReason": "manual",
         "status": "closed",
         "messages": [
@@ -86804,6 +86964,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 1,
         "closed": true,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "closedReason": "manual",
         "status": "closed",
         "messages": [
@@ -87897,7 +88059,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "outcome": "saved",
       "dropped": false,
@@ -88970,7 +89134,9 @@
         "agentProfileRevision": "coding-lead",
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
-        "closed": false
+        "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2
       },
       "durableAfter": {
         "id": "sess_4242_1700000000022_1000_0102030405060708090a0b0c0d0e0f10",
@@ -90018,6 +90184,8 @@
         "agentRosterRevision": "96a296d224f285c67bee93c3",
         "generation": 0,
         "closed": false,
+        "offloadSources": [],
+        "offloadSourcesRules": 2,
         "messages": [
           {
             "role": "system",

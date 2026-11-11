@@ -28,15 +28,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 181753,
+      "bytes": 185929,
       "path": "recording.json",
-      "sha256": "2cf8f54b90347777a8737ae8e403d4de5aae980f9334a435fba4ece5113f2914"
+      "sha256": "8006e707a96a9cae800465867c03697e2203c202fb9cbce0b2e8e58e9ca815a5"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -62,17 +62,52 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
+    "files": 9141,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+        "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+        "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+        "src/runtime/agent/orchestrator/session/store.mjs",
+        "src/runtime/agent/orchestrator/session/store/listing.mjs",
+        "src/runtime/agent/orchestrator/session/store/load-session.mjs",
+        "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
+        "src/session-runtime/lifecycle/inheritance.mjs"
+      ],
+      "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
+    },
+    "patches": [
+      {
+        "file": "node-fix-prune-after-save.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
+          "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+          "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+          "src/runtime/agent/orchestrator/session/store.mjs",
+          "src/runtime/agent/orchestrator/session/store/listing.mjs",
+          "src/runtime/agent/orchestrator/session/store/load-session.mjs",
+          "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
+          "src/session-runtime/lifecycle/inheritance.mjs"
+        ],
+        "sha256": "e49762d237959e35105317b4727d9ee50d311e8cccd7540a1bddc36b23181411"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 10
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "9b3573a2c5ea84ceab724890e9fd439fb149b4e135a1da73c15449707ab5acc7",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
@@ -82,6 +117,6 @@
   "replay": "mixdog-core-session session/sequence_replay.rs, one test per recorded case, over the real thread store in a scratch data dir: the first save creates the thread under the recorded id with the recorded record as its header (create_with_id); a later save is the thread's request thread/header/patch with expectedGeneration 0 (the request SessionThreads::patch_header_fenced sends) of the client's messages, or the create again when no record is stored; close and detach are the directory's own close and detach (close.rs SessionClose::close / SessionClose::detach, the calls the idle sweep, thread/delete and the context switch make), answered with the generation stored after them or null when no record is stored; delete is thread/delete and its answer is compared as recorded; line 64's closeSession is SessionClose::detach, run while the client delete is held after its own detach landed and before it closes the thread (its catalog read, delete.rs delete_session), Node's order: the delete's detach, the closeSession's, then the unlink. Node's unlink failure is the delete mark's durable write failing (rolled back), asked of the case's plan once per mark. Compared whole: every op's result, firstSave / deleted / closed, unlinkPlanLeft, the marks written with their failure (unlinks), commitError (null: no barrier of the replay failed), initial and clockSteps (the replay arms no timer and moves no clock) and the stored record (the thread header, messages placed as the recorded record has them).",
   "set": "session-sequence",
   "testFile": "src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs",
-  "totalBytes": 181753,
+  "totalBytes": 185929,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
