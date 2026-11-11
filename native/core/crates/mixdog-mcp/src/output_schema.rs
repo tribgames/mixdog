@@ -23,11 +23,59 @@ use crate::rpc::RpcError;
 struct Registered(Arc<HashMap<String, Value>>);
 
 impl jsonschema::Retrieve for Registered {
-    fn retrieve(&self, uri: &jsonschema::Uri<String>) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    fn retrieve(
+        &self,
+        uri: &jsonschema::Uri<String>,
+    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         let address = uri.as_str();
         let address = address.split_once('#').map_or(address, |(base, _)| base);
-        self.0.get(address).cloned().ok_or_else(|| format!("can't resolve reference {address}").into())
+        let resource = self
+            .0
+            .get(address)
+            .ok_or_else(|| format!("can't resolve reference {address}"))?;
+        Ok(for_engine(resource)?)
     }
+}
+
+/// `schema` with every `pattern` and `patternProperties` key rewritten for jsonschema's engine
+/// ([`crate::ecma_pattern`]), or V8's text for the first one JavaScript does not compile.
+fn for_engine(schema: &Value) -> Result<Value, String> {
+    let Value::Object(map) = schema else {
+        return Ok(schema.clone());
+    };
+    let mut out = serde_json::Map::with_capacity(map.len());
+    for (key, value) in map {
+        let value = match (key.as_str(), value) {
+            ("pattern", Value::String(pattern)) => {
+                Value::String(crate::ecma_pattern::for_engine(pattern)?)
+            }
+            ("patternProperties", Value::Object(props)) => {
+                let mut rewritten = serde_json::Map::with_capacity(props.len());
+                for (pattern, subschema) in props {
+                    rewritten.insert(
+                        crate::ecma_pattern::for_engine(pattern)?,
+                        for_engine(subschema)?,
+                    );
+                }
+                Value::Object(rewritten)
+            }
+            _ => match (children(key, value), value) {
+                (Some(Children::One), _) => for_engine(value)?,
+                (Some(Children::Many), Value::Array(items)) => {
+                    Value::Array(items.iter().map(for_engine).collect::<Result<_, _>>()?)
+                }
+                (Some(Children::Map), Value::Object(entries)) => Value::Object(
+                    entries
+                        .iter()
+                        .map(|(k, v)| Ok((k.clone(), for_engine(v)?)))
+                        .collect::<Result<_, String>>()?,
+                ),
+                _ => value.clone(),
+            },
+        };
+        out.insert(key.clone(), value);
+    }
+    Ok(Value::Object(out))
 }
 
 struct Slot {
@@ -45,6 +93,7 @@ fn build(
         .with_draft(jsonschema::Draft::Draft7)
         .with_keyword("format", crate::ajv_formats::format_keyword)
         .with_keyword("uniqueItems", crate::ajv_formats::unique_items_keyword)
+        .with_keyword("multipleOf", crate::ajv_formats::multiple_of_keyword)
         .with_retriever(Registered(Arc::clone(registered)))
         .build(schema)
 }
@@ -54,7 +103,7 @@ impl Slot {
     /// cannot be.
     fn compile(&self) -> &Result<jsonschema::Validator, String> {
         self.compiled.get_or_init(|| {
-            build(&self.schema, &self.registered)
+            build(&for_engine(&self.schema)?, &self.registered)
                 .map_err(|error| compile_error_text(&self.schema, &error))
         })
     }
@@ -81,9 +130,16 @@ fn compiles_when_listed(schema: &Value) -> bool {
             .any(|(at, m)| !text[at + m.len()..].starts_with('#'))
 }
 
+/// How a keyword's value holds subschemas.
+enum Children {
+    One,
+    Many,
+    Map,
+}
+
 /// The keywords whose value is one subschema, an array of them, or a map of them (`json-schema-traverse`, which Ajv
 /// walks for `$id`s): everything else, `const`, `enum`, `default` and `examples` among it, is data.
-fn subschemas(key: &str, value: &Value) -> Vec<Value> {
+fn children(key: &str, value: &Value) -> Option<Children> {
     match (key, value) {
         (
             "additionalItems"
@@ -96,14 +152,21 @@ fn subschemas(key: &str, value: &Value) -> Vec<Value> {
             | "then"
             | "else",
             Value::Object(_),
-        ) => {
-            vec![value.clone()]
-        }
-        ("items" | "allOf" | "anyOf" | "oneOf", Value::Array(items)) => items.clone(),
+        ) => Some(Children::One),
+        ("items" | "allOf" | "anyOf" | "oneOf", Value::Array(_)) => Some(Children::Many),
         (
             "$defs" | "definitions" | "properties" | "patternProperties" | "dependencies",
-            Value::Object(map),
-        ) => map.values().cloned().collect(),
+            Value::Object(_),
+        ) => Some(Children::Map),
+        _ => None,
+    }
+}
+
+fn subschemas(key: &str, value: &Value) -> Vec<Value> {
+    match (children(key, value), value) {
+        (Some(Children::One), _) => vec![value.clone()],
+        (Some(Children::Many), Value::Array(items)) => items.clone(),
+        (Some(Children::Map), Value::Object(map)) => map.values().cloned().collect(),
         _ => Vec::new(),
     }
 }
@@ -132,28 +195,41 @@ fn resources(node: &Value, base: Option<&url::Url>, found: &mut Vec<(String, Val
 /// Ajv's text for a schema it cannot compile, from jsonschema's: a reference nothing registered, or a keyword whose
 /// value is not one Ajv's code generation accepts.
 fn compile_error_text(schema: &Value, error: &ValidationError<'_>) -> String {
+    // Ajv names the schema's own `$id`, or `#` when it has none.
+    let own = schema
+        .get("$id")
+        .and_then(Value::as_str)
+        .map_or("#", base_of);
     match error.kind() {
         ValidationErrorKind::Referencing(jsonschema::ReferencingError::Unretrievable {
             uri,
             ..
+        }) => format!("can't resolve reference {uri} from id {own}"),
+        // A local pointer to nothing (`#/definitions/missing`).
+        ValidationErrorKind::Referencing(jsonschema::ReferencingError::PointerToNowhere {
+            pointer,
         }) => {
-            let own = schema
-                .get("$id")
-                .and_then(Value::as_str)
-                .map_or("", base_of);
-            format!("can't resolve reference {uri} from id {own}#")
+            format!("can't resolve reference #{pointer} from id {own}")
         }
         // A schema that breaks the meta-schema: the error's instance is the offending keyword of `schema`.
         _ => {
             let at = error.instance_path().as_str();
             match schema.pointer(at) {
+                // `String(type)`: an array reads as its items joined with commas.
                 Some(value) if at.ends_with("/type") => {
-                    format!(
-                        "type must be JSONType or JSONType[]: {}",
-                        value
-                            .as_str()
-                            .map_or_else(|| value.to_string(), str::to_owned)
-                    )
+                    let text = match value {
+                        Value::Array(items) => items
+                            .iter()
+                            .map(|item| {
+                                item.as_str()
+                                    .map_or_else(|| item.to_string(), str::to_owned)
+                            })
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        Value::String(one) => one.clone(),
+                        other => other.to_string(),
+                    };
+                    format!("type must be JSONType or JSONType[]: {text}")
                 }
                 _ => error.to_string(),
             }
@@ -161,13 +237,50 @@ fn compile_error_text(schema: &Value, error: &ValidationError<'_>) -> String {
     }
 }
 
+/// The SDK's own check of a `tools/list` answer (its zod `ListToolsResultSchema`) on what an output schema must be: an
+/// object whose `type` is `"object"`. Every issue, in the answer's order, as zod's `JSON.stringify(issues, null, 2)`
+/// the listing fails with.
+fn listing_issues(tools: &[Value]) -> Option<String> {
+    let mut issues = Vec::new();
+    for (index, tool) in tools.iter().enumerate() {
+        let Some(schema) = tool.get("outputSchema") else {
+            continue;
+        };
+        let received = match schema {
+            Value::Object(map) => {
+                if map.get("type") != Some(&Value::String("object".to_owned())) {
+                    issues.push(format!(
+                        "  {{\n    \"code\": \"invalid_value\",\n    \"values\": [\n      \"object\"\n    ],\n    \"path\": [\n      \"tools\",\n      {index},\n      \"outputSchema\",\n      \"type\"\n    ],\n    \"message\": \"Invalid input: expected \\\"object\\\"\"\n  }}"
+                    ));
+                }
+                continue;
+            }
+            Value::Array(_) => "array",
+            Value::String(_) => "string",
+            Value::Bool(_) => "boolean",
+            Value::Number(_) => "number",
+            Value::Null => "null",
+        };
+        issues.push(format!(
+            "  {{\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\",\n      {index},\n      \"outputSchema\"\n    ],\n    \"message\": \"Invalid input: expected object, received {received}\"\n  }}"
+        ));
+    }
+    (!issues.is_empty()).then(|| format!("[\n{}\n]", issues.join(",\n")))
+}
+
 impl OutputValidators {
     /// The validators of `tools` (a `tools/list` answer), or the text the listing fails with.
     pub fn of(tools: &[Value]) -> Result<Self, String> {
+        if let Some(issues) = listing_issues(tools) {
+            return Err(issues);
+        }
         let mut registered: HashMap<String, Value> = HashMap::new();
         let mut slots = HashMap::new();
         for tool in tools {
-            let (Some(name), Some(schema)) = (tool.get("name").and_then(Value::as_str), tool.get("outputSchema")) else {
+            let (Some(name), Some(schema)) = (
+                tool.get("name").and_then(Value::as_str),
+                tool.get("outputSchema"),
+            ) else {
                 continue;
             };
             // `ajv.getSchema($id)`: a repeated `$id` validates with the schema first registered under it.
@@ -196,15 +309,26 @@ impl OutputValidators {
 
     /// `callTool`'s check of a result of `tool` against its output schema.
     pub fn check(&self, tool: &str, result: &Value) -> Result<(), RpcError> {
-        let Some(slot) = self.tools.get(tool) else { return Ok(()) };
-        let refused = |code: i64, message: String| RpcError::Server { code, message, data: None };
+        let Some(slot) = self.tools.get(tool) else {
+            return Ok(());
+        };
+        let refused = |code: i64, message: String| RpcError::Server {
+            code,
+            message,
+            data: None,
+        };
         let structured = result.get("structuredContent").filter(|v| !v.is_null());
         let is_error = result.get("isError").and_then(Value::as_bool) == Some(true);
         let Some(structured) = structured else {
             return if is_error {
                 Ok(())
             } else {
-                Err(refused(-32600, format!("Tool {tool} has an output schema but did not return structured content")))
+                Err(refused(
+                    -32600,
+                    format!(
+                        "Tool {tool} has an output schema but did not return structured content"
+                    ),
+                ))
             };
         };
         let validator = slot.compile().as_ref().map_err(|error| {
@@ -238,12 +362,45 @@ impl OutputValidators {
 /// any type, then those of numbers, strings, arrays and objects, each in vocabulary order.
 fn rank(keyword: &str) -> usize {
     const ORDER: [&str; 34] = [
-        "type", "$ref", "const", "enum", "not", "anyOf", "oneOf", "allOf", "if", "then", "else", "maximum", "minimum",
-        "exclusiveMaximum", "exclusiveMinimum", "multipleOf", "maxLength", "minLength", "pattern", "format", "maxItems",
-        "minItems", "uniqueItems", "additionalItems", "items", "contains", "maxProperties", "minProperties", "required",
-        "propertyNames", "additionalProperties", "dependencies", "properties", "patternProperties",
+        "type",
+        "$ref",
+        "const",
+        "enum",
+        "not",
+        "anyOf",
+        "oneOf",
+        "allOf",
+        "if",
+        "then",
+        "else",
+        "maximum",
+        "minimum",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "multipleOf",
+        "maxLength",
+        "minLength",
+        "pattern",
+        "format",
+        "maxItems",
+        "minItems",
+        "uniqueItems",
+        "additionalItems",
+        "items",
+        "contains",
+        "maxProperties",
+        "minProperties",
+        "required",
+        "propertyNames",
+        "additionalProperties",
+        "dependencies",
+        "properties",
+        "patternProperties",
     ];
-    ORDER.iter().position(|k| *k == keyword).unwrap_or(ORDER.len())
+    ORDER
+        .iter()
+        .position(|k| *k == keyword)
+        .unwrap_or(ORDER.len())
 }
 
 /// The schema an error is read against: the root a validator was built from, the resources its references reach, and
@@ -280,7 +437,9 @@ fn order_key(schema: &Value, error: &ValidationError<'_>) -> Vec<usize> {
     let mut node = Some(schema);
     let mut segments = error.evaluation_path().into_iter();
     while let Some(segment) = segments.next() {
-        let LocationSegment::Property(keyword) = segment else { break };
+        let LocationSegment::Property(keyword) = segment else {
+            break;
+        };
         key.push(rank(&keyword));
         // Past a reference the path names keywords of another schema: only their ranks place the error.
         let child = if keyword == "$ref" {
@@ -289,7 +448,10 @@ fn order_key(schema: &Value, error: &ValidationError<'_>) -> Vec<usize> {
             node.and_then(|n| n.get(keyword.as_ref()))
         };
         node = match (keyword.as_ref(), child) {
-            ("properties" | "patternProperties" | "dependencies" | "definitions" | "$defs", Some(Value::Object(map))) => {
+            (
+                "properties" | "patternProperties" | "dependencies" | "definitions" | "$defs",
+                Some(Value::Object(map)),
+            ) => {
                 let Some(name) = segments.next() else { break };
                 let name = match name {
                     LocationSegment::Property(name) => name.into_owned(),
@@ -440,7 +602,10 @@ fn contains_items(scope: &Scope<'_>, error: &ValidationError<'_>, texts: &mut Ve
     else {
         return;
     };
-    let Ok(validator) = build(subschema, scope.registered) else {
+    let Ok(validator) = for_engine(subschema)
+        .map_err(drop)
+        .and_then(|engine| build(&engine, scope.registered).map_err(drop))
+    else {
         return;
     };
     let base = format!("{}{}", scope.instance, error.instance_path().as_str());
@@ -510,14 +675,15 @@ fn message(
         ValidationErrorKind::Enum { .. } => "must be equal to one of the allowed values".to_owned(),
         ValidationErrorKind::Constant { .. } => "must be equal to constant".to_owned(),
         ValidationErrorKind::Format { format } => format!("must match format \"{format}\""),
-        ValidationErrorKind::Pattern { pattern } => format!("must match pattern \"{pattern}\""),
+        // The schema's own pattern, not the one rewritten for the engine.
+        ValidationErrorKind::Pattern { pattern } => match keyword_value(scope, error) {
+            Some(Value::String(own)) => format!("must match pattern \"{own}\""),
+            _ => format!("must match pattern \"{pattern}\""),
+        },
         ValidationErrorKind::Maximum { limit: l } => format!("must be <= {}", limit(l)),
         ValidationErrorKind::Minimum { limit: l } => format!("must be >= {}", limit(l)),
         ValidationErrorKind::ExclusiveMaximum { limit: l } => format!("must be < {}", limit(l)),
         ValidationErrorKind::ExclusiveMinimum { limit: l } => format!("must be > {}", limit(l)),
-        ValidationErrorKind::MultipleOf { multiple_of } => {
-            format!("must be multiple of {multiple_of}")
-        }
         ValidationErrorKind::MaxLength { limit } => {
             format!("must NOT have more than {limit} characters")
         }
@@ -537,7 +703,7 @@ fn message(
         ValidationErrorKind::MinProperties { limit } => {
             format!("must NOT have fewer than {limit} properties")
         }
-        // `format` and `uniqueItems` are Ajv's own keywords here, their text already Ajv's.
+        // `format`, `uniqueItems` and `multipleOf` are Ajv's own keywords here, their text already Ajv's.
         ValidationErrorKind::Custom { message, .. } => message.clone(),
         ValidationErrorKind::Not { .. } => "must NOT be valid".to_owned(),
         ValidationErrorKind::FalseSchema => "boolean schema is false".to_owned(),
