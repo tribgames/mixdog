@@ -140,6 +140,11 @@ impl Log {
         (thread, added, kept, messages)
     }
 
+    /// Every file of the data folder but the index databases (the room log's bytes, the attachment store): name and bytes.
+    pub(super) fn data_files(&self) -> Vec<(String, Vec<u8>)> {
+        mixdog_testkit::tree(self._data.path()).into_iter().filter(|(name, _)| !name.contains(".sqlite")).collect()
+    }
+
     /// The attachment store's files (their names under the store, sorted).
     #[allow(clippy::disallowed_methods, reason = "the test lists the attachment store it checks")]
     pub(super) fn stored_files(&self) -> Vec<String> {

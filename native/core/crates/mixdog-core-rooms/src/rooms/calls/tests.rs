@@ -115,6 +115,31 @@ async fn settled_waits_for_the_exchange_its_held_relays_and_messages_on_their_wa
     assert!(!calls.is_running("room01"));
 }
 
+/// A sender routes and only then drops its intake. An observation that read the exchanges, let go, and read the intakes
+/// afterwards could see "no exchange", then the route and the drop, then "no intake": settled while the exchange runs. Here the
+/// route and the drop happen while the observer waits at the intakes' lock (the gate); it must see the exchange.
+#[tokio::test]
+async fn a_sender_routing_and_leaving_between_two_reads_is_never_seen_as_neither() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(1, Ordering::SeqCst);
+    let calls = scheduler(&runner);
+    std::mem::forget(calls.intake("room01"));
+    let gate = calls.intakes.lock().unwrap();
+    let observer = {
+        let calls = calls.clone();
+        std::thread::spawn(move || calls.quiet("room01"))
+    };
+    calls.route("room01", Request { to: vec!["lead".into()], only: true, calls: Vec::new(), ..Request::default() });
+    let mut gate = gate;
+    gate.remove("room01");
+    drop(gate);
+    assert!(!observer.join().unwrap(), "the exchange runs");
+    runner.entered.notified().await;
+    assert!(calls.is_running("room01"));
+    runner.release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled once the exchange ended");
+}
+
 #[tokio::test]
 async fn a_request_routed_into_a_running_room_merges_cuts_off_and_carries_the_unsettled_calls() {
     let runner = Arc::new(Fake::default());

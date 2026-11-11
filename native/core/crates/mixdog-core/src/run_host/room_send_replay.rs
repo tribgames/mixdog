@@ -503,6 +503,7 @@ impl World {
             "routed": *self.routed.lock().unwrap(),
             "room": self.stored_room().await,
             "files": self.log.stored_files(),
+            "dataBytes": self.log.data_files().into_iter().map(|(name, bytes)| json!([name, bytes])).collect::<Vec<_>>(),
             "catalogRepublished": self.republished.load(Ordering::SeqCst),
         })
     }
@@ -671,6 +672,43 @@ async fn every_malformed_argument_is_refused_before_anything_happens() {
     assert_eq!(outcome(world.input(input(log.clone(), json!([{ "type": "text", "text": "ok" }, png, docx]), json!({ "clientSubmissionId": "sub-ok" }))).await), json!({ "returned": true }));
 }
 
+/// A string with a lone surrogate counts as its units and is never looked into for well-formedness: Node's validators
+/// (`ipc-validation.ts:1152-1222`, `:1225-1266`) test only length, blankness, control characters and the id/type/base64
+/// alphabets, so a lone surrogate in a free text field (prompt, a text part, displayText, goalCommand, the submission id, a file
+/// name) is accepted, and in a field with an alphabet (the thread id, a mime type, base64 data) it falls outside it and is
+/// refused with no effect. The value is parsed as `JSON.parse` parses the wire text (`mixdog_js::json_parse`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lone_surrogate_is_accepted_in_free_text_and_refused_where_an_alphabet_rules() {
+    let mut world = plan_room().await;
+    let parse = |text: String| mixdog_js::json_parse(&text).expect("the wire text parses");
+    let room = format!("sess_room_{ROOM}");
+    let refused = vec![
+        ("threadId", format!(r#"{{"threadId":"{room}\ud800","prompt":"hi"}}"#)),
+        ("an image's type", format!(r#"{{"threadId":"{room}","prompt":[{{"type":"image","data":"cG5n","mimeType":"image/png\ud800"}}]}}"#)),
+        ("an image's data", format!(r#"{{"threadId":"{room}","prompt":[{{"type":"image","data":"cG5n\ud800","mimeType":"image/png"}}]}}"#)),
+        ("a file's type", format!(r#"{{"threadId":"{room}","prompt":[{{"type":"file","data":"ZG9j","mimeType":"application/pdf\ud800"}}]}}"#)),
+        ("a file's data", format!(r#"{{"threadId":"{room}","prompt":[{{"type":"file","data":"\udc00ZG9j","mimeType":"application/pdf"}}]}}"#)),
+    ];
+    let before = world.state().await;
+    for (field, text) in refused {
+        let answer = world.input(parse(text)).await;
+        assert!(matches!(answer, Err(CoreError::DomainError { .. })), "{field}: refused, not {answer:?}");
+        assert_eq!(world.state().await, before, "{field}: nothing changed");
+    }
+    let accepted = vec![
+        ("the prompt", format!(r#"{{"threadId":"{room}","prompt":"hi \ud800","options":{{"clientSubmissionId":"s1"}}}}"#)),
+        ("a text part", format!(r#"{{"threadId":"{room}","prompt":[{{"type":"text","text":"\ude00 hi"}}],"options":{{"clientSubmissionId":"s2"}}}}"#)),
+        ("the submission id", format!(r#"{{"threadId":"{room}","prompt":"hi","options":{{"clientSubmissionId":"s3-\ud83d"}}}}"#)),
+        ("displayText", format!(r#"{{"threadId":"{room}","prompt":"hi","options":{{"clientSubmissionId":"s4","displayText":"\ud800"}}}}"#)),
+        ("goalCommand", format!(r#"{{"threadId":"{room}","prompt":"hi","options":{{"clientSubmissionId":"s5","goalCommand":"\ud800"}}}}"#)),
+        ("a file name", format!(r#"{{"threadId":"{room}","prompt":[{{"type":"text","text":"hi"}},{{"type":"file","data":"ZG9j","mimeType":"application/msword","filename":"a\ud800.doc"}}],"options":{{"clientSubmissionId":"s6"}}}}"#)),
+    ];
+    for (field, text) in accepted {
+        let answer = outcome(world.input(parse(text)).await);
+        assert_eq!(answer, json!({ "returned": true }), "{field}: accepted");
+    }
+}
+
 /// Who may post: Node's `submitToSession` is served to the desktop (`ipc-sessions.ts:221`), to an SSH desktop through the
 /// same handler, and to a paired phone (`remote-session-methods.ts:155`); `room/send` is open to the same origins as the
 /// `turn/start` it replaces on a room log. What a caller can name: only a room log's session (any other session, or a room
@@ -687,5 +725,56 @@ async fn room_send_is_open_to_the_desktop_and_the_phone_and_names_only_a_room_lo
         let answer = outcome(world.input(json!({ "threadId": thread, "prompt": "hi", "options": { "clientSubmissionId": "sub-x" } })).await);
         assert_eq!(answer, json!({ "threw": { "message": "This room no longer exists." } }), "{thread}");
         assert_eq!(world.state().await, before, "{thread}: nothing changed");
+    }
+}
+/// Every other way a param can name a target is refused or ignored with no effect outside the room. A thread id that is not
+/// exactly a room log's (another kind of session, another spelling, a room that is not there) is refused before anything
+/// happens; no other field of the input or of the options takes a target (an alias such as `roomId` or `sessionId` is an
+/// unknown field); a member is named only inside the prompt, and only a member of this room; a part's or a side table's `path`
+/// is never read: the bytes a message stores are those it carries.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_other_way_a_param_could_name_a_target_reaches_nothing() {
+    let mut world = plan_room().await;
+    let log = json!(format!("sess_room_{ROOM}"));
+    let before = world.state().await;
+    let mut refused: Vec<(String, Value)> = Vec::new();
+    for thread in ["room_abc123", "abc123", "sess_room_ABC123", "sess_room_abc12", "sess_room_abc123x", "sess_home_lead", "sess_member_abc123_lead", "sess_room_abc123 x"] {
+        refused.push((format!("thread {thread}"), json!({ "threadId": thread, "prompt": "hi" })));
+    }
+    for alias in ["sessionId", "roomId", "room", "target", "path", "to"] {
+        refused.push((format!("input field {alias}"), json!({ "threadId": log, "prompt": "hi", alias: format!("sess_room_{ROOM}") })));
+        refused.push((format!("option {alias}"), json!({ "threadId": log, "prompt": "hi", "options": { alias: "sess_other" } })));
+    }
+    refused.push(("a member that is not in the room".into(), json!({ "threadId": log, "prompt": "/ask nobody hello" })));
+    for (name, input) in refused {
+        let answer = world.input(input).await;
+        assert!(matches!(answer, Err(CoreError::DomainError { .. })), "{name}: refused, not {answer:?}");
+        assert_eq!(world.state().await, before, "{name}: nothing changed");
+    }
+
+    // A path in a part or a side table: whatever the message does, the file's bytes never reach the log or the store.
+    let dir = tempfile::tempdir().unwrap();
+    let secret = dir.path().join("secret.txt");
+    std::fs::write(&secret, "SECRET-MARKER-9f3a1c").unwrap();
+    let path = secret.to_string_lossy().into_owned();
+    let none = "0".repeat(64);
+    let named = json!({
+        "threadId": log,
+        "prompt": [
+            { "type": "text", "text": "see 1 and 2" },
+            { "type": "file", "data": "ZG9j", "mimeType": "application/msword", "path": path, "url": path, "attachmentRef": none },
+            { "type": "image", "data": "cG5n", "mimeType": "image/png", "path": path, "file": path },
+        ],
+        "options": {
+            "clientSubmissionId": "sub-path",
+            "pastedImages": { "1": { "id": "1", "path": path, "attachmentRef": none, "mimeType": "image/png" } },
+            "pastedTexts": { "1": { "id": "1", "path": path, "source": "file", "name": "secret.txt" } },
+        },
+    });
+    let _ = world.input(named).await;
+    let seen = serde_json::to_string(&world.state().await).unwrap();
+    assert!(!seen.contains("SECRET-MARKER-9f3a1c") && !seen.contains("U0VDUkVULU1BUktFUi05ZjNhMWM"), "the file's bytes stay out of the room: {seen}");
+    for (name, bytes) in world.log.data_files() {
+        assert!(!String::from_utf8_lossy(&bytes).contains("SECRET-MARKER-9f3a1c"), "{name}: the file's bytes stay out of the store");
     }
 }
