@@ -8925,6 +8925,20 @@
       ],
       "type": "object"
     },
+    "RoomSendParams": {
+      "description": "Params of `room/send`: `input` is `{ threadId, prompt, options }`, the room log and the turn input `turn/start` takes.",
+      "properties": {
+        "input": true,
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "opId"
+      ],
+      "type": "object"
+    },
     "RoomUpdateParams": {
       "additionalProperties": false,
       "description": "Params of `room/update`.",
@@ -15207,6 +15221,29 @@
         },
         "params": {
           "$ref": "#/definitions/RoomLeaveParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's `submitToSession` on a room log (`session-host.ts:1089-1091` → `agentRooms.send`): a user's message posted into the room and routed to its members; the reply is `true`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "room/send"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RoomSendParams"
         }
       },
       "required": [

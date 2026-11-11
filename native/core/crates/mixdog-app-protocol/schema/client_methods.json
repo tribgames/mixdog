@@ -12843,6 +12843,20 @@
       ],
       "type": "string"
     },
+    "RoomSendParams": {
+      "description": "Params of `room/send`: `input` is `{ threadId, prompt, options }`, the room log and the turn input `turn/start` takes.",
+      "properties": {
+        "input": true,
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "opId"
+      ],
+      "type": "object"
+    },
     "RoomTool": {
       "description": "A tool a member used in its turn, as the speech line summarises it.",
       "properties": {
@@ -20763,6 +20777,12 @@
     "room/reset": {
       "params": {
         "$ref": "#/definitions/RoomResetParams"
+      },
+      "result": true
+    },
+    "room/send": {
+      "params": {
+        "$ref": "#/definitions/RoomSendParams"
       },
       "result": true
     },

@@ -21,6 +21,7 @@ mixdog-agent = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-services = { workspace = true }
 mixdog-store = { workspace = true }

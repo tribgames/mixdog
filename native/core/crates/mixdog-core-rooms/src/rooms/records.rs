@@ -49,8 +49,9 @@ pub struct RoomRecord {
     /// Members of a user-addressed set the message cap cut off.
     #[serde(default)]
     pub owed: Option<Vec<String>>,
-    /// Submission ids of accepted user messages, newest last (bounded).
-    #[serde(default)]
+    /// Submission ids of accepted user messages, newest last (bounded). Absent from the record until one is accepted, as
+    /// Node's record leaves it (`agent-room-messages.ts:99-102` sets it at the first).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub submissions: Vec<String>,
 }
 

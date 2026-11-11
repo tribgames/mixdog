@@ -49,16 +49,21 @@ fn observed<'a>(golden: &'a Exact, index: usize) -> &'a Exact {
 
 /// One room log over the real session directory on the real thread store, posted to through the room log's append and
 /// read by a client; a row's files are taken in by the room's [`SessionFiles`] over the same data folder's attachment store.
-struct Log {
-    directory: Arc<SessionDirectory>,
-    daemon: DirectoryRoomDaemon,
-    files: SessionFiles,
+pub(super) struct Log {
+    pub(super) directory: Arc<SessionDirectory>,
+    pub(super) daemon: Arc<DirectoryRoomDaemon>,
+    pub(super) files: Arc<SessionFiles>,
     _rig: Rig,
     _data: tempfile::TempDir,
 }
 
 impl Log {
     async fn new() -> Self {
+        Self::over(Arc::new(|| {})).await
+    }
+
+    /// The same, the room log's catalog republish being `republish` (`DirectoryRoomDaemon::new`).
+    pub(super) async fn over(republish: Arc<dyn Fn() + Send + Sync>) -> Self {
         use mixdog_core_api::domain::mock::MockOwnership;
         use mixdog_store::sqlite::SqliteStore;
 
@@ -78,13 +83,13 @@ impl Log {
         // The transcript the daemon composes (`compose_flip.rs` `RecordTranscript::new()`).
         deps.transcript = Arc::new(RecordTranscript::new());
         let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
-        let daemon = DirectoryRoomDaemon::new(directory.clone(), Arc::new(|| {}));
-        let files = SessionFiles::new(directory.clone(), tokens.durability_io, data.path().to_path_buf(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {}));
+        let daemon = Arc::new(DirectoryRoomDaemon::new(directory.clone(), republish));
+        let files = Arc::new(SessionFiles::new(directory.clone(), tokens.durability_io, data.path().to_path_buf(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {})));
         Self { directory, daemon, files, _rig: rig, _data: data }
     }
 
     /// A fresh room log `sess_room_<room>`.
-    async fn create(&self, room: &str) -> ThreadId {
+    pub(super) async fn create(&self, room: &str) -> ThreadId {
         let thread = ThreadId::from(format!("sess_room_{room}"));
         let mut header = Header::new();
         header.insert("createdAt".into(), json!(1));
@@ -115,7 +120,7 @@ impl Log {
     }
 
     /// The text of a stored attachment.
-    async fn stored_text(&self, reference: &str) -> String {
+    pub(super) async fn stored_text(&self, reference: &str) -> String {
         let (blobs, digest) = (BlobStore::new(self._data.path()), Digest::try_from(format!("sha256:{reference}")).unwrap());
         let lane = mixdog_rt::testing::tokens().durability_io;
         let bytes = mixdog_rt::LaneToken::submit(lane, &mixdog_rt::CancellationToken::new(), move |lane| blobs.read(lane, &digest).unwrap()).unwrap().await.unwrap();

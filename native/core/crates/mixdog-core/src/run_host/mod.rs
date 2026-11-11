@@ -158,5 +158,7 @@ pub mod room_files;
 #[cfg(test)]
 mod room_rows_replay;
 #[cfg(test)]
+mod room_send_replay;
+#[cfg(test)]
 mod pool_list_replay;
 pub mod room_labels;

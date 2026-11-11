@@ -225,6 +225,7 @@ async fn rig(members: &[&str]) -> Rig {
             maintainer: Arc::new(Unmanaged),
             preview: Arc::new(|text: &str| text.trim().to_owned()),
             log: Arc::new(|_: &str| {}),
+            now: Arc::new(|| chrono::Utc::now().timestamp_millis()),
         },
     );
     live.start(&rooms).await.unwrap();
@@ -420,6 +421,7 @@ async fn a_restart_marks_a_cut_off_exchange_interrupted_and_stops_its_members() 
             maintainer: Arc::new(Unmanaged),
             preview: Arc::new(|text: &str| text.to_owned()),
             log: Arc::new(|_: &str| {}),
+            now: Arc::new(|| chrono::Utc::now().timestamp_millis()),
         },
     );
     assert_eq!(live.start(&rooms).await.unwrap(), ["room01"]);

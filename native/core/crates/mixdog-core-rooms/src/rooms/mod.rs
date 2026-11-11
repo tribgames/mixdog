@@ -33,6 +33,7 @@ pub mod turn_prompt;
 pub mod usage;
 pub mod room_hosts;
 pub mod room_relay;
+pub mod user_send;
 #[cfg(any(test, feature = "test-support"))]
 pub mod exchange_script;
 #[cfg(test)]
@@ -53,4 +54,11 @@ pub enum RoomError {
     PreconditionFailed(String),
     #[error("{0}")]
     Port(String),
+    /// A refusal Node threw as a plain `Error` (`agent-room-messages.ts` `acceptSend`): its message is the whole answer.
+    #[error("{0}")]
+    Refused(String),
+    /// `ROOM_MEMBER_SWITCHED_OFF` (`room-error-codes.ts:22-24`): a message names a member whose bot is switched off; the
+    /// member's display name.
+    #[error("\"{0}\" is switched off.")]
+    SwitchedOff(String),
 }
