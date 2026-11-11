@@ -636,6 +636,20 @@ pub enum ProxyEvent {
     ProviderMetadata { value: JsonValue },
     /// The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).
     ResponseId { id: String },
+    /// The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).
+    AccountRouting { provider: String, account_id: String, session_account_id: Option<String> },
+    /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).
+    AccountSwitching { message: String },
+    /// A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).
+    AccountChanged {
+        provider: String,
+        account_id: String,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        at: i64,
+    },
+    /// The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole
+    /// (`StreamEvent::WireRerouted`, Node `wireReroute`).
+    WireRerouted { route: JsonValue },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {

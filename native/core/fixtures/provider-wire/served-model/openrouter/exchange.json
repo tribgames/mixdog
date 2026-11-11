@@ -24,7 +24,7 @@
         "accept-language": "*",
         "sec-fetch-mode": "cors",
         "accept-encoding": "gzip, deflate",
-        "content-length": "184"
+        "content-length": "199"
       },
       "rawHeaderOrder": [
         "host",
@@ -47,8 +47,8 @@
         "accept-encoding",
         "content-length"
       ],
-      "bodyText": "{\"model\":\"openai/gpt-5\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-      "served": "data: {\"id\":\"r1\",\"object\":\"chat.completion.chunk\",\"model\":\"openai/gpt-5-served\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The answer is 42.\"}}]}\n\ndata: {\"id\":\"r1\",\"object\":\"chat.completion.chunk\",\"model\":\"openai/gpt-5-served\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+      "bodyText": "{\"model\":\"meta-llama/llama-4-maverick\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Hello\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "served": "data: {\"id\":\"r1\",\"object\":\"chat.completion.chunk\",\"model\":\"meta-llama/llama-4-maverick-served\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The answer is 42.\"}}]}\n\ndata: {\"id\":\"r1\",\"object\":\"chat.completion.chunk\",\"model\":\"meta-llama/llama-4-maverick-served\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
     }
   ],
   "determinism": {

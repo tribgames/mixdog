@@ -185,11 +185,17 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ServedModel(_) => "ServedModel",
         E::ProviderMetadata(_) => "ProviderMetadata",
         E::ResponseId(_) => "ResponseId",
+        E::AccountRouting(_) => "AccountRouting",
+        E::AccountStage(_) => "AccountStage",
+        E::WireRerouted(_) => "WireRerouted",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 23] = [
+const STREAM_EVENT_VARIANTS: [&str; 26] = [
+    "AccountRouting",
+    "AccountStage",
+    "WireRerouted",
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -250,6 +256,10 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
         p::StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": [{ "trigger": "refusal" }] })),
         p::StreamEvent::ResponseId("resp_1".into()),
+        p::StreamEvent::AccountRouting(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k2".into()) }),
+        p::StreamEvent::AccountStage(p::AccountStage::Switching { message: "Quota exhausted — switching to the next account".into() }),
+        p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "custom-x".into(), account_id: "k2".into(), at: 1 }),
+        p::StreamEvent::WireRerouted(json!({ "provider": "openrouter", "model": "m", "wire": "chat", "source": "reroute", "loweredAssistantCount": 0 })),
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();

@@ -319,7 +319,8 @@ const VERTEX_CLAUDE = [
 const SERVED = [
   ['xai', 'grok-4', chatText],
   ['deepseek', 'deepseek-chat', chatText],
-  ['openrouter', 'openai/gpt-5', chatText],
+  // A model no OpenRouter family claims: the gateway sends it on Chat (an `openai/gpt-*` one goes to Responses).
+  ['openrouter', 'meta-llama/llama-4-maverick', chatText],
   ['mimo-oauth', 'mimo-fixture', chatText],
   ['command-code-oauth', 'cc-fixture', chatText],
   ['muse-code-oauth', 'muse-fixture', (_usage, served) => responsesText(served)],
@@ -670,7 +671,6 @@ writeSetManifest(stage, {
       'core item starts of a plain text or reasoning block: Node reports a started item only for a client tool call or a phased message (send-callbacks.mjs reportStreamItemStart and its callers), so those are compared and the core\'s other openings are not callbacks',
       'stream callback placement of a delta\'s kind report (before or after the delta, by path): compared as one with its delta',
       'Codex identity (installation id, user agent OS, beta features): the recording machine\'s, given to the replay as the recorder had it',
-      'served-model/muse-code-oauth on the core: sent through the Responses engine (as Node, which sends Muse Code over Responses only), not the builder this branch has, which still routes it to Chat; that route is the gateway registry\'s (branch provider-gateways)',
       'HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude groups) states it; records keep the body served',
     ],
     ...recorderProvenance(import.meta.url),

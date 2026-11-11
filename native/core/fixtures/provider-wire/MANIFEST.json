@@ -20,7 +20,6 @@
     "core item starts of a plain text or reasoning block: Node reports a started item only for a client tool call or a phased message (send-callbacks.mjs reportStreamItemStart and its callers), so those are compared and the core's other openings are not callbacks",
     "stream callback placement of a delta's kind report (before or after the delta, by path): compared as one with its delta",
     "Codex identity (installation id, user agent OS, beta features): the recording machine's, given to the replay as the recorder had it",
-    "served-model/muse-code-oauth on the core: sent through the Responses engine (as Node, which sends Muse Code over Responses only), not the builder this branch has, which still routes it to Chat; that route is the gateway registry's (branch provider-gateways)",
     "HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude groups) states it; records keep the body served"
   ],
   "fileCount": 168,
@@ -746,19 +745,19 @@
       "sha256": "b6f6ffab8499c523328521bcf745ae461c15ca8f43f7fb72b0ed523b5e89d89a"
     },
     {
-      "bytes": 3588,
+      "bytes": 3633,
       "path": "served-model/openrouter/exchange.json",
-      "sha256": "8e203cf1088a9d1cdd67a781f30474a127efcd63ebc54266ccbfb8d965e547ba"
+      "sha256": "f3765760e15dcf19b6010a4efe18943805e1b0192d9ef72b9162133c2c268b71"
     },
     {
-      "bytes": 494,
+      "bytes": 509,
       "path": "served-model/openrouter/input.json",
-      "sha256": "ddc3d9fb72f6da9fbf42ef5584cbd2a56d5d070531c2a754ccc442f317a50ef0"
+      "sha256": "e8de29e07fac8bbcc376b3be9d0854e793adfa4199dad152c7eb9c671990ec3f"
     },
     {
-      "bytes": 844,
+      "bytes": 859,
       "path": "served-model/openrouter/result.json",
-      "sha256": "56b4a4fc39190a916ae4d0b3a43559a3c586271402f3617b6a9d18d96a132ec9"
+      "sha256": "d3ee69f1ddbacddc27c531947d681ff308e2d6a84d9ef35db549885f545e53af"
     },
     {
       "bytes": 3482,
@@ -895,7 +894,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "5bc40474fcae4855cda6dfe6f60220e706eb1c28aa9420084cb30a7cd1c86d7e",
+  "recorderSha256": "aa804f2d18c8cce19a6cddbfa3af9bb1d5a28ae5132ae7a9766254752404714b",
   "set": "provider-wire",
-  "totalBytes": 378859
+  "totalBytes": 378934
 }
