@@ -567,7 +567,9 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       // Node's clocks stood at `input.clock` for this input (its own moves, and the recorder's `afterInputMs` after each input): the
       // core's moves as far.
       if (input.clock > clockAt) {
+        // The model's bytes read, and what they started settled, before the clock moves: Node handled them at the clock they came at.
         await handledAll();
+        await settle(`the model's bytes before the clock moved to ${input.clock}`);
         await clock(`advance ${input.clock - clockAt}`);
       }
       clockAt = Math.max(clockAt, input.clock);
