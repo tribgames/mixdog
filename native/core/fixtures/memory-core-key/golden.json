@@ -1,0 +1,255 @@
+{
+  "identity": {
+    "model": "test",
+    "dtype": "q8"
+  },
+  "dims": 384,
+  "steps": [
+    {
+      "label": "a fresh profile",
+      "logs": [],
+      "listing": [
+        {
+          "kind": "constraint",
+          "name": "core_entries_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_agent_idx",
+          "definition": "CREATE INDEX core_entries_agent_idx ON memory.core_entries USING btree (agent_id) WHERE (agent_id IS NOT NULL)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_pkey",
+          "definition": "CREATE UNIQUE INDEX core_entries_pkey ON memory.core_entries USING btree (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_project_idx",
+          "definition": "CREATE INDEX core_entries_project_idx ON memory.core_entries USING btree (project_id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_unique_pool_elem",
+          "definition": "CREATE UNIQUE INDEX core_entries_unique_pool_elem ON memory.core_entries USING btree (project_id, agent_id, element) NULLS NOT DISTINCT"
+        }
+      ],
+      "rows": []
+    },
+    {
+      "label": "a store an old build left: duplicate common keys under the legacy key",
+      "sql": "DROP INDEX core_entries_unique_pool_elem;\nINSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'First approved preference', 'rule', NULL, NULL, 0, 0);\nINSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'Second approved preference', 'rule', NULL, NULL, 0, 0);\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, (element || id::text))",
+      "raceSql": {
+        "$exact": "undefined"
+      },
+      "after": {
+        "$exact": "undefined"
+      },
+      "opened": {
+        "result": "opened"
+      },
+      "afterOut": {
+        "$exact": "undefined"
+      },
+      "logs": [
+        "[core-memory] duplicate keys preserved; resolve them with explicit edits/deletes before installing the unique index"
+      ],
+      "listing": [
+        {
+          "kind": "constraint",
+          "name": "core_entries_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_agent_idx",
+          "definition": "CREATE INDEX core_entries_agent_idx ON memory.core_entries USING btree (agent_id) WHERE (agent_id IS NOT NULL)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_pkey",
+          "definition": "CREATE UNIQUE INDEX core_entries_pkey ON memory.core_entries USING btree (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_project_idx",
+          "definition": "CREATE INDEX core_entries_project_idx ON memory.core_entries USING btree (project_id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_unique_proj_elem",
+          "definition": "CREATE UNIQUE INDEX core_entries_unique_proj_elem ON memory.core_entries USING btree (project_id, ((element || (id)::text)))"
+        }
+      ],
+      "rows": [
+        {
+          "id": 1,
+          "project_id": null,
+          "agent_id": null,
+          "element": "key",
+          "summary": "First approved preference",
+          "category": "rule",
+          "status": null
+        },
+        {
+          "id": 2,
+          "project_id": null,
+          "agent_id": null,
+          "element": "key",
+          "summary": "Second approved preference",
+          "category": "rule",
+          "status": null
+        }
+      ]
+    },
+    {
+      "label": "the conflict resolved: the pool key replaces the legacy key, and an agent memory may share the common key",
+      "sql": "UPDATE core_entries SET element = 'resolved' WHERE id = 2;\nDROP INDEX core_entries_unique_proj_elem;\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, element)",
+      "raceSql": {
+        "$exact": "undefined"
+      },
+      "after": "INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'An agent may share the key', 'rule', NULL, 'reviewer', 0, 0)",
+      "opened": {
+        "result": "opened"
+      },
+      "afterOut": {
+        "result": 1
+      },
+      "logs": [],
+      "listing": [
+        {
+          "kind": "constraint",
+          "name": "core_entries_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_agent_idx",
+          "definition": "CREATE INDEX core_entries_agent_idx ON memory.core_entries USING btree (agent_id) WHERE (agent_id IS NOT NULL)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_pkey",
+          "definition": "CREATE UNIQUE INDEX core_entries_pkey ON memory.core_entries USING btree (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_project_idx",
+          "definition": "CREATE INDEX core_entries_project_idx ON memory.core_entries USING btree (project_id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_unique_pool_elem",
+          "definition": "CREATE UNIQUE INDEX core_entries_unique_pool_elem ON memory.core_entries USING btree (project_id, agent_id, element) NULLS NOT DISTINCT"
+        }
+      ],
+      "rows": [
+        {
+          "id": 1,
+          "project_id": null,
+          "agent_id": null,
+          "element": "key",
+          "summary": "First approved preference",
+          "category": "rule",
+          "status": null
+        },
+        {
+          "id": 2,
+          "project_id": null,
+          "agent_id": null,
+          "element": "resolved",
+          "summary": "Second approved preference",
+          "category": "rule",
+          "status": null
+        },
+        {
+          "id": 3,
+          "project_id": null,
+          "agent_id": "reviewer",
+          "element": "key",
+          "summary": "An agent may share the key",
+          "category": "rule",
+          "status": null
+        }
+      ]
+    },
+    {
+      "label": "a duplicate committed between the conflict check and the index build",
+      "sql": "DROP INDEX core_entries_unique_pool_elem",
+      "raceSql": "INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('key', 'Racing duplicate', 'rule', NULL, NULL, 0, 0)",
+      "after": {
+        "$exact": "undefined"
+      },
+      "opened": {
+        "result": "opened"
+      },
+      "afterOut": {
+        "$exact": "undefined"
+      },
+      "logs": [
+        "[core-memory] concurrent key conflict preserved; unique index deferred until explicit resolution"
+      ],
+      "listing": [
+        {
+          "kind": "constraint",
+          "name": "core_entries_pkey",
+          "definition": "PRIMARY KEY (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_agent_idx",
+          "definition": "CREATE INDEX core_entries_agent_idx ON memory.core_entries USING btree (agent_id) WHERE (agent_id IS NOT NULL)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_pkey",
+          "definition": "CREATE UNIQUE INDEX core_entries_pkey ON memory.core_entries USING btree (id)"
+        },
+        {
+          "kind": "index",
+          "name": "core_entries_project_idx",
+          "definition": "CREATE INDEX core_entries_project_idx ON memory.core_entries USING btree (project_id)"
+        }
+      ],
+      "rows": [
+        {
+          "id": 1,
+          "project_id": null,
+          "agent_id": null,
+          "element": "key",
+          "summary": "First approved preference",
+          "category": "rule",
+          "status": null
+        },
+        {
+          "id": 2,
+          "project_id": null,
+          "agent_id": null,
+          "element": "resolved",
+          "summary": "Second approved preference",
+          "category": "rule",
+          "status": null
+        },
+        {
+          "id": 3,
+          "project_id": null,
+          "agent_id": "reviewer",
+          "element": "key",
+          "summary": "An agent may share the key",
+          "category": "rule",
+          "status": null
+        },
+        {
+          "id": 4,
+          "project_id": null,
+          "agent_id": null,
+          "element": "key",
+          "summary": "Racing duplicate",
+          "category": "rule",
+          "status": null
+        }
+      ]
+    }
+  ]
+}

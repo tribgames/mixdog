@@ -183,13 +183,25 @@ pub async fn ensure_memory_schema(db: &Db, dims: usize, model_identity: &serde_j
     Ok(())
 }
 
-pub(crate) async fn install_core_key_index(db: &Db) -> Result<()> {
+/// A replay's write between the conflict check and the index build (the race Node's recording makes at the same point).
+#[cfg(test)]
+pub(crate) type AfterKeyCheck = std::sync::Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+#[cfg(test)]
+tokio::task_local! {
+    pub(crate) static AFTER_KEY_CHECK: AfterKeyCheck;
+}
+
+async fn install_core_key_index(db: &Db) -> Result<()> {
     let conflict = db
         .query_opt(
             "SELECT 1 FROM core_entries GROUP BY project_id, agent_id, element HAVING COUNT(*) > 1 LIMIT 1",
             &[],
         )
         .await?;
+    #[cfg(test)]
+    if let Ok(write) = AFTER_KEY_CHECK.try_with(std::sync::Arc::clone) {
+        write().await;
+    }
     if conflict.is_some() {
         mixdog_rt::memory_stderr!(
             "[core-memory] duplicate keys preserved; resolve them with explicit edits/deletes before installing the unique index"
