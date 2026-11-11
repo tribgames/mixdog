@@ -231,9 +231,32 @@ async fn replay_fs_search(scenario: &str) {
             set_mtime(&file, at("2026-01-02T03:04:05Z"));
         }
     }
+    if let Some(bulk) = fixture.get("bulkDirs") {
+        for i in 0..bulk["count"].as_u64().unwrap() {
+            std::fs::create_dir_all(ws.join(bulk["dir"].as_str().unwrap()).join(format!("{i:05}"))).unwrap();
+        }
+    }
     for (rel, iso) in mtimes.iter().filter(|(rel, _)| !files.contains_key(*rel)) {
         set_mtime(&ws.join(rel), at(iso.as_str().unwrap()));
     }
+    // The resize service (the extension host's sharp) answers the image bytes it was recorded on as recorded.
+    let resizer = fixture.get("resizer").map(|replies| {
+        let replies = replies.as_array().unwrap().iter().map(|r| {
+            assert_eq!(r["ext"], "png");
+            let reply = &r["reply"];
+            let dims = &reply["dimensions"];
+            let dim = |k: &str| dims[k].as_u64().unwrap() as u32;
+            (r["inputSha256"].as_str().unwrap().to_owned(), mixdog_core_api::domain::ext::ResizedImage {
+                data_base64: reply["data"].as_str().unwrap().to_owned(),
+                mime: reply["mimeType"].as_str().unwrap().to_owned(),
+                original_w: dim("originalWidth"),
+                original_h: dim("originalHeight"),
+                display_w: dim("displayWidth"),
+                display_h: dim("displayHeight"),
+            })
+        });
+        Arc::new(RecordedResizer(replies.collect())) as Arc<dyn mixdog_core_api::domain::ext::ImageResizer>
+    });
     let mut ctx = context_seeded(
         &AbsPath::new(&ws).unwrap(),
         Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
@@ -253,7 +276,7 @@ async fn replay_fs_search(scenario: &str) {
         ("glob", Box::new(GlobTool::new())),
         ("find", Box::new(FindTool::new())),
         ("grep", Box::new(GrepTool::new())),
-        ("read", Box::new(ReadTool::new(None, None))),
+        ("read", Box::new(ReadTool::new(None, resizer))),
         ("code_graph", Box::new(crate::code_graph::CodeGraphTool::new(Arc::new(NoRoots), graph_cache))),
     ];
     let tool_of = |name: &str| &tools.iter().find(|(n, _)| *n == name).unwrap_or_else(|| panic!("no replay for {name}")).1;
@@ -264,17 +287,44 @@ async fn replay_fs_search(scenario: &str) {
     let mut failures = Vec::new();
     for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
         let tool = call["tool"].as_str().unwrap();
-        let (is_error, text) = text_of(tool_of(tool).call(&ctx, args_of(&call["input"])).await);
+        let (is_error, text) = recorded_form(tool_of(tool).call(&ctx, args_of(&call["input"])).await);
         // An error message names the workspace behind the prefix it lies under (home, data dir); the recording's
-        // workspace lay under none, so that spelling is the workspace too.
+        // workspace lay under none, so that spelling is the workspace too. A rich answer's JSON escapes backslashes.
         let redacted = super::read_paths::redact(&fwd, None);
-        let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>").replace(&redacted, "<ROOT>");
-        let want = call["text"].as_str().unwrap_or_else(|| panic!("call {index} threw in Node"));
-        if text != want || is_error != (call["isError"] == true) {
-            failures.push(format!("#{index} {tool} {}:\n  want ({}) {want:?}\n  got  ({is_error}) {text:?}", call["input"], call["isError"]));
+        let escaped = raw.replace('\\', "\\\\");
+        let text = text.replace(&escaped, "<ROOT>").replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>").replace(&redacted, "<ROOT>");
+        // A call Node's tool threw is a failed call whose message is the thrown one.
+        let (want, want_error) = match call.get("thrown") {
+            Some(thrown) => (thrown.as_str().unwrap(), true),
+            None => (call["text"].as_str().unwrap(), call["isError"] == true),
+        };
+        if text != want || is_error != want_error {
+            failures.push(format!("#{index} {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A call's outcome as the recorder wrote Node's: its text, or for a rich answer (more than one block, an image among
+/// them) the JSON of its `{ content }` envelope.
+fn recorded_form(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String) {
+    let parts = match &outcome {
+        Ok(out) if out.parts.len() > 1 || out.parts.iter().any(|p| matches!(p, ToolPart::Image { .. })) => &out.parts,
+        _ => return text_of(outcome),
+    };
+    let blocks: Vec<String> = parts
+        .iter()
+        .map(|part| match part {
+            ToolPart::Text(t) => format!(r#"{{"type":"text","text":{}}}"#, serde_json::to_string(t).unwrap()),
+            ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => format!(
+                r#"{{"type":"image","data":"{}","mimeType":{}}}"#,
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+                serde_json::to_string(mime).unwrap()
+            ),
+            other => panic!("unexpected part {other:?}"),
+        })
+        .collect();
+    (false, format!(r#"{{"content":[{}]}}"#, blocks.join(",")))
 }
 
 /// A scenario recorded under its own environment (`env` in the fixture) replays in a child test process that carries
