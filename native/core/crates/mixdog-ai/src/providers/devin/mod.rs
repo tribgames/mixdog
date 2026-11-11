@@ -110,7 +110,10 @@ impl DevinCodec {
 fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(bytes).expect("writing to a Vec cannot fail");
-    encoder.finish().expect("finishing a Vec cannot fail")
+    let mut out = encoder.finish().expect("finishing a Vec cannot fail");
+    // The header's OS byte, as Node's zlib writes it for the host (`OS_CODE`: 10 on Windows, 3 on Unix).
+    out[9] = if cfg!(windows) { 10 } else { 3 };
+    out
 }
 
 impl WireCodec for DevinCodec {
@@ -185,6 +188,18 @@ fn account_key(session_token: &str) -> String {
         .collect()
 }
 
+/// `DevinOAuthProvider.send` runs no retry ladder (devin.mjs:383-431: no `withRetry`), so no row retries: every failure
+/// ends the send.
+fn no_retry_policy() -> RetryPolicy {
+    let mut policy = RetryPolicy::codex_default();
+    for row in [&mut policy.request, &mut policy.midstream, &mut policy.transport, &mut policy.connection] {
+        row.schedule.max_retries = 0;
+        row.by_kind.clear();
+    }
+    policy.recovery = None;
+    policy
+}
+
 impl DevinAdapter {
     pub fn new(base_url: Option<String>, http: Arc<dyn HttpSend>, token: Arc<dyn SessionToken>) -> Self {
         #[cfg(feature = "count-work")]
@@ -209,7 +224,7 @@ impl DevinAdapter {
             base_url,
             http,
             token,
-            policy: RetryPolicy::codex_default(),
+            policy: no_retry_policy(),
             keepalive: KeepaliveSchedule::SPEC,
             catalog: ArcSwapOption::empty(),
             rows: crate::catalog::RowStore::default(),
@@ -290,7 +305,7 @@ impl DevinAdapter {
 }
 
 fn random_uuid() -> String {
-    let bytes: [u8; 16] = rand::random();
+    let bytes: [u8; 16] = crate::random::bytes();
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
 }

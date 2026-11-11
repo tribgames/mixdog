@@ -860,7 +860,7 @@ async fn vertex_adc_mints_per_request_and_replays_the_recorded_401() {
     assert_eq!(http.urls(), scenario.recs.iter().map(|r| r.url.clone()).collect::<Vec<_>>());
     let seen = http.seen.lock().unwrap();
     assert_eq!(String::from_utf8_lossy(&seen[0].body), token.body);
-    assert!(seen[1].headers.contains(&("authorization".into(), "Bearer fixture-access-token".into())));
+    assert!(seen[1].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
 }
 
 fn vertex_at(place: VertexPlace, http: &Arc<Scripted>) -> super::adapter::GoogleAdapter {

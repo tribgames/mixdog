@@ -23,6 +23,7 @@ use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RetryLine;
+use mixdog_core_api::domain::provider::RetryLineStyle;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
@@ -184,7 +185,7 @@ impl ProviderAdapter for ResponsesEngine {
     /// `compatStreamRetryReporter` of the Responses send: `<name>:responses` (openai-compat-responses.mjs:319, :267;
     /// xAI's own send names the same, openai-compat-xai-send.mjs:154).
     fn retry_line(&self, _model: &str) -> Option<RetryLine> {
-        Some(RetryLine { tag: format!("[{}:responses]", self.account.id()), delay: true })
+        Some(RetryLine { tag: format!("[{}:responses]", self.account.id()), delay: true, style: RetryLineStyle::Attempt })
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.account.attempt_with(&self.codec, request).await
@@ -217,6 +218,11 @@ impl GatewayAdapter {
     /// `engines` serve the wires other than Chat, which is `account` itself.
     pub fn new(account: Arc<CompatAdapter>, engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>, pick: WirePick) -> Self {
         Self { account, engines, pick, session_header: false, messages_ceiling: None, last_wire: Mutex::default() }
+    }
+
+    /// Whether `model`'s last attempt went out on the Gemini wire.
+    fn on_gemini(&self, model: &str) -> bool {
+        self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model) == Some(&Wire::Gemini)
     }
 
     pub fn with_messages_ceiling(mut self, ceiling: Arc<dyn Fn(&str) -> Option<u32> + Send + Sync>) -> Self {
@@ -311,6 +317,22 @@ impl ProviderAdapter for GatewayAdapter {
         // The Chat engine's retry profile stays the account's loop policy (`wire-gateway.mjs`).
         self.account.retry_policy()
     }
+    /// Each wire's engine runs its own ladder (the Messages wire the Anthropic one, anthropic-api-transport.mjs:197; the
+    /// Gemini wire `runGeminiStreamAttempts`, opencode-go-gemini.mjs:137, whose attempts are counted by the connection);
+    /// the wire is known once an attempt went out on it, so the first failure of a send reads it.
+    fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
+        let wire = self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model).copied();
+        match wire.and_then(|wire| self.engines.iter().find(|(w, _)| *w == wire)) {
+            Some((_, engine)) => engine.retry_policy_for(model),
+            None => self.account.retry_policy(),
+        }
+    }
+    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        if self.on_gemini(model) {
+            return mixdog_core_api::domain::provider::SendStages { each_attempt: true, ladder_by_connection: true, ..Default::default() };
+        }
+        Default::default()
+    }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.account.keepalive()
     }
@@ -329,7 +351,9 @@ impl ProviderAdapter for GatewayAdapter {
     fn retry_line(&self, model: &str) -> Option<RetryLine> {
         let wire = *self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model)?;
         match wire {
-            Wire::Gemini => Some(RetryLine { tag: "[opencode-go:gemini]".into(), delay: false }),
+            Wire::Gemini => Some(RetryLine { tag: "[opencode-go:gemini]".into(), delay: false, style: RetryLineStyle::Attempt }),
+            // The Messages engine is an Anthropic provider named for the gateway (`label: this.name`, anthropic.mjs:411).
+            Wire::Messages => Some(RetryLine { tag: format!("[{}]", self.account.id()), delay: true, style: RetryLineStyle::Attempt }),
             other => self.engine(other)?.retry_line(model),
         }
     }
@@ -471,8 +495,8 @@ fn build_headers(sources: [Vec<(String, String)>; 5]) -> Vec<(String, String)> {
 fn sdk_order(sdk: Sdk, defaults: &[String], headers: Vec<(String, String)>) -> Vec<(String, String)> {
     let mut base = sdk.base();
     let (mut auth, mut client, mut body, mut own) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    for (name, value) in headers {
-        let name = name.to_ascii_lowercase();
+    for (spelled, value) in headers {
+        let name = spelled.to_ascii_lowercase();
         // A request's own timeout (the non-streaming re-issue's) is the SDK's timeout header, at its place.
         if name == "x-stainless-timeout"
             && let Some(slot) = base.iter_mut().find(|(known, _)| known.eq_ignore_ascii_case(&name))
@@ -481,19 +505,22 @@ fn sdk_order(sdk: Sdk, defaults: &[String], headers: Vec<(String, String)>) -> V
             continue;
         }
         // The codec's own `accept` beside the same one among the gateway's headers is one header.
-        if client.contains(&(name.clone(), value.clone())) || own.contains(&(name.clone(), value.clone())) {
+        let same = |(known, held): &(String, String)| known.eq_ignore_ascii_case(&name) && *held == value;
+        if client.iter().any(same) || own.iter().any(same) {
             continue;
         }
         match name.as_str() {
-            "authorization" | "x-api-key" => auth.push((name, value)),
+            // The auth header keeps the spelling its writer gave it (the SDK's own is lower-case, Vertex AI's is not).
+            "authorization" | "x-api-key" => auth.push((spelled, value)),
             "content-type" => body.push((name, value)),
-            _ if defaults.contains(&name) => client.push((name, value)),
+            // A client's `defaultHeaders` keep the spelling the client was given.
+            _ if defaults.contains(&name) => client.push((spelled, value)),
             _ if base.iter().any(|(n, v)| n.eq_ignore_ascii_case(&name) && *v == value) => {}
             _ => own.push((name, value)),
         }
     }
     // The client's `defaultHeaders` stand in the order the client was given them, wherever the codec wrote them.
-    client.sort_by_key(|(name, _)| defaults.iter().position(|d| d == name));
+    client.sort_by_key(|(name, _)| defaults.iter().position(|d| d.eq_ignore_ascii_case(name)));
     build_headers([base, auth, client, body, own])
 }
 

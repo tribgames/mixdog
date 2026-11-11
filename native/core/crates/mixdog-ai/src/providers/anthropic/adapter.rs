@@ -570,7 +570,12 @@ impl ProviderAdapter for AnthropicAdapter {
     /// The API-key route's `[<provider name>] retry attempt <n> after <message>, delay <ms>ms` (anthropic-api-transport.mjs:203-206,
     /// `label: this.name`, anthropic.mjs:411). The OAuth route writes a line of its own shape (anthropic-oauth-request.mjs:146).
     fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
-        (self.codec.flavor() == Flavor::ApiKey).then(|| mixdog_core_api::domain::provider::RetryLine { tag: format!("[{}]", self.id), delay: true })
+        use mixdog_core_api::domain::provider::RetryLine;
+        use mixdog_core_api::domain::provider::RetryLineStyle;
+        Some(match self.codec.flavor() {
+            Flavor::ApiKey => RetryLine { tag: format!("[{}]", self.id), delay: true, style: RetryLineStyle::Attempt },
+            Flavor::OAuth => RetryLine { tag: format!("[{}]", self.id), delay: true, style: RetryLineStyle::OfMax },
+        })
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
@@ -648,6 +653,18 @@ impl ProviderAdapter for AnthropicAdapter {
                 // nothing having streamed yet (anthropic.mjs:363-368).
                 if self.codec.flavor() == Flavor::ApiKey && rejected.status == Some(404) {
                     return self.non_streaming(&request, &wire, &secret).await;
+                }
+                if self.codec.flavor() == Flavor::OAuth && rejected.status != Some(429) {
+                    // `judgeInitialStatus` (initial-status.mjs:101) words a transient status alone; any other refusal
+                    // is worded and logged by `_handleHttpError` (anthropic-oauth.mjs:862, :949).
+                    let status = rejected.status.unwrap_or(0);
+                    if matches!(err.kind, ErrorKind::Transient | ErrorKind::Overloaded) {
+                        err.message = format!("Anthropic OAuth API {status}");
+                    } else {
+                        let shown = mixdog_js::slice_utf16(&refusal, 200);
+                        mixdog_rt::node_stderr!("[anthropic-oauth] API error {status}: {shown}");
+                        err.message = format!("Anthropic OAuth API {status}: {shown}");
+                    }
                 }
                 return Err(err);
             }

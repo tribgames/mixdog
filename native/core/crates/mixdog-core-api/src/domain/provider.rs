@@ -1218,6 +1218,20 @@ pub struct RetryLine {
     /// it): the Anthropic API's and the OpenAI-compatible ladders (anthropic-api-transport.mjs:203,
     /// compat-request-policy.mjs:9), not Gemini's (`geminiRetryLogger`, gemini.mjs:243).
     pub delay: bool,
+    /// How the line words the attempt and the cause.
+    pub style: RetryLineStyle,
+}
+
+/// The wording of a [`RetryLine`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RetryLineStyle {
+    /// `<tag> retry attempt <n> after <message>[<wait>]`.
+    Attempt,
+    /// `<tag> retry attempt <n>/<max> after <status, else code, else message>, backoff <ms>ms[ (retry-after)]`: the
+    /// Anthropic OAuth ladder (anthropic-oauth-request.mjs:146).
+    OfMax,
+    /// `<tag> retry <n> after <message>`: the Antigravity ladder (antigravity-transport.mjs:179).
+    Plain,
 }
 
 /// The display stages a provider's send raises around its attempts ([`ProviderAdapter::send_stages`]).

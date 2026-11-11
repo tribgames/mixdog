@@ -22,6 +22,7 @@ use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::RetryLine;
+use mixdog_core_api::domain::provider::RetryLineStyle;
 use mixdog_core_api::domain::provider::SendStages;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
@@ -429,7 +430,16 @@ impl ProviderAdapter for GoogleAdapter {
 
     /// `geminiRetryLogger(opts, '[gemini]')` of a send without a cached prefix (`_streamViaRest`'s label).
     fn retry_line(&self, model: &str) -> Option<RetryLine> {
-        self.direct_gemini(model).then(|| RetryLine { tag: "[gemini]".into(), delay: false })
+        if self.direct_gemini(model) {
+            return Some(RetryLine { tag: "[gemini]".into(), delay: false, style: RetryLineStyle::Attempt });
+        }
+        // Antigravity's ladder writes `[antigravity] retry <n> after <message>` (antigravity-transport.mjs:179); Vertex
+        // AI's open models the compat ladder's line (`withCompatRetryProfile('vertex-ai')`, compat-request-policy.mjs:9).
+        // Its Claude and Gemini models write none.
+        if matches!(self.codec.target(), Target::Antigravity { .. }) {
+            return Some(RetryLine { tag: "[antigravity]".into(), delay: false, style: RetryLineStyle::Plain });
+        }
+        self.codec.maas_model(model).is_some().then(|| RetryLine { tag: "[vertex-ai]".into(), delay: true, style: RetryLineStyle::Attempt })
     }
 
     /// `canFallbackNonStreaming` (retry-classification.mjs:402) of a stream-phase failure: nothing reached the caller,
