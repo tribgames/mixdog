@@ -718,8 +718,8 @@ async fn until_written(store: &Store, what: &str, done: impl Fn() -> bool) {
 
 /// The maintenance pass's deadline timer (`armDeadline`, maintenance-pass.mjs), on the registry's clock: a running row whose
 /// session is gone leaves the index as a tombstone when the clock reaches its reap deadline, with no agent call, status read
-/// or other event; a row already past its deadline when the timer starts (the core was down) is reaped at once (Node's first
-/// pass looks at every deadline after 0); a row that became active again before its deadline is reaped at its new one.
+/// or other event; a row already past its deadline when the timer starts (the core was down) is reaped by the first pass, one
+/// event delay after the start (Node's first pass looks at every deadline after 0); a row that became active again before its deadline is reaped at its new one.
 #[tokio::test]
 async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event() {
     let rig = Rig::new();
@@ -736,11 +736,15 @@ async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event(
     registry.refresh_tags_from_sessions(false, &lead("lead-b")).await;
     assert!(!reaped("s-overdue"), "another lead's read reaps nothing");
     let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    // The first pass is the event pass one `MAINTENANCE_EVENT_DELAY_MS` after the start (maintenance-pass.mjs:23,129).
+    clock.advance(999);
+    assert!(!reaped("s-overdue"), "not before the first pass");
+    clock.advance(1);
     until_written(&rig.store, "the row that came due while the core was down", || reaped("s-overdue")).await;
     assert!(!reaped("s-early") && !reaped("s-late") && !reaped("s-active"), "nothing else is due yet");
 
     // `s-active` works again 5 s in: its stamps move, and its deadline with them.
-    clock.advance(5_000);
+    clock.advance(4_000);
     {
         let mut st = registry.lock();
         let mut active = st.map("s-active").cloned().expect("the active row");
@@ -873,13 +877,7 @@ async fn a_leads_clients_are_told_of_rows_reaped_at_their_deadline_what_nodes_we
             registry.persist(&mut st, "sess_rows_active", Some(active));
         }
         let strings = |key: &str| step[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-        let (mut indexed, mut tombstoned) = (strings("indexed"), strings("tombstones"));
-        if step_at < 1000 {
-            // The core's timer removed the overdue row before the Lead's first read.
-            indexed.retain(|tag| tag != "overdue");
-            tombstoned.push("overdue".into());
-            tombstoned.sort();
-        }
+        let (indexed, tombstoned) = (strings("indexed"), strings("tombstones"));
         until_written(&rig.store, what, || tags(false) == indexed && tags(true) == tombstoned).await;
         let status = AgentStatus::status(late.as_ref(), &lead.id).await;
         let workers: Vec<String> = status.agent_workers.iter().map(|w| format!("{}:{}", w["tag"].as_str().unwrap(), w["status"].as_str().unwrap())).collect();
