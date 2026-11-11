@@ -198,6 +198,65 @@ function rescueRequest(file, root, overrides) {
   ]);
 }
 
+// ---- exit-classification.test.mjs 'glob empty-result diagnostics reuse settled stat records' ------------------------------
+{
+  const root = workspace('glob-empty-result');
+  await record({ name: 'glob-empty-result', test: 'scripts/shellhardening/exit-classification.test.mjs', case: 'glob empty-result diagnostics reuse settled stat records', tool: 'glob', files: {} }, root, [
+    [{ pattern: '**/*.definitely-missing', path: '<ROOT>', limit: 10, offset: 0 }, () => executeGlobTool({ pattern: '**/*.definitely-missing', path: root, head_limit: 10, offset: 0 }, process.cwd())],
+  ]);
+}
+
+// ---- search-io-integrity.test.mjs: the cases whose answer is a tool's text ---------------------------------------------
+// `generated`: files too large to hold, as parts (`bytes`, or `text` repeated `times` in `encoding` utf8|utf16le|utf16be).
+const SIO = `${B}/search-io-integrity.test.mjs`;
+function writeGenerated(root, generated) {
+  for (const [rel, parts] of Object.entries(generated)) {
+    const bufs = parts.map((p) => {
+      if (p.bytes) return Buffer.from(p.bytes);
+      const body = Buffer.from(p.text.repeat(p.times), p.encoding === 'utf8' ? 'utf8' : 'utf16le');
+      return p.encoding === 'utf16be' ? body.swap16() : body;
+    });
+    writeFileSync(join(root, rel), Buffer.concat(bufs));
+  }
+}
+{
+  // The test makes `stat` of `<root>/denied` fail with EACCES; the replay's file service does the same.
+  const root = workspace('grep-denied');
+  const denied = join(root, 'denied');
+  const fsp = (await import('node:fs/promises')).default;
+  const { syncBuiltinESMExports } = await import('node:module');
+  const stat = fsp.stat;
+  await record({ name: 'grep-denied-scope', test: SIO, case: 'permission errors on relative scopes do not broaden the search to the project', tool: 'grep', files: {}, denied: 'denied' }, root, [
+    [{ path: 'denied', pattern: 'alpha' }, async () => {
+      fsp.stat = async (path, ...rest) => {
+        if (String(path).toLowerCase() === denied.toLowerCase()) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+        return stat(path, ...rest);
+      };
+      syncBuiltinESMExports();
+      try {
+        return await executeBuiltinTool('grep', { path: 'denied', pattern: 'alpha' }, root);
+      } finally {
+        fsp.stat = stat;
+        syncBuiltinESMExports();
+      }
+    }],
+  ]);
+}
+for (const [name, testName, generated, reads] of [
+  ['read-range-of-large-file', 'full read tool reuses one handle and sample across range classification and reading',
+    { 'read-once.txt': [{ text: 'hello\n', times: 40000, encoding: 'utf8' }] }, [['read-once.txt', 5]]],
+  ['read-utf16-and-binary-tail', 'shared classification retains UTF-16 byte order and binary tail detection', {
+    'utf16-le.txt': [{ bytes: [255, 254] }, { text: '한글\n', times: 30000, encoding: 'utf16le' }],
+    'utf16-be.txt': [{ bytes: [254, 255] }, { text: '한글\n', times: 30000, encoding: 'utf16be' }],
+    'binary-tail.bin': [{ text: 'A', times: 200000, encoding: 'utf8' }, { bytes: [0] }],
+  }, [['utf16-le.txt', 2], ['utf16-be.txt', 2], ['binary-tail.bin', 2]]],
+]) {
+  const root = workspace(name);
+  writeGenerated(root, generated);
+  await record({ name, test: SIO, case: testName, tool: 'read', files: {}, generated }, root,
+    reads.map(([rel, limit]) => [{ file_path: rel, offset: 0, limit }, () => executeBuiltinTool('read', { path: rel, offset: 0, limit }, root)]));
+}
+
 // ---- cases not replayed ---------------------------------------------------------------------------------------------
 const EXCLUDED = {
   [FSB]: {
@@ -208,12 +267,14 @@ const EXCLUDED = {
   [`${B}/glob-empty-partial.test.mjs`]: {
     'the path cap does not hide errors from later groups or partial-result warnings':
       'gone: per-group rg runs with a faked failure in one group (Rust walks once, no group runs)',
+    'empty partial glob results keep the incomplete warning and are not cached': 'difference: Node `(no files found yet) pattern="**/*.mjs" path=<ROOT>; <ROOT>: path exists (dir)\\n[entries 1-0; offset:0 for more]\\n... [warning] rg exit 2 (partial results); listing may be incomplete`, Rust `(no files found yet)\\n[warning] search timed out; partial results shown. Narrow path/pattern for a complete result.`',
   },
   [`${B}/grep-no-match-body.test.mjs`]: {
     'a chunk-merged pattern set answers a miss with the short no-match body': 'gone: pattern chunking (its body is the faked inner grep answer)',
   },
   [`${B}/grep-single-file-rescue.test.mjs`]: {
     'a request the scanner cannot reproduce declines instead of guessing': 'gone: the rescue scanner declining (Rust has no rescue path)',
+    'counts and no-match answers keep the ordinary grep shapes (call 0: mode count)': 'difference: a one-file count is `2\\n[total 2 matches across 1 file]` in Node, `status:2\\n[total 2 matches across 1 file]` in Rust',
   },
   [`${B}/grep-pattern-fanout.test.mjs`]: {
     'all-miss combined and prefiltered fallback searches return one whole-scope notice (multilineMode true)': 'not replayable: multiline is no public grep argument',
@@ -236,18 +297,29 @@ const EXCLUDED = {
     'a glob run that exactly fills the accumulation cap is complete, not truncated (exactly the cap)': 'difference: at the 20 KB locator cap Node ends `[output capped at 20 KB; 1364 complete row(s) shown for path="<ROOT>"; offset:1364 for more]`, Rust `[output capped at 20 KB; 1376 entries shown; offset:1376 for more]`',
     'a glob run that exactly fills the accumulation cap is complete, not truncated (one past the cap)': 'difference: as exactly the cap (1364 complete rows in Node, 1376 entries in Rust)',
   },
-  [`${B}/glob-empty-partial.test.mjs`]: {
-    'empty partial glob results keep the incomplete warning and are not cached': 'difference: Node `(no files found yet) pattern="**/*.mjs" path=<ROOT>; <ROOT>: path exists (dir)\\n[entries 1-0; offset:0 for more]\\n... [warning] rg exit 2 (partial results); listing may be incomplete`, Rust `(no files found yet)\\n[warning] search timed out; partial results shown. Narrow path/pattern for a complete result.`',
-  },
   [`${B}/glob-ignore-contract.test.mjs`]: {
     'glob opt-in includes ignored files without leaking across cached scopes (call 1: sort natural, include_noise true)': 'difference: Node lists the walk order `visible.txt, node_modules/pkg/item.txt, bundle-two/item.txt, bundle-one/item.txt`, Rust the name order `bundle-one/…, bundle-two/…, node_modules/…, visible.txt`',
   },
-  [`${B}/grep-single-file-rescue.test.mjs`]: {
-    'counts and no-match answers keep the ordinary grep shapes (call 0: mode count)': 'difference: a one-file count is `2\\n[total 2 matches across 1 file]` in Node, `status:2\\n[total 2 matches across 1 file]` in Rust',
+  [SIO]: {
+    'raw source windows preserve cross-chunk UTF-8, CRLF and final unterminated lines': 'gone (gaps-tools row 48): readSourceWindows, the JS chunked reader',
+    'adaptive source windows preserve split UTF-8 and CRLF across separated intervals': 'gone (row 48): readSourceWindows',
+    'nearby source windows keep a single 64 KiB read on a large file': 'gone (row 48): readSourceWindows read accounting',
+    'deep raw windows rescan large files and detect same-version suffix newline changes': 'gone (row 48): readSourceWindows',
+    'combined pattern context reads each selected file once': 'difference (gaps-tools row 33): per-pattern `# grep pattern:` sections exist in Node only',
+    'broad context expansion bounds simultaneously open files': 'gone: open-handle accounting of the JS context expander',
+    'one-sided context is preserved by independent pattern searches': 'difference (row 33): per-pattern fanout exists in Node only',
+    'cancelled combined searches never start a prefilter or pattern fallback': 'gone: the pattern fanout and its prefilter (Rust runs one search)',
+    'cancelled source context does not become a successful anchor-only result': 'gone: expandGrepAnchorContextOutput fed rg lines (no Rust counterpart below the grep tool)',
+    'full read tool reuses one handle and sample across range classification and reading': 'difference: `read offset:0 limit:5` answers the first five lines in Node (`[lines 1-5]\\nhello…\\n[lines 1-5; offset:5 for more]`) and `Error: read offset must be an integer >= 1 and limit an integer from 1 to 100000` in Rust (the open and byte counts are Node file-handle accounting, gone)',
+    'shared classification retains UTF-16 byte order and binary tail detection': 'difference: the same `offset:0` refusal in Rust (Node: `[lines 1-2]\\n한글\\n한글\\n[lines 1-2 of 30000; offset:2 for more]`, and `binary, 200001 bytes` with hex for the binary tail)',
+    'permission errors on relative scopes do not broaden the search to the project': 'difference: Node `Error: path does not exist: <ROOT>/denied (EACCES)`, Rust `Error: EACCES: permission denied: denied`',
+  },
+  'scripts/shellhardening/exit-classification.test.mjs': {
+    'glob empty-result diagnostics reuse settled stat records': 'difference: Node `(no files found) pattern="**/*.definitely-missing" path=<ROOT>; <ROOT>: path exists (dir)`, Rust `(no files found)`',
   },
 };
 // Differences named above: the case, or the call of the case, is left out of the replay.
-const LEFT_OUT = { 'find-fuzzy-cap': null, 'glob-exact-cap': null, 'glob-over-cap': null, 'glob-empty-partial': null, 'glob-ignore-contract': [1], 'grep-rescue-count-and-miss': [0] };
+const LEFT_OUT = { 'glob-empty-result': null, 'grep-denied-scope': null, 'read-range-of-large-file': null, 'read-utf16-and-binary-tail': null, 'find-fuzzy-cap': null, 'glob-exact-cap': null, 'glob-over-cap': null, 'glob-empty-partial': null, 'glob-ignore-contract': [1], 'grep-rescue-count-and-miss': [0] };
 const replayed = cases
   .filter((c) => LEFT_OUT[c.name] !== null)
   .map((c) => (LEFT_OUT[c.name] ? { ...c, calls: c.calls.filter((_, i) => !LEFT_OUT[c.name].includes(i)) } : c));

@@ -123,6 +123,9 @@ const EXCLUDED = {
     '<label>: failed metadata is incomplete, uncached, and the next call re-reads (each label)': 'gone: injected list metadata and the list result cache',
     'concurrent subscribers share a metadata-incomplete outcome': 'gone: shared list flights',
   },
+  [`${B}/raw-content-publication.test.mjs`]: {
+    'every case (post-read field mismatches, failed/incomplete post-stat, stable publish and hit, mutated pre-stat, replacement during read, read failure, stale caller versions, invocation-local content, publication guards, zero-byte, BOM encodings, symlink)': 'gone: each case asserts the shared raw-content cache (`rawContentCacheGet`) after a read; Rust has no raw-content cache, and the reads\' own text (the file\'s text, or a V4A diff) is what the read and apply_patch replays already compare',
+  },
   [M]: {
     "window markers … (the `unit: 'chars'` / `offsetKey: 'startIndex'` call)": 'no Rust form: the Rust window marker has no offset key argument (no Rust caller uses another key)',
     'cap markers … (the `cursor` call and the `fullPath` call)': 'no Rust form: the Rust cap marker has no cursor or full-path argument (no Rust caller)',
