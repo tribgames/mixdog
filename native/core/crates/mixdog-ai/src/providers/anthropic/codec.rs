@@ -243,6 +243,8 @@ pub(super) fn beta_names(wire: &WireRequest) -> Vec<String> {
 /// A request built for one attempt, before any thread plan.
 pub(super) struct Plain {
     pub wire: WireRequest,
+    /// The body's prefix fingerprint, recorded when the request is sent.
+    pub prefix: super::prefix_trace::Fingerprint,
 }
 
 impl AnthropicCodec {
@@ -336,6 +338,7 @@ impl AnthropicCodec {
                 headers,
                 body: built.bytes,
             },
+            prefix: built.prefix,
         })
     }
 }

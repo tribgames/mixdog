@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11745,
+      "bytes": 57842,
       "path": "golden.json",
-      "sha256": "051357cc41932f45d4f4f9297b0287f0446a0692b663e6eaa46c2a970ea21963"
+      "sha256": "2d36adfb290f47cdb50b2076208165e8fe649332425c6d37a6dfeee12c3bef6f"
     }
   ],
   "inputs": [
@@ -18,7 +18,7 @@
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
-  "keptWhole": "the cache_break lines of the local trace file, the [cache-break] stderr lines, each request's message and image count, and per payload record its payload, row and stderr line",
+  "keptWhole": "the cache_break lines of the local trace file, the [cache-break] stderr lines, each request's message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes",
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -38,12 +38,15 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-cache-break.mjs",
-  "recorderSha256": "ce3b9a15ef4b011eccf47e5646af70fc05e457dc537333dd62f67a06c05434b2",
+  "recorderSha256": "0a43bf70b0f31df48c322ba95d153371132df3384830e24f3f827dbd1d60b018",
   "set": "cache-break",
   "syntheticInputs": [
     "the loop: a system prompt and one user turn of text and one image; a provider named anthropic whose first send throws \"Could not process image\" with status 400 and whose second answers \"ok\"",
     "Date.now fixed at 1700000000000; MIXDOG_DIAGNOSTICS=1 so the local trace file is written",
-    "the payload records: synthetic values reaching every buildCacheBreakPayload field"
+    "the payload records: synthetic values reaching every buildCacheBreakPayload field",
+    "the turns: six agentLoop turns of one anthropic session (a 5m messages cache) with the usage, model and tools given per turn, and a manual compaction's rewritten transcript and pending intent before the fourth",
+    "the guard cases: synthetic transcripts and request prefixes reaching every prepareProviderPrefixGuard branch",
+    "the prefix bodies: synthetic Anthropic request bodies moving each fingerprinted block, marker and message breakpoint"
   ],
-  "totalBytes": 11745
+  "totalBytes": 57842
 }

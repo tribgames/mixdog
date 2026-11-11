@@ -6,6 +6,10 @@
 //   and image count, the `cache_break` rows of the local trace file, and the `[cache-break]` stderr lines.
 // - `payloads`: `traceCacheBreak` over records that reach every field of `buildCacheBreakPayload` and the stderr line
 //   (text cleaning, hash cut, number coercion, the null drop), with the row it hands its trace function.
+// - `turns`: one session through six `agentLoop` turns: the usage-detected `actual_cache_miss`, a `model_changed` and a
+//   `tool_schema_changed` request break, and the `manual_compaction` break a compaction between turns tags.
+// - `guard`: `prepareProviderPrefixGuard` over fingerprints reaching each of its breaks (and its refusals).
+// - `prefix`, `seeded`: the Anthropic request fingerprints the cache-miss row names its moved blocks from.
 //
 //   node benchmarks/rust-core/recorders/record-cache-break.mjs --tree <exact export of b6f10295a>
 // Output: native/core/fixtures/cache-break/golden.json
@@ -103,6 +107,136 @@ const payloads = records.map((record) => {
   return { record, payload, row: rows[0] ?? null, stderr: lines.join('') };
 });
 
+// The turns: one session through six turns of `agentLoop` (each turn's answer joins the transcript as the turn commit adds it),
+// the session record carrying what the loop keeps on it between turns (`_providerPrefixGuardState`, `lastProviderSendAt`,
+// `lastProviderCachedPrefixTokens`, `pendingCacheBreakIntent`). Each turn's provider answer carries the usage given.
+const turnSession = { id: 'sess_cache_turns', owner: 'user', provider: 'anthropic', cwd: root, providerCacheOpts: { cacheStrategy: { messages: '5m' } }, messages: [] };
+const convo = [{ role: 'system', content: 'Stable instructions.' }];
+const echoTool = { name: 'echo', description: 'Echoes its input.', inputSchema: { type: 'object', properties: {} } };
+const usage = (input, cached, write) => ({ inputTokens: input, outputTokens: 2, cachedTokens: cached, cacheWriteTokens: write, promptTokens: input + cached + write });
+const steps = [
+  { name: 'first', prompt: 'one', model: 'claude-test', tools: [], usage: usage(10, 0, 6000) },
+  { name: 'cache miss', prompt: 'two', model: 'claude-test', tools: [], usage: usage(10, 100, 50) },
+  { name: 'model switch', prompt: 'three', model: 'claude-test-2', tools: [], usage: usage(10, 0, 7000) },
+  { name: 'compaction between turns', compact: true, prompt: 'four', model: 'claude-test-2', tools: [], usage: usage(10, 0, 3000) },
+  { name: 'tool schema', prompt: 'five', model: 'claude-test-2', tools: [echoTool], usage: usage(10, 3000, 100) },
+  { name: 'warm', prompt: 'six', model: 'claude-test-2', tools: [echoTool], usage: usage(10, 3100, 20) },
+];
+const turns = [];
+for (const [index, step] of steps.entries()) {
+  if (step.compact) {
+    // What a manual compaction leaves (compaction-runner.mjs): a rewritten transcript and the one-shot intent.
+    convo.splice(1, convo.length - 1, { role: 'user', content: 'Summary of the earlier turns.' }, { role: 'assistant', content: 'Noted.' });
+    turnSession.pendingCacheBreakIntent = 'manual_compaction';
+  }
+  convo.push({ role: 'user', content: step.prompt });
+  const before = traceRows().length;
+  stderrLines.splice(0);
+  const answer = `answer ${index + 1}`;
+  const result = await agentLoop(
+    {
+      name: 'anthropic',
+      async send() {
+        return { content: answer, toolCalls: [], stopReason: 'end_turn', usage: step.usage };
+      },
+    },
+    convo,
+    step.model,
+    step.tools,
+    null,
+    root,
+    { session: turnSession, sessionId: turnSession.id }
+  );
+  convo.push({ role: 'assistant', content: result.content });
+  await drainAgentTrace();
+  turns.push({
+    name: step.name,
+    prompt: step.prompt,
+    answer,
+    model: step.model,
+    tools: step.tools.map((tool) => tool.name),
+    compact: step.compact === true,
+    usage: step.usage,
+    rows: traceRows().slice(before).filter((line) => JSON.parse(line).kind === 'cache_break'),
+    stderr: stderrLines.splice(0),
+    record: { lastProviderCachedPrefixTokens: turnSession.lastProviderCachedPrefixTokens ?? null, pendingCacheBreakIntent: turnSession.pendingCacheBreakIntent ?? null },
+  });
+}
+
+// The guard's comparison (`prepareProviderPrefixGuard`) over request fingerprints that reach each of its breaks: the
+// previous and next fingerprints, the options, the details handed to `onCacheBreak`, and whether it refused the send.
+const { prepareProviderPrefixGuard } = await importFrom(tree, `${orch}/session/provider-prefix-guard.mjs`);
+const print = (messages, prefix, options) => prepareProviderPrefixGuard(null, messages, prefix, options);
+const user = (text) => ({ role: 'user', content: text });
+const base = [{ role: 'system', content: 'S' }, user('a'), { role: 'assistant', content: 'b' }];
+const toolA = { name: 'a', description: 'A.', inputSchema: { type: 'object' } };
+const deferred = { ...toolA, name: 'd', deferLoading: true };
+const guardCases = [
+  ['continued', base, base.concat(user('c')), {}, {}, {}],
+  ['history shrink', base, base.slice(0, 2), {}, {}, {}],
+  ['message rewritten', base, [base[0], user('A'), base[2], user('c')], {}, {}, {}],
+  ['message rewritten by a transcript rebuild', base, [base[0], user('A')], {}, {}, { cacheBreakIntent: 'transcript_rebuild', mutationSource: 'transcript_rebuild' }],
+  ['compaction', base, [base[0], user('summary')], {}, {}, { cacheBreakIntent: 'automatic_compaction' }],
+  ['compaction that changed nothing', base, base, {}, {}, { cacheBreakIntent: 'post_turn_compaction' }],
+  ['compaction of the request prefix alone', base, base, { tools: [] }, { tools: [toolA] }, { cacheBreakIntent: 'deferred_body_compaction' }],
+  ['a non-compaction intent', base, base, {}, {}, { cacheBreakIntent: 'tool_surface_bridge_migration' }],
+  ['provider changed', base, base, {}, {}, { nextProvider: 'openai' }],
+  ['model changed', base, base, {}, {}, { nextModel: 'm2' }],
+  ['tool schema changed', base, base, { tools: [] }, { tools: [toolA] }, {}],
+  ['native tool schema changed', base, base, { tools: [], nativeTools: [] }, { tools: [], nativeTools: [{ type: 'web_search' }] }, {}],
+  ['a deferred tool on anthropic', base, base, { tools: [toolA] }, { tools: [toolA, deferred] }, {}],
+  ['a deferred tool elsewhere', base, base, { tools: [toolA] }, { tools: [toolA, deferred] }, { provider: 'openai' }],
+  ['request properties changed', base, base, { tools: [] }, { tools: [], extra: 1 }, {}],
+];
+const guard = guardCases.map(([name, before, after, beforePrefix, afterPrefix, options]) => {
+  const provider = options.provider ?? 'anthropic';
+  const previous = print(before, beforePrefix, { provider, model: 'm1' });
+  const breaks = [];
+  const nextOptions = {
+    provider: options.nextProvider ?? provider,
+    model: options.nextModel ?? 'm1',
+    cacheBreakIntent: options.cacheBreakIntent,
+    mutationSource: options.mutationSource ?? null,
+    onCacheBreak: (details) => breaks.push(details),
+  };
+  let next = null;
+  let thrown = null;
+  try {
+    next = prepareProviderPrefixGuard(previous, after, afterPrefix, nextOptions);
+  } catch (error) {
+    thrown = { name: error.name, code: error.code, message: error.message };
+  }
+  const { onCacheBreak: _drop, ...told } = nextOptions;
+  return { name, previous, next: next ?? print(after, afterPrefix, { provider: nextOptions.provider, model: nextOptions.model }), options: told, breaks, thrown };
+});
+
+// The Anthropic request fingerprints (`anthropic-prefix-trace.mjs`) over bodies that move each block, marker and message
+// breakpoint: per body, the session it is recorded under, the persisted fingerprint and the changes from the one before.
+const prefixTrace = await importFrom(tree, `${orch}/providers/lib/anthropic-prefix-trace.mjs`);
+const sys = (text, marker) => ({ type: 'text', text, ...(marker ? { cache_control: marker } : {}) });
+const msg = (role, text, marker) => ({ role, content: [{ type: 'text', text, ...(marker ? { cache_control: marker } : {}) }] });
+const tools1 = [{ name: 't1', description: 'T.', input_schema: { type: 'object' } }];
+const thinking = { type: 'enabled', budget_tokens: 1024 };
+const bodies = [
+  ['first', 'sess_prefix_a', { model: 'm', max_tokens: 10, system: [sys('A', { type: 'ephemeral', ttl: '1h' }), sys('env')], messages: [msg('user', 'hi', { type: 'ephemeral' })], tools: tools1, thinking, stream: true }],
+  ['grown', 'sess_prefix_a', { model: 'm', max_tokens: 10, system: [sys('A', { type: 'ephemeral', ttl: '1h' }), sys('env')], messages: [msg('user', 'hi'), { role: 'assistant', content: 'hello' }, msg('user', 'more', { type: 'ephemeral' })], tools: tools1, thinking, stream: true }],
+  ['system and tools moved', 'sess_prefix_a', { model: 'm', max_tokens: 10, system: [sys('A', { type: 'ephemeral', ttl: '1h' }), sys('env2')], messages: [msg('user', 'hi'), { role: 'assistant', content: 'hello' }, msg('user', 'more', { type: 'ephemeral' })], tools: [], thinking, stream: true }],
+  ['params and a rewritten message', 'sess_prefix_a', { model: 'm', max_tokens: 10, system: [sys('A'), sys('env2', { type: 'ephemeral' })], messages: [msg('user', 'HI'), { role: 'assistant', content: 'hello' }, msg('user', 'more', { type: 'ephemeral' })], output_config: { effort: 'high' }, stream: true }],
+  ['another session', 'sess_prefix_b', { model: 'm', max_tokens: 10, messages: [{ role: 'user', content: 'plain' }], stream: true }],
+];
+const prefix = bodies.map(([name, session, body]) => {
+  prefixTrace.recordAnthropicPrefix(session, prefixTrace.anthropicPrefixFingerprint(body));
+  return { name, session, body, persisted: prefixTrace.persistableAnthropicPrefix(prefixTrace.latestAnthropicPrefix(session)), changes: prefixTrace.anthropicPrefixChanges(session) };
+});
+// A restarted process: the record's fingerprint seeds the session, a second seed is a no-op, and the next request is compared
+// with the seeded one.
+const seededFrom = prefix[1].persisted;
+prefixTrace.seedAnthropicPrefix('sess_prefix_seeded', seededFrom);
+prefixTrace.seedAnthropicPrefix('sess_prefix_seeded', prefix[3].persisted);
+const seededBefore = prefixTrace.anthropicPrefixChanges('sess_prefix_seeded');
+prefixTrace.recordAnthropicPrefix('sess_prefix_seeded', prefixTrace.anthropicPrefixFingerprint(bodies[2][2]));
+const seeded = { from: seededFrom, body: bodies[2][2], changesBefore: seededBefore, changes: prefixTrace.anthropicPrefixChanges('sess_prefix_seeded') };
+
 process.stderr.write = writeStderr;
 rmSync(root, { recursive: true, force: true });
 
@@ -113,6 +247,10 @@ writeJson(join(out, 'golden.json'), {
   now: T0,
   loop: { session: session.id, model: 'claude-test', provider: 'anthropic', requests, rows: loopRows, stderr: loopStderr },
   payloads,
+  turns: { session: turnSession.id, provider: 'anthropic', cacheStrategy: turnSession.providerCacheOpts.cacheStrategy, system: convo[0].content, steps: turns },
+  guard,
+  prefix,
+  seeded,
 });
 writeSetManifest(out, {
   set: 'cache-break',
@@ -125,8 +263,11 @@ writeSetManifest(out, {
       'the loop: a system prompt and one user turn of text and one image; a provider named anthropic whose first send throws "Could not process image" with status 400 and whose second answers "ok"',
       'Date.now fixed at 1700000000000; MIXDOG_DIAGNOSTICS=1 so the local trace file is written',
       'the payload records: synthetic values reaching every buildCacheBreakPayload field',
+      'the turns: six agentLoop turns of one anthropic session (a 5m messages cache) with the usage, model and tools given per turn, and a manual compaction\'s rewritten transcript and pending intent before the fourth',
+      'the guard cases: synthetic transcripts and request prefixes reaching every prepareProviderPrefixGuard branch',
+      'the prefix bodies: synthetic Anthropic request bodies moving each fingerprinted block, marker and message breakpoint',
     ],
-    keptWhole: 'the cache_break lines of the local trace file, the [cache-break] stderr lines, each request\'s message and image count, and per payload record its payload, row and stderr line',
+    keptWhole: 'the cache_break lines of the local trace file, the [cache-break] stderr lines, each request\'s message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes',
   },
 });
 commitStage(out, finalOut);

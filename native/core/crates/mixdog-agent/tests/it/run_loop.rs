@@ -2318,6 +2318,194 @@ async fn an_image_strip_replay_traces_the_cache_break_node_traces() {
     assert_eq!(json!(lines), node["stderr"], "the stderr lines");
 }
 
+fn cache_break_golden() -> JsonValue {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cache-break/golden.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// Each distinct digest named by its order of appearance: the core digests its own wire values, not Node's JSON, so a break
+/// is compared by which requests its digests name, not by their bytes.
+#[derive(Default)]
+struct Digests(Vec<String>);
+
+impl Digests {
+    fn label(&mut self, digest: &str) -> String {
+        let at = self.0.iter().position(|d| d == digest).unwrap_or_else(|| {
+            self.0.push(digest.to_owned());
+            self.0.len() - 1
+        });
+        format!("<digest {at}>")
+    }
+
+    /// A trace row with its payload's digests labelled.
+    fn row(&mut self, row: &str) -> String {
+        let mut row: JsonValue = serde_json::from_str(row).unwrap();
+        if let Some(payload) = row.get_mut("payload").and_then(JsonValue::as_object_mut) {
+            for key in ["previous_hash", "next_hash", "previous_request_prefix_hash", "next_request_prefix_hash"] {
+                if let Some(JsonValue::String(digest)) = payload.get(key).cloned() {
+                    payload.insert(key.into(), json!(self.label(&digest)));
+                }
+            }
+        }
+        serde_json::to_string(&row).unwrap()
+    }
+
+    /// A stderr line with its `previousHash`/`nextHash` labelled.
+    fn line(&mut self, line: &str) -> String {
+        let mut out = String::new();
+        let mut rest = line;
+        while let Some(at) = ["previousHash=\"", "nextHash=\""].iter().filter_map(|key| rest.find(key).map(|i| (i, key.len()))).min() {
+            let (start, len) = at;
+            out.push_str(&rest[..start + len]);
+            rest = &rest[start + len..];
+            let end = rest.find('"').unwrap();
+            out.push_str(&self.label(&rest[..end]));
+            rest = &rest[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+}
+
+/// `fixtures/cache-break` `turns` (record-cache-break.mjs): one Anthropic session through six turns of the loop, each answered
+/// with the recorded usage, its record carrying between turns what the host saves of the run's carry (and the send time the
+/// usage change saves): the usage-detected `actual_cache_miss`, the `model_changed` and `tool_schema_changed` request breaks
+/// and the `manual_compaction` break a compaction between turns tags are the rows and stderr lines Node traced, turn by turn.
+#[tokio::test]
+async fn a_sessions_turns_trace_the_cache_breaks_node_traces() {
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::Usage;
+    let golden = cache_break_golden();
+    let node = &golden["turns"];
+    let now = golden["now"].as_i64().unwrap();
+    let thread = node["session"].as_str().unwrap();
+    let assistant = |text: &str| AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into())));
+    let mut header = serde_json::Map::new();
+    header.insert("providerCacheOpts".into(), json!({ "cacheStrategy": node["cacheStrategy"] }));
+    let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(node["system"].as_str().unwrap().into())))];
+    let mut guard = None;
+    let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+    for step in node["steps"].as_array().unwrap() {
+        let name = step["name"].as_str().unwrap();
+        if step["compact"] == true {
+            // What the manual compaction left: a rewritten transcript, and the intent the host's assembly takes from the record.
+            messages.truncate(1);
+            messages.push(AgentMessage::user("Summary of the earlier turns."));
+            messages.push(assistant("Noted."));
+        }
+        messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
+        let usage = &step["usage"];
+        let count = |key: &str| usage[key].as_u64().unwrap();
+        let reported = Usage { input_tokens: count("inputTokens"), output_tokens: count("outputTokens"), cache_read_tokens: count("cachedTokens"), cache_write_tokens: count("cacheWriteTokens"), ..Default::default() };
+        let answer = step["answer"].as_str().unwrap();
+        let mut h = Harness::new(Vec::new());
+        h.provider = Arc::new(Scripted {
+            id: ProviderId::from(node["provider"].as_str().unwrap()),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
+            requests: Mutex::new(Vec::new()),
+            settled: Mutex::new(Vec::new()),
+        });
+        let breaks = Arc::new(CacheBreaks::default());
+        h.failures = Some(breaks.clone());
+        let mut config = RunConfig::new(ThreadId::from(thread), TurnId::from("r"), step["model"].as_str().unwrap());
+        if step["compact"] == true {
+            config.cache_break_intent = Some("manual_compaction".into());
+        }
+        let tools: Vec<Arc<dyn Tool>> = if step["tools"].as_array().unwrap().is_empty() { Vec::new() } else { vec![Echo::tool()] };
+        let names = tools.iter().map(|t| t.spec().name.clone()).collect();
+        let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
+        let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(tools, names), h.tool_env(), config, messages.clone(), carry);
+        let output = finish(run).await;
+        // The host saves the run's carry with the record; the usage change saves the send's time (`lastProviderSendAt`).
+        header.extend(output.carry.to_saved());
+        header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
+        guard = output.carry.prefix_guard.clone();
+        messages.push(assistant(answer));
+
+        let records = breaks.0.lock().unwrap().clone();
+        let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+        let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+        assert_eq!(rows, want, "{name}: the trace rows");
+        let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+        let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+        assert_eq!(lines, want, "{name}: the stderr lines");
+        assert_eq!(header.get("lastProviderCachedPrefixTokens").cloned().unwrap_or(JsonValue::Null), step["record"]["lastProviderCachedPrefixTokens"], "{name}: the record's cache read plus write");
+    }
+}
+
+/// `fixtures/cache-break` `guard`: the comparison over Node's own request fingerprints tells each break Node told, with the
+/// same details; an unexpected break, which Node also refuses, is traced and not refused.
+#[test]
+fn the_prefix_guard_tells_every_break_node_tells() {
+    use mixdog_agent::prefix_guard::GuardOptions;
+    use mixdog_agent::prefix_guard::Snapshot;
+    let golden = cache_break_golden();
+    let snapshot = |value: &JsonValue| Snapshot {
+        message_hashes: value["messageHashes"].as_array().unwrap().iter().map(|h| h.as_str().unwrap().to_owned()).collect(),
+        request_prefix_hash: value["requestPrefixHash"].as_str().unwrap().into(),
+        provider: value["provider"].as_str().unwrap().into(),
+        model: value["model"].as_str().unwrap().into(),
+        tool_schema_hash: value["toolSchemaHash"].as_str().unwrap().into(),
+        native_tool_schema_hash: value["nativeToolSchemaHash"].as_str().unwrap().into(),
+    };
+    for case in golden["guard"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let options = &case["options"];
+        let told = mixdog_agent::prefix_guard::compare(
+            Some(&snapshot(&case["previous"])),
+            &snapshot(&case["next"]),
+            &GuardOptions { provider: options["provider"].as_str().unwrap(), model: options["model"].as_str().unwrap(), intent: options["cacheBreakIntent"].as_str(), mutation_source: options["mutationSource"].as_str() },
+        );
+        let want: Vec<JsonValue> = case["breaks"].as_array().unwrap().clone();
+        assert_eq!(told.map(JsonValue::Object).into_iter().collect::<Vec<_>>(), want, "{name}");
+        assert_eq!(case["thrown"].is_null(), want.first().is_none_or(|b| b["classification"] != "unexpected"), "{name}: Node refuses exactly the unexpected breaks");
+    }
+}
+
+/// `fixtures/cache-break` `guard` (the deferred-tool cases): an Anthropic request's fingerprint leaves a deferred tool out of
+/// its prefix, any other provider's keeps it; whether the prefix moved is what Node's comparison found.
+#[test]
+fn a_deferred_tool_moves_the_request_prefix_where_node_says() {
+    use mixdog_core_api::domain::provider::ToolDefinition;
+    let golden = cache_break_golden();
+    let tool = |name: &str, deferred: bool| ToolDefinition { name: name.into(), description: format!("{name}."), input_schema: json!({ "type": "object" }), defer_loading: deferred, freeform: None };
+    for name in ["a deferred tool on anthropic", "a deferred tool elsewhere"] {
+        let case = golden["guard"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
+        let provider = case["options"]["provider"].as_str().unwrap();
+        let before = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false)], &[], provider, "m1");
+        let after = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false), tool("d", true)], &[], provider, "m1");
+        assert_eq!(before.request_prefix_hash == after.request_prefix_hash, case["previous"]["requestPrefixHash"] == case["next"]["requestPrefixHash"], "{name}");
+    }
+}
+
+/// `fixtures/cache-break` `prefix`, `seeded`: the Anthropic request fingerprints the cache-miss row names its moved blocks from:
+/// the persisted fingerprint of every body, the changes from the body before, and a restarted process's seed.
+#[test]
+fn the_anthropic_prefix_fingerprints_are_nodes() {
+    use mixdog_ai::providers::anthropic::prefix_trace;
+    let golden = cache_break_golden();
+    // The recording's session ids, kept apart from any other test's by a suffix.
+    let ours = |session: &str| format!("{session}:run_loop");
+    for case in golden["prefix"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let session = ours(case["session"].as_str().unwrap());
+        prefix_trace::record(Some(&session), prefix_trace::fingerprint(case["body"].as_object().unwrap()));
+        assert_eq!(prefix_trace::latest_persistable(&session).unwrap_or(JsonValue::Null), case["persisted"], "{name}: the persisted fingerprint");
+        assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), case["changes"], "{name}: the changes");
+    }
+    let seeded = &golden["seeded"];
+    let session = ours("sess_prefix_seeded");
+    prefix_trace::seed(&session, Some(&seeded["from"]));
+    prefix_trace::seed(&session, Some(&golden["prefix"][3]["persisted"]));
+    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changesBefore"], "a seed alone");
+    prefix_trace::record(Some(&session), prefix_trace::fingerprint(seeded["body"].as_object().unwrap()));
+    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changes"], "the request after a seed");
+}
+
 #[tokio::test]
 async fn a_retried_send_keeps_one_group_and_settles_nothing_on_success() {
     let h = Harness::new(vec![overloaded(), overloaded(), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
