@@ -5,8 +5,8 @@
 // forms). Recorded from an exact export: the relay's own frame executor (`executeRemoteFrame` over `createRemoteMethods`,
 // remote-methods.ts) with the real desktop host (`SessionHost`, session-host.ts) attached to the real Node daemon of the same tree
 // (session-client.mjs `ensureDaemon`/`attachSession`), in an isolated profile with a git repository registered as a Project and one
-// session in it. Per call the recording holds the request the page sent, the frame the relay answered (the session snapshot a
-// non-value-only answer carries is written as `<snapshot>`) and the repository afterwards (refs, HEAD and worktrees).
+// session in it. Per call the recording holds the request the page sent, the frame the relay answered (whole, the session snapshot a
+// non-value-only answer carries included) and the repository afterwards (refs, HEAD and worktrees).
 //
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of b6f10295a with node_modules> [--only <group>]
@@ -174,7 +174,17 @@ const GROUPS = {
     cap('getProjectBranchMenu', [{ projectPath: '$PROJECT', branch: 'main' }]),
     cap('getProjectBranchMenu', [{ projectPath: '$PROJECT' }]),
     cap('getProjectBranchMenu', [{ projectPath: '$PROJECT' }, {}]),
-    // inspectProjectBranch
+    // inspectProjectBranch: arity, the input object, its fields, then the branch.
+    cap('inspectProjectBranch', []),
+    cap('inspectProjectBranch', [undefined]),
+    cap('inspectProjectBranch', ['feature']),
+    cap('inspectProjectBranch', [42]),
+    cap('inspectProjectBranch', [[]]),
+    cap('inspectProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature' }, {}]),
+    cap('inspectProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature', extra: 1 }]),
+    cap('inspectProjectBranch', [{ branch: 'feature' }]),
+    cap('inspectProjectBranch', [{ projectPath: 7, branch: 'feature' }]),
+    cap('inspectProjectBranch', [{ projectPath: '$PROJECT', branch: 'f'.repeat(256) }]),
     cap('inspectProjectBranch', [{ projectPath: '$PROJECT' }]),
     cap('inspectProjectBranch', [{ projectPath: '$PROJECT', branch: undefined }]),
     cap('inspectProjectBranch', [{ projectPath: '$PROJECT', branch: '' }]),
@@ -184,6 +194,14 @@ const GROUPS = {
     cap('inspectProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature' }]),
     cap('inspectProjectBranch', [{ projectPath: '$PROJECT', branch: 'main' }]),
     // selectProjectBranch: the branch, the exclusive flags, a start point or a detach that is no commit id, valid moves.
+    cap('selectProjectBranch', []),
+    cap('selectProjectBranch', [null]),
+    cap('selectProjectBranch', ['main']),
+    cap('selectProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature', extra: 1 }]),
+    cap('selectProjectBranch', [{ branch: 'feature' }]),
+    cap('selectProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature', remote: 'yes' }]),
+    cap('selectProjectBranch', [{ projectPath: '$PROJECT', branch: 'made', create: true, startPoint: 'main' }]),
+    cap('selectProjectBranch', [{ projectPath: '$PROJECT', detach: '$FEATURE', create: undefined }]),
     cap('selectProjectBranch', [{ projectPath: '$PROJECT' }]),
     cap('selectProjectBranch', [{ projectPath: '$PROJECT', branch: 'made', create: true, remote: true }]),
     cap('selectProjectBranch', [{ projectPath: '$PROJECT', branch: 'made', startPoint: '$MAIN' }]),
@@ -198,6 +216,12 @@ const GROUPS = {
     cap('selectProjectBranch', [{ projectPath: '$PROJECT', detach: '$FEATURE' }]),
     cap('selectProjectBranch', [{ projectPath: '$PROJECT', branch: 'main' }]),
     // mergeProjectBranch
+    cap('mergeProjectBranch', []),
+    cap('mergeProjectBranch', [undefined]),
+    cap('mergeProjectBranch', ['feature']),
+    cap('mergeProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature', target: 'main', extra: 1 }]),
+    cap('mergeProjectBranch', [{ branch: 'feature', target: 'main' }]),
+    cap('mergeProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature', target: '' }]),
     cap('mergeProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature' }]),
     cap('mergeProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature', target: undefined }]),
     cap('mergeProjectBranch', [{ projectPath: '$PROJECT', target: 'main' }]),
@@ -206,6 +230,16 @@ const GROUPS = {
     cap('mergeProjectBranch', [{ projectPath: '$PROJECT', branch: 'nope', target: 'main' }]),
     cap('mergeProjectBranch', [{ projectPath: '$PROJECT', branch: 'feature', target: 'main' }]),
     // manageProjectBranch: the commit ids, the action, the confirmation, `force` outside delete-branch, valid deletes.
+    cap('manageProjectBranch', []),
+    cap('manageProjectBranch', [null]),
+    cap('manageProjectBranch', ['spare']),
+    cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', action: 'delete-branch', commit: '$SPARE', target: 'main', targetCommit: '$MAIN', confirmed: true, extra: 1 }]),
+    cap('manageProjectBranch', [{ branch: 'spare', action: 'delete-branch', commit: '$SPARE', target: 'main', targetCommit: '$MAIN', confirmed: true }]),
+    cap('manageProjectBranch', [{ projectPath: '$PROJECT', action: 'delete-branch', commit: '$SPARE', target: 'main', targetCommit: '$MAIN', confirmed: true }]),
+    cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', action: 'delete-branch', commit: '$SPARE', target: 'main', targetCommit: '$MAIN', confirmed: true, force: 'yes' }]),
+    cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', action: 'delete-branch', commit: '$SPARE', targetCommit: '$MAIN', confirmed: true }]),
+    cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', commit: '$SPARE', target: 'main', targetCommit: '$MAIN', confirmed: true }]),
+    cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', action: 'delete-branch', commit: '$SPARE', target: 'main', targetCommit: '$MAIN', confirmed: 'true' }]),
     cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', action: 'delete-branch', commit: '$SPARE', target: 'main', targetCommit: '$MAIN' }]),
     cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', action: 'delete-branch', commit: 'spare', target: 'main', targetCommit: '$MAIN', confirmed: true }]),
     cap('manageProjectBranch', [{ projectPath: '$PROJECT', branch: 'spare', action: 'delete-branch', commit: '$SPARE', target: 'main', confirmed: true }]),
@@ -236,6 +270,9 @@ const GROUPS = {
     cap('selectBranch', [{ branch: 'feature', expectedRevision: '$REVISION_TEXT' }], S),
     cap('selectBranch', [{ branch: 'feature', expectedRevision: undefined, confirmLarge: undefined }], S),
     cap('selectBranch', [{ branch: 'feature', name: 'x' }], S),
+    cap('selectBranch', [{ branch: 'feature', confirmLarge: 'yes' }], S),
+    cap('selectBranch', [{ branch: 'feature' }, {}], S),
+    cap('selectBranch', [null], S),
     cap('selectBranch', [{ branch: 'feature', expectedRevision: '$REVISION' }], '$NO_SESSION'),
     cap('selectBranch', [{ branch: 'feature', expectedRevision: '$STALE' }], S),
     cap('selectBranch', [{ branch: 'nope', expectedRevision: '$REVISION' }], S),
@@ -252,6 +289,10 @@ const GROUPS = {
     cap('requestWorktree', [{ provision: 'yes' }], S),
     cap('requestWorktree', [{ expectedRevision: 1.5 }], S),
     cap('requestWorktree', [{ branch: 'x' }], S),
+    cap('requestWorktree', [{ confirmLarge: 'yes' }], S),
+    cap('requestWorktree', [{ name: 7 }], S),
+    cap('requestWorktree', [{}, {}], S),
+    cap('requestWorktree', [[]], S),
     cap('requestWorktree', [{ expectedRevision: '$STALE', provision: true }], S),
     cap('requestWorktree', [{ expectedRevision: '$REVISION', provision: true }], '$NO_SESSION'),
     cap('requestWorktree', [{ expectedRevision: '$REVISION', provision: true, name: null }], S),
@@ -263,14 +304,22 @@ const GROUPS = {
     cap('mergeWorkspace', [{ confirmed: true }], S),
     cap('mergeWorkspace', [{ confirmed: true, target: 'main', cleanup: 'yes' }], S),
     cap('mergeWorkspace', [{ confirmed: 'true', target: 'main' }], S),
+    cap('mergeWorkspace', [undefined], S),
+    cap('mergeWorkspace', ['main'], S),
+    cap('mergeWorkspace', [{ confirmed: true, target: 'main', extra: 1 }], S),
+    cap('mergeWorkspace', [{ confirmed: true, target: 'main', expectedRevision: -1 }], S),
+    cap('mergeWorkspace', [{ confirmed: true, target: 'main' }, {}], S),
     cap('mergeWorkspace', [{ confirmed: true, target: 'main', expectedRevision: '$STALE' }], S),
     cap('mergeWorkspace', [{ confirmed: true, target: 'main', expectedRevision: '$REVISION' }], S),
     // removeWorktree
-    cap('removeWorktree', [undefined], S),
+    cap('removeWorktree', [null], S),
+    cap('removeWorktree', ['wt'], S),
+    cap('removeWorktree', [{}, {}], S),
     cap('removeWorktree', [{ force: 'yes' }], S),
     cap('removeWorktree', [{ expectedRevision: -2 }], S),
     cap('removeWorktree', [{ keep: true }], S),
     cap('removeWorktree', [{ expectedRevision: '$STALE' }], S),
+    cap('removeWorktree', [undefined], '$NO_SESSION'),
     cap('removeWorktree', [{ expectedRevision: '$REVISION' }], S),
     cap('removeWorktree', [{ expectedRevision: '$REVISION' }], S),
     cap('getBranchMenu', [], S),
@@ -289,6 +338,12 @@ const GROUPS = {
     cap('setWorktreeSettings', [{ unusedDays: 100_000 }]),
     cap('setWorktreeSettings', [{ autoCleanup: 'yes' }]),
     cap('setWorktreeSettings', [{ deleteBranch: null }]),
+    cap('setWorktreeSettings', [{ cleanupArchived: 'yes' }]),
+    cap('setWorktreeSettings', [{ maxWorktrees: -1 }]),
+    cap('setWorktreeSettings', [{ sizeWarnBytes: 1.5 }]),
+    cap('setWorktreeSettings', ['phone/']),
+    cap('setWorktreeSettings', [null]),
+    cap('setWorktreeSettings', [{ branchPrefix: 'x/' }, {}]),
     cap('setWorktreeSettings', [{ color: 'red' }]),
     cap('setWorktreeSettings', [{ branchPrefix: undefined }]),
     cap('setWorktreeSettings', [{ branchPrefix: 'phone/' }]),
@@ -305,6 +360,12 @@ const GROUPS = {
     cap('previewWorktreeCleanup', [{ repoCommonDir: 5 }]),
     cap('previewWorktreeCleanup', [{ repoCommonDir: undefined }]),
     cap('previewWorktreeCleanup', [{ other: 1 }]),
+    cap('previewWorktreeCleanup', ['$COMMON_DIR']),
+    cap('previewWorktreeCleanup', [{}, {}]),
+    cap('pruneWorktrees', [undefined]),
+    cap('pruneWorktrees', ['$COMMON_DIR']),
+    cap('pruneWorktrees', [{ repoCommonDir: 5 }]),
+    cap('pruneWorktrees', [{ repoCommonDir: undefined }]),
     cap('previewWorktreeCleanup', [{ repoCommonDir: '$ELSEWHERE' }]),
     cap('previewWorktreeCleanup', [{ repoCommonDir: '$COMMON_DIR' }]),
     cap('pruneWorktrees', []),
@@ -319,6 +380,10 @@ const GROUPS = {
     cap('deleteWorktree', [{ entryId: '' }]),
     cap('deleteWorktree', [{ entryId: 7 }]),
     cap('deleteWorktree', [{ entryId: 'nope', force: 'yes' }]),
+    cap('deleteWorktree', [null]),
+    cap('deleteWorktree', ['nope']),
+    cap('deleteWorktree', [{ entryId: 'nope', extra: 1 }]),
+    cap('deleteWorktree', [{ entryId: 'nope' }, {}]),
     cap('deleteWorktree', [{ entryId: 'nope', force: undefined }]),
     cap('deleteWorktree', [{ entryId: 'nope' }]),
   ],
@@ -337,6 +402,12 @@ const GROUPS = {
     cap('getSessionReviewFilePatch', [7], S),
     cap('getSessionReviewFilePatch', ['../outside.txt'], S),
     cap('getSessionReviewFilePatch', ['a.txt'], '$NO_SESSION'),
+    cap('getSessionReviewFilePatch', ['a.txt', 7], S),
+    cap('getSessionReviewFilePatch', ['a.txt', null], S),
+    cap('getSessionReviewFilePatch', ['a.txt', ''], S),
+    cap('getSessionReviewFilePatch', ['a.txt', 'b.txt', 'c.txt'], S),
+    cap('getSessionReviewFilePatch', [null], S),
+    cap('getSessionReviewDiff', [undefined], S),
     cap('getTurnReviewDiff', [], S),
     cap('getTurnReviewDiff', [undefined], S),
     cap('getTurnReviewDiff', [{ summary: true }], S),
@@ -348,10 +419,18 @@ const GROUPS = {
     cap('getTurnReviewDiff', [{ summary: undefined }], S),
     cap('getTurnReviewDiff', [{ extra: 1 }], S),
     cap('getTurnReviewDiff', [], '$NO_SESSION'),
+    cap('getTurnReviewDiff', [null], S),
+    cap('getTurnReviewDiff', ['summary'], S),
+    cap('getTurnReviewDiff', [[]], S),
+    cap('getTurnReviewDiff', [{ refresh: 'yes' }], S),
+    cap('getTurnReviewDiff', [{}, {}], S),
     cap('getTurnReviewFilePatch', ['a.txt'], S),
     cap('getTurnReviewFilePatch', [], S),
     cap('getTurnReviewFilePatch', [undefined], S),
     cap('getTurnReviewFilePatch', [''], S),
+    cap('getTurnReviewFilePatch', [7], S),
+    cap('getTurnReviewFilePatch', [null], S),
+    cap('getTurnReviewFilePatch', ['a.txt'], '$NO_SESSION'),
     cap('getTurnReviewFilePatch', ['a.txt', 'b.txt'], S),
     cap('getTurnChanges', [{ checkpointId: 'nope' }], S),
     cap('getTurnChanges', [{ checkpointId: 'nope', patch: true, file: 'a.txt' }], S),
@@ -362,6 +441,11 @@ const GROUPS = {
     cap('getTurnChanges', [{ checkpointId: 'nope', patch: 'yes' }], S),
     cap('getTurnChanges', [{ checkpointId: 'nope', file: 7 }], S),
     cap('getTurnChanges', [{ checkpointId: 'nope', file: undefined }], S),
+    cap('getTurnChanges', [null], S),
+    cap('getTurnChanges', ['nope'], S),
+    cap('getTurnChanges', [{ checkpointId: 7 }], S),
+    cap('getTurnChanges', [{ checkpointId: 'nope', extra: 1 }], S),
+    cap('getTurnChanges', [{ checkpointId: 'nope' }, {}], S),
     cap('getTurnChanges', [{ checkpointId: 'nope' }], '$NO_SESSION'),
   ],
 };
@@ -396,20 +480,27 @@ function filled(value, ctx) {
   return value;
 }
 
-/** The answer as the recording keeps it: the session's own id as `<session>`, a time of the run as `<time>`, and the snapshot a
- *  non-value-only answer carries as `<snapshot>` (the page reads only `.value` of these calls: worktree-branch-model.ts
- *  invokeWorktree). */
+/** The answer as the recording keeps it, whole (a carried session snapshot included): only what cannot be equal between two runs is
+ *  normalised, each listed in the manifest's `normalized`: the session's own id as `<session>`, the host's control session's id as
+ *  `<control>`, a time of the run as `<time>`, the hosting process's id as `<pid>`. */
 function kept(frame, ctx) {
+  // A call naming no session carries the host's control session's snapshot (Node: invokeControlResult; the core: the lane's
+  // control thread); each product makes that id itself.
+  const carried = frame?.ok ? frame.value?.snapshot?.sessionId : undefined;
+  if (typeof carried === 'string' && carried && carried !== ctx.session) ctx.control = carried;
+  const ids = [
+    [ctx.session, '<session>'],
+    [ctx.control, '<control>'],
+  ].filter(([id]) => id);
   const walk = (value, key) => {
-    if (typeof value === 'string') return ctx.session && value.includes(ctx.session) ? value.replaceAll(ctx.session, '<session>') : value;
-    if (/At$/.test(key ?? '') && (typeof value === 'number' || typeof value === 'string')) return '<time>';
+    if (typeof value === 'string') return ids.reduce((text, [id, name]) => (text.includes(id) ? text.replaceAll(id, name) : text), value);
+    if (/(^at|At)$/.test(key ?? '') && (typeof value === 'number' || typeof value === 'string')) return '<time>';
+    if (key === 'clientHostPid' && typeof value === 'number') return '<pid>';
     if (Array.isArray(value)) return value.map((entry) => walk(entry));
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, walk(entry, name)]));
     return value;
   };
-  const out = clone(frame);
-  if (out.ok && out.value && typeof out.value === 'object' && 'snapshot' in out.value) out.value.snapshot = '<snapshot>';
-  return walk(out);
+  return walk(clone(frame));
 }
 
 /** The last workspace revision an answer showed (the branch menu's, a transition's). */
@@ -425,6 +516,7 @@ if (REPLAY) process.exit(await replay(REPLAY));
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, REF);
 Object.assign(process.env, ENV);
+const launchArgv = [...process.execArgv];
 // The daemon is forked with this process's flags: it runs as Node's own does, without the test preloads (test-env.mjs would move
 // its data folder into a temporary one).
 process.execArgv.splice(0, process.execArgv.length, ...process.execArgv.filter((arg, index, all) => !/test-(env|tsx)\.mjs/.test(arg) && !/test-(env|tsx)\.mjs/.test(all[index + 1] ?? '')));
@@ -442,7 +534,11 @@ async function recordGroup(group) {
   try {
     const runtime = {
       async attachSessionClient({ onFrame, onFatal }) {
-        const attached = await sessionClient.attachSession({ discovery, cwd: PATHS.project, clientKind: 'desktop', onFrame, onFatal });
+        const fatal = (reason) => {
+          console.error(`[recorder] ${group}: the host's daemon attachment ended: ${reason}`);
+          onFatal(reason);
+        };
+        const attached = await sessionClient.attachSession({ discovery, cwd: PATHS.project, clientKind: 'desktop', onFrame, onFatal: fatal });
         attachments.push(attached);
         return createSessionProtocolClient({ call: (name, params, options) => attached.call(name, params, options), close: () => attached.close() });
       },
@@ -469,8 +565,15 @@ async function recordGroup(group) {
     for (const request of GROUPS[group]) {
       const sent = filled(request, ctx);
       const { id: _id, ...frame } = clone(await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params: [sent] })));
+      // A lost daemon socket is the run's failure, not Node's answer: the recording is refused rather than kept with it.
+      if (!frame.ok && /^(ECONNRESET|ECONNREFUSED|EPIPE)$/.test(frame.errorCode ?? '')) {
+        throw new Error(`${group}: the host lost its daemon connection (${frame.error}) on ${JSON.stringify(request)}; record again`);
+      }
       noteRevision(frame, ctx);
       cases.push({ group, request: clone([request])[0] ?? null, frame: kept(frame, ctx), repository: kept(repository(), ctx) });
+      // repository() blocks this process on git; one turn of the loop (its overdue timers, then pending socket closes) lets the
+      // client's pool drop idle sockets the daemon's keep-alive ended, or the next call goes out on one and reads ECONNRESET.
+      await new Promise((resolve) => setImmediate(resolve));
     }
     return cases;
   } finally {
@@ -482,8 +585,23 @@ async function recordGroup(group) {
   }
 }
 
+/** One group recorded by a process of its own (`--only`): the tree's modules keep state about the daemon they talked to, and a
+ *  group's daemon ends with its group, so a later group in the same process reached the ended one (read ECONNRESET). */
+function recordInOwnProcess(group) {
+  const run = spawnSync(process.execPath, [...launchArgv, process.argv[1], '--tree', tree, '--only', group], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 512 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'inherit'],
+    windowsHide: true,
+  });
+  if (run.status !== 0) throw new Error(`recording ${group} failed (exit ${run.status ?? run.error})`);
+  return JSON.parse(run.stdout);
+}
+
 const cases = [];
-for (const group of groups) cases.push(...(await recordGroup(group)));
+if (ONLY) cases.push(...(await recordGroup(ONLY)));
+else for (const group of groups) cases.push(...recordInOwnProcess(group));
 
 if (ONLY) {
   const text = `${JSON.stringify(cases, null, 2)}\n`;
@@ -492,7 +610,7 @@ if (ONLY) {
 }
 const stage = stageSet(FIXTURES);
 writeJson(join(stage, 'golden.json'), {
-  note: "Node host (b6f10295a) answers to a paired phone's invokeCapability for the worktree capabilities and the review reads: per call the request the page sent ($NAME filled from the world when it runs), the relay frame (session id as <session>, run times as <time>, a carried session snapshot as <snapshot>) and the repository afterwards.",
+  note: "Node host (b6f10295a) answers to a paired phone's invokeCapability for the worktree capabilities and the review reads: per call the request the page sent ($NAME filled from the world when it runs), the relay frame, whole (session id as <session>, run times as <time>) and the repository afterwards.",
   world: { paths: PATHS, git: GIT_IDENTITY, noSession: NO_SESSION },
   cases,
 });
@@ -513,8 +631,9 @@ writeSetManifest(stage, {
     },
     normalized: {
       session: "the session's own id is <session> in every answer (each product makes its own)",
-      time: 'a field named *At is <time> (the run time)',
-      snapshot: "a non-value-only answer's session snapshot is <snapshot>: the page reads only .value of these calls (worktree-branch-model.ts invokeWorktree); the snapshot is the chat's (phone-chat-live)",
+      control: "the host's control session's id (the snapshot a call naming no session carries) is <control> (each product makes its own)",
+      time: 'a field named *At or at is <time> (the run time)',
+      pid: 'clientHostPid is <pid> (the id of the process hosting the session runtime)',
     },
     notRecorded: {
       notProducible: "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself",
@@ -524,6 +643,14 @@ writeSetManifest(stage, {
 commitStage(stage, FIXTURES);
 console.log(`phone-worktree: ${cases.length} cases`);
 process.exit(0);
+
+/** Where two answers part: [path, node, core] down to the first field that is not an object on both sides. */
+function divergences(node, core, path) {
+  const objects = node && core && typeof node === 'object' && typeof core === 'object' && Array.isArray(node) === Array.isArray(core);
+  if (!objects) return isDeepStrictEqual(node, core) ? [] : [[path, node, core]];
+  const keys = [...new Set([...Object.keys(node), ...Object.keys(core)])];
+  return keys.flatMap((key) => divergences(node[key], core[key], `${path}.${key}`));
+}
 
 // ── the replay: the phone's router and adapters over a built core ──
 async function replay(exe) {
@@ -536,7 +663,9 @@ async function replay(exe) {
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
   const manifest = JSON.parse(readFileSync(join(FIXTURES, 'MANIFEST.json'), 'utf8'));
   if (manifest.recorderSha256 !== PROVENANCE.recorderSha256 || !isDeepStrictEqual(manifest.inputs, PROVENANCE.inputs)) throw new Error('the recording was made by another recorder than this one: record again before comparing');
-  globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
+  // The router's call deadlines run on the page's timers (remote-shim-call-watch.ts): real ones, so a stalled call fails its case
+  // with the router's deadline error instead of hanging the replay.
+  globalThis.window = { setTimeout: (run, ms) => setTimeout(run, ms), clearTimeout: (timer) => clearTimeout(timer) };
   const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
   const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
@@ -549,6 +678,7 @@ async function replay(exe) {
   const differences = [];
   let compared = 0;
   for (const group of groups) {
+    console.error(`replaying ${group}`);
     makeWorld(group);
     writeFileSync(join(PATHS.data, 'remote-activated.json'), '{"activatedAt":1}');
     const relay = await startRelay({ repoRoot: REPO_ROOT, clients: [{ id: PHONE_ID, name: 'Pixel 9 · Mixdog App', platform: 'Android', browser: 'Mixdog App', createdAt: 1, lastSeenAt: 2, online: true }], capabilities: { textFrames: 1, maxFrameBytes: 1048576 } });
@@ -589,20 +719,28 @@ async function replay(exe) {
       const wanted = golden.cases.filter((entry) => entry.group === group);
       for (const [index, expected] of wanted.entries()) {
         const sent = filled(expected.request, ctx);
+        const label = `${group} #${index} ${JSON.stringify(expected.request).slice(0, 140)}`;
         let frame;
+        let stall;
         try {
-          frame = { ok: true, value: clone(await router.call('invokeCapability', [sent])) };
+          // Each call has its own deadline as well, naming the case: a stall fails the replay, never hangs it.
+          const deadline = new Promise((_, reject) => {
+            stall = setTimeout(() => reject(new Error(`the replay's call stalled for 120 s: ${label}`)), 120_000);
+          });
+          frame = { ok: true, value: clone(await Promise.race([router.call('invokeCapability', [sent]), deadline])) };
         } catch (error) {
+          if (String(error?.message).startsWith("the replay's call stalled")) throw error;
           frame = {
             ok: false,
             error: error.message,
             ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}),
             ...(error.details !== undefined ? { errorParams: clone(error.details) } : {}),
           };
+        } finally {
+          clearTimeout(stall);
         }
         noteRevision(frame, ctx);
         compared += 1;
-        const label = `${group} #${index} ${JSON.stringify(expected.request).slice(0, 140)}`;
         const got = { frame: kept(frame, ctx), repository: kept(repository(), ctx) };
         for (const field of ['frame', 'repository']) {
           if (!isDeepStrictEqual(expected[field], got[field])) differences.push({ label, field, node: expected[field], core: got[field] });
@@ -617,8 +755,9 @@ async function replay(exe) {
   console.log(`phone-worktree replay over ${exe}: ${compared} cases compared, ${differences.length} differ`);
   for (const entry of differences) {
     console.log(`DIFF ${entry.label} ${entry.field}`);
-    console.log(`   node: ${JSON.stringify(entry.node).slice(0, 700)}`);
-    console.log(`   core: ${JSON.stringify(entry.core).slice(0, 700)}`);
+    for (const [path, node, core] of divergences(entry.node, entry.core, '')) {
+      console.log(`   ${path || '.'}: node ${JSON.stringify(node)?.slice(0, 300)} | core ${JSON.stringify(core)?.slice(0, 300)}`);
+    }
   }
   return differences.length ? 1 : 0;
 }
