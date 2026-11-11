@@ -37,7 +37,7 @@ test-support = []
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 # The step judge and its ladder, for the turn-effort replay that feeds the recorded model answer to the judge.
-mixdog-services = { workspace = true }
+mixdog-services = { workspace = true, features = ["test-support"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
