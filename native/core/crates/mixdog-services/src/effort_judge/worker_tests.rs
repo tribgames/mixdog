@@ -176,6 +176,8 @@ async fn two_sessions_judgments_run_one_at_a_time_in_arrival_order() {
 #[derive(Default)]
 struct Clock {
     state: Mutex<(Duration, Vec<(Duration, Box<dyn FnOnce() + Send>)>)>,
+    /// When set, the next watchdog to ring says so and waits here before it decides.
+    gate: Mutex<Option<(tokio::sync::oneshot::Sender<()>, mpsc::Receiver<()>)>>,
 }
 
 impl Alarm for Clock {
@@ -183,6 +185,14 @@ impl Alarm for Clock {
         let mut state = self.state.lock().unwrap();
         let at = state.0 + delay;
         state.1.push((at, ring));
+    }
+
+    fn watchdog_rang(&self) {
+        let gate = self.gate.lock().unwrap().take();
+        if let Some((paused, resume)) = gate {
+            paused.send(()).unwrap();
+            resume.recv().expect("the test resumes the watchdog");
+        }
     }
 }
 
@@ -210,17 +220,24 @@ struct Stop {
 }
 
 /// A model the test holds: a judgment whose request starts with "hold" runs until the model is
-/// stopped and then fails as a terminated run does; "boom" panics. Each says on which thread it
-/// starts and is dropped.
+/// stopped and then fails as a terminated run does; "wait" runs until [`Rig::finish_run`], whatever
+/// the stopper does; "boom" panics. Each says on which thread it starts and is dropped.
 struct Gated {
     started: tokio::sync::mpsc::UnboundedSender<(String, ThreadId)>,
     stop: Arc<Stop>,
+    finish: Arc<Mutex<mpsc::Receiver<()>>>,
     dropped_on: Arc<Mutex<Vec<ThreadId>>>,
 }
 
 impl Gated {
     fn judge(&self, request: &str) -> Result<Vec<f64>, JudgeError> {
         let _ = self.started.send((request.to_owned(), std::thread::current().id()));
+        if request.starts_with("wait") {
+            self.finish.lock().unwrap().recv().expect("the test finishes each waiting run");
+            if *self.stop.stopped.lock().unwrap() {
+                return Err(JudgeError::Run("Exiting due to terminate flag being set to true.".into()));
+            }
+        }
         if request.starts_with("hold") {
             let mut stopped = self.stop.stopped.lock().unwrap();
             while !*stopped {
@@ -276,6 +293,7 @@ struct Rig {
     log: Vec<String>,
     load_started: tokio::sync::mpsc::UnboundedReceiver<ThreadId>,
     finish: mpsc::Sender<Result<(), String>>,
+    finish_run: mpsc::Sender<()>,
     loads: Arc<AtomicUsize>,
     dropped_on: Arc<Mutex<Vec<ThreadId>>>,
     changes: tokio::sync::watch::Receiver<u64>,
@@ -287,6 +305,8 @@ fn rig(config: ModelConfig, mode: Loads) -> Rig {
     let (load_started_tx, load_started) = tokio::sync::mpsc::unbounded_channel();
     let (finish, finish_rx) = mpsc::channel::<Result<(), String>>();
     let finish_rx = Mutex::new(finish_rx);
+    let (finish_run, run_rx) = mpsc::channel::<()>();
+    let run_rx = Arc::new(Mutex::new(run_rx));
     let loads = Arc::new(AtomicUsize::new(0));
     let dropped_on = Arc::new(Mutex::new(Vec::new()));
     let (counted, dropped) = (loads.clone(), dropped_on.clone());
@@ -297,14 +317,14 @@ fn rig(config: ModelConfig, mode: Loads) -> Rig {
         if mode == Loads::Held {
             finish_rx.lock().unwrap().recv().expect("the test finishes each held load").map_err(JudgeError::Load)?;
         }
-        Ok(Arc::new(Gated { started: started_tx.clone(), stop: Arc::default(), dropped_on: dropped.clone() }) as Arc<dyn Resident>)
+        Ok(Arc::new(Gated { started: started_tx.clone(), stop: Arc::default(), finish: run_rx.clone(), dropped_on: dropped.clone() }) as Arc<dyn Resident>)
     });
     let clock = Arc::new(Clock::default());
     let tick = StateTick::default();
     let changes = tick.subscribe();
     let options = JudgeOptions { tick, ..JudgeOptions::default() };
     let judge = EffortJudgeModel::scripted_on(config, JudgeLanes::of(&mixdog_rt::testing::tokens()), script, clock.clone(), options);
-    Rig { judge, clock, started, log: Vec::new(), load_started, finish, loads, dropped_on, changes }
+    Rig { judge, clock, started, log: Vec::new(), load_started, finish, finish_run, loads, dropped_on, changes }
 }
 
 impl Rig {
@@ -323,6 +343,11 @@ impl Rig {
     /// Ends the oldest held load (or the next one) with `outcome`.
     fn finish_load(&self, outcome: Result<(), &str>) {
         self.finish.send(outcome.map_err(str::to_owned)).unwrap();
+    }
+
+    /// Ends the oldest "wait" run (or the next one).
+    fn finish_run(&self) {
+        self.finish_run.send(()).unwrap();
     }
 
     fn threads(&self) -> Threads {
@@ -399,6 +424,48 @@ async fn ten_stuck_judgments_are_each_stopped_at_nodes_watchdog_and_a_fresh_mode
     let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
     assert_eq!((rig.loads(), rig.threads()), (11, (Some(11), 0)));
+}
+
+/// The watchdog's check and its stop are one decision about one run: a watchdog that rang for the
+/// first run and is held before deciding, while that run ends and a second starts on the same
+/// thread, stops nothing when it resumes. The second run answers and no model is loaded again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_watchdog_that_rings_as_its_run_ends_leaves_the_next_run_alone() {
+    let dir = installed();
+    let config = config(dir.path());
+    if !config.runtime_supported() {
+        return;
+    }
+    let mut rig = rig(config, Loads::Free);
+    let judge = rig.judge.clone();
+    let judged = |request: &'static str| {
+        let judge = judge.clone();
+        tokio::spawn(async move { judge.judge_turn(turn(request), PATIENT).await })
+    };
+
+    let first = judged("wait 1");
+    rig.next_start().await;
+    let (paused_tx, paused) = tokio::sync::oneshot::channel();
+    let (resume, resume_rx) = mpsc::channel();
+    *rig.clock.gate.lock().unwrap() = Some((paused_tx, resume_rx));
+    let clock = rig.clock.clone();
+    let ringing = tokio::task::spawn_blocking(move || clock.advance(STUCK));
+    tokio::time::timeout(HANG, paused).await.expect("the first run's watchdog rings").unwrap();
+
+    rig.finish_run();
+    let answered = tokio::time::timeout(HANG, first).await.expect("the first run answers").unwrap();
+    assert!(matches!(&answered, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{answered:?}");
+    let second = judged("wait 2");
+    rig.next_start().await;
+    resume.send(()).unwrap();
+    tokio::time::timeout(HANG, ringing).await.expect("the watchdog decides").unwrap();
+
+    assert_eq!(rig.threads(), (Some(1), 0), "the thread still takes jobs");
+    rig.finish_run();
+    let answered = tokio::time::timeout(HANG, second).await.expect("the second run answers").unwrap();
+    assert!(matches!(&answered, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{answered:?}");
+    assert_eq!((rig.loads(), rig.threads()), (1, (Some(1), 0)));
+    assert_eq!(rig.log, ["wait 1", "wait 2"]);
 }
 
 /// Every way a thread stops being the worker is counted until it ends, and at most [`THREADS`] are
