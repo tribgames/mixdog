@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-admin-dev-providers',
   net: false,
   entry: 'src/session-runtime/services/provider-admin.mjs providerSetup({}, { checkSecrets: false, detectLocal: false }).oauth / providerStatus({}) / isKnownProvider / listProviderAccounts, with src/runtime/shared/config.mjs updateSection("agent", ...) over the recording data dir (MIXDOG_CONFIG_READ_TTL_MS=0).',
-  replay: 'mixdog-core-domains ai_admin provider list (admin_providers): per step, apply the `developer` flags and compare `oauthIds`, `known` and `statusDevIds`; `listAccountsError` is the error text for an unknown OAuth provider.',
+  compare: 'mixdog-core-domains ai_admin provider list (admin_providers): per step, apply the `developer` flags and compare `oauthIds`, `known` and `statusDevIds`; `listAccountsError` is the error text for an unknown OAuth provider.',
+  replay: "Rust entry: no pub item located on o1 for the developer-option gating of OAuth providers (ai/service/admin_models.rs:427-450 and registry/effective.rs:31-33 are private): the case is work for the Rust side.",
 });
 process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
 process.env.MIXDOG_USER_DATA_BACKUP_ROOT = `${rec.dataDir}/backups`;
@@ -28,13 +29,14 @@ const step = async (developer) => {
       listProviderAccounts(id);
       listAccountsError[id] = null;
     } catch (error) {
-      listAccountsError[id] = error.message;
+      listAccountsError[id] = error;
     }
   }
   return {
     developer: developer ?? null,
     oauthIds: await oauthIds(),
     known: Object.fromEntries(KNOWN.map((id) => [id, isKnownProvider(id)])),
+    statusOauthIds: providerStatus({}).filter((row) => row.type === 'oauth').map((row) => row.id),
     statusDevIds: providerStatus({}).filter((row) => row.type === 'oauth').map((row) => row.id).filter((id) => DEV.includes(id)),
     listAccountsError,
   };
