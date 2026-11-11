@@ -1,6 +1,6 @@
 {
   "cases": 50,
-  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-agent-room-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "command": "node benchmarks/rust-core/recorders/record-agent-room-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "no real member sessions or model: runRoomExchange gets scripted speak and decide functions (their scripts are in each case)",
     "runs": "agent-room.mjs (parseRoomAsk, roomMentionOf, normalizeRoomRow/Config, roomRowItem/Message/Targets/rowsOfItems, rowsSinceCursor, roomTurnPrompt, roomMessageBudget, isPassReply, withoutPassMarker, roomUserWaiting, roomUsageLimit, roomMember* and runRoomExchange), agent-room-supervisor.mjs (parseRoomDecision, roomSupervisorPrompt, roomSupervisorRows), createRoomSupervisorCompletion with scripted config/route/provider, createAgentRoomDelivery over the real attachment store, restoreTranscriptItems",
@@ -40,7 +40,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -73,6 +73,7 @@
   "replay": {
     "compare": "mixdog-core-rooms (config, exchange, live, calls): parse_room_ask, mention, row/prompt builders, run_room_exchange (feed spec.plan / spec.choose; compare result, spoken, every turn handed to speak and every step shown to decide), supervisor parser/prompt, completion request, delivery append",
     "entry": "Drive these public items on o1: mixdog-core-rooms/src/rooms/config.rs:157 parse_room_ask; mixdog-core-rooms/src/rooms/config.rs:206 room_mention_of; mixdog-core-rooms/src/rooms/row_message.rs:228 room_row_message; mixdog-core-rooms/src/rooms/turn_prompt.rs:296 room_turn_prompt; mixdog-core-rooms/src/rooms/exchange.rs:302 run_room_exchange; mixdog-core-rooms/src/rooms/supervisor.rs:115 supervisor_prompt; mixdog-core-rooms/src/rooms/supervisor.rs:100 supervisor_rows; mixdog-core-rooms/src/rooms/supervisor.rs:300 parse_room_decision; mixdog-core-rooms/src/rooms/turn_post.rs:137 post_speech.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the supervisor completion request (room-supervisor-completion.mjs): maintainer.rs only cites it in a doc comment",
       "the log intake (agent-room-delivery.mjs): no public function; post_speech is the nearest and is a different step"
