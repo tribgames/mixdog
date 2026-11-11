@@ -67,11 +67,11 @@
                   ],
                   [
                     "x-stainless-os",
-                    "Windows"
+                    "<recording host x-stainless-os>"
                   ],
                   [
                     "x-stainless-arch",
-                    "x64"
+                    "<recording host x-stainless-arch>"
                   ],
                   [
                     "x-stainless-runtime",
@@ -79,7 +79,7 @@
                   ],
                   [
                     "x-stainless-runtime-version",
-                    "v22.20.0"
+                    "<recording host x-stainless-runtime-version>"
                   ],
                   [
                     "authorization",
@@ -199,11 +199,11 @@
                   ],
                   [
                     "x-stainless-os",
-                    "Windows"
+                    "<recording host x-stainless-os>"
                   ],
                   [
                     "x-stainless-arch",
-                    "x64"
+                    "<recording host x-stainless-arch>"
                   ],
                   [
                     "x-stainless-runtime",
@@ -211,7 +211,7 @@
                   ],
                   [
                     "x-stainless-runtime-version",
-                    "v22.20.0"
+                    "<recording host x-stainless-runtime-version>"
                   ],
                   [
                     "authorization",
@@ -309,11 +309,11 @@
                   ],
                   [
                     "x-stainless-os",
-                    "Windows"
+                    "<recording host x-stainless-os>"
                   ],
                   [
                     "x-stainless-arch",
-                    "x64"
+                    "<recording host x-stainless-arch>"
                   ],
                   [
                     "x-stainless-runtime",
@@ -321,7 +321,7 @@
                   ],
                   [
                     "x-stainless-runtime-version",
-                    "v22.20.0"
+                    "<recording host x-stainless-runtime-version>"
                   ],
                   [
                     "authorization",
@@ -390,11 +390,11 @@
                   ],
                   [
                     "x-stainless-os",
-                    "Windows"
+                    "<recording host x-stainless-os>"
                   ],
                   [
                     "x-stainless-arch",
-                    "x64"
+                    "<recording host x-stainless-arch>"
                   ],
                   [
                     "x-stainless-runtime",
@@ -402,7 +402,7 @@
                   ],
                   [
                     "x-stainless-runtime-version",
-                    "v22.20.0"
+                    "<recording host x-stainless-runtime-version>"
                   ],
                   [
                     "authorization",
@@ -522,11 +522,11 @@
                   ],
                   [
                     "x-stainless-os",
-                    "Windows"
+                    "<recording host x-stainless-os>"
                   ],
                   [
                     "x-stainless-arch",
-                    "x64"
+                    "<recording host x-stainless-arch>"
                   ],
                   [
                     "x-stainless-runtime",
@@ -534,7 +534,7 @@
                   ],
                   [
                     "x-stainless-runtime-version",
-                    "v22.20.0"
+                    "<recording host x-stainless-runtime-version>"
                   ],
                   [
                     "authorization",
@@ -787,6 +787,10 @@
           "reasoning",
           "reasoningContent",
           "thinkingBlocks"
+        ],
+        "servedBy": [
+          "first key (default)",
+          "second key (added)"
         ]
       },
       "result": {
@@ -937,10 +941,10 @@
             ],
             [
               "content-length",
-              "218"
+              "417"
             ]
           ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"x\",\"reasoning_content\":\"r-content\"},{\"role\":\"user\",\"content\":\"Next.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"answer of the first key\",\"reasoning_content\":\"reasoning-content of the first key\"},{\"role\":\"user\",\"content\":\"Middle.\"},{\"role\":\"assistant\",\"content\":\"answer of the second key\",\"reasoning_content\":\"reasoning-content of the second key\"},{\"role\":\"user\",\"content\":\"Next.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 429,
             "contentType": "application/json",
@@ -1018,14 +1022,329 @@
             ],
             [
               "content-length",
-              "218"
+              "417"
             ]
           ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"x\",\"reasoning_content\":\"r-content\"},{\"role\":\"user\",\"content\":\"Next.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"answer of the first key\",\"reasoning_content\":\"reasoning-content of the first key\"},{\"role\":\"user\",\"content\":\"Middle.\"},{\"role\":\"assistant\",\"content\":\"answer of the second key\",\"reasoning_content\":\"reasoning-content of the second key\"},{\"role\":\"user\",\"content\":\"Next.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 200,
             "contentType": "text/event-stream",
             "body": "data: {\"id\":\"c1\",\"model\":\"m1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "history-thinking-blocks-per-key-anthropic",
+      "source": "src/runtime/agent/orchestrator/providers/custom-provider-keys.test.mjs:212",
+      "input": {
+        "id": "custom-keys-history-anthropic",
+        "keys": [
+          "sk-first (config)",
+          "sk-second (keychain account)"
+        ],
+        "assistantFields": [
+          "reasoning",
+          "reasoningContent",
+          "thinkingBlocks"
+        ],
+        "servedBy": [
+          "first key (default)",
+          "second key (added)"
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "m1",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "ok"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "accountId": "92487089-71b2-4731-8e6a-d631c2c6c6e1"
+          },
+          "generationMs": 0,
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "requestServiceTier": "",
+          "providerMetadata": {
+            "accountRouting": {
+              "provider": "custom-keys-history-anthropic",
+              "accountId": "92487089-71b2-4731-8e6a-d631c2c6c6e1",
+              "sessionAccountId": "92487089-71b2-4731-8e6a-d631c2c6c6e1"
+            }
+          }
+        },
+        "keys": [
+          "sk-first",
+          "sk-second"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/shared/provider-accounts.mjs.newProviderAccountId",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/shared/provider-accounts.mjs.setCustomProviderKeyIds",
+          "args": [
+            "custom-keys-history-anthropic",
+            [
+              "92487089-71b2-4731-8e6a-d631c2c6c6e1"
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/registry.mjs.initProviders",
+          "args": [
+            {
+              "custom-keys-history-anthropic": {
+                "type": "custom",
+                "name": "Keys",
+                "protocol": "anthropic",
+                "baseURL": "https://keys-anthropic.example.com",
+                "enabled": true,
+                "apiKey": "sk-first",
+                "preconnect": false,
+                "schemaVersion": 2,
+                "modelOverrides": {
+                  "m1": {
+                    "manual": true,
+                    "reasoning": {
+                      "levels": [
+                        "low",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/registry.mjs.getProvider",
+          "args": [
+            "custom-keys-history-anthropic"
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://keys-anthropic.example.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "keys-anthropic.example.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "sk-first"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "effort-2025-11-24"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "521"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"thinking of the first key\",\"signature\":\"signature-first\"},{\"type\":\"text\",\"text\":\"answer of the first key\"}]},{\"role\":\"user\",\"content\":\"Middle.\"},{\"role\":\"assistant\",\"content\":\"answer of the second key\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Next.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"output_config\":{\"effort\":\"high\"},\"stream\":true}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"insufficient_quota\",\"message\":\"You exceeded your current quota.\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://keys-anthropic.example.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "keys-anthropic.example.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "sk-second"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "effort-2025-11-24"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "523"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"answer of the first key\"},{\"role\":\"user\",\"content\":\"Middle.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"thinking of the second key\",\"signature\":\"signature-second\"},{\"type\":\"text\",\"text\":\"answer of the second key\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Next.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"output_config\":{\"effort\":\"high\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"m1\",\"content\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
           }
         }
       ]
