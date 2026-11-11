@@ -680,10 +680,13 @@ impl World {
                 vec![("answered", self.answer(result, String::new(), false).await.expect("the card was answered"))]
             }
             "answer" => {
+                // The response as recorded, the gate the recorder answered under included: a client's response carries
+                // whatever it carries, and the book takes from it only what a decision is.
                 let mut approval = input("approval");
                 let fields = approval.as_object_mut().expect("an approval");
                 let timed_out = fields.remove("timedOut") == Some(Value::Bool(true));
                 let device = fields.remove("device").and_then(|d| d.as_str().map(str::to_owned)).unwrap_or_default();
+                fields.insert("gate".into(), input("gate"));
                 self.answer(approval, device, timed_out).await;
                 Vec::new()
             }
