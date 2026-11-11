@@ -1089,3 +1089,5 @@ fn write_file(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(),
 mod tests;
 #[cfg(test)]
 mod guard_replay;
+#[cfg(test)]
+mod concurrency_node_cases;
