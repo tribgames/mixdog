@@ -460,6 +460,11 @@ impl SessionState {
             }
             Section::Toasts(toasts) => s.runtime.get_or_insert_with(ThreadRuntime::default).toasts = toasts,
             Section::ProgressHint(hint) => s.runtime.get_or_insert_with(ThreadRuntime::default).progress_hint = hint,
+            Section::Spinner(fields) => {
+                if let Some(Value::Object(spinner)) = s.runtime.as_mut().and_then(|runtime| runtime.spinner.as_mut()) {
+                    spinner.extend(fields);
+                }
+            }
             Section::Route(value) => s.route = Some(merge_route(s.route.take().unwrap_or_default(), value)),
             Section::Context(value) => s.context = Some(merge_context(s.context.take().unwrap_or_default(), value)),
             Section::Todo(value) => s.todo = value,

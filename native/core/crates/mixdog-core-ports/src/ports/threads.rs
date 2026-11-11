@@ -83,6 +83,9 @@ pub enum Section {
     SetupChanged(Value),
     /// `progressHint` of the runtime section alone (`None` removes it): the rest of the section stays as it was. Producers of a hint (the running tool, the voice install) publish this, never a whole `Runtime`.
     ProgressHint(Option<Value>),
+    /// Fields of the runtime section's `spinner` alone, laid over the spinner it holds (`set({ spinner: { ...spinner, ... } })`);
+    /// nothing while no spinner is shown. The rest of the section stays as it was.
+    Spinner(serde_json::Map<String, Value>),
     Route(ThreadRoute),
     Context(ThreadContext),
     Todo(Option<Value>),
