@@ -26,6 +26,7 @@ mod replay_anthropic_replay_blocks;
 mod replay_anthropic_stream;
 mod replay_compat_stream_lifecycle;
 mod replay_errors;
+mod replay_gemini_error_contract;
 mod replay_openai_ws_handshake;
 mod replay_openai_ws_delta;
 mod replay_session_provider_replay;

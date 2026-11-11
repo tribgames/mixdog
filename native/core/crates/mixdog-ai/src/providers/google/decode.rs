@@ -99,6 +99,16 @@ fn finish_kind(reason: &str) -> FinishKind {
     }
 }
 
+/// `geminiPolicyFinishCode`: the policy-refusal code of a finish (or block) reason, `None` for any other reason.
+pub fn policy_finish_code(reason: &str) -> Option<&'static str> {
+    match finish_kind(reason) {
+        FinishKind::Policy => Some("safety"),
+        FinishKind::Recitation => Some("recitation"),
+        FinishKind::Language => Some("content_filter"),
+        _ => None,
+    }
+}
+
 fn count(um: &Value, camel: &str, snake: &str) -> Option<u64> {
     let v = um.get(camel).or_else(|| um.get(snake))?;
     v.as_u64().or_else(|| v.as_f64().map(|f| f.max(0.0) as u64))
@@ -345,16 +355,17 @@ impl GeminiDecoder {
         } else {
             payload
         };
-        if let Some(mut err) = in_band(&chunk, self.dialect.errors) {
+        if let Some(mut err) = in_band(&chunk, &self.dialect.errors, std::time::SystemTime::now()) {
             err.exposure = self.exposure;
             return Err(err);
         }
         self.saw_chunk = true;
         out.push(StreamEvent::ChunkProgress(chunk_progress(&chunk)));
+        // A blocked prompt ends the turn as `PROMPT_<blockReason>`; a candidate's own finish reason outranks it.
         if let Some(reason) = chunk.pointer("/promptFeedback/blockReason").and_then(Value::as_str)
             && finish_kind(reason) != FinishKind::Unfinished
         {
-            self.finish.get_or_insert_with(|| reason.to_owned());
+            self.finish.get_or_insert_with(|| format!("PROMPT_{reason}"));
         }
         if let Some(um) = chunk.get("usageMetadata").filter(|v| v.is_object()) {
             self.usage = Some(um.clone());
@@ -455,10 +466,14 @@ impl GeminiDecoder {
         }
     }
 
+    /// `geminiIncompleteError` (Gemini API, Vertex AI) / Antigravity's `ProviderIncompleteError`: the turn ended on
+    /// `reason`.
     fn fail(&self, kind: ErrorKind, code: &str, reason: &str) -> ProviderError {
         let mut err = ProviderError::new(kind, DeliveryState::Accepted);
         err.code = Some(code.to_owned());
-        err.message = format!("response incomplete: finishReason={reason}");
+        let route = if self.dialect.errors.antigravity_endpoint.is_some() { "Antigravity" } else { "Gemini" };
+        err.message = format!("{route} response incomplete: finishReason={reason}");
+        err.finish_reason = Some(reason.into());
         err.exposure = self.exposure;
         err
     }
@@ -480,14 +495,17 @@ impl GeminiDecoder {
             }
             FinishKind::Complete => None,
             FinishKind::OutputLimit if whole_calls => None,
+            // An output cut that showed text is the truncated answer the session keeps (Node throws
+            // `PROVIDER_INCOMPLETE` and `send-with-recovery.mjs` `isPromotableIncomplete` promotes it); with no text
+            // there is nothing to keep, and the turn fails.
+            FinishKind::OutputLimit if !self.exposure.text_emitted => {
+                let reason = self.finish.clone().unwrap_or_default();
+                return Err(self.fail(ErrorKind::Unknown, "PROVIDER_INCOMPLETE", &reason));
+            }
             FinishKind::OutputLimit => Some(StopReason::MaxTokens),
             FinishKind::Policy | FinishKind::Language | FinishKind::Recitation => {
                 let reason = self.finish.clone().unwrap_or_default();
-                let code = match kind {
-                    FinishKind::Recitation => "recitation",
-                    FinishKind::Language => "content_filter",
-                    _ => "safety",
-                };
+                let code = policy_finish_code(&reason).unwrap_or_default();
                 return Err(self.fail(ErrorKind::Policy, code, &reason));
             }
             FinishKind::InvalidToolCall if !self.exposure.text_emitted => {
@@ -585,7 +603,7 @@ mod tests {
             owner: ProviderId::from("gemini"),
             envelope,
             usage: UsageStyle::Inclusive,
-            errors: ErrorDialect { capacity_by_status: false },
+            errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
         })
     }
 
