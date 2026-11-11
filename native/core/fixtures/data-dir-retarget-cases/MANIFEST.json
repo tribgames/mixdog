@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,6 +67,7 @@
   "replay": {
     "compare": "mixdog-core config / turn-snapshot store: set the data dir twice at runtime and compare the config path, the written section and the snapshot dir",
     "entry": "NO RUST ENTRY ON o1: no public counterpart: settings.rs:98 `with_data_dir` sets the bot store directory of the onboarding summary, not the data dir the config follows; readSection / updateSection under a data dir changed after start: config/mod.rs:629 `update` is the nearest and its data-dir following is not shown; the turn snapshot store root: no public function that takes the data dir.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "no public counterpart: settings.rs:98 `with_data_dir` sets the bot store directory of the onboarding summary, not the data dir the config follows",
       "readSection / updateSection under a data dir changed after start: config/mod.rs:629 `update` is the nearest and its data-dir following is not shown",
