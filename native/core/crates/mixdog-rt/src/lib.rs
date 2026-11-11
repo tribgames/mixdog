@@ -69,6 +69,7 @@ pub use lanes::LaneFull;
 pub use lanes::LaneKind;
 pub use lanes::LaneWedged;
 pub use lanes::QueuedJob;
+pub use lanes::Room;
 pub use lanes::SubmitWaitError;
 pub use lanes::ThreadKind;
 pub use liveness::Expired;
@@ -119,10 +120,22 @@ pub trait Backend: Send + Sync + 'static {
     fn handle(&self, class: TaskClass) -> tokio::runtime::Handle;
     /// One poll of an instrumented task finished after `elapsed`.
     fn record_poll(&self, task: &'static str, class: TaskClass, elapsed: Duration);
-    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: a full queue answers
-    /// [`LaneFull`]. The lane thread calls [`QueuedJob::run`], which drops a cancelled job at
-    /// dequeue (RL §7.1).
+    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: the job waits in the lane's FIFO
+    /// queue for a thread, and only a queue at its far bound (or a lane with no healthy worker)
+    /// answers [`LaneFull`] (overloaded). The lane thread calls [`QueuedJob::run`], which drops a
+    /// cancelled job at dequeue (RL §7.1).
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull>;
+    /// [`Self::submit`] only when a thread takes the job at once; [`LaneFull`] when it would
+    /// have to wait. Default: [`Self::submit`].
+    fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        self.submit(job)
+    }
+    /// The room of `lane`'s queue, which [`LaneToken::submit_wait`] waits on in FIFO order.
+    /// `None` (the default): the backend has none, and `submit_wait` waits on
+    /// [`Backend::capacity_notify`].
+    fn room(&self, _lane: LaneKind) -> Option<lanes::Room> {
+        None
+    }
     /// Called first on every thread started through a [`ThreadToken`]: sets the OS priority
     /// of `kind` and registers the thread with the instrumentation.
     fn enter_thread(&self, kind: ThreadKind);

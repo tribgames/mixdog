@@ -26,10 +26,7 @@ const PAST_ANY_LEASE: Duration = Duration::from_secs(601);
 #[test]
 fn a_wedged_lane_resolves_every_caller_instead_of_stalling_them() {
     let mut config = RtConfig::for_cores(8);
-    config.cpu_bulk = PoolParams {
-        threads: 1,
-        queue: 2,
-    };
+    config.cpu_bulk = PoolParams::fixed(1, 2);
     let (executors, tokens) = mixdog_rt::exec::boot(config).expect("boot");
     let rt = executors.handle(TaskClass::Work);
     // Waits on the futures themselves: a caller still stalled on the wedged lane hangs the test.

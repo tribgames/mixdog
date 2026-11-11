@@ -91,7 +91,9 @@ pub enum DbError {
     #[error("index writer stopped")]
     Stopped,
     /// The read lane's queue is full; the caller retries or reports busy.
-    #[error("read lane full")]
+    /// A lane refused the job as overloaded (its queue at the far bound, or no healthy worker);
+    /// below that bound the job waits for a thread.
+    #[error("overloaded: lane")]
     LaneFull,
     /// The history changed (a rewind) since the cursor was issued.
     #[error("history cursor is stale")]

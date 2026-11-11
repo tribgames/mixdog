@@ -29,10 +29,7 @@ fn rt() -> &'static (Arc<Executors>, LaneTokens) {
     static BOOT: OnceLock<(Arc<Executors>, LaneTokens)> = OnceLock::new();
     BOOT.get_or_init(|| {
         let mut config = RtConfig::for_cores(8);
-        config.cpu_bulk = PoolParams {
-            threads: 2,
-            queue: 2,
-        };
+        config.cpu_bulk = PoolParams::fixed(2, 2);
         mixdog_rt::exec::boot(config).expect("boot")
     })
 }

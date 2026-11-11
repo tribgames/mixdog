@@ -1,7 +1,16 @@
-//! Lane executors: dedicated thread pools with a bounded FIFO queue, and the thread-per-job
-//! lane (RL §7.1). Lanes never share threads.
+//! Lane executors: dedicated thread pools with a FIFO queue, and the thread-per-job lane
+//! (RL §7.1). Lanes never share threads.
+//!
+//! A pooled lane keeps `threads` workers warm. An elastic lane (`max_threads` above `threads`,
+//! the IO lanes: a thread blocked on a file or pipe uses no processor) starts another worker
+//! when a job is queued and no worker is idle, up to `max_threads`; a worker above the warm count
+//! ends once idle for `idle_after` (seen by the watchdog's pass). A job that finds every thread
+//! busy waits in the queue; only the queue's far bound ([`Room`]) refuses, as overload
+//! protection.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::io;
 use std::panic::AssertUnwindSafe;
 use std::panic::catch_unwind;
@@ -19,8 +28,6 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::time::Duration;
 use std::time::Instant;
 
-use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
 use tokio::sync::Notify;
 
 use super::hist::HistSummary;
@@ -31,6 +38,7 @@ use crate::JobRun;
 use crate::LaneFull;
 use crate::LaneKind;
 use crate::QueuedJob;
+use crate::lanes::Room;
 
 /// Applies an OS priority to the calling thread; a seam so tests can make it fail.
 type ApplyPriority = fn(Priority) -> io::Result<()>;
@@ -81,9 +89,16 @@ pub struct LaneSnapshot {
     /// Of those, threads stuck in a job that outlived the lane's lease. The lane refuses work
     /// while every thread is in this state.
     pub wedged: usize,
-    /// Jobs waiting in the queue (always 0 for the thread-per-job lane).
+    /// Threads started above the warm count (elastic lanes); 0 for a fixed lane.
+    pub grown: usize,
+    /// Most threads the lane runs (healthy ones), or the live-job cap of the thread-per-job lane.
+    pub max_threads: usize,
+    /// Jobs waiting in the queue for a thread (always 0 for the thread-per-job lane).
     pub queue_depth: usize,
-    /// Queue capacity, or the live-job cap of the thread-per-job lane.
+    /// Tasks waiting in `submit_wait` because the queue held its far bound.
+    pub waiters: usize,
+    /// The queue's far bound (where `submit` answers overloaded), or the live-job cap of the
+    /// thread-per-job lane.
     pub capacity: usize,
     pub submitted: u64,
     /// Submissions answered `LaneFull`.
@@ -101,9 +116,9 @@ pub struct LaneSnapshot {
 }
 
 enum Shape {
-    /// `threads` workers over one bounded queue.
+    /// `threads` warm workers, growing to `max_threads`, over one FIFO queue bounded by `room`.
     Pooled {
-        tx: Sender<QueuedJob>,
+        room: Room,
         capacity: usize,
         watch: Arc<Watch>,
     },
@@ -125,25 +140,22 @@ pub(crate) struct LaneExec {
 impl LaneExec {
     /// Starts `threads` workers (all up front) over a queue of `queue` jobs. Fails when a
     /// worker cannot take `priority`: a lane must never serve at the wrong priority unseen.
+    #[allow(clippy::too_many_arguments, reason = "the lane's sizing, one value each")]
     pub(crate) fn pooled(
         kind: LaneKind,
         priority: Priority,
         threads: usize,
+        max_threads: usize,
         queue: usize,
         lease: Duration,
+        idle_after: Duration,
         priority_failures: &Arc<AtomicU64>,
     ) -> io::Result<Self> {
-        Self::pooled_with(
-            kind,
-            priority,
-            threads,
-            queue,
-            lease,
-            priority_failures,
-            set_current_thread,
-        )
+        Self::elastic_with(kind, priority, threads, max_threads, queue, lease, idle_after, priority_failures, set_current_thread)
     }
 
+    /// A fixed lane: `threads` workers, never more.
+    #[cfg(test)]
     fn pooled_with(
         kind: LaneKind,
         priority: Priority,
@@ -153,19 +165,36 @@ impl LaneExec {
         priority_failures: &Arc<AtomicU64>,
         apply: ApplyPriority,
     ) -> io::Result<Self> {
-        if threads == 0 || queue == 0 {
+        Self::elastic_with(kind, priority, threads, threads, queue, lease, Duration::MAX, priority_failures, apply)
+    }
+
+    #[allow(clippy::too_many_arguments, reason = "the lane's sizing, one value each")]
+    fn elastic_with(
+        kind: LaneKind,
+        priority: Priority,
+        threads: usize,
+        max_threads: usize,
+        queue: usize,
+        lease: Duration,
+        idle_after: Duration,
+        priority_failures: &Arc<AtomicU64>,
+        apply: ApplyPriority,
+    ) -> io::Result<Self> {
+        if threads == 0 || queue == 0 || max_threads < threads {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("lane {} needs at least one thread and one queue slot", kind.name()),
+                format!("lane {} needs at least one thread, one queue slot and a cap of at least its warm threads", kind.name()),
             ));
         }
-        let (tx, rx) = crossbeam_channel::bounded(queue);
         let stats = Arc::new(LaneStats::new());
         let watch = Arc::new(Watch {
             kind,
             threads,
+            max_threads,
             lease,
-            rx,
+            idle_after,
+            pending: Mutex::new(Pending::default()),
+            available: Condvar::new(),
             stats: stats.clone(),
             priority,
             apply,
@@ -175,12 +204,13 @@ impl LaneExec {
             stopped: Mutex::new(false),
             wake: Condvar::new(),
         });
+        // Returning early closes the queue, which ends every worker that did start.
+        let closing = CloseOnError(Some(watch.clone()));
         let (ready_tx, ready_rx) = mpsc::channel();
         for _ in 0..threads {
             watch.spawn_worker(Some(ready_tx.clone()))?;
         }
         drop(ready_tx);
-        // Returning early drops `tx`, which ends every worker that did start.
         for _ in 0..threads {
             match ready_rx.recv() {
                 Ok(Ok(())) => {}
@@ -202,13 +232,14 @@ impl LaneExec {
         std::thread::Builder::new()
             .name(format!("mixdog-{}-watchdog", kind.name()))
             .spawn(move || watchdog(&dog))?;
+        closing.disarm();
         Ok(Self {
             kind,
             priority,
             stats,
             priority_failures: priority_failures.clone(),
             shape: Shape::Pooled {
-                tx,
+                room: Room::new(queue),
                 capacity: queue,
                 watch,
             },
@@ -257,10 +288,34 @@ impl LaneExec {
         self.stats.freed.clone()
     }
 
+    /// Queues `job` (FIFO); it waits there for a thread. Refused only when the queue holds its far
+    /// bound or the lane has no healthy worker.
     pub(crate) fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        self.admit(job, false)
+    }
+
+    /// [`Self::submit`] only when a thread takes the job now (an idle one, or one the lane may
+    /// still start): never queues behind other work.
+    pub(crate) fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        self.admit(job, true)
+    }
+
+    /// The room of a pooled lane's queue.
+    pub(crate) fn room(&self) -> Option<Room> {
+        match &self.shape {
+            Shape::Pooled { room, .. } => Some(room.clone()),
+            Shape::PerJob { .. } => None,
+        }
+    }
+
+    fn admit(&self, mut job: QueuedJob, now_only: bool) -> Result<(), LaneFull> {
         let accepted = match &self.shape {
-            // A wedged lane has no worker to run the job: refuse it like a full queue.
-            Shape::Pooled { tx, watch, .. } => watch.healthy() > 0 && tx.try_send(job).is_ok(),
+            // A wedged lane has no worker to run the job: refuse it as overloaded.
+            Shape::Pooled { room, watch, .. } => {
+                watch.healthy() > 0
+                    && (job.holds_room() || room.permits.clone().try_acquire_owned().map(|permit| job.hold_room(permit)).is_ok())
+                    && watch.enqueue(job, now_only)
+            }
             Shape::PerJob { max_live, apply } => self.spawn_per_job(*max_live, *apply, job),
         };
         if accepted {
@@ -315,15 +370,25 @@ impl LaneExec {
     }
 
     pub(crate) fn snapshot(&self) -> LaneSnapshot {
-        let (queue_depth, capacity) = match &self.shape {
-            Shape::Pooled { tx, capacity, .. } => (tx.len(), *capacity),
-            Shape::PerJob { max_live, .. } => (0, *max_live),
+        let live = self.stats.live.load(Relaxed);
+        let (queue_depth, capacity, waiters, grown, max_threads) = match &self.shape {
+            Shape::Pooled { room, capacity, watch } => (
+                lock(&watch.pending).jobs.len(),
+                *capacity,
+                room.waiters(),
+                live.saturating_sub(watch.threads),
+                watch.max_threads,
+            ),
+            Shape::PerJob { max_live, .. } => (0, *max_live, 0, 0, *max_live),
         };
         LaneSnapshot {
             kind: self.kind,
-            threads: self.stats.live.load(Relaxed),
+            threads: live,
             wedged: self.stats.wedged.load(Relaxed),
+            grown,
+            max_threads,
             queue_depth,
+            waiters,
             capacity,
             submitted: self.stats.submitted.load(Relaxed),
             rejected: self.stats.rejected.load(Relaxed),
@@ -355,8 +420,24 @@ pub(crate) fn apply_priority(priority: Priority, failures: &AtomicU64) {
 impl Drop for LaneExec {
     fn drop(&mut self) {
         if let Shape::Pooled { watch, .. } = &self.shape {
-            *lock(&watch.stopped) = true;
-            watch.wake.notify_all();
+            watch.close();
+        }
+    }
+}
+
+/// Closes a lane that failed to start, unless disarmed.
+struct CloseOnError(Option<Arc<Watch>>);
+
+impl CloseOnError {
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for CloseOnError {
+    fn drop(&mut self) {
+        if let Some(watch) = self.0.take() {
+            watch.close();
         }
     }
 }
@@ -390,9 +471,16 @@ pub fn job_progress() {
 /// workers.
 struct Watch {
     kind: LaneKind,
+    /// Warm workers, started at boot and never ended for idleness.
     threads: usize,
+    /// Most healthy workers: `threads` for a fixed lane.
+    max_threads: usize,
     lease: Duration,
-    rx: Receiver<QueuedJob>,
+    /// How long a worker above the warm count may stay idle.
+    idle_after: Duration,
+    pending: Mutex<Pending>,
+    /// Signalled when a job is queued, a worker is told to end, or the lane closes.
+    available: Condvar,
     stats: Arc<LaneStats>,
     priority: Priority,
     apply: ApplyPriority,
@@ -401,6 +489,18 @@ struct Watch {
     running: Mutex<HashMap<usize, Running>>,
     stopped: Mutex<bool>,
     wake: Condvar,
+}
+
+/// The queue of a pooled lane and its idle workers.
+#[derive(Default)]
+struct Pending {
+    jobs: VecDeque<QueuedJob>,
+    /// Idle workers and when each became idle.
+    idle: HashMap<usize, Instant>,
+    /// Idle workers above the warm count told to end.
+    retiring: HashSet<usize>,
+    /// The lane was dropped: workers end once the queue is empty.
+    closed: bool,
 }
 
 struct Running {
@@ -462,7 +562,7 @@ impl Watch {
             return false;
         }
         let wedged = self.stats.wedged.fetch_sub(1, Relaxed) - 1;
-        let surplus = self.stats.live.load(Relaxed) - wedged > self.threads;
+        let surplus = self.stats.live.load(Relaxed) - wedged > self.max_threads;
         if surplus {
             self.stats.live.fetch_sub(1, Relaxed);
         }
@@ -488,7 +588,7 @@ impl Watch {
             tripped = true;
             // Spawned before the wedge is counted, so the lane never looks dead in between.
             // A failed spawn leaves the lane short of workers, which `healthy` then reports.
-            if self.stats.live.load(Relaxed) < 2 * self.threads {
+            if self.stats.live.load(Relaxed) < self.max_threads + self.threads {
                 let _ = self.spawn_worker(None);
             }
             self.stats.wedged.fetch_add(1, Relaxed);
@@ -496,11 +596,83 @@ impl Watch {
         drop(running);
         if self.healthy() == 0 {
             // Nothing will run these: dropping them resolves their handles `JobDropped`.
-            while self.rx.try_recv().is_ok() {}
+            let dropped = std::mem::take(&mut lock(&self.pending).jobs);
+            drop(dropped);
         }
         if tripped {
             // Parked `submit_wait` callers re-check the lane.
             self.stats.freed.notify_waiters();
+        }
+        self.retire_idle(now);
+    }
+
+    /// Tells the workers above the warm count that have been idle for `idle_after` at `now` to end.
+    fn retire_idle(&self, now: Instant) {
+        let mut pending = lock(&self.pending);
+        let surplus = self.healthy().saturating_sub(self.threads + pending.retiring.len());
+        let expired: Vec<usize> = pending
+            .idle
+            .iter()
+            .filter(|(id, since)| !pending.retiring.contains(*id) &&now.saturating_duration_since(**since) >= self.idle_after)
+            .map(|(id, _)| *id)
+            .take(surplus)
+            .collect();
+        if expired.is_empty() {
+            return;
+        }
+        pending.retiring.extend(expired);
+        drop(pending);
+        self.available.notify_all();
+    }
+
+    /// Queues `job`, starting a worker when none is idle and the lane may grow. With `now_only`,
+    /// refuses (dropping the job, `false`) unless a worker takes it at once.
+    fn enqueue(self: &Arc<Self>, job: QueuedJob, now_only: bool) -> bool {
+        let mut pending = lock(&self.pending);
+        if pending.closed {
+            return false;
+        }
+        let idle = pending.idle.len().saturating_sub(pending.retiring.len());
+        let waiting = pending.jobs.len() + 1;
+        let grow = waiting > idle && self.healthy() < self.max_threads && self.stats.live.load(Relaxed) < self.max_threads + self.threads;
+        if now_only && waiting > idle && !grow {
+            return false;
+        }
+        pending.jobs.push_back(job);
+        if grow {
+            // Under the queue's lock, so two submitters never both start the last allowed worker.
+            // A failed start leaves the job queued for the workers there are.
+            let _ = self.spawn_worker(None);
+        }
+        drop(pending);
+        self.available.notify_one();
+        true
+    }
+
+    /// The lane was dropped: idle workers end, busy ones after the queue is empty.
+    fn close(&self) {
+        lock(&self.pending).closed = true;
+        self.available.notify_all();
+        *lock(&self.stopped) = true;
+        self.wake.notify_all();
+    }
+
+    /// The next job for worker `id`, or `None` when it is to end (idle above the warm count past
+    /// `idle_after`, or the lane closed with nothing queued).
+    fn next_job(&self, id: usize) -> Option<QueuedJob> {
+        let mut pending = lock(&self.pending);
+        loop {
+            if let Some(job) = pending.jobs.pop_front() {
+                pending.idle.remove(&id);
+                pending.retiring.remove(&id);
+                return Some(job);
+            }
+            if pending.retiring.remove(&id) || pending.closed {
+                pending.idle.remove(&id);
+                return None;
+            }
+            pending.idle.entry(id).or_insert_with(Instant::now);
+            pending = self.available.wait(pending).unwrap_or_else(PoisonError::into_inner);
         }
     }
 }
@@ -521,7 +693,8 @@ fn worker(watch: &Arc<Watch>, id: usize, ready: Option<&mpsc::Sender<io::Result<
     if let Some(ready) = ready {
         let _ = ready.send(Ok(()));
     }
-    for job in watch.rx.iter() {
+    while let Some(mut job) = watch.next_job(id) {
+        job.release_room();
         watch.stats.freed.notify_waiters();
         watch.begin(id);
         run_job(&watch.stats, job);
@@ -529,11 +702,14 @@ fn worker(watch: &Arc<Watch>, id: usize, ready: Option<&mpsc::Sender<io::Result<
             return;
         }
     }
+    watch.stats.live.fetch_sub(1, Relaxed);
+    watch.stats.freed.notify_waiters();
 }
 
-/// The lane's watchdog thread: one sweep every quarter lease until the lane is dropped.
+/// The lane's watchdog thread: one sweep every quarter lease (every half idle time on an elastic
+/// lane, whichever is shorter) until the lane is dropped.
 fn watchdog(watch: &Arc<Watch>) {
-    let tick = (watch.lease / 4).max(Duration::from_millis(1));
+    let tick = (watch.lease / 4).min(watch.idle_after / 2).max(Duration::from_millis(1));
     loop {
         let (stopped, _) = watch
             .wake
@@ -718,6 +894,29 @@ mod tests {
         let (e, e_rx) = job(LaneKind::CpuBulk);
         lane.submit(e).unwrap();
         assert_eq!(e_rx.blocking_recv(), Ok(7));
+    }
+
+    /// The lease still works on an elastic lane: the watchdog counts a stuck worker wedged and
+    /// starts a replacement, and the lane keeps serving.
+    #[test]
+    fn an_elastic_lanes_wedged_worker_is_replaced_and_the_lane_keeps_serving() {
+        let failures = Arc::new(AtomicU64::new(0));
+        let lane = LaneExec::elastic_with(LaneKind::InteractiveIo, Priority::Normal, 1, 2, 4, LEASE, Duration::MAX, &failures, |_| Ok(()))
+            .unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release, gate) = mpsc::channel::<()>();
+        let (stuck, stuck_done) = blocking_job(started_tx, gate);
+        lane.submit(stuck).unwrap();
+        started_rx.recv().unwrap();
+        lane.sweep(after_lease());
+        let snapshot = lane.snapshot();
+        assert_eq!((snapshot.wedged, snapshot.threads), (1, 2));
+        assert!(!lane.is_wedged());
+        let (queued, rx) = job(LaneKind::InteractiveIo);
+        lane.submit(queued).unwrap();
+        assert_eq!(rx.blocking_recv(), Ok(7));
+        drop(release);
+        assert_eq!(stuck_done.recv(), Ok(()));
     }
 
     #[test]
