@@ -10,7 +10,7 @@
 // A run that misses (the loop's clock crossed into the next millisecond before Node read it) is discarded and the case run
 // again in a new process, up to ATTEMPTS times; the manifest lists the attempts each case took.
 //
-//   node benchmarks/rust-core/recorders/record-node-timer-order.mjs [--only <case>]
+//   node benchmarks/rust-core/recorders/record-node-timer-order.mjs --tree <export of b6f10295a with node_modules> [--only <case>]
 //
 // Output: native/core/fixtures/node-timer-order/golden.json (every case, its script, and the events in firing order with
 // the millisecond each fired at, from the case's start).
@@ -18,7 +18,8 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FIXTURES_ROOT, commitStage, parseArgs, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { COMMIT } from './lib/case-set.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 
 const ATTEMPTS = 10;
@@ -151,8 +152,9 @@ if (args.has('case')) {
     writeSetManifest(stage, {
       set: 'node-timer-order',
       recorder: 'benchmarks/rust-core/recorders/record-node-timer-order.mjs',
-      command: 'node benchmarks/rust-core/recorders/record-node-timer-order.mjs',
-      identity: { tree: 'none: Node timers only, no product code is loaded' },
+      command: `node benchmarks/rust-core/recorders/record-node-timer-order.mjs --tree <export of ${COMMIT} with node_modules>`,
+      // No product code is loaded: the tree states the Node product the recording stands for, as every set does.
+      identity: exactProductIdentity(resolveTree(args), COMMIT),
       extra: {
         ...recorderProvenance(import.meta.url),
         attempts: Object.fromEntries(cases.map((spec) => [spec.name, spec.attempts])),

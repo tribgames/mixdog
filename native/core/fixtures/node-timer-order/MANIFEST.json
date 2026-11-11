@@ -6,18 +6,18 @@
     "armed-inside-a-timer-for-an-instant-already-queued": 1,
     "clearing-a-refed-timer-recreates-its-list": 1,
     "clearing-an-unrefed-timer-keeps-its-list": 1,
-    "clearing-due-timers-from-an-earlier-one": 1,
+    "clearing-due-timers-from-an-earlier-one": 3,
     "fractions-of-a-millisecond-are-cut": 1,
-    "immediates-after-all-timers-of-a-turn": 2,
+    "immediates-after-all-timers-of-a-turn": 1,
     "many-lists-due-at-once": 1,
-    "reviewer-with-first100": 2,
+    "reviewer-with-first100": 1,
     "reviewer-without-first100": 1,
     "same-due-armed-in-order": 1,
     "ticks-and-promises-between-timers": 1,
     "unref-keeps-the-order": 1,
     "zero-and-one-ms-inside-a-timer": 1
   },
-  "command": "node benchmarks/rust-core/recorders/record-node-timer-order.mjs",
+  "command": "node benchmarks/rust-core/recorders/record-node-timer-order.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "exclusions": {
     "a-promise-queued-before-a-tick": "process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them",
     "clearing-an-unrefed-timer-keeps-its-list": "an unrefed timer cleared from its list leaves the list (and its place) in the queue; the core has no unrefed timers",
@@ -28,25 +28,59 @@
     {
       "bytes": 14160,
       "path": "golden.json",
-      "sha256": "c365ee6ac96488beaacd8b2a8e5b6e6c87ef046874dff6072971dd7e96b364fb"
+      "sha256": "d2f15fa39ce63a1237f487b2c9570363e6d4958a45c7116399b2f346ea5fbb96"
     }
   ],
   "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     }
   ],
   "nodeVersion": "v22.20.0",
   "product": {
-    "tree": "none: Node timers only, no product code is loaded"
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-node-timer-order.mjs",
-  "recorderSha256": "888f24b1669da14fec6b1ea746ae8db5c2747aa51dd3cc1f91672d8f2adf2f66",
+  "recorderSha256": "da5ea0aa4f24b624e78e421ff7e1ae3e259ee467a412bc2930d76bef07c9976e",
   "set": "node-timer-order",
   "totalBytes": 14160
 }
