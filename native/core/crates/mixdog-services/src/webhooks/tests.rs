@@ -185,21 +185,86 @@ async fn content_type_json_and_self_comment_gates() {
     assert_eq!((reply.status, reply.body), (400, json!({"error":"invalid JSON"})));
 }
 
-/// Node parses `rawBody.toString('utf8')`: Latin-1 bytes inside JSON become U+FFFD and the
-/// delivery is accepted, and a probe marker in such a body still counts.
-#[tokio::test]
-async fn json_with_invalid_utf8_is_accepted_with_replacement_characters() {
-    let f = fx(WebhookConfig::default());
-    let body = b"{\"name\":\"caf\xe9\"}";
-    let h = headers(&[JSON_CT, ("x-hub-signature-256", &sign("s3", body))]);
-    let reply = f.svc.handle_post("/webhook/hook", &h, body).await;
-    assert_eq!((reply.status, reply.body["status"].clone()), (200, json!("accepted")));
-    assert_eq!(f.dispatched.0.lock().unwrap().clone(), vec![("hook".to_string(), json!({"name": "caf\u{FFFD}"}))]);
+/// The delivery table as PostgreSQL keeps it (`webhooks-db.mjs`): the claim's columns, then each status update, whose
+/// error is `COALESCE`d.
+#[derive(Default)]
+struct DeliveryRows(Mutex<std::collections::BTreeMap<String, Value>>);
 
-    let probe = b"{\"mixdogWebhookTest\":true,\"x\":\"\xff\"}";
-    let h = headers(&[JSON_CT, ("x-hub-signature-256", &sign("s3", probe)), ("x-mixdog-webhook-test", "1")]);
-    let reply = f.svc.handle_post("/webhook/hook", &h, probe).await;
-    assert_eq!((reply.status, reply.body), (200, json!({"status":"verified","test":true})));
+#[async_trait]
+impl WebhookStore for DeliveryRows {
+    async fn load_endpoint(&self, _name: &str) -> Result<Option<Endpoint>, String> {
+        Ok(None)
+    }
+    async fn read_secret(&self, _name: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    async fn claim_delivery(&self, endpoint: &str, id: &str, claim: Claim<'_>) -> Result<bool, String> {
+        let mut rows = self.0.lock().unwrap();
+        if rows.contains_key(id) {
+            return Ok(false);
+        }
+        rows.insert(
+            id.into(),
+            json!({"endpoint": endpoint, "delivery_id": id, "status": claim.status, "event": claim.event, "error": null,
+                   "headers_summary": claim.headers_summary, "payload_preview": claim.payload_preview}),
+        );
+        Ok(true)
+    }
+    async fn update_delivery_status(&self, _endpoint: &str, id: &str, status: &str, error: Option<&str>) -> Result<(), String> {
+        let mut rows = self.0.lock().unwrap();
+        let row = rows.get_mut(id).unwrap();
+        row["status"] = json!(status);
+        if let Some(error) = error {
+            row["error"] = json!(error);
+        }
+        Ok(())
+    }
+}
+
+/// The recorder's `handleWebhook` seam: keeps what reached it and answers `200 {status:"accepted",id}`.
+#[derive(Default)]
+struct Reached(Mutex<Vec<Value>>);
+
+#[async_trait]
+impl WebhookDispatch for Reached {
+    async fn handle(&self, name: &str, payload: Value, _h: &Headers, id: &str, endpoint_in_table: bool) -> Result<HttpReply, String> {
+        self.0.lock().unwrap().push(json!({"name": name, "payload": payload, "endpointInTable": endpoint_in_table}));
+        Ok(HttpReply { status: 200, body: json!({"status":"accepted","id":id}) })
+    }
+}
+
+/// Node's receiver answering bodies that are not valid UTF-8, recorded by `record-webhook-invalid-utf8.mjs`
+/// (`fixtures/webhook-invalid-utf8`): each recorded request is sent as its bytes over TCP to the real listener with the
+/// recorded config (a config endpoint, the global secret); per case the reply and what reached the dispatch (Node's
+/// `handleWebhook`, the seam both sides answer `accepted` at) equal Node's, and so does the whole delivery table after.
+#[tokio::test]
+async fn bodies_with_invalid_utf8_are_answered_as_node_answers_them() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-invalid-utf8/golden.json")).unwrap();
+    let config: WebhookConfig = serde_json::from_value(golden["config"].clone()).unwrap();
+    let rows = Arc::new(DeliveryRows::default());
+    let dispatched = Arc::new(Reached::default());
+    let service = Arc::new(WebhookService::new(rows.clone(), dispatched.clone(), config, RunningWork::new(), Arc::new(|| 0)));
+    let listener = WebhookListener::start(service, 0).await.unwrap();
+    for case in golden["cases"].as_array().unwrap() {
+        let body: Vec<u8> = (0..case["request"]["bodyHex"].as_str().unwrap().len() / 2)
+            .map(|i| u8::from_str_radix(&case["request"]["bodyHex"].as_str().unwrap()[2 * i..2 * i + 2], 16).unwrap())
+            .collect();
+        let mut head = format!("POST /webhook/hook HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n", body.len());
+        for (name, value) in case["request"]["headers"].as_object().unwrap() {
+            head.push_str(&format!("{name}: {}\r\n", value.as_str().unwrap()));
+        }
+        head.push_str("\r\n");
+        let before = dispatched.0.lock().unwrap().len();
+        let (status, text) = exchange(listener.port(), &[head.as_bytes(), &body]).await;
+        let reached = dispatched.0.lock().unwrap()[before..].to_vec();
+        assert_eq!(
+            json!({"name": case["name"], "reply": {"status": status, "body": serde_json::from_str::<Value>(&text).unwrap()}, "dispatched": reached}),
+            json!({"name": case["name"], "reply": case["reply"], "dispatched": case["dispatched"]}),
+        );
+    }
+    let table: Vec<Value> = rows.0.lock().unwrap().values().cloned().collect();
+    assert_eq!(Value::Array(table), golden["deliveries"]);
+    listener.stop().await;
 }
 
 #[test]
