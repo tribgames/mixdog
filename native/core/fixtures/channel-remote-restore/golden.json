@@ -1,0 +1,101 @@
+{
+  "frozenNow": 1700000000000,
+  "cases": [
+    {
+      "name": "a pinned session that exists",
+      "sessionId": "sess_live",
+      "transcriptExists": true,
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_live",
+            "transcriptPath": "/work/sess_live.jsonl",
+            "restore": true
+          },
+          "answer": {
+            "content": [
+              {
+                "type": "text",
+                "text": "channel bridge activated"
+              }
+            ]
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restored session=sess_live"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_live",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_live\",\"transcriptPath\":\"/work/sess_live.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_live",
+          "remoteSession": "sess_live",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_live\",\"transcriptPath\":\"/work/sess_live.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a pinned session that was deleted",
+      "sessionId": "sess_deleted",
+      "transcriptExists": false,
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_deleted",
+            "transcriptPath": "/work/sess_deleted.jsonl",
+            "restore": true
+          },
+          "answer": {
+            "content": [
+              {
+                "type": "text",
+                "text": "channel bridge activated"
+              }
+            ]
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restored session=sess_deleted"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_deleted",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_deleted\",\"transcriptPath\":\"/work/sess_deleted.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_deleted",
+          "remoteSession": "sess_deleted",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_deleted\",\"transcriptPath\":\"/work/sess_deleted.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ]
+    }
+  ]
+}

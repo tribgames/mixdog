@@ -644,6 +644,58 @@ fn service(e: &Env) -> ChannelService {
     ChannelService::new(e.admin.clone(), calls)
 }
 
+/// The real `channel/call` handler, with each call and its answer kept for the comparison.
+struct Observed {
+    inner: BridgeCalls,
+    calls: Mutex<Vec<Value>>,
+}
+
+#[async_trait]
+impl super::call::ChannelCallHandler for Observed {
+    async fn call(&self, name: &str, args: &Value, client: &super::call::ChannelClient) -> Result<Value, String> {
+        let answer = self.inner.call(name, args, client).await;
+        self.calls.lock().unwrap().push(json!({"name": name, "args": args, "answer": answer.clone().unwrap_or_else(|e| json!({"error": e}))}));
+        answer
+    }
+}
+
+/// record-channel-remote-restore.mjs: the boot restore of a pinned session through the daemon's real dispatch
+/// (`BridgeCalls` over `ToolDispatch` over the runtime, as compose wires `channel/call`), for a session that exists
+/// and one that was deleted — Node's `activate_channel_bridge` does not look the session up, so both are bound.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores_it() {
+    let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/channel-remote-restore/golden.json")).unwrap();
+    let frozen = gold["frozenNow"].as_f64().unwrap();
+    for case in gold["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let e = env().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(super::intent::INTENT_FILE);
+        std::fs::write(&path, case["checkpoints"][0]["file"]["text"].as_str().unwrap()).unwrap();
+        if case["transcriptExists"] == json!(true) {
+            std::fs::write(dir.path().join(format!("{}.jsonl", case["sessionId"].as_str().unwrap())), "").unwrap();
+        }
+        let handler = Arc::new(Observed { inner: BridgeCalls::new(ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false))), calls: Mutex::new(Vec::new()) });
+        let calls = CallDispatch::new(handler.clone(), e.work.clone());
+        let logs = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = logs.clone();
+        let file = super::intent::IntentFile::with_clock(dir.path(), tokens().maintenance_io, Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string())), Arc::new(move || frozen));
+        calls.load_intent(file).await;
+        let checkpoint = |at: &str| {
+            let file = std::fs::read_to_string(&path).map_or(json!({"kind": "absent"}), |text| json!({"kind": "file", "text": text}));
+            json!({"at": at, "pinnedSession": calls.pinned_session(), "remoteSession": calls.remote_session(), "file": file})
+        };
+        let boot = checkpoint("boot");
+        let restored = calls.restore_intent().await;
+        let after = checkpoint("restored");
+        assert_eq!(json!(restored), case["restored"], "{name}: restored");
+        assert_eq!(Value::Array(handler.calls.lock().unwrap().clone()), case["calls"], "{name}: calls");
+        assert_eq!(json!(logs.lock().unwrap().clone()), case["logs"], "{name}: logs");
+        assert_eq!(json!([boot, after]), case["checkpoints"], "{name}: checkpoints");
+        e.runtime.stop_owned_runtime("test").await.unwrap();
+    }
+}
+
 async fn ask(service: &ChannelService, method: &'static str, params: Value) -> Result<Value, CoreError> {
     match service.call(request(method, params, Some("op-1"))).await? {
         Reply::Value(value) => Ok(value),
