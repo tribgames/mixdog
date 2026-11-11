@@ -40,8 +40,25 @@
           "reads": [
             "sess_cold_2"
           ],
-          "publishedSessions": [
-            "sess_cold_2"
+          "published": [
+            {
+              "sessionId": "sess_cold_2",
+              "snapshot": {
+                "sessionId": "sess_cold_2",
+                "projectionStamp": "projection-7",
+                "queued": [],
+                "items": [
+                  {
+                    "id": "row",
+                    "kind": "assistant",
+                    "text": "sess_cold_2:2"
+                  }
+                ],
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            }
           ]
         },
         "readsAfterNextTick": [

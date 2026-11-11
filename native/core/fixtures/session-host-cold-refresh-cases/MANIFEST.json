@@ -2,6 +2,7 @@
   "cases": 1,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-host-cold-refresh-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "hops": "No wire in the Node test: the daemon client is the real session service called in process.",
     "notRun": "no real session store or runtime (cold views never materialize); the service's idle sweep timers are its own (60 s, never reached)",
     "runs": "createSessionService (readSession / subscribeSession) with scripted statStoredSession / readStoredSession, SessionHostPublication, SessionHostTransport, SessionHostCatalog.refreshColdViews"
   },
@@ -9,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1203,
+      "bytes": 1729,
       "path": "golden.json",
-      "sha256": "799e5dfdd9ca7adc6cd09037c7a7afea249f73b5621367febe7199db6256aa70"
+      "sha256": "d6ec19410b8e1d095ddf4b2456865708f3e344969a0f8f9187e75ddb1cef805e"
     }
   ],
   "inputs": [
@@ -63,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-host-cold-refresh-cases.mjs",
-  "recorderSha256": "0926cf9c61f01f5aef0da5fbdcc0318f054d32e8fcc18ca1de0c9b982878ac28",
+  "recorderSha256": "4b90fe1e3e6e7e0f83aa83725d88a70322f1495e496ed14a7b0a2abd9926592f",
   "replay": {
     "compare": "mixdog-app-server thread reads: replay the open of six cold sessions, three refresh ticks and the one rewrite; compare the stored sessions read per tick and the session-state updates published (whole)",
     "entry": "NO RUST ENTRY ON o1: the desktop SessionHost cold-view refresh (ticks, concurrency, session-state updates): no production counterpart found.",
@@ -76,6 +77,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-host-cold-refresh-cases",
-  "totalBytes": 1203,
+  "totalBytes": 1729,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

@@ -55,14 +55,14 @@ await set.run('the cold-view refresh skips unchanged sessions and refreshes a wr
     const unchanged = { readsAfterThreeTicks: [...reads], published: [...published] };
     stamps.set(ids[2], `${ids[2]}:2`);
     await catalog.refreshColdViews();
-    const written = { reads: [...reads], publishedSessions: published.map((u) => u.sessionId) };
+    const written = { reads: [...reads], published: [...published] };
     await catalog.refreshColdViews();
     return { sessions: ids, initialStamps: ids.map((id) => `${id}:1`), openReads, unchanged, writtenSession: ids[2], written, readsAfterNextTick: [...reads] };
   } finally { catalog.close(); await service.stop('test complete'); }
 });
 
 await set.finish({
-  entry: { runs: 'createSessionService (readSession / subscribeSession) with scripted statStoredSession / readStoredSession, SessionHostPublication, SessionHostTransport, SessionHostCatalog.refreshColdViews', notRun: 'no real session store or runtime (cold views never materialize); the service\'s idle sweep timers are its own (60 s, never reached)' },
+  entry: { hops: "No wire in the Node test: the daemon client is the real session service called in process.", runs: 'createSessionService (readSession / subscribeSession) with scripted statStoredSession / readStoredSession, SessionHostPublication, SessionHostTransport, SessionHostCatalog.refreshColdViews', notRun: 'no real session store or runtime (cold views never materialize); the service\'s idle sweep timers are its own (60 s, never reached)' },
   replay: { entry: 'mixdog-app-server thread reads: replay the open of six cold sessions, three refresh ticks and the one rewrite; compare the stored sessions read per tick and the session-state updates published (whole)', normalised: {} },
 });
 process.exit(0);
