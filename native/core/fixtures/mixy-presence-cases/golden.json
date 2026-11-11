@@ -27,21 +27,22 @@
           ]
         },
         "answers": {
-          "heartbeat": false,
-          "routines": false,
-          "reports": false,
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
           "desktop": false,
           "desktopAgain": false,
-          "heartbeatAfter": false
+          "heartbeatAfter": "no-mixy"
         },
         "leadManifestAfter": {
           "created": false,
           "name": "Buddy"
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json",
+          "routine-results-2.json",
           "routine-results-2.json.bak",
-          "sessions/sess_home_lead.json"
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -55,19 +56,29 @@
           }
         },
         "answers": {
-          "heartbeat": true,
-          "routines": true,
-          "reports": true,
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
           "desktop": true,
           "desktopAgain": true,
-          "heartbeatAfter": true
+          "heartbeatAfter": "armed"
         },
         "leadManifestAfter": {
           "created": true,
           "name": "Buddy"
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json"
+          "heartbeat-4.json",
+          "heartbeat-6.json",
+          "routine-results-5.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -94,19 +105,29 @@
           ]
         },
         "answers": {
-          "heartbeat": true,
-          "routines": true,
-          "reports": true,
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
           "desktop": true,
           "desktopAgain": true,
-          "heartbeatAfter": true
+          "heartbeatAfter": "armed"
         },
         "leadManifestAfter": {
           "created": true
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json",
-          "sessions/sess_home_lead.json"
+          "heartbeat-7.json",
+          "heartbeat-9.json",
+          "routine-results-8.json",
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -132,19 +153,29 @@
           ]
         },
         "answers": {
-          "heartbeat": true,
-          "routines": true,
-          "reports": true,
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
           "desktop": true,
           "desktopAgain": true,
-          "heartbeatAfter": true
+          "heartbeatAfter": "armed"
         },
         "leadManifestAfter": {
           "created": true
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json",
-          "sessions/sess_home_lead.json"
+          "heartbeat-10.json",
+          "heartbeat-12.json",
+          "routine-results-11.json",
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -164,18 +195,28 @@
           ]
         },
         "answers": {
-          "heartbeat": true,
-          "routines": true,
-          "reports": true,
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
           "desktop": true,
           "desktopAgain": true,
-          "heartbeatAfter": true
+          "heartbeatAfter": "armed"
         },
         "leadManifestAfter": {
           "created": true
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json"
+          "heartbeat-13.json",
+          "heartbeat-15.json",
+          "routine-results-14.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -205,20 +246,21 @@
           ]
         },
         "answers": {
-          "heartbeat": false,
-          "routines": false,
-          "reports": false,
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
           "desktop": false,
           "desktopAgain": false,
-          "heartbeatAfter": false
+          "heartbeatAfter": "no-mixy"
         },
         "leadManifestAfter": {
           "created": true
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json",
+          "routine-results-17.json",
           "routine-results-17.json.bak",
-          "sessions/sess_home_lead.json"
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -227,19 +269,20 @@
       "observed": {
         "setup": {},
         "answers": {
-          "heartbeat": false,
-          "routines": false,
-          "reports": false,
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
           "desktop": false,
           "desktopAgain": false,
-          "heartbeatAfter": false
+          "heartbeatAfter": "no-mixy"
         },
         "leadManifestAfter": {
           "created": false
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json",
-          "routine-results-20.json.bak"
+          "routine-results-20.json",
+          "routine-results-20.json.bak",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -259,20 +302,21 @@
           ]
         },
         "answers": {
-          "heartbeat": false,
-          "routines": false,
-          "reports": false,
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
           "desktop": false,
           "desktopAgain": false,
-          "heartbeatAfter": false
+          "heartbeatAfter": "no-mixy"
         },
         "leadManifestAfter": {
           "created": true
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json",
+          "routine-results-23.json",
           "routine-results-23.json.bak",
-          "sessions/sess_home_lead.json"
+          "sessions\\sess_home_lead.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -289,18 +333,28 @@
           ]
         },
         "answers": {
-          "heartbeat": true,
-          "routines": true,
-          "reports": true,
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
           "desktop": true,
           "desktopAgain": true,
-          "heartbeatAfter": true
+          "heartbeatAfter": "armed"
         },
         "leadManifestAfter": {
           "created": true
         },
         "profileFilesAfter": [
-          "agents/lead/agent.json"
+          "heartbeat-25.json",
+          "heartbeat-27.json",
+          "routine-results-26.json",
+          "agents\\lead\\agent.json"
         ]
       }
     },
@@ -331,28 +385,38 @@
         },
         "botStoreSplit": false,
         "withRoutine": {
-          "heartbeat": true,
-          "routines": true,
-          "reports": true,
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
           "desktop": true,
           "desktopAgain": true,
-          "heartbeatAfter": true
+          "heartbeatAfter": "armed"
         },
         "status": {
           "created": true,
           "name": "",
+          "avatar": null,
+          "homeChatted": false,
+          "route": null,
           "exists": true
         },
         "leadManifestAfter": {
           "created": true
         },
         "withoutHerRoutine": {
-          "heartbeat": false,
-          "routines": false,
-          "reports": false,
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
           "desktop": false,
           "desktopAgain": false,
-          "heartbeatAfter": false
+          "heartbeatAfter": "no-mixy"
         }
       }
     },
@@ -383,28 +447,38 @@
         },
         "botStoreSplit": true,
         "withRoutine": {
-          "heartbeat": true,
-          "routines": true,
-          "reports": true,
+          "heartbeat": "armed",
+          "routines": "",
+          "reports": [
+            {
+              "runId": "heartbeat_1",
+              "kind": "agent-message",
+              "text": "Project A got to step 3.",
+              "at": 1
+            }
+          ],
           "desktop": true,
           "desktopAgain": true,
-          "heartbeatAfter": true
+          "heartbeatAfter": "armed"
         },
         "status": {
           "created": true,
           "name": "",
+          "avatar": null,
+          "homeChatted": false,
+          "route": null,
           "exists": true
         },
         "leadManifestAfter": {
           "created": true
         },
         "withoutHerRoutine": {
-          "heartbeat": false,
-          "routines": false,
-          "reports": false,
+          "heartbeat": "no-mixy",
+          "routines": "no-mixy",
+          "reports": [],
           "desktop": false,
           "desktopAgain": false,
-          "heartbeatAfter": false
+          "heartbeatAfter": "no-mixy"
         }
       }
     },
@@ -433,18 +507,12 @@
           {
             "step": "after the desktop decided",
             "created": true,
-            "heartbeat": {
-              "outcome": "no-mixy",
-              "runs": false
-            }
+            "heartbeat": "no-mixy"
           },
           {
             "step": "the user wrote to her",
             "desktop": true,
-            "heartbeat": {
-              "outcome": "armed",
-              "runs": true
-            },
+            "heartbeat": "armed",
             "routineOwnerProblem": ""
           }
         ],

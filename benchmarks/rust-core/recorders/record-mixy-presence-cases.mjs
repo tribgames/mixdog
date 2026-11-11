@@ -57,22 +57,21 @@ let files = 0;
 const fresh = (dataDir, name) => { files += 1; return join(dataDir, `${name}-${files}.json`); };
 async function heartbeatRuns(dataDir) {
   const heartbeat = createMixyHeartbeat({ path: fresh(dataDir, 'heartbeat'), isEnabled: async () => true, collect: async () => { throw new Error('a first check only arms'); }, log: () => {} });
-  const outcome = await heartbeat.tick();
-  return { outcome, runs: outcome === 'armed' };
+  return await heartbeat.tick();
 }
 async function reportWaits(dataDir) {
   const queue = createRoutineResultQueue(fresh(dataDir, 'routine-results'));
   const delivery = createAgentHomeDelivery({ loadSession: () => null, saveSession: async () => {}, turnInFlight: () => false, queue, live: () => ({ busy: () => false, notice: () => {} }), retryLater: () => {}, mixyExists: () => readMixyExists(), log: () => {} });
   await queue.add(HOME, { runId: 'heartbeat_1', kind: 'agent-message', text: 'Project A got to step 3.', at: 1 });
   await delivery.drain(HOME);
-  return (await queue.items(HOME)).length === 1;
+  return await queue.items(HOME);
 }
 async function answers(dataDir) {
-  const before = { heartbeat: (await heartbeatRuns(dataDir)).runs, routines: (await routineOwnerProblem('')) === '', reports: await reportWaits(dataDir) };
+  const before = { heartbeat: await heartbeatRuns(dataDir), routines: await routineOwnerProblem(''), reports: await reportWaits(dataDir) };
   const desktop = await desktopShows(dataDir);
-  return { ...before, desktop, desktopAgain: await desktopShows(dataDir), heartbeatAfter: (await heartbeatRuns(dataDir)).runs };
+  return { ...before, desktop, desktopAgain: await desktopShows(dataDir), heartbeatAfter: await heartbeatRuns(dataDir) };
 }
-const profileFiles = (dataDir) => readdirSync(dataDir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => join(e.parentPath, e.name).slice(dataDir.length + 1).replaceAll('\\', '/')).filter((p) => !/^(heartbeat|routine-results)-\d+\.json$/.test(p)).sort();
+const profileFiles = (dataDir) => readdirSync(dataDir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => join(e.parentPath, e.name).slice(dataDir.length + 1));
 const manifestOf = (dataDir) => { const p = join(dataDir, 'agents', 'lead', 'agent.json'); return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; };
 
 const said = (text) => ({ role: 'user', content: text });
@@ -108,7 +107,7 @@ for (const split of [false, true]) {
     const withRoutine = await answers(dataDir);
     const status = await routes.getLeadStatus();
     rows.schedules = [botSchedule];
-    return { setup, botStoreSplit: split, withRoutine, status: { created: status.created, name: status.name, exists: status.exists }, leadManifestAfter: manifestOf(dataDir), withoutHerRoutine: await answers(dataDir) };
+    return { setup, botStoreSplit: split, withRoutine, status, leadManifestAfter: manifestOf(dataDir), withoutHerRoutine: await answers(dataDir) };
   });
 }
 await set.run('an undecided profile is decided once by the desktop, and the decision changes no answer', async () => {
@@ -127,7 +126,7 @@ await set.finish({
     runs: "the runtime's createAgentDefinitionApi(createAgentEditorApi) getLeadStatus/setLeadCreated, apps/desktop/src/main/mixy-first.ts resolveMixyCreated, createMixyHeartbeat().tick, createAgentHomeDelivery(...).drain with createRoutineResultQueue, readMixyExists, routineOwnerProblem, each over a real profile on disk (agents/lead/agent.json, sessions/<home>.json)",
     notRun: 'the PostgreSQL row stores: listSchedules, listEndpoints and pgClusterExists are in-memory (as in the test); the heartbeat collect function is never reached',
   },
-  replay: { entry: 'mixdog-core run_host heartbeat_parts.rs, home_directory.rs (mixy_exists), routine owner check and the home delivery drain: build the same profile (setup) and compare answers, the lead status, the lead manifest bytes and the profile file list after', normalised: { dataDir: 'a fresh temp data dir per case; per-check state files (heartbeat-N.json, routine-results-N.json) are left out of profileFilesAfter' } },
+  replay: { entry: 'mixdog-core run_host heartbeat_parts.rs, home_directory.rs (mixy_exists), routine owner check and the home delivery drain: build the same profile (setup) and compare answers, the lead status, the lead manifest bytes and the profile file list after', normalised: { dataDir: 'a fresh temp data dir per case; profileFilesAfter lists every file in the order readdir returned, with the separators Node produced (backslashes on win32), the per-check state files included' } },
   replaceInText: dirs.map((dir) => [dir, '<data>']),
 });
 for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
