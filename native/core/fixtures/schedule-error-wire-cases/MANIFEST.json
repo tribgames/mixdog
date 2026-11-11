@@ -84,25 +84,29 @@
   "replay": {
     "compare": "mixdog-services scheduler rename errors + the desktop wire: each refusal keeps its code and name param through the envelope and renders the Korean text",
     "declared": {
-      "results[*].wire[0], wire[1].writeHead": "Node's `/call` HTTP request and head: the core's transport is its own protocol; the answer body (wire[1].text) is compared",
-      "results[*].engineError": "the error Node threw into its call route; its wire form (wire[1].text) is what is compared",
+      "results[*].wire[0], wire[1].writeHead": "Node's `/call` HTTP request and head: the core's transport is its own protocol; the answer body (wire[1].text) is compared, and the request's entry names (args[1][0] name/newName) are the rename the core is asked",
+      "results[*].wire[0] entry fields": "the recorded entry carries only name/newName (the recorder's handler threw before any validation); the replayed rename adds what a save requires before a rename is reached, as the Schedules view sends it: instructions, time and overwrite: true",
+      "results[*].engineError": "the error Node threw into its call route; the core's engine raises its own refusal and the wire form (wire[1].text) is what is compared",
+      "results[3]": "SCHEDULE_RENAME_UNCERTAIN is not replayed: Node raises it only when the session runtime's call to the channel worker process fails (src/session-runtime/channel-config-api.mjs:63); the core's channel admin calls its scheduler in process, so no core path reaches it",
       "results[*].sentToPage, sentToPageOwnPropertyNames, code, nameParam, translationKey, expectedText, text": "the desktop's hops after the wire (session client, IPC envelope, contextBridge clone, Korean page text): apps/desktop, not the core"
     },
-    "entry": "The four rename refusals (mixdog-services/src/scheduler ScheduleError NameTaken / RenameRunning / RenameReloadFailed / RenameUncertain) answered through mixdog-services/src/channels/service.rs admin_error, the mapping channel/saveSchedule returns; replayed by mixdog-services/src/channels/schedule_error_wire_replay_tests.rs.",
+    "entry": "channel/saveSchedule of mixdog-services/src/channels/service.rs ChannelService over the real stores, scheduler and runtime, renaming other to once-renamed; the engine refuses it: the new name saved already (NameTaken), a run of other holding its name (RenameRunning), the runtime up and its reload failing with timeout (Scheduler::rename_locked, RenameReloadFailed). Replayed by mixdog-services/src/channels/schedule_error_wire_replay_tests.rs.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the desktop wire (IPC envelope, preload, Korean text): no Rust counterpart (the codes exist; the page text and the envelope the desktop builds from them do not)"
     ],
     "normalised": {},
-    "protocolMethods": [],
+    "protocolMethods": [
+      "channel/saveSchedule"
+    ],
     "rustTargets": [
       {
-        "name": "admin_error",
+        "name": "ChannelService",
         "path": "native/core/crates/mixdog-services/src/channels/service.rs"
       },
       {
-        "name": "ScheduleError",
-        "path": "native/core/crates/mixdog-services/src/scheduler"
+        "name": "rename_locked",
+        "path": "native/core/crates/mixdog-services/src/scheduler/engine.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"

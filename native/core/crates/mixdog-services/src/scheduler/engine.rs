@@ -216,11 +216,12 @@ impl Scheduler {
         self.inner.fire_one_shot(name).await;
     }
 
-    /// Runs `rename` (which moves schedule `name`'s row) while no run of `name` can start
-    /// or be in flight: the check and the reservation are one step under the state lock.
+    /// Runs `rename` (which moves schedule `name`'s row to `new_name`) while no run of `name` can
+    /// start or be in flight: the check and the reservation are one step under the state lock.
     pub async fn rename_locked<R, Fut, RlFut>(
         &self,
         name: &str,
+        new_name: &str,
         rename: impl FnOnce() -> Fut,
         reload: impl FnOnce() -> RlFut,
     ) -> Result<Option<R>, ScheduleError>
@@ -241,8 +242,10 @@ impl Scheduler {
             if let Err(cause) = reload().await {
                 // The row moved but the reload that arms the new name failed: nothing may
                 // keep running under the old one.
+                // The refusal names the row's new name, the one that is armed on the next reload
+                // (`scheduler.mjs:541`).
                 self.inner.drop_schedule(name);
-                return Err(ScheduleError::RenameReloadFailed { name: name.into(), cause });
+                return Err(ScheduleError::RenameReloadFailed { name: new_name.into(), cause });
             }
             Ok(Some(saved))
         }
