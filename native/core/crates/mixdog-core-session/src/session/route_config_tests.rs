@@ -212,6 +212,231 @@ async fn a_model_switch_shows_the_new_routes_figures_with_the_new_model() {
     assert!(shown, "the switch was published");
 }
 
+/// A context gauge whose route-move reads wait until the test lets them through ([`GatedStatus::open`]) and then answer the figures
+/// of the header's model, or fail when `fail` is set; `passes` counts the status passes (`context_status`), which read nothing.
+struct GatedStatus {
+    gate: tokio::sync::Semaphore,
+    fail: std::sync::atomic::AtomicBool,
+    held: std::sync::atomic::AtomicUsize,
+    passes: std::sync::atomic::AtomicUsize,
+    /// Told when a read comes to the gate: the read runs off the actor, so no step of the thread announces it.
+    arrived: tokio::sync::Notify,
+}
+
+impl GatedStatus {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { gate: tokio::sync::Semaphore::new(0), fail: Default::default(), held: Default::default(), passes: Default::default(), arrived: Default::default() })
+    }
+
+    fn open(&self, reads: usize) {
+        self.gate.add_permits(reads);
+    }
+
+    fn held(&self) -> usize {
+        self.held.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for GatedStatus {
+    async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        self.passes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Value::Null)
+    }
+
+    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, header: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        self.held.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.arrived.notify_waiters();
+        self.gate.acquire().await.expect("the gate stays open").forget();
+        self.held.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(mixdog_core_api::error::CoreError::Internal { incident_id: "test-status-failed".into() });
+        }
+        let (window, trigger) = figures_of(header.get("model").and_then(Value::as_str).unwrap_or_default());
+        Ok(json!({ "contextWindow": window, "compaction": { "boundaryTokens": window, "triggerTokens": trigger } }))
+    }
+}
+
+/// A rig whose thread runs on [`GatedStatus`], started on its route (the start's own move let through).
+async fn gated_thread(rig: &Rig, status: &Arc<GatedStatus>) -> (Arc<SessionDirectory>, Arc<super::SessionHandle>) {
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.context_status = status.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    // The start's move reads only when it is one; a permit given ahead would be left for the test's own move when it is not.
+    let mut start = tokio::spawn({
+        let directory = directory.clone();
+        async move { super::tests::start_routed_thread(&directory).await }
+    });
+    loop {
+        let arrived = status.arrived.notified();
+        tokio::pin!(arrived);
+        arrived.as_mut().enable();
+        if status.held() == 1 {
+            status.open(1);
+        }
+        tokio::select! {
+            biased;
+            handle = &mut start => return (directory, handle.expect("started")),
+            () = arrived => {}
+        }
+    }
+}
+
+/// `thread/header/patch` of the thread's route (`updateSessionRoute`).
+fn move_route<'a>(handle: &'a super::SessionHandle, model: &'a str) -> impl std::future::Future<Output = Result<mixdog_core_api::Reply, mixdog_core_api::error::CoreError>> + 'a {
+    let params = json!({ "threadId": handle.id, "set": { "model": model }, "unset": ["autoCompactTokenLimit"] });
+    mixdog_core_api::ThreadHandle::request(handle, mixdog_core_api::CoreRequest {
+        method: mixdog_core_api::ids::Method("thread/header/patch"),
+        params,
+        op: None,
+        ctx: mixdog_core_api::call::CallContext::internal("test"),
+    })
+}
+
+/// Waits until `count` route-move reads are held at the gate.
+async fn held(handle: &super::SessionHandle, status: &GatedStatus, count: usize) {
+    eventually_on!(&[&handle.cell.stepped, &status.arrived], || (status.held() == count).then_some(())).await;
+}
+
+/// A route move whose status read is held leaves the thread serving: a `thread/read` is answered, a turn starts on the route the
+/// thread holds and its cancel ends it, all before the move is written; the move then lands with its figures.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pending_route_move_leaves_the_thread_serving() {
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let status = GatedStatus::new();
+    let (_directory, handle) = gated_thread(&rig, &status).await;
+    let state = || serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
+    let switch = tokio::spawn({
+        let handle = handle.clone();
+        async move { move_route(&handle, "wide").await }
+    });
+    held(&handle, &status, 1).await;
+
+    let read = mixdog_core_api::CoreRequest {
+        method: mixdog_core_api::ids::Method("thread/read"),
+        params: json!({ "threadId": handle.id }),
+        op: None,
+        ctx: mixdog_core_api::call::CallContext::internal("test"),
+    };
+    let answered = tokio::time::timeout(std::time::Duration::from_secs(5), mixdog_core_api::ThreadHandle::request(&*handle, read)).await;
+    assert!(matches!(answered, Ok(Ok(_))), "thread/read is answered while the move is pending");
+    let started = turn(&handle, "go", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst).then_some(())).await;
+    assert_eq!(model_and_trigger(&state()).0, json!(super::tests::ROUTE_MODEL), "the turn starts on the route the thread holds");
+    handle.interrupt(&TurnId::from(started["turnId"].as_str().expect("turn id")), None).expect("interrupt");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(status.held(), 1, "the cancel was served while the read was held");
+    assert!(!switch.is_finished(), "the move answers after its figures");
+
+    status.open(1);
+    switch.await.expect("joined").expect("switched");
+    assert_eq!(model_and_trigger(&state()), (json!("wide"), json!(figures_of("wide").1)));
+}
+
+/// Two route moves in a row are written in order, each with its figures, and the thread ends on the second.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_route_moves_in_a_row_end_on_the_second_with_its_figures() {
+    let rig = Rig::new();
+    let status = GatedStatus::new();
+    let (_directory, handle) = gated_thread(&rig, &status).await;
+    let first = tokio::spawn({
+        let handle = handle.clone();
+        async move { move_route(&handle, "wide").await }
+    });
+    held(&handle, &status, 1).await;
+    let second = tokio::spawn({
+        let handle = handle.clone();
+        async move { move_route(&handle, "narrow").await }
+    });
+    // The second waits behind the first: its read starts only once the first is written.
+    tokio::task::yield_now().await;
+    assert_eq!(status.held(), 1);
+    status.open(2);
+    first.await.expect("joined").expect("first");
+    second.await.expect("joined").expect("second");
+    let state = serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
+    assert_eq!(model_and_trigger(&state), (json!("narrow"), json!(figures_of("narrow").1)));
+    let (mut model, mut trigger, mut models) = (Value::Null, Value::Null, Vec::new());
+    // A step publishes the move's figures ahead of its route: each route frame shows the figures of its own model.
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        match method.as_str() {
+            "thread/route/updated" => model = params["value"]["model"].clone(),
+            "thread/context/updated" => {
+                trigger = params["value"]["autoCompactTokenLimit"].clone();
+                continue;
+            }
+            _ => continue,
+        }
+        if let Some(name) = model.as_str() {
+            assert_eq!(trigger, json!(figures_of(name).1), "a frame shows {name} with another route's trigger");
+            if models.last() != Some(&model) {
+                models.push(model.clone());
+            }
+        }
+    }
+    assert_eq!(models, vec![json!(super::tests::ROUTE_MODEL), json!("wide"), json!("narrow")]);
+}
+
+/// A route move through the route write (`write_route`: `update_header_awaiting`, the route's hops and a session's own pick) is the
+/// same pending step: written once its figures are read, with them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_route_write_moves_with_its_figures() {
+    let rig = Rig::new();
+    let status = GatedStatus::new();
+    let (directory, handle) = gated_thread(&rig, &status).await;
+    let update: super::actor::AwaitingHeaderUpdate = Box::new(|_| {
+        Box::pin(async move {
+            mixdog_store::schema::record::HeaderChange { set: [("model".to_owned(), json!("wide"))].into_iter().collect(), unset: vec!["autoCompactTokenLimit".to_owned()] }
+        })
+    });
+    let write = tokio::spawn({
+        let (directory, id) = (directory.clone(), handle.id.clone());
+        async move { directory.update_header_awaiting(&id, update).await }
+    });
+    held(&handle, &status, 1).await;
+    let state = || serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
+    assert_eq!(model_and_trigger(&state()).0, json!(super::tests::ROUTE_MODEL), "not written before its figures");
+    status.open(1);
+    write.await.expect("joined").expect("written");
+    let frames: Vec<_> = rig.feeds.frames(handle.id.as_str()).into_iter().map(|(_, method, params)| (method, params)).collect();
+    assert_eq!(model_and_trigger(&state()), (json!("wide"), json!(figures_of("wide").1)), "frames: {frames:?}");
+}
+
+/// A route move whose status read fails is written as Node publishes a route its runtime has no status for (`syncContextStats` patches
+/// nothing, `routeState` shows 0 for a moved window, context-state.mjs:100-113,137-142), and nothing is read again for it.
+#[tokio::test(start_paused = true)]
+async fn a_route_move_whose_status_read_fails_shows_route_states_figures_and_reads_nothing_more() {
+    let rig = Rig::new();
+    let status = GatedStatus::new();
+    let (_directory, handle) = gated_thread(&rig, &status).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE * 2).await;
+    eventually_on!(&[&handle.cell.stepped], || (status.passes.load(std::sync::atomic::Ordering::SeqCst) == 1).then_some(())).await;
+    status.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    status.open(1);
+    let params = json!({ "threadId": handle.id, "set": { "model": "wide", "contextWindow": 200_000 }, "unset": ["autoCompactTokenLimit"] });
+    mixdog_core_api::ThreadHandle::request(&*handle, mixdog_core_api::CoreRequest {
+        method: mixdog_core_api::ids::Method("thread/header/patch"),
+        params,
+        op: None,
+        ctx: mixdog_core_api::call::CallContext::internal("test"),
+    })
+    .await
+    .expect("the move is written");
+    let state = serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
+    assert_eq!(model_and_trigger(&state), (json!("wide"), json!(0)));
+    assert_eq!((&state["context"]["displayContextWindow"], &state["context"]["compactBoundaryTokens"]), (&json!(0), &json!(0)));
+    tokio::time::advance(super::actor::STATUS_SETTLE * 4).await;
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    assert_eq!(status.passes.load(std::sync::atomic::Ordering::SeqCst), 1, "no status pass follows the failed read");
+}
+
 /// Each announced settings change moves `setupChanged` (`{ action: 'settings_changed', seq, at }`, `seq` counting the thread's changes), and
 /// the route section follows the saved configuration.
 #[tokio::test(start_paused = true)]
