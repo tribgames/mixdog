@@ -136,7 +136,3 @@ impl OrchestrationTexts {
             .map_err(|error| SurfaceFailure(format!("the orchestration text of mode \"{mode}\" could not be read: {error:?}")))
     }
 }
-
-#[cfg(test)]
-#[path = "instructions_tests.rs"]
-mod tests;

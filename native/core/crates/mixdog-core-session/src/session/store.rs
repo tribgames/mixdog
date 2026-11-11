@@ -337,7 +337,8 @@ impl StoreThreads {
     }
 
     /// Returns once the index holds every write acked so far (the projection runs behind the ack).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) async fn projected(&self) {
         self.projector.drained().await;
     }

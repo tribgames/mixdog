@@ -60,10 +60,13 @@ windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win3
 # Test-only: the work counters the hot-path tests read, here and in the crates below. A test build of this crate (the
 # self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
 count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
+# Test-only: what the replays in `crates/mixdog-core-replays` reach inside this library (`run_host::fixture_fs`,
+# `replay_access`). Refused in a release build (build.rs).
+test-support = ["mixdog-rt/test-support"]
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
-mixdog-core = { path = ".", features = ["count-work"] }
+mixdog-core = { path = ".", features = ["count-work", "test-support"] }
 bytes = { workspace = true }
 flate2 = { workspace = true }
 tokio-tungstenite = { workspace = true }

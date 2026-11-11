@@ -146,7 +146,7 @@ pub(crate) fn within_priority(entry: &Value, max: Priority) -> bool {
     rank <= ceiling
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[test]
 fn a_next_drain_leaves_later_entries_queued() {
     let entry = |priority: Option<&str>| match priority {
