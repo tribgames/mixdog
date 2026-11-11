@@ -596,7 +596,7 @@ mod batch_tests {
     /// a quoted-header name, the command-line budget, the patch budget, duplicates, a path that no longer exists.
     #[test]
     fn review_batches_match_the_recorded_node_answers() {
-        let recorded: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/review-batch/corpus.json"))).unwrap();
+        let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop/review-batch/corpus.json")).unwrap();
         // A patch Node recorded only by length is a chunk of that length: its header, then filler.
         let patch_of = |path: &str| match &recorded["patchOf"][path] {
             entry if entry["patch"].is_string() => entry["patch"].as_str().unwrap().to_owned(),

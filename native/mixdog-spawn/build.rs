@@ -16,7 +16,7 @@ mod dev_only;
 
 #[cfg(windows)]
 fn main() {
-    dev_only::refuse_in_release(&["core-test", "lease-clock"]);
+    dev_only::refuse_in_release(&["core-test", "lease-clock", "scripted-shell"]);
     // The script's only other input; without a rerun-if line Cargo reran it (and the resource compiler) on every
     // change in the package.
     println!("cargo::rerun-if-changed=../../apps/desktop/build/mixdog.ico");
@@ -39,5 +39,5 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    dev_only::refuse_in_release(&["core-test", "lease-clock"]);
+    dev_only::refuse_in_release(&["core-test", "lease-clock", "scripted-shell"]);
 }

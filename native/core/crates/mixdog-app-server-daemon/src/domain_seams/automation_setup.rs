@@ -339,7 +339,7 @@ mod tests {
     /// validation of the `setup` tool in front of it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn every_automation_reply_is_the_text_node_sends() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/automation-setup-reply/golden.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/automation-setup-reply/golden.json")).unwrap();
         let cases = golden["cases"].as_array().unwrap();
         assert!(cases.len() > 700);
 

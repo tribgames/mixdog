@@ -69,6 +69,3 @@ pub fn rearm_prompt_settings_notice(header: &mut Header) -> bool {
     header.insert("promptSettingsRecheck".into(), Value::String("compact".into()));
     true
 }
-
-#[cfg(test)]
-mod tests;

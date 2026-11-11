@@ -237,10 +237,17 @@ pub(crate) struct ControlCell {
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
     pub stepped: tokio::sync::Notify,
+    /// The records the actor accepted that the store has not acknowledged, after its last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub unacked: std::sync::atomic::AtomicUsize,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
     pub busy: std::sync::atomic::AtomicBool,
+    /// A test's mark of a turn in flight with no run (Node's `markSessionAskStart`, until `markSessionDone`): the
+    /// session is not idle (`ui_busy`); `Inbox::AskEnded` clears it and runs what the turn's end runs for a prune.
+    #[cfg(test)]
+    pub ask_marked: std::sync::atomic::AtomicBool,
     /// How many times the actor has armed the prompt-history write timer (the window, or a backoff), counted in the step that arms
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
@@ -250,6 +257,15 @@ pub(crate) struct ControlCell {
     /// waits on this, so the gate was consulted before it asserts.
     #[cfg(any(test, feature = "test-support"))]
     pub gate_holds: std::sync::atomic::AtomicU64,
+    /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
+    /// replay barrier takes their accepted count as it arrives.
+    #[cfg(any(test, feature = "test-support"))]
+    pub prompt_marks: Arc<mixdog_rt::WriteMarks>,
+    /// The numbers of the thread's durable records ([`super::outbox::Outbox::numbered_on`]): accepted as the actor takes a
+    /// record into its outbox, written once the store synced and acked it, failed when it leaves uncommitted (its encode or
+    /// its barrier failed, or the actor ended first). The replay barrier takes their accepted count as it arrives.
+    #[cfg(any(test, feature = "test-support"))]
+    pub record_marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 impl ControlCell {

@@ -437,7 +437,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn held_sessions_answer_nodes_fallback_positions() {
         const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/route-positions/golden.json"));
-        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+        let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
         let mut rows_checked = 0;
         for case in golden["cases"].as_array().expect("cases") {
             let rig = Rig::new();
@@ -464,7 +464,7 @@ mod tests {
         use mixdog_core_agents::setup::ModelStatus;
         use mixdog_core_agents::setup::StatusReader;
         const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/live-route-facade/golden.json"));
-        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+        let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
         let thread = ThreadId::from("sess_lead");
         for case in golden["cases"].as_array().expect("cases") {
             let name = &case["name"];
@@ -489,8 +489,8 @@ mod tests {
     async fn the_model_status_prints_what_nodes_setup_executor_did() {
         use mixdog_core_agents::setup::ModelStatus;
         use mixdog_core_agents::setup::StatusReader;
-        const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/live-route/golden.json"));
-        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+        const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-route/golden.json");
+        let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
         for case in golden["cases"].as_array().expect("cases") {
             let name = &case["name"];
             let rig = Rig::new();

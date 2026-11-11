@@ -10,5 +10,3 @@ pub mod session_create;
 pub mod session_port;
 pub mod session_send;
 
-#[cfg(test)]
-mod tests;

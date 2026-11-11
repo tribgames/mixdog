@@ -65,7 +65,7 @@ impl CodeGraphPrewarm {
         }
         let this = Arc::clone(self);
         state.timer = Some(tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             this.state().timer = None;
             if !this.world.close_requested() {
                 this.on_timer(reason);
@@ -224,7 +224,7 @@ mod tests {
     }
 
     async fn settle() {
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
     }
 
     #[tokio::test(start_paused = true)]
@@ -232,9 +232,9 @@ mod tests {
         let (world, prewarm) = rig("/a");
         prewarm.schedule(None, "cwd");
         prewarm.schedule(None, "cwd");
-        tokio::time::sleep(Duration::from_millis(249)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(249)).await;
         assert_eq!(world.calls.load(Ordering::SeqCst), 0);
-        tokio::time::sleep(Duration::from_millis(2)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(2)).await;
         assert_eq!(*world.warmed.lock().unwrap(), ["/a"]);
     }
 
@@ -245,7 +245,7 @@ mod tests {
         prewarm.schedule(Some(Duration::ZERO), "cwd");
         settle().await;
         assert_eq!(world.calls.load(Ordering::SeqCst), 0, "parked, not retried by polling");
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(60)).await;
         assert_eq!(world.calls.load(Ordering::SeqCst), 0);
         *world.busy.lock().unwrap() = None;
         prewarm.wake();
@@ -269,7 +269,7 @@ mod tests {
         prewarm.schedule(None, "cwd");
         *world.cwd.lock().unwrap() = "/b".to_owned();
         prewarm.schedule(None, "cwd");
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(300)).await;
         assert_eq!(*world.warmed.lock().unwrap(), ["/b"], "one warm, for the cwd queued last");
     }
 

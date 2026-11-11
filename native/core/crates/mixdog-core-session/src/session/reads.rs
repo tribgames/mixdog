@@ -100,6 +100,7 @@ pub(super) struct History {
 pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History, CoreError> {
     let token = CancellationToken::new();
     let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
+    deps.store.unheld().await;
     let (store, thread) = (deps.store.clone(), id.clone());
     let (rev, records) = deps.lanes.io.submit(&token, move |lane| store.history_rows(lane, &thread))?.await.map_err(|_| dropped())??;
     let transcript = deps.transcript.clone();
@@ -146,6 +147,7 @@ impl DirInner {
     async fn model_messages_list(&self, id: &ThreadId, p: ThreadModelMessagesListParams) -> Result<Reply, CoreError> {
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: id.clone(),
             input: ItemId::from(String::new()),

@@ -1,0 +1,1376 @@
+{
+  "node": "v22.20.0",
+  "cases": [
+    {
+      "name": "same-due-armed-in-order",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 100,
+          "then": []
+        },
+        {
+          "timeout": "b",
+          "ms": 100,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 100,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          100
+        ],
+        [
+          "b",
+          100
+        ],
+        [
+          "c",
+          100
+        ]
+      ]
+    },
+    {
+      "name": "a-requeued-list-after-an-older-list",
+      "core": true,
+      "script": [
+        {
+          "timeout": "x50",
+          "ms": 50,
+          "then": [
+            {
+              "timeout": "y50",
+              "ms": 50,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "z100",
+          "ms": 100,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "x50",
+          50
+        ],
+        [
+          "z100",
+          100
+        ],
+        [
+          "y50",
+          100
+        ]
+      ]
+    },
+    {
+      "name": "reviewer-with-first100",
+      "core": true,
+      "script": [
+        {
+          "timeout": "first100",
+          "ms": 100,
+          "then": []
+        },
+        {
+          "timeout": "p10",
+          "ms": 10,
+          "then": [
+            {
+              "timeout": "q100",
+              "ms": 100,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "r20",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "s90",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "p10",
+          10
+        ],
+        [
+          "r20",
+          20
+        ],
+        [
+          "first100",
+          100
+        ],
+        [
+          "s90",
+          110
+        ],
+        [
+          "q100",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "reviewer-without-first100",
+      "core": true,
+      "script": [
+        {
+          "timeout": "p10",
+          "ms": 10,
+          "then": [
+            {
+              "timeout": "q100",
+              "ms": 100,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "r20",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "s90",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "p10",
+          10
+        ],
+        [
+          "r20",
+          20
+        ],
+        [
+          "q100",
+          110
+        ],
+        [
+          "s90",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "many-lists-due-at-once",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a60",
+          "ms": 60,
+          "then": []
+        },
+        {
+          "timeout": "g20",
+          "ms": 20,
+          "then": []
+        },
+        {
+          "timeout": "k10",
+          "ms": 10,
+          "then": [
+            {
+              "timeout": "b50",
+              "ms": 50,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "k20",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "c40",
+              "ms": 40,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "k30",
+          "ms": 30,
+          "then": [
+            {
+              "timeout": "d30",
+              "ms": 30,
+              "then": []
+            },
+            {
+              "timeout": "e30",
+              "ms": 30,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "k40",
+          "ms": 40,
+          "then": [
+            {
+              "timeout": "h20",
+              "ms": 20,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "k10",
+          10
+        ],
+        [
+          "g20",
+          20
+        ],
+        [
+          "k20",
+          20
+        ],
+        [
+          "k30",
+          30
+        ],
+        [
+          "k40",
+          40
+        ],
+        [
+          "a60",
+          60
+        ],
+        [
+          "b50",
+          60
+        ],
+        [
+          "d30",
+          60
+        ],
+        [
+          "e30",
+          60
+        ],
+        [
+          "h20",
+          60
+        ],
+        [
+          "c40",
+          60
+        ]
+      ]
+    },
+    {
+      "name": "zero-and-one-ms-inside-a-timer",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 100,
+          "then": [
+            {
+              "timeout": "n0",
+              "ms": 0,
+              "then": []
+            },
+            {
+              "timeout": "n1",
+              "ms": 1,
+              "then": []
+            },
+            {
+              "timeout": "n2",
+              "ms": 2,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "x101",
+          "ms": 101,
+          "then": []
+        },
+        {
+          "timeout": "y102",
+          "ms": 102,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          100
+        ],
+        [
+          "x101",
+          101
+        ],
+        [
+          "n0",
+          101
+        ],
+        [
+          "n1",
+          101
+        ],
+        [
+          "y102",
+          102
+        ],
+        [
+          "n2",
+          102
+        ]
+      ]
+    },
+    {
+      "name": "armed-inside-a-timer-for-an-instant-already-queued",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 100,
+          "then": [
+            {
+              "timeout": "b",
+              "ms": 10,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "c",
+          "ms": 110,
+          "then": []
+        },
+        {
+          "timeout": "d",
+          "ms": 110,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          100
+        ],
+        [
+          "c",
+          110
+        ],
+        [
+          "d",
+          110
+        ],
+        [
+          "b",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "ticks-and-promises-between-timers",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "tick": "a-tick"
+            },
+            {
+              "promise": "a-promise"
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": [
+            {
+              "tick": "b-tick"
+            }
+          ]
+        },
+        {
+          "timeout": "c",
+          "ms": 20,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "a-tick",
+          10
+        ],
+        [
+          "a-promise",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "b-tick",
+          10
+        ],
+        [
+          "c",
+          20
+        ]
+      ]
+    },
+    {
+      "name": "a-promise-queued-before-a-tick",
+      "core": "process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them, and no core code is a counterpart of process.nextTick (Node b6f10295a calls it nowhere in src/ outside tests)",
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "promise": "a-promise"
+            },
+            {
+              "tick": "a-tick"
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "a-tick",
+          10
+        ],
+        [
+          "a-promise",
+          10
+        ],
+        [
+          "b",
+          10
+        ]
+      ]
+    },
+    {
+      "name": "immediates-after-all-timers-of-a-turn",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "a-immediate"
+            },
+            {
+              "tick": "a-tick"
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "a-tick",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "a-immediate",
+          10
+        ],
+        [
+          "c",
+          11
+        ]
+      ]
+    },
+    {
+      "name": "immediates-queued-by-immediates-run-a-loop-turn-later",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i1",
+              "then": [
+                {
+                  "immediate": "i2",
+                  "then": [
+                    {
+                      "timeout": "n1",
+                      "ms": 1,
+                      "then": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "timeout": "n0",
+              "ms": 1,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "ib"
+            }
+          ]
+        },
+        {
+          "timeout": "c",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "i1",
+          10
+        ],
+        [
+          "ib",
+          10
+        ],
+        [
+          "i2",
+          10
+        ],
+        [
+          "c",
+          11
+        ],
+        [
+          "n0",
+          11
+        ],
+        [
+          "n1",
+          11
+        ]
+      ]
+    },
+    {
+      "name": "an-immediate-from-the-start-before-a-1ms-timer",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 1,
+          "then": []
+        },
+        {
+          "immediate": "i0"
+        }
+      ],
+      "events": [
+        [
+          "i0",
+          0
+        ],
+        [
+          "a",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "immediates-of-two-lists-in-the-order-queued",
+      "core": true,
+      "script": [
+        {
+          "timeout": "x",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "ix"
+            }
+          ]
+        },
+        {
+          "timeout": "y",
+          "ms": 5,
+          "then": [
+            {
+              "timeout": "z",
+              "ms": 5,
+              "then": [
+                {
+                  "immediate": "iz"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "y",
+          5
+        ],
+        [
+          "x",
+          10
+        ],
+        [
+          "z",
+          10
+        ],
+        [
+          "ix",
+          10
+        ],
+        [
+          "iz",
+          10
+        ]
+      ]
+    },
+    {
+      "name": "a-timer-armed-by-an-immediate",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i",
+              "then": [
+                {
+                  "timeout": "n0",
+                  "ms": 0,
+                  "then": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "b",
+          11
+        ],
+        [
+          "n0",
+          11
+        ]
+      ]
+    },
+    {
+      "name": "an-interval-rearms-after-its-callback",
+      "core": true,
+      "script": [
+        {
+          "interval": "i",
+          "ms": 50,
+          "times": 3,
+          "then": [
+            {
+              "timeout": "j50",
+              "ms": 50,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "t100",
+          "ms": 100,
+          "then": []
+        },
+        {
+          "timeout": "t150",
+          "ms": 150,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "i",
+          50
+        ],
+        [
+          "t100",
+          100
+        ],
+        [
+          "j50",
+          100
+        ],
+        [
+          "i",
+          100
+        ],
+        [
+          "t150",
+          150
+        ],
+        [
+          "j50",
+          150
+        ],
+        [
+          "i",
+          150
+        ],
+        [
+          "j50",
+          200
+        ]
+      ]
+    },
+    {
+      "name": "clearing-due-timers-from-an-earlier-one",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 100,
+          "then": [
+            {
+              "clear": "b"
+            },
+            {
+              "clear": "w"
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 100,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 100,
+          "then": []
+        },
+        {
+          "timeout": "x",
+          "ms": 10,
+          "then": [
+            {
+              "timeout": "w",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "x",
+          10
+        ],
+        [
+          "a",
+          100
+        ],
+        [
+          "c",
+          100
+        ]
+      ]
+    },
+    {
+      "name": "unref-keeps-the-order",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 100,
+          "then": [],
+          "unref": true
+        },
+        {
+          "timeout": "b",
+          "ms": 100,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          100
+        ],
+        [
+          "b",
+          100
+        ]
+      ]
+    },
+    {
+      "name": "clearing-an-unrefed-timer-keeps-its-list",
+      "core": true,
+      "script": [
+        {
+          "timeout": "u",
+          "ms": 100,
+          "then": [],
+          "unref": true
+        },
+        {
+          "timeout": "k",
+          "ms": 10,
+          "then": [
+            {
+              "clear": "u"
+            },
+            {
+              "timeout": "v",
+              "ms": 100,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "r",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "s",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "k",
+          10
+        ],
+        [
+          "r",
+          20
+        ],
+        [
+          "s",
+          110
+        ],
+        [
+          "v",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "clearing-a-reref-ed-timer-recreates-its-list",
+      "core": true,
+      "script": [
+        {
+          "timeout": "u",
+          "ms": 100,
+          "then": [],
+          "unref": true,
+          "ref": true
+        },
+        {
+          "timeout": "k",
+          "ms": 10,
+          "then": [
+            {
+              "clear": "u"
+            },
+            {
+              "timeout": "v",
+              "ms": 100,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "r",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "s",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "k",
+          10
+        ],
+        [
+          "r",
+          20
+        ],
+        [
+          "v",
+          110
+        ],
+        [
+          "s",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "a-rearmed-unrefed-watchdog-joins-its-old-list",
+      "core": true,
+      "script": [
+        {
+          "timeout": "w1",
+          "ms": 100,
+          "then": [],
+          "unref": true
+        },
+        {
+          "timeout": "k",
+          "ms": 10,
+          "then": [
+            {
+              "clear": "w1"
+            },
+            {
+              "timeout": "w2",
+              "ms": 100,
+              "then": [],
+              "unref": true
+            }
+          ]
+        },
+        {
+          "timeout": "r",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "s",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "k",
+          10
+        ],
+        [
+          "r",
+          20
+        ],
+        [
+          "s",
+          110
+        ],
+        [
+          "w2",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "clearing-an-unrefed-interval-keeps-its-list",
+      "core": true,
+      "script": [
+        {
+          "interval": "w",
+          "ms": 50,
+          "times": 99,
+          "unref": true
+        },
+        {
+          "timeout": "k",
+          "ms": 60,
+          "then": [
+            {
+              "clear": "w"
+            },
+            {
+              "timeout": "v",
+              "ms": 50,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "r",
+          "ms": 70,
+          "then": [
+            {
+              "timeout": "s",
+              "ms": 40,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "w",
+          50
+        ],
+        [
+          "k",
+          60
+        ],
+        [
+          "r",
+          70
+        ],
+        [
+          "s",
+          110
+        ],
+        [
+          "v",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "clearing-a-refed-timer-recreates-its-list",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 100,
+          "then": []
+        },
+        {
+          "timeout": "k",
+          "ms": 10,
+          "then": [
+            {
+              "clear": "a"
+            },
+            {
+              "timeout": "b",
+              "ms": 100,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "m",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "c",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "events": [
+        [
+          "k",
+          10
+        ],
+        [
+          "m",
+          20
+        ],
+        [
+          "b",
+          110
+        ],
+        [
+          "c",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "fractions-of-a-millisecond-are-cut",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 1.7,
+          "then": []
+        },
+        {
+          "timeout": "b",
+          "ms": 1,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 0.4,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          1
+        ],
+        [
+          "b",
+          1
+        ],
+        [
+          "c",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "a-self-requeuing-immediate-runs-once-a-turn",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i",
+              "again": 3
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "c",
+          11
+        ]
+      ]
+    },
+    {
+      "name": "a-self-requeuing-immediate-lets-due-timers-fire-between-turns",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i",
+              "again": 3,
+              "step": true
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 12,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 13,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          11
+        ],
+        [
+          "b",
+          12
+        ],
+        [
+          "i",
+          12
+        ],
+        [
+          "c",
+          13
+        ],
+        [
+          "i",
+          13
+        ]
+      ]
+    },
+    {
+      "name": "an-immediate-from-a-timers-promise-continuation",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "promise": "p",
+              "then": [
+                {
+                  "immediate": "pi"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "ib"
+            }
+          ]
+        },
+        {
+          "timeout": "c",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "p",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "pi",
+          10
+        ],
+        [
+          "ib",
+          10
+        ],
+        [
+          "c",
+          11
+        ]
+      ]
+    }
+  ]
+}

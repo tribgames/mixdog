@@ -1,0 +1,266 @@
+diff --git a/src/runtime/agent/orchestrator/agent-trace-format.mjs b/src/runtime/agent/orchestrator/agent-trace-format.mjs
+index dbdb31c..04348ee 100644
+--- a/src/runtime/agent/orchestrator/agent-trace-format.mjs
++++ b/src/runtime/agent/orchestrator/agent-trace-format.mjs
+@@ -3,6 +3,8 @@ import { stableHashStringify } from './stable-hash-stringify.mjs';
+ import { countJsonNextCalls } from './tools/next-call-utils.mjs';
+ import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
+ import { isReadOnlyNavigationMiss } from './session/result-classification.mjs';
++import { redactSensitiveToolCall } from './session/sensitive-projection.mjs';
++import { redactSensitiveText } from './session/sensitive-values.mjs';
+ import { nonNegativeInt } from '../../shared/numbers.mjs';
+ import { isUserControlCancellation } from '../../shared/tool-status.mjs';
+ import {
+@@ -506,6 +508,11 @@ function traceAgentToolFailure({
+ }) {
+   if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
+   if (!_resolveToolFailurePath()) return;
++  // The failure log is a file: a value the session marked sensitive (a fill's
++  // text) goes there as the marker, as in the session's own stored copy; the
++  // error text a failed call returns can repeat the value, so it goes too.
++  toolArgs = redactSensitiveToolCall(sessionId, { arguments: toolArgs }).arguments;
++  if (typeof resultText === 'string') resultText = redactSensitiveText(sessionId, resultText);
+   try {
+     const cleanText = _redactLogText(toolTraceText(resultText));
+     // A session close is deliberate orchestration, not a tool failure.
+@@ -578,6 +585,11 @@ function traceAgentTool({
+   executionIntervals = null,
+   cwd,
+ }) {
++  // The trace is a file: a value the session marked sensitive goes there (and
++  // into the argument hash) as the marker, as in the session's stored copy, and
++  // so does the result text its error line and failure class are read from.
++  toolArgs = redactSensitiveToolCall(sessionId, { arguments: toolArgs }).arguments;
++  if (typeof resultText === 'string') resultText = redactSensitiveText(sessionId, resultText);
+   const nextCallCount = countJsonNextCalls(resultText);
+   const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
+   const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
+diff --git a/src/runtime/agent/orchestrator/session/compact/execution-tail.mjs b/src/runtime/agent/orchestrator/session/compact/execution-tail.mjs
+index 54ec192..1ba02a3 100644
+--- a/src/runtime/agent/orchestrator/session/compact/execution-tail.mjs
++++ b/src/runtime/agent/orchestrator/session/compact/execution-tail.mjs
+@@ -13,6 +13,7 @@ import {
+ } from './messages.mjs';
+ import { staleObservations, supersedeObservation } from './observation-supersession.mjs';
+ import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
++import { redactSensitiveMessages } from '../sensitive-projection.mjs';
+ 
+ export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
+ const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
+@@ -238,8 +239,9 @@ export function buildExecutionTail(
+   const ensureArchive = () => {
+     if (archive) return;
+     const persist = preview ? previewToolResultArtifact : persistToolResultArtifactSync;
+-    // Model-readable evidence: display ids stay out of it.
+-    const text = serializeExecutionArchive(transcript, (line) =>
++    // Model-readable evidence: display ids stay out of it. A file like the
++    // session log: the session's sensitive values are redacted in it.
++    const text = serializeExecutionArchive(redactSensitiveMessages(sessionId, transcript), (line) =>
+       persist({ sessionId, toolCallId: 'compact-execution', channel: 'compact-execution-message', content: line })
+     );
+     const dump = persist({ sessionId, toolCallId: 'compact-execution', channel: 'compact-execution', content: text });
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-side-writes.test.mjs b/src/runtime/agent/orchestrator/session/sensitive-side-writes.test.mjs
+new file mode 100644
+index 0000000..9a35ad1
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/sensitive-side-writes.test.mjs
+@@ -0,0 +1,145 @@
++// A value a fill marked sensitive is in none of the files written beside the
++// session's own: the memory database's ingest, the agent trace with its
++// tool-failure log and a compaction's execution dump get the marker, as the
++// session file does.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { spawnSync } from 'node:child_process';
++import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { dirname, join } from 'node:path';
++import { rememberSensitiveValues } from './sensitive-values.mjs';
++import { EXECUTION_RECOVERY_SOURCE, buildExecutionTail } from './compact/execution-tail.mjs';
++import { createMemoryIngest } from '../../../../session-runtime/lifecycle/memory-ingest.mjs';
++import { createRecallResourceApi } from '../../../../session-runtime/resource-recall-api.mjs';
++
++const CODE = '482913';
++const fill = { name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: CODE } } };
++
++test('a closing session goes to memory with its sensitive values as the marker', async () => {
++  const sessionId = 'sess_sensitive_memory';
++  rememberSensitiveValues(sessionId, [fill]);
++  const seen = [];
++  const ingest = createMemoryIngest({
++    getMemoryModPromise: () => Promise.resolve({ handleToolCall: async (_name, args) => seen.push(args) }),
++    getCurrentCwd: () => 'C:/work',
++    withTeardownDeadline: (promise) => promise,
++  });
++  const messages = [
++    { role: 'tool', toolCallId: 'm', content: `Your code is ${CODE}` },
++    { role: 'assistant', content: '', toolCalls: [{ id: 'f', ...fill }] },
++  ];
++  await ingest({ id: sessionId, cwd: 'C:/work', messages });
++  assert.equal(seen.length, 1);
++  assert.ok(!JSON.stringify(seen[0]).includes(CODE), JSON.stringify(seen[0]));
++  assert.equal(seen[0].messages[0].content, 'Your code is [redacted]');
++  assert.equal(seen[0].messages[1].toolCalls[0].arguments.input.text, '[redacted]');
++  assert.equal(messages[0].content, `Your code is ${CODE}`, 'the loaded session keeps the value');
++});
++
++test('a recall that stores the live session in memory stores its sensitive values as the marker', async () => {
++  const sessionId = 'sess_sensitive_recall';
++  rememberSensitiveValues(sessionId, [fill]);
++  const seen = [];
++  const messages = [
++    { role: 'user', content: `The portal mailed me ${CODE}.` },
++    { role: 'assistant', content: '', toolCalls: [{ id: 'f', ...fill }] },
++  ];
++  const api = createRecallResourceApi({
++    deps: {
++      getConfig: () => ({}),
++      getSession: () => ({ id: sessionId, messages }),
++      getCurrentCwd: () => 'C:/work',
++      cfgMod: { normalizeProfileConfig: () => null },
++      getMemoryModule: async () => ({
++        handleToolCall: async (_name, args) => {
++          seen.push(args);
++          return { content: [{ type: 'text', text: '(no results)' }] };
++        },
++      }),
++    },
++  });
++  // A query the session's own rows do not answer: the live session is stored, then recalled.
++  await api.recall('zebra migration');
++  const ingest = seen.find((args) => args.action === 'ingest_session');
++  assert.ok(ingest, JSON.stringify(seen));
++  assert.ok(!JSON.stringify(ingest).includes(CODE), JSON.stringify(ingest));
++  assert.equal(ingest.messages[0].content, 'The portal mailed me [redacted].');
++  assert.equal(messages[0].content, `The portal mailed me ${CODE}.`, 'the live session keeps the value');
++});
++
++test("a compaction's execution dump and its blobs hold the session's sensitive values as the marker", (t) => {
++  const previous = process.env.MIXDOG_DATA_DIR;
++  const root = mkdtempSync(join(tmpdir(), 'mixdog-sensitive-dump-'));
++  process.env.MIXDOG_DATA_DIR = root;
++  t.after(() => {
++    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
++    else process.env.MIXDOG_DATA_DIR = previous;
++    rmSync(root, { recursive: true, force: true });
++  });
++  const sessionId = 'sess_sensitive_dump';
++  rememberSensitiveValues(sessionId, [fill]);
++  const messages = [
++    { role: 'user', content: `The portal mailed me ${CODE}.` },
++    { role: 'assistant', content: '', toolCalls: [{ id: 'f', ...fill }] },
++    { role: 'tool', toolCallId: 'f', content: `Filled ${CODE}\n${'page line\n'.repeat(15_000)}` },
++    { role: 'assistant', content: '', toolCalls: [{ id: 'r', name: 'read', arguments: { path: 'a' } }] },
++    { role: 'tool', toolCallId: 'r', content: 'ok' },
++  ];
++  const result = buildExecutionTail(messages, { contextWindow: 40_000, sessionId });
++  const recovery = result.messages.find((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
++  const dumpDir = dirname(recovery.content.match(/available at (.+?) \(sha256:/)[1]);
++  const files = readdirSync(dumpDir);
++  assert.ok(files.length >= 2, files.join(','));
++  for (const name of files) {
++    const text = readFileSync(join(dumpDir, name), 'utf8');
++    assert.ok(!text.includes(CODE), name);
++  }
++  assert.equal(messages[0].content, `The portal mailed me ${CODE}.`, 'the live transcript keeps the value');
++});
++
++test('a failed sensitive fill reaches the trace and the failure log with the marker, its error text included', () => {
++  const directory = mkdtempSync(join(tmpdir(), 'mixdog-sensitive-trace-'));
++  try {
++    const result = spawnSync(
++      process.execPath,
++      [
++        '--input-type=module',
++        '-e',
++        `
++      import { rememberSensitiveValues } from './src/runtime/agent/orchestrator/session/sensitive-values.mjs';
++      import { traceAgentTool } from './src/runtime/agent/orchestrator/agent-trace-format.mjs';
++      import { drainAgentTrace } from './src/runtime/agent/orchestrator/agent-trace-io.mjs';
++      const fill = ${JSON.stringify(fill)};
++      rememberSensitiveValues('sess_sensitive_trace', [fill]);
++      traceAgentTool({
++        sessionId: 'sess_sensitive_trace', iteration: 1, toolName: 'browser', toolKind: 'internal',
++        toolMs: 1, toolArgs: fill.arguments, resultKind: 'error', resultText: 'Error: the field refused "${CODE}"',
++      });
++      await drainAgentTrace();
++    `,
++      ],
++      {
++        cwd: process.cwd(),
++        encoding: 'utf8',
++        windowsHide: true,
++        env: {
++          ...process.env,
++          MIXDOG_AGENT_TRACE_PATH: join(directory, 'trace.jsonl'),
++          MIXDOG_TOOL_FAILURE_LOG_PATH: join(directory, 'failures.jsonl'),
++        },
++      }
++    );
++    assert.equal(result.status, 0, result.stderr);
++    const trace = readFileSync(join(directory, 'trace.jsonl'), 'utf8');
++    const failures = readFileSync(join(directory, 'failures.jsonl'), 'utf8');
++    for (const text of [trace, failures]) {
++      assert.ok(!text.includes(CODE), text);
++      assert.ok(text.includes('[redacted]'), text);
++    }
++    assert.equal(JSON.parse(failures.trim()).tool_args.input.text, '[redacted]');
++    assert.equal(JSON.parse(failures.trim()).error_first_line, 'Error: the field refused "[redacted]"');
++  } finally {
++    rmSync(directory, { recursive: true, force: true });
++  }
++});
+diff --git a/src/session-runtime/lifecycle/memory-ingest.mjs b/src/session-runtime/lifecycle/memory-ingest.mjs
+index 7ff8432..1c0f501 100644
+--- a/src/session-runtime/lifecycle/memory-ingest.mjs
++++ b/src/session-runtime/lifecycle/memory-ingest.mjs
+@@ -2,6 +2,8 @@
+  * src/session-runtime/lifecycle/memory-ingest.mjs - best-effort persist of a
+  * closing session's conversation into the memory DB.
+  */
++import { redactSensitiveMessages } from '../../runtime/agent/orchestrator/session/sensitive-projection.mjs';
++
+ const INGEST_DEADLINE_MS = 2500;
+ 
+ // Sessions that never compacted have no session-sourced rows unless ingested
+@@ -15,8 +17,11 @@ export function createMemoryIngest({ getMemoryModPromise, getCurrentCwd, withTea
+   return async function ingestSessionIntoMemory(session) {
+     if (process.env.MIXDOG_DISABLE_MEMORY_INGEST === '1') return;
+     try {
+-      const messages = Array.isArray(session?.messages) ? session.messages : [];
+-      if (!session?.id || messages.length === 0) return;
++      const loaded = Array.isArray(session?.messages) ? session.messages : [];
++      if (!session?.id || loaded.length === 0) return;
++      // The memory database is written to disk: a value the session marked
++      // sensitive goes there as the marker, as in the session's stored copy.
++      const messages = redactSensitiveMessages(session.id, loaded);
+       const modPromise = getMemoryModPromise();
+       if (!modPromise) return;
+       await withTeardownDeadline(
+diff --git a/src/session-runtime/resource-recall-api.mjs b/src/session-runtime/resource-recall-api.mjs
+index ee411c2..a5e98f0 100644
+--- a/src/session-runtime/resource-recall-api.mjs
++++ b/src/session-runtime/resource-recall-api.mjs
+@@ -6,6 +6,7 @@ import {
+   isEmptyRecallText,
+   currentSessionRecallRows,
+ } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
++import { redactSensitiveMessages } from '../runtime/agent/orchestrator/session/sensitive-projection.mjs';
+ 
+ function isIdentityRecallQuery(query) {
+   const q = clean(query).toLowerCase().replace(/\s+/g, '');
+@@ -70,11 +71,13 @@ export function createRecallResourceApi({ deps }) {
+       if (session?.id && args?.currentSession !== false && args?.forceCycleOnEmpty !== false) {
+         const messages = Array.isArray(session.messages) ? session.messages : [];
+         if (messages.length > 0) {
++          // The memory database is written to disk: a value the session marked
++          // sensitive goes there as the marker (memory-ingest.mjs does the same).
+           await memoryMod.handleToolCall('memory', {
+             action: 'ingest_session',
+             sessionId: session.id,
+             cwd: currentCwd,
+-            messages,
++            messages: redactSensitiveMessages(session.id, messages),
+           });
+           result = toolResponseText(
+             await memoryMod.handleToolCall('recall', {

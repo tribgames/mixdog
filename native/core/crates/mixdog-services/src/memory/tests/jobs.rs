@@ -25,7 +25,7 @@ use crate::memory::tests::support::TestPg;
 use crate::memory::transcript::watcher::{TranscriptSink, start_transcript_watcher};
 use crate::memory::transcript::{TranscriptIngest, TranscriptIo};
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/memory-jobs/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
 
 async fn memory_db(pg: &TestPg) -> Db {
     let db = pg.db(Schema::Memory).await;
@@ -62,7 +62,7 @@ fn line(value: &Value) -> String {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
 async fn the_tail_ingest_matches_the_recorded_node_run() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
     let frozen = golden["frozenNow"].as_i64().unwrap();
     let pg = TestPg::start().await;
     let db = memory_db(&pg).await;
@@ -471,7 +471,7 @@ async fn the_recorded_root_cases_cross_the_row_boundary() {
     mixdog_rt::testing::tokens();
     let pg = TestPg::start().await;
     let db = memory_db(&pg).await;
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["roots"].as_array().unwrap() {
         let mut members = Vec::new();
         for member in case["members"].as_array().unwrap() {

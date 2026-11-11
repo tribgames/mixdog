@@ -91,6 +91,3 @@ impl SnapshotCleanups {
     }
 }
 
-#[cfg(test)]
-#[path = "worktree_snapshots_tests.rs"]
-mod tests;

@@ -26,7 +26,7 @@ mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-scm = { workspace = true }
 mixdog-services = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-spawn = { workspace = true, features = ["core"] }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
@@ -51,14 +51,23 @@ mixdog-core-prompt = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-review = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
+# Only with `test-support` (refused in release): `session::tests`, whose helpers the replays share.
+mixdog-testkit = { workspace = true, optional = true }
+mixdog-migrate = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
 # A test build ends the process at the point MIXDOG_NEW_TASK_CRASH_AT names (session/new_task.rs); no normal build enables it.
 crash-gates = []
-test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
+# A replay's clock (mixdog-rt virtual_clock.rs): the session's wall clock and timers stand still until the replay advances them.
+# Never in an ordinary build.
+virtual-clock = ["mixdog-rt/virtual-clock"]
+test-support = ["dep:tempfile", "dep:mixdog-testkit", "dep:mixdog-migrate", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
+tracing-subscriber = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
@@ -67,8 +76,8 @@ mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 tempfile = { workspace = true }
 tokio-util = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "process", "io-util"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
@@ -77,8 +86,8 @@ mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
-mixdog-core-session = { path = ".", features = ["crash-gates", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
+mixdog-core-session = { path = ".", features = ["crash-gates", "test-support", "virtual-clock"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
@@ -90,3 +99,7 @@ mixdog-core-run = { workspace = true, features = ["replay-controls", "test-suppo
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-agent = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

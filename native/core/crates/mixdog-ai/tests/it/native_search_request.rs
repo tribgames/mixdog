@@ -21,7 +21,7 @@ use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::WireCodec;
 use serde_json::Value;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/native-tool-search/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/native-tool-search/golden.json");
 
 struct Ctx;
 impl WireContext for Ctx {
@@ -85,7 +85,7 @@ fn eager(name: &str) -> ToolDefinition {
 
 #[test]
 fn a_native_search_result_is_lowered_as_node_lowers_it() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("the golden is JSON");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("the golden is JSON");
     let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "remote_compaction_v2".into() };
     let codec = OpenAiCodec::new(OpenAiConfig::codex(false, false, identity, Arc::new(Facts), Arc::new(Ctx)), TransportKind::Http1);
     let mut compared = 0;

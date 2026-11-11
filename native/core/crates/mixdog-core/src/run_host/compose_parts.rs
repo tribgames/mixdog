@@ -293,7 +293,8 @@ pub fn hops(
         let deps = HopDeps {
             registry: registry.clone(),
             catalog,
-            config: Arc::new(move || (*config.full()).clone()),
+            // `getConfigSnapshot()` is the agent config (`providers`, `default`, presets), the file's `agent` section.
+            config: Arc::new(move || config.agent()),
             bots,
             errors,
             wiring,

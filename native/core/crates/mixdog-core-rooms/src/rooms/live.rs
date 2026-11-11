@@ -53,6 +53,10 @@ pub trait RoomDaemon: Send + Sync {
     async fn read_snapshot(&self, session_id: &str) -> Result<Value, String>;
     async fn abort(&self, session_id: &str) -> Result<(), String>;
     fn republish_catalog(&self);
+    /// `redactSensitiveText(sessionId, text)`: the session's sensitive values in `text` as the marker.
+    fn redact_text(&self, _session_id: &str, text: &str) -> String {
+        text.to_owned()
+    }
 }
 
 /// What a room's running exchange lays over its log for the views: `decorateRoomSnapshot`'s
@@ -546,7 +550,7 @@ impl RoomTurnHost for View {
     }
 
     async fn sleep(&self, ms: u64) {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
 
     /// `roomLog.post`: the rows' files taken in, each row stored in its canonical shape, and the
@@ -555,21 +559,34 @@ impl RoomTurnHost for View {
         let ports = &self.shared.ports;
         let mut kept = Vec::with_capacity(rows.len());
         for row in &rows {
-            kept.push(normalize_room_row(&ports.files.take_in(&self.room_id, row.clone()).await?)?);
+            let mut row = normalize_room_row(&ports.files.take_in(&self.room_id, row.clone()).await?)?;
+            // A member's speech leaves its own session: that session's sensitive values read as the marker, in the log
+            // and in what the other members are shown.
+            if row.get("kind").and_then(Value::as_str) == Some("speech")
+                && let (Some(member), Some(text)) = (
+                    row.get("speaker").and_then(Value::as_str).and_then(|speaker| room_member_session_id(&self.room_id, speaker)),
+                    row.get("text").and_then(Value::as_str),
+                )
+            {
+                let redacted = ports.daemon.redact_text(&member, text);
+                row["text"] = Value::String(redacted);
+            }
+            kept.push(row);
         }
         let now = self.now();
         let messages = kept.iter().map(|row| room_row_message(row, now)).collect::<Result<Vec<_>, _>>()?;
         ports.daemon.append_rows(&self.session_id(), messages).await?;
+        // The preview follows the row as stored: a speech's sensitive values are the marker there too.
+        let said = kept.iter().rev().find(|row| matches!(row.get("kind").and_then(Value::as_str), Some("user" | "speech")));
+        let words = said.map(|said| said.get("text").and_then(Value::as_str).unwrap_or("").to_owned());
         {
             let mut recent = lock(&self.live.recent);
             recent.extend(kept);
             let excess = recent.len().saturating_sub(RECENT_ROWS);
             recent.drain(..excess);
         }
-        let said = rows.iter().rev().find(|row| matches!(row.get("kind").and_then(Value::as_str), Some("user" | "speech")));
-        if let Some(said) = said {
-            let words = said.get("text").and_then(Value::as_str).unwrap_or("");
-            lock(&self.live.extra).last_preview = Some(mixdog_js::slice_utf16(&(ports.preview)(words), PREVIEW_CAP));
+        if let Some(words) = words {
+            lock(&self.live.extra).last_preview = Some(mixdog_js::slice_utf16(&(ports.preview)(&words), PREVIEW_CAP));
             ports.daemon.republish_catalog();
         }
         Ok(())

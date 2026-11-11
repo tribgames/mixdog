@@ -251,12 +251,12 @@ pub fn room_row_message(row: &Value, now_ms: i64) -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    const GOLDEN: &str = include_str!("row_message/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/rooms/row_message/golden.json");
 
     /// Every recorded Node row: the canonical descriptor, the stored message, or the refusal.
     #[test]
     fn every_recorded_row_equals_node() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         for case in golden["cases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let row = &case["row"];

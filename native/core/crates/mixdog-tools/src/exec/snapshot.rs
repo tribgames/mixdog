@@ -33,6 +33,7 @@ use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolCallId;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
+use mixdog_rt::SpawnIo;
 use tokio_util::sync::CancellationToken;
 
 use super::env::is_scrubbed;
@@ -121,7 +122,8 @@ fn snapshot_env(shell_path: &str) -> EnvSpec {
 /// Where a snapshot is requested from.
 pub struct SnapshotRequest<'a> {
     pub processes: &'a Arc<dyn ProcessManager>,
-    pub lane: MaintenanceIo,
+    /// A call's start: the rc-file probe and the snapshot's files.
+    pub lane: SpawnIo,
     pub cancel: &'a CancellationToken,
     pub shell_path: &'a str,
     pub data_dir: &'a Path,

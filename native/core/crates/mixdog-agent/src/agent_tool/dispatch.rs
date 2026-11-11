@@ -260,6 +260,12 @@ impl AgentRuntime {
         {
             job.view.result = Some(TaskResult::Content(handoff));
         }
+        // A worker's own text read off its session leaves it: its sensitive values read as the marker, as in its report.
+        if job.task_id.is_none()
+            && let Some(TaskResult::Content(text)) = &mut job.view.result
+        {
+            *text = self.deps.sessions.redact_text(job.session_id.as_deref().unwrap_or_default(), std::mem::take(text));
+        }
         Ok(AgentReply::Task { view: job.view, diagnostics: true })
     }
 
