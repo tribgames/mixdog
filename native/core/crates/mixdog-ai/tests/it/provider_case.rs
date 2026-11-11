@@ -79,8 +79,9 @@ pub struct Call {
     pub args: Vec<Exact>,
 }
 
-/// One recorded clock step: `advance_ms` from `from_ms` (since the start of the case) to `to_ms`, and the due times of
-/// the timers that fired in it, in firing order.
+/// One recorded clock step: `advance_ms` from `from_ms` to `to_ms` on the set's running clock (one virtual clock for
+/// the whole recording: it carries across cases, each step starting where the set's previous one ended), and the due
+/// times of the timers that fired in it, in firing order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClockStep {
     pub advance_ms: u64,
@@ -99,6 +100,8 @@ pub struct Case {
     /// Each request as it arrived, with the `reply` the endpoint answered it with.
     pub requests: Vec<Exact>,
     pub clock: Vec<ClockStep>,
+    /// The set's running clock when the case began: where the set's previous recorded step ended (0 for none).
+    pub clock_origin_ms: u64,
 }
 
 impl Case {
@@ -155,6 +158,7 @@ impl CaseSet {
         let manifest = Exact::load(dir.join("MANIFEST.json"));
         let recording = Exact::load(dir.join("cases.json"));
         let shared = recording.try_get("shared").map(|s| s.as_array().to_vec()).unwrap_or_default();
+        let mut running_ms = 0;
         let cases = recording
             .get("cases")
             .as_array()
@@ -165,6 +169,25 @@ impl CaseSet {
                     (None, Some(error)) => Outcome::Error(error.clone()),
                     _ => panic!("{set}: a case holds one of result and error: {case:?}"),
                 };
+                let clock: Vec<ClockStep> = case
+                    .try_get("clock")
+                    .map(|steps| {
+                        steps
+                            .as_array()
+                            .iter()
+                            .map(|step| ClockStep {
+                                advance_ms: ms(step.get("advanceMs")),
+                                from_ms: ms(step.get("fromMs")),
+                                to_ms: ms(step.get("toMs")),
+                                fired: step.get("fired").as_array().iter().map(|f| ms(f.get("dueMs"))).collect(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let clock_origin_ms = running_ms;
+                if let Some(last) = clock.last() {
+                    running_ms = last.to_ms;
+                }
                 Case {
                     id: case.get("id").as_str().to_owned(),
                     source: case.get("source").as_str().to_owned(),
@@ -184,21 +207,8 @@ impl CaseSet {
                         })
                         .unwrap_or_default(),
                     requests: case.try_get("requests").map(|r| r.as_array().to_vec()).unwrap_or_default(),
-                    clock: case
-                        .try_get("clock")
-                        .map(|steps| {
-                            steps
-                                .as_array()
-                                .iter()
-                                .map(|step| ClockStep {
-                                    advance_ms: ms(step.get("advanceMs")),
-                                    from_ms: ms(step.get("fromMs")),
-                                    to_ms: ms(step.get("toMs")),
-                                    fired: step.get("fired").as_array().iter().map(|f| ms(f.get("dueMs"))).collect(),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default(),
+                    clock,
+                    clock_origin_ms,
                 }
             })
             .collect();
@@ -443,6 +453,8 @@ pub struct Endpoint {
     pub addr: SocketAddr,
     inner: Arc<Inner>,
     started: tokio::time::Instant,
+    /// The set's running clock at `started` (the replayed case's [`Case::clock_origin_ms`]).
+    origin_ms: std::sync::atomic::AtomicU64,
     /// Dropping it ends the clock hold.
     _hold: std::sync::mpsc::Sender<()>,
 }
@@ -528,11 +540,23 @@ impl Endpoint {
         tokio::task::spawn_blocking(move || {
             let _ = held.recv_timeout(DEADLINE * 10);
         });
-        Self { addr, inner, started: tokio::time::Instant::now(), _hold: hold }
+        Self { addr, inner, started: tokio::time::Instant::now(), origin_ms: 0.into(), _hold: hold }
+    }
+
+    /// Places the endpoint's clock on the set's running clock where `case` began; [`Endpoint::serve`] does it, a
+    /// WebSocket-only replay calls it before its first [`Endpoint::advance`].
+    pub fn clock_at(&self, case: &Case) {
+        self.origin_ms.store(case.clock_origin_ms, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The set's running clock now.
+    pub fn now_ms(&self) -> u64 {
+        self.origin_ms.load(std::sync::atomic::Ordering::Relaxed) + self.started.elapsed().as_millis() as u64
     }
 
     /// Scripts the HTTP side with the case's recorded replies: the k-th arrival is answered by `requests[k].reply`.
     pub fn serve(&self, case: &Case) {
+        self.clock_at(case);
         self.inner.state.lock().unwrap().replies = case.requests.iter().map(|request| request.get("reply").clone()).collect();
     }
 
@@ -590,12 +614,12 @@ impl Endpoint {
         .await;
     }
 
-    /// Moves the clock by one recorded step; the replay must be at the step's start.
+    /// Moves the clock by one recorded step; the replay must be at the step's start on the set's running clock.
     pub async fn advance(&self, step: &ClockStep) {
-        let from = self.started.elapsed().as_millis() as u64;
+        let from = self.now_ms();
         assert_eq!(from, step.from_ms, "the clock step starts where the recording's did");
         tokio::time::advance(Duration::from_millis(step.advance_ms)).await;
-        let to = self.started.elapsed().as_millis() as u64;
+        let to = self.now_ms();
         self.inner.state.lock().unwrap().steps.push(ClockStep { advance_ms: step.advance_ms, from_ms: from, to_ms: to, fired: step.fired.clone() });
     }
 
@@ -1139,6 +1163,12 @@ fn every_provider_recording_loads() {
         for case in &cases.cases {
             for request in &case.requests {
                 request.get("reply");
+            }
+            // One running clock per set: each step starts where the set's previous step ended.
+            let mut at = case.clock_origin_ms;
+            for step in &case.clock {
+                assert_eq!((step.from_ms, step.from_ms + step.advance_ms), (at, step.to_ms), "{set} {}: clock step", case.id);
+                at = step.to_ms;
             }
         }
         loaded.push((set.to_owned(), cases.cases.len()));
