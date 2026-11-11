@@ -38,8 +38,7 @@ const COMMENT = { name: 'github', args: { action: 'pr.comment', repo: 'o/r', num
 const MERGE = { name: 'github', args: { action: 'pr.merge', repo: 'o/r', number: 1 } };
 const PAYMENT = { name: 'mcp__stripe__create_payment', args: { amount: 5, currency: 'USD', merchant: 'Notion' } };
 const PERMANENT_DELETE = { name: 'mcp__drive__delete_permanently', args: { ids: ['a'] } };
-const failure = (e) => ({ name: e?.name ?? null, message: String(e?.message ?? e) });
-const rejected = async (promise) => { try { await promise; return { resolved: true }; } catch (e) { return { rejected: failure(e) }; } };
+const rejected = async (promise) => { try { await promise; return { resolved: true }; } catch (e) { return { rejected: e }; } };
 
 const cleanups = [];
 function harness() {
@@ -60,7 +59,7 @@ function harness() {
     reset: (sessionId) => { lives.set(sessionId, `reset-${clock}`); log.push({ do: 'reset session life', sessionId }); },
     decide: async (call, sessionId, hook = HOOK) => {
       const out = await humanGateDecision(call, hook, ctx(sessionId));
-      log.push({ do: 'decide', call, sessionId, hook, decision: out.decision, request: out.request ?? null, gate: out.gate ?? null, remembered: out.remembered ?? null });
+      log.push({ do: 'decide', call, sessionId, hook, result: structuredClone(out) });
       return out;
     },
     answer: async (gate, approval) => { const r = await recordHumanDecision(gate, approval, { store, sessionGrants, sessionLife: life }); log.push({ do: 'answer', gate, approval }); return r; },
@@ -70,8 +69,8 @@ function harness() {
       log.push({ do: 'choose', remember, answered });
       return answered;
     },
-    grants: async (label, filter) => { const rows = (await store.listGrants(filter)).map(({ agentId, action, mode, scope }) => ({ agentId, action, mode, scope: scope ?? null })); log.push({ do: 'grants', label, grants: rows }); return rows; },
-    audit: async (label, filter) => { const rows = (await store.readAudit(filter)).map((row) => ({ agentId: row.agentId, decision: row.decision, action: row.action })); log.push({ do: 'audit', label, filter: filter ?? null, rows }); return rows; },
+    grants: async (label, filter) => { const rows = await store.listGrants(filter); log.push({ do: 'grants', label, filter, grants: structuredClone(rows) }); return rows; },
+    audit: async (label, filter) => { const rows = await store.readAudit(filter); log.push({ do: 'audit', label, filter, rows: structuredClone(rows) }); return rows; },
   };
   return h;
 }
@@ -200,11 +199,11 @@ await run('a bot hook ask on a classified send offers once / session / always an
 await run("a shared allow is listed in every agent's permissions and revoking it there turns it back to asking", async (h) => {
   await h.choose(await h.decide(SHELL('a'), LEAD), 'always');
   await h.choose(await h.decide(COMMENT, LEAD), 'always');
-  const perms = async (label, agent) => h.log.push({ do: 'agentPermissions', label, agent, rows: (await agentPermissions(agent)).filter((row) => row.mode === 'allow').map(({ action, shared, rememberable, mode }) => ({ action, shared: shared ?? null, rememberable: rememberable ?? null, mode })) });
+  const perms = async (label, agent) => h.log.push({ do: 'agentPermissions', label, agent, rows: structuredClone(await agentPermissions(agent)) });
   for (const agent of ['lead', 'mailer', 'scribe']) await perms('shared allows', agent);
   await h.store.grant({ agentId: 'mailer', action: 'comment', scope: 'agent' });
   h.log.push({ do: 'store.grant', agentId: 'mailer', action: 'comment', scope: 'agent' });
-  h.log.push({ do: 'mailer comment row', row: (await agentPermissions('mailer')).find((row) => row.action === 'comment') });
+  h.log.push({ do: 'mailer comment row', row: structuredClone((await agentPermissions('mailer')).find((row) => row.action === 'comment')) });
   await setAgentPermission('mailer', 'comment', 'ask');
   h.log.push({ do: 'setAgentPermission mailer comment ask', row: (await agentPermissions('mailer')).find((row) => row.action === 'comment') });
   await h.decide(COMMENT, LEAD);
@@ -229,13 +228,13 @@ await run('the card is told what the choice covers: the action kind of a classif
   const kind = await h.decide(COMMENT, LEAD);
   const presented = { kind: 'approval', ...humanRequestFields(kind.request) };
   const grantActions = { comment: presented.grantAction, shell: humanRequestFields((await h.decide(SHELL('a'), LEAD)).request).grantAction, merge: humanRequestFields((await h.decide(MERGE, LEAD)).request).grantAction };
-  for (const call of [PAYMENT, { name: 'setup', args: {} }]) grantActions[call.name] = humanRequestFields((await h.decide(call, LEAD)).request).grantAction ?? null;
+  for (const call of [PAYMENT, { name: 'setup', args: {} }]) grantActions[call.name] = humanRequestFields((await h.decide(call, LEAD)).request).grantAction;
   return { grantActions };
 });
 
 await set.finish({
   entry: { runs: 'human-gate/gate.mjs (humanGateDecision, recordHumanDecision, unattended approval port), requests.mjs (humanRequestFields, normalizeHumanResponse), store.mjs (createHumanGateStore, agentPermissions, setAgentPermission), session-grants.mjs (createSessionGrants on a movable clock), outbound-policy.mjs, config updateSection', notRun: 'no desktop: the card answer is built with normalizeHumanResponse and recorded through recordHumanDecision as the desktop delivers it' },
-  replay: { entry: 'mixdog-tools policy (gate.rs, grants.rs, card.rs): replay each log step in order (decide / choose / answer / advance / reset / grant / setMode / setAgentPermission / config) on a store and a session-grant registry with the recorded clock (start 1_000_000 ms) and compare every step\'s output and the grants/audit views', normalised: { auditRows: 'reduced to {agentId, decision, action} (ids and times not compared)', grants: 'reduced to {agentId, action, mode, scope}', dataDir: 'temp, not in the recording' }, exclusions: {} },
+  replay: { entry: 'mixdog-tools policy (gate.rs, grants.rs, card.rs): replay each log step in order (decide / choose / answer / advance / reset / grant / setMode / setAgentPermission / config) on a store and a session-grant registry with the recorded clock (start 1_000_000 ms) and compare every step\'s output and the grants/audit views', normalised: { dataDir: '<data> wherever it occurs (paths listed in normalised.paths)' }, exclusions: {} },
   replaceInText: [[dataRoot, '<data>']],
 });
 rmSync(dataRoot, { recursive: true, force: true });
