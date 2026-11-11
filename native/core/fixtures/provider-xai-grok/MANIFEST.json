@@ -1,25 +1,25 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-xai-grok.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-ai providers::grok (tool_schema, mod.rs:42-98) and compat::tests cache routing: compare `result` whole (normalized schemas, cache mode/key presence/equalities, fingerprint flags, inner provider transport + baseURL). Cache keys are recorded as produced; their equalities are in `equalities`.",
+  "compare": "WIRE cases: send each case through the Rust Grok adapter to a loopback endpoint (the Responses request is answered with one completed text turn) and compare the request as it arrived in `requests` (origin, path, every header in order, body bytes: flattened tool schemas, prompt_cache_key, store/include) and `sent.*.result`. The fingerprint case is pure and listed as Rust work in `levels`.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "scripts/provider-toolcall/_shared.mjs re-exports: normalizeGrokToolSchemas(BUILTIN_TOOLS entry), xaiResponsesCacheRouting(opts, params, tools, model), _xaiResponsesFingerprintPayloadForTest, GrokOAuthProvider({ preconnect: false })._ensureInner(token, model) with MIXDOG_OAI_TRANSPORT / MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT set as the test sets them. Not run: a send.",
+  "entry": "provider-toolcall/_shared.mjs re-exports: GrokOAuthProvider({ preconnect: false }) with in-memory tokens .send(messages, model, tools, opts) against the loopback endpoint (WIRE: tool flattening, xAI Responses cache routing, the pinned CLI-proxy HTTP/SSE route with MIXDOG_OAI_TRANSPORT / MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT set as the test sets them); xaiResponsesCacheRouting and _xaiResponsesFingerprintPayloadForTest for the fingerprint case (pure, Rust work). Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 31201,
+      "bytes": 104055,
       "path": "cases.json",
-      "sha256": "7913f93633c89964ecd8b0f929d0fd11728321177a37d7d967c5b94880ba8c1d"
+      "sha256": "07e43495ba199f6126ed54c09087e376bcee2bd83998555cc97c69392972f0f2"
     }
   ],
   "inputs": [
@@ -41,11 +41,38 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "flatten-keeps-grep-pattern-required",
+      "level": "wire"
+    },
+    {
+      "id": "flatten-promotes-first-xor-required-only-anyof",
+      "level": "wire"
+    },
+    {
+      "id": "flatten-promotes-first-xor-object-branch",
+      "level": "wire"
+    },
+    {
+      "id": "xai-responses-cache-routing",
+      "level": "wire"
+    },
+    {
+      "id": "xai-responses-fingerprint-payload",
+      "level": "pure",
+      "rust": "RUST WORK: `_xaiResponsesFingerprintPayloadForTest` is a test-only trace payload helper; no public Rust function builds it (looked in mixdog-ai/src/providers/grok and compat: no fingerprint payload; the request fields it summarises are recorded at wire level by xai-responses-cache-routing)"
+    },
+    {
+      "id": "grok-oauth-pinned-to-cli-proxy-http-sse",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +94,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-xai-grok.mjs",
-  "recorderSha256": "797d8209bb56a8d67fef80a5f684cf48965748970c71d71866269208b5fe5502",
-  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::grok::codec() (grok/mod.rs:208) and adapter() (grok/mod.rs:220), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  "recorderSha256": "85d3afbcf599ce1f207e39ec7a43180911e81a3a9bf89b51994ac295369111d4",
+  "replay": "WIRE: mixdog_ai::providers::grok::adapter() (grok/mod.rs:224) with codec() (grok/mod.rs:212) and GrokRewriter (grok/mod.rs:153, which carries the tool flattening: the private grok/tool_schema.rs flatten_tools is reachable only through it), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback endpoint. Pure fingerprint case: Rust work (no public function).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-xai-grok",
-  "totalBytes": 31201,
+  "totalBytes": 104055,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
