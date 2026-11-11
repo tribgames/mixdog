@@ -20,7 +20,7 @@ async fn every_case_replays_as_nodes() {
         let endpoint = Endpoint::start().await;
         endpoint.serve(case);
         let home = tempfile::tempdir().expect("a home");
-        let builder = replay_world::builder(&endpoint, home.path(), Vec::new());
+        let builder = replay_world::builder(&endpoint, home.path(), Vec::new()).await;
         let config = plain_config(case.args_of("AnthropicProvider", 0));
         let adapter = replay_world::adapter(&builder, "anthropic", &config).await;
         let args = case.args_of("AnthropicProvider#send", 0);

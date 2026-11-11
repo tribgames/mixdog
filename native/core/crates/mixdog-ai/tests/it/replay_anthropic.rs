@@ -55,12 +55,15 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
     let mut stop = None;
     let mut output = false;
     let mut summary = None;
+    let mut metadata = None;
+    let mut natives = Vec::new();
     for event in events {
         match event {
             StreamEvent::TextDelta(text) => {
                 content.push_str(text);
                 deltas.push(Exact::String("text".into()));
             }
+            StreamEvent::FinalContent(text) => content.clone_from(text),
             StreamEvent::ReasoningDelta(_) => deltas.push(Exact::String("reasoning".into())),
             StreamEvent::Progress(kind) => deltas.push(Exact::String(kind.name().into())),
             StreamEvent::ChunkProgress(Some(kind)) => deltas.push(Exact::String(kind.name().into())),
@@ -78,6 +81,8 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
             }
             StreamEvent::Usage(u) => usage = Some(u.clone()),
             StreamEvent::ContentSummary { has_thinking, block_types } => summary = Some((*has_thinking, block_types.clone())),
+            StreamEvent::ProviderMetadata(value) => metadata = Some(value.clone()),
+            StreamEvent::ServerToolBlock(block) => natives.push(block.clone()),
             StreamEvent::Completed { stop: s, .. } => stop = Some(s.clone()),
             _ => {}
         }
@@ -100,7 +105,18 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
         entry("hasThinkingContent", Exact::Bool(has_thinking)),
         entry("contentBlockTypes", Exact::Array(block_types.into_iter().map(Exact::String).collect())),
         entry("thinkingBlocks", thinking.map_or(Exact::Undefined, |t| plain(&Value::Array(t)))),
-        entry("assistantBlocks", blocks.as_ref().map_or(Exact::Undefined, |b| plain(&Value::Array(b.clone())))),
+        // A streamed turn returns its blocks as `assistantBlocks` (turn-outcome.mjs:156); a whole (non-streaming)
+        // response only its native server-tool blocks (`normalizeAnthropicNonStreamingResponse`).
+        entry(
+            "assistantBlocks",
+            if output {
+                blocks.as_ref().map_or(Exact::Undefined, |b| plain(&Value::Array(b.clone())))
+            } else if natives.is_empty() {
+                Exact::Undefined
+            } else {
+                plain(&Value::Array(natives))
+            },
+        ),
     ]);
     if let Some(blocks) = &blocks {
         result.push(entry(
@@ -111,6 +127,9 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
                 entry("items", plain(&Value::Array(blocks.clone()))),
             ]),
         ));
+    }
+    if let Some(metadata) = &metadata {
+        result.push(entry("providerMetadata", plain(metadata)));
     }
     if output {
         // The paused clock: the output starts and completes at the same instant.

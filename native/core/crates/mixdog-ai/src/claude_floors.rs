@@ -234,3 +234,44 @@ mod tests {
         assert_eq!(&ours, recorded);
     }
 }
+
+/// `claudeGeneration` (`anthropic-thinking-contract.mjs`): major*100 + minor of the version
+/// token, `INFINITY` for a claude id without one, `None` for a non-claude id.
+pub fn claude_generation(model: &str) -> Option<f64> {
+    let normalized = model.to_lowercase().replace('.', "-");
+    let id = &normalized[normalized.find("claude-")?..];
+    // The two version patterns, `^claude-<family>-<ver>` and `^claude-<ver>`; both read
+    // `<major>(-<minor 1-2 digits, not followed by a digit>)?` ending at `-`, `@` or the end.
+    let version = |rest: &str| -> Option<f64> {
+        let digits = |s: &str| s.bytes().take_while(u8::is_ascii_digit).count();
+        let major_len = digits(rest);
+        if major_len == 0 {
+            return None;
+        }
+        let ends = |s: &str| s.is_empty() || s.starts_with('-') || s.starts_with('@');
+        let major: f64 = rest[..major_len].parse().ok()?;
+        let after = &rest[major_len..];
+        if let Some(tail) = after.strip_prefix('-') {
+            let minor_len = digits(tail);
+            if (1..=2).contains(&minor_len) && ends(&tail[minor_len..]) {
+                return Some(major * 100.0 + tail[..minor_len].parse::<f64>().ok()?);
+            }
+        }
+        ends(after).then_some(major * 100.0)
+    };
+    let after_claude = &id["claude-".len()..];
+    let family_first = after_claude.split_once('-').and_then(|(family, rest)| {
+        let mut chars = family.chars();
+        let valid = chars.next().is_some_and(|c| c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+        valid.then(|| version(rest)).flatten()
+    });
+    Some(family_first.or_else(|| version(after_claude)).unwrap_or(f64::INFINITY))
+}
+
+/// `CLAUDE_GENERATION_FLOOR.xhighEffort` / `.maxEffort`.
+pub const XHIGH_FLOOR: f64 = 407.0;
+pub const MAX_FLOOR: f64 = 405.0;
+/// `.adaptiveEffort`: adaptive thinking and `output_config.effort` from here on.
+pub const ADAPTIVE_FLOOR: f64 = 406.0;
+/// `.manualThinkingRejected`: `thinking: {type: "enabled", budget_tokens}` is refused from here on.
+pub const MANUAL_REJECTED_FLOOR: f64 = 407.0;

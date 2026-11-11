@@ -451,10 +451,17 @@ fn build_headers(sources: [Vec<(String, String)>; 5]) -> Vec<(String, String)> {
 /// `defaultHeaders` (`defaults`: the gateway's identifying headers and the user's), the body's `content-type`,
 /// then the request's own headers.
 fn sdk_order(sdk: Sdk, defaults: &[String], headers: Vec<(String, String)>) -> Vec<(String, String)> {
-    let base = sdk.base();
+    let mut base = sdk.base();
     let (mut auth, mut client, mut body, mut own) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (name, value) in headers {
         let name = name.to_ascii_lowercase();
+        // A request's own timeout (the non-streaming re-issue's) is the SDK's timeout header, at its place.
+        if name == "x-stainless-timeout"
+            && let Some(slot) = base.iter_mut().find(|(known, _)| known.eq_ignore_ascii_case(&name))
+        {
+            slot.1 = value;
+            continue;
+        }
         // The codec's own `accept` beside the same one among the gateway's headers is one header.
         if client.contains(&(name.clone(), value.clone())) || own.contains(&(name.clone(), value.clone())) {
             continue;

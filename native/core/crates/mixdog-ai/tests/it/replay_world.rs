@@ -16,7 +16,11 @@ use mixdog_ai::broker::AttemptSink;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::broker::SendError;
 use mixdog_ai::broker::SendRequest;
+use mixdog_ai::catalog::CatalogService;
+use mixdog_ai::catalog::CatalogSnapshot;
 use mixdog_ai::catalog::ListingLookup;
+use mixdog_ai::catalog::ModelsDevSource;
+use mixdog_ai::providers::anthropic::catalog_caps::CatalogCaps;
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::oauth::pace::Pace;
 use mixdog_ai::providers::google::traits::ModelTraits;
@@ -112,6 +116,15 @@ pub fn message(node: &Exact) -> Message {
                     })
                     .collect();
             }
+            // Node's `{version, provider, items}` envelope; the Anthropic and Responses decoders hold `items` as is
+            // (Gemini's `{parts}` form is built by its own replay).
+            "providerReplay" => {
+                assert_eq!(value.get("version").as_f64(), 1.0, "a version-1 envelope");
+                message.push_replay(mixdog_core_api::domain::provider::ProviderReplay {
+                    owner: mixdog_protocol::ProviderId::from(value.get("provider").as_str()),
+                    items: crate::provider_cases::plain(value.get("items")),
+                });
+            }
             other => panic!("a message key these replays do not read: {other}"),
         }
     }
@@ -142,12 +155,12 @@ pub fn request(args: &[Exact]) -> ModelRequest {
 }
 
 /// The production builder over `endpoint`, with the case's environment, credentials under `home`.
-pub fn builder(endpoint: &Endpoint, home: &std::path::Path, env: Vec<(String, String)>) -> DefaultProviderBuilder {
-    builder_with(endpoint, home, env, SessionContext::new())
+pub async fn builder(endpoint: &Endpoint, home: &std::path::Path, env: Vec<(String, String)>) -> DefaultProviderBuilder {
+    builder_with(endpoint, home, env, SessionContext::new()).await
 }
 
 /// [`builder`] with the OpenAI session context (its clock and request ids: the recorded world's).
-pub fn builder_with(
+pub async fn builder_with(
     endpoint: &Endpoint,
     home: &std::path::Path,
     env: Vec<(String, String)>,
@@ -157,13 +170,16 @@ pub fn builder_with(
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let env: Arc<dyn Environment> = Arc::new(CaseEnv(env));
     let link = Arc::new(endpoint.link(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).expect("the production link")));
+    // The product's Anthropic caps over an empty catalog, as the recorders ran: Node's release-generation floor.
+    let metadata = ModelsDevSource::new(link.clone(), home.join("catalog"), io);
+    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
     DefaultProviderBuilder::new(BuilderEnv {
         http: link.clone(),
         bidi: link,
         dial: Arc::new(endpoint.dialer(KeepaliveSchedule::SPEC)),
         keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
         accounts: AccountStore::new(home.to_path_buf(), io),
-        anthropic_caps: Arc::new(|_| None),
+        anthropic_caps: CatalogCaps::new(catalog, &*env).lookup(),
         google_traits: Arc::new(NoTraits),
         openai_facts: Arc::new(NoFacts),
         openai_context: Arc::new(context),

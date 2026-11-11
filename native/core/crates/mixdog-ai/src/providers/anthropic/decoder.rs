@@ -29,8 +29,8 @@ use crate::providers::leak::Dedupe;
 use crate::providers::leak::LeakGuard;
 use crate::providers::leak::Recovered;
 
-const NATIVE_CALL_TYPES: [&str; 2] = ["server_tool_use", "mcp_tool_use"];
-const NATIVE_RESULT_TYPES: [&str; 7] = [
+pub(super) const NATIVE_CALL_TYPES: [&str; 2] = ["server_tool_use", "mcp_tool_use"];
+pub(super) const NATIVE_RESULT_TYPES: [&str; 7] = [
     "web_search_tool_result",
     "web_fetch_tool_result",
     "code_execution_tool_result",
@@ -98,7 +98,7 @@ enum Block {
 }
 
 #[derive(Default)]
-struct UsageAcc {
+pub(super) struct UsageAcc {
     input: u64,
     output: u64,
     cache_read: u64,
@@ -109,7 +109,7 @@ struct UsageAcc {
 
 impl UsageAcc {
     /// Omitted fields keep the earlier report; an explicit zero replaces it.
-    fn update(&mut self, raw: &Value) {
+    pub(super) fn update(&mut self, raw: &Value) {
         let Some(map) = raw.as_object() else { return };
         let field = |name: &str| map.get(name).and_then(Value::as_u64);
         if let Some(v) = field("input_tokens") {
@@ -138,7 +138,7 @@ impl UsageAcc {
     }
 
     /// Mixdog input is inclusive: fresh input + cache read + cache write.
-    fn usage(&self) -> Usage {
+    pub(super) fn usage(&self) -> Usage {
         Usage {
             input_tokens: self.input + self.cache_read + self.cache_write,
             output_tokens: self.output,
@@ -185,7 +185,7 @@ pub(crate) struct AnthropicDecoder {
 }
 
 /// Node `message.stop_reason || null`: an absent reason stays absent.
-fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
+pub(super) fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
     Some(match raw.filter(|r| !r.is_empty())? {
         "end_turn" => StopReason::EndTurn,
         "tool_use" => StopReason::ToolUse,
@@ -194,6 +194,28 @@ fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
         "refusal" => StopReason::Refusal,
         other => StopReason::Other(other.to_owned()),
     })
+}
+
+/// `parseAnthropicFallbackBlock` (anthropic-server-fallback.mjs:26-40): a `fallback` block's record
+/// (`{ trigger, originalModel, fallbackModel, category? }`) and the model it hands the turn to; `None` for a block
+/// that names no source or target model.
+pub(super) fn fallback_record(block: &Value) -> Option<(Value, String)> {
+    let model_of = |side: &str| match block.get(side) {
+        Some(Value::String(id)) => mixdog_js::js_trim(id).to_owned(),
+        Some(Value::Object(map)) => map.get("model").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned(),
+        _ => String::new(),
+    };
+    let (from, to) = (model_of("from"), model_of("to"));
+    if from.is_empty() || to.is_empty() {
+        return None;
+    }
+    let trigger = block.get("trigger").filter(|t| t.is_object());
+    let text_of = |key: &str| trigger.and_then(|t| t.get(key)).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|s| !s.is_empty());
+    let mut record = json!({ "trigger": text_of("type").unwrap_or("refusal"), "originalModel": from, "fallbackModel": to });
+    if let Some(category) = text_of("category") {
+        record["category"] = json!(category);
+    }
+    Some((record, to))
 }
 
 impl AnthropicDecoder {
@@ -417,28 +439,14 @@ impl AnthropicDecoder {
         // A server-side fallback hands the turn to the fallback model (`parseAnthropicFallbackBlock`,
         // anthropic-server-fallback.mjs:26-40, and content-block-start.mjs:52-58): the block carries no content.
         if block.get("type").and_then(Value::as_str) == Some("fallback") {
-            let model_of = |side: &str| match block.get(side) {
-                Some(Value::String(id)) => mixdog_js::js_trim(id).to_owned(),
-                Some(Value::Object(map)) => map.get("model").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned(),
-                _ => String::new(),
-            };
-            let (from, to) = (model_of("from"), model_of("to"));
-            if from.is_empty() || to.is_empty() {
-                // Not a fallback Node can read: an output block opening like any other (content-block-start.mjs:72).
-                self.output_started(out);
-            } else {
-                let trigger = block.get("trigger").filter(|t| t.is_object());
-                let text_of = |key: &str| {
-                    trigger.and_then(|t| t.get(key)).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|s| !s.is_empty())
-                };
-                let mut record = json!({ "trigger": text_of("type").unwrap_or("refusal"), "originalModel": from, "fallbackModel": to });
-                if let Some(category) = text_of("category") {
-                    record["category"] = json!(category);
-                }
+            if let Some((record, to)) = fallback_record(block) {
                 self.fallbacks.push(record);
                 self.note_block_type("fallback");
                 self.serve(&to, out);
                 out.push(StreamEvent::Progress(ProgressKind::Semantic));
+            } else {
+                // Not a fallback Node can read: an output block opening like any other (content-block-start.mjs:72).
+                self.output_started(out);
             }
             return;
         }

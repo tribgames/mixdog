@@ -129,6 +129,11 @@ pub const RESULT_FIELDS: &[(&str, &str, &str)] = &[
     ("contentBlockTypes", "StreamEvent::ContentSummary.block_types", "o/session/manager/ask-turn-commit.mjs:66 o/providers/anthropic-message-threads.mjs:333 o/providers/anthropic-turn-result.mjs:63"),
     // `onStreamDelta('transport')`: one per network read of the body (anthropic-sse.mjs:275, gemini.mjs:811).
     ("streamDeltas.transport", "unread beyond liveness: markSessionStreamDelta (o/session/manager/runtime-liveness.mjs:273) and the idle deadlines read only that a read came, never the kind's count, which the socket's chunking sets; the core's stream liveness is the transport's own", "o/providers/openai-compat-chat-stream/stream-state.mjs:68 o/providers/openai-compat-stream.mjs:85 (skip it)"),
+    // A `fetch` Response the Anthropic client's `fetch` returns (`createAnthropicApiKeyFetch`).
+    ("response.status", "HttpResponse.status", "node_modules/@anthropic-ai/sdk/client.mjs (makeRequest: response.ok / status)"),
+    ("response.headers", "HttpResponse.headers, in order", "node_modules/@anthropic-ai/sdk/client.mjs (retry-after, request-id)"),
+    ("response.statusText", "unread: no product or Anthropic SDK code reads it on this path (`[.?]statusText\\b` over src/ hits only other fetchers: antigravity-oauth-login.mjs:96, vertex-ai-maas.mjs:95 copy, runtime fetchers)", ""),
+    ("response.url", "unread: the Anthropic SDK reads it only for its debug log and `withResponse` meta (sdk internal/parse.mjs:8, :45); no product code reads it", ""),
     // Gemini (`consumeGeminiRestStreamResponse`'s aggregated response).
     ("response.candidates[0].index", "unread: the aggregation's own sort key (gemini-stream.mjs:159, :196), read by nothing after", ""),
     ("response.candidates[0].content.role", "unread: the aggregation writes it (gemini-stream.mjs:176), read by nothing after", ""),

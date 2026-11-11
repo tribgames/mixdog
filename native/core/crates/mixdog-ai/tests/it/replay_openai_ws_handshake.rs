@@ -79,7 +79,7 @@ async fn replay(id: &str) {
         r#"{"access_token":"fixture-access-token","refresh_token":"r","expires_at":4102444800000,"account_id":"acct-fixture"}"#,
     )
     .expect("the credential");
-    let builder = crate::replay_world::builder(&product, home.path(), vec![("MIXDOG_OAI_TRANSPORT".into(), "ws-full".into())]);
+    let builder = crate::replay_world::builder(&product, home.path(), vec![("MIXDOG_OAI_TRANSPORT".into(), "ws-full".into())]).await;
     let adapter = crate::replay_world::adapter(&builder, "openai-oauth", &serde_json::json!({})).await;
     let request = ModelRequest {
         model: "gpt-5.5".into(),

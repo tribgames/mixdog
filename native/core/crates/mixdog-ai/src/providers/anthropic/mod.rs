@@ -11,6 +11,7 @@ mod before_output;
 mod betas;
 mod body;
 mod caps;
+pub mod catalog_caps;
 mod codec;
 mod decoder;
 mod effort_updates;
@@ -18,6 +19,7 @@ pub(crate) mod errors;
 pub mod fast_mode;
 mod lowering;
 mod models;
+mod nonstream;
 pub mod oauth;
 mod policy;
 mod reminders;
@@ -46,6 +48,11 @@ mod tests;
 pub(crate) mod wire_tests;
 
 pub use adapter::AnthropicAdapter;
+pub use adapter::Compressor;
+#[cfg(any(test, feature = "test-support"))]
+pub use adapter::gzip_latched;
+#[cfg(any(test, feature = "test-support"))]
+pub use adapter::reset_gzip_latch;
 pub use adapter::ApiKeySource;
 pub use adapter::Credentials;
 pub use body::CacheStrategy;

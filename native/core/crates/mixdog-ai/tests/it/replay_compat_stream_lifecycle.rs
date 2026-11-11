@@ -38,7 +38,7 @@ async fn replay_requests(id: &str, entry: &str, end: End) {
     let endpoint = Endpoint::start().await;
     endpoint.serve(case);
     let home = tempfile::tempdir().expect("a home");
-    let builder = replay_world::builder(&endpoint, home.path(), Vec::new());
+    let builder = replay_world::builder(&endpoint, home.path(), Vec::new()).await;
     let constructed = case.args_of("OpenAICompatProvider", 0);
     let name = constructed[0].as_str();
     let cfg = &constructed[1];
