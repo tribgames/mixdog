@@ -21,8 +21,8 @@ await set.run('workspaceSummary carries the whole workspace record and requires 
 await set.run('summary rows expose the workspace while grouping stays on the project', () => {
   const input = session({ workspace });
   const summary = _sessionSummary(input);
-  const [normalized] = _normalizeSummaryIndex({ rows: [summary] }).rows;
-  return { session: input, summary, normalizedRow: normalized };
+  const normalizedIndex = _normalizeSummaryIndex({ rows: [summary] });
+  return { session: input, summary, normalizedIndex };
 });
 await set.run('a session without a workspace record has no workspace field', () => {
   const summary = _sessionSummary(session());
