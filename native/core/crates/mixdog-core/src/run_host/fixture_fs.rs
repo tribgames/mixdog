@@ -46,6 +46,27 @@ pub(crate) fn exists(path: impl AsRef<Path>) -> io::Result<bool> {
     }
 }
 
+/// Every file under `root` with its bytes, by its path relative to `root` (`/`-separated).
+pub(crate) fn files_under(root: impl AsRef<Path>) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(lane: &InLane<DurabilityIo>, dir: &Path, prefix: &str, out: &mut std::collections::BTreeMap<String, Vec<u8>>) -> io::Result<()> {
+        for name in mixdog_statefile::list_dir(lane, dir)? {
+            let (path, rel) = (dir.join(&name), format!("{prefix}{name}"));
+            if mixdog_statefile::metadata(lane, &path)?.is_dir() {
+                walk(lane, &path, &format!("{rel}/"), out)?;
+            } else {
+                out.insert(rel, mixdog_statefile::read_range(lane, &path, 0, usize::MAX)?);
+            }
+        }
+        Ok(())
+    }
+    let root = root.as_ref().to_owned();
+    on_lane(move |lane| {
+        let mut out = std::collections::BTreeMap::new();
+        walk(lane, &root, "", &mut out).map(|()| out)
+    })
+    .unwrap()
+}
+
 /// `std::fs::create_dir_all`.
 pub(crate) fn create_dir_all(path: impl AsRef<Path>) {
     let path = path.as_ref().to_owned();
