@@ -867,6 +867,27 @@ const SCENARIOS = [
       })),
     }];
   })(),
+  // A line longer than the search server's heap limit (serve_search/config.rs:23 `DEFAULT_SEARCH_HEAP_BYTES`, 32 MiB;
+  // matching.rs:171): the file's search fails, so none of its lines are answered (matching.rs `scan_with_printer`,
+  // those before the long line included), and the answer is partial. `filesRepeat`: a file's parts, a text or a text
+  // repeated so many times.
+  {
+    name: 'grep-heap',
+    files: {
+      'huge/b.ts': 'needle b\n',
+    },
+    filesRepeat: {
+      'huge/a.ts': ['needle first\n', 'needle ', ['x', 40_000_000], '\n', 'needle last\n'],
+    },
+    warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+    calls: [
+      { tool: 'grep', input: { pattern: 'needle', path: 'huge' } },
+      { tool: 'grep', input: { pattern: 'needle', path: 'huge', context: 0 } },
+      { tool: 'grep', input: { pattern: 'needle', path: 'huge', mode: 'files' } },
+      { tool: 'grep', input: { pattern: 'needle', path: 'huge', mode: 'count' } },
+      { tool: 'grep', input: { pattern: 'needle', path: 'huge/a.ts' } },
+    ],
+  },
   // A search server whose queue is full (serve_search/server.rs:370-383, scheduler.rs:241): the stand-in answers every
   // search as the server does then (`saturated`). Reachable from tool calls: plain content searches pass Node's client
   // ungated (search-admission.mjs:17-19), a turn's tool calls all start at once with no cap
@@ -1053,11 +1074,15 @@ if (process.argv[2] === '--child') {
     mkdirSync(dirname(join(ws, rel)), { recursive: true });
     writeFileSync(join(ws, rel), Buffer.from(b64, 'base64'));
   }
+  for (const [rel, parts] of Object.entries(scenario.filesRepeat ?? {})) {
+    mkdirSync(dirname(join(ws, rel)), { recursive: true });
+    writeFileSync(join(ws, rel), parts.map((part) => (typeof part === 'string' ? part : part[0].repeat(part[1]))).join(''));
+  }
   for (const [rel, target] of Object.entries(scenario.junctions ?? {})) {
     mkdirSync(dirname(join(ws, rel)), { recursive: true });
     symlinkSync(join(ws, target), join(ws, rel), 'junction');
   }
-  for (const rel of [...Object.keys(scenario.files ?? {}), ...Object.keys(scenario.filesBase64 ?? {})]) {
+  for (const rel of [...Object.keys(scenario.files ?? {}), ...Object.keys(scenario.filesBase64 ?? {}), ...Object.keys(scenario.filesRepeat ?? {})]) {
     const at = new Date(scenario.mtimes?.[rel] ?? FIXED);
     utimesSync(join(ws, rel), at, at);
   }

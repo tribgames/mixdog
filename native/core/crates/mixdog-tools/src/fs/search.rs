@@ -1109,7 +1109,7 @@ impl GrepTool {
             Err(e) if super::not_found::missing_code(&e.kind).is_some() => {
                 let code = super::not_found::missing_code(&e.kind).unwrap_or("ENOENT");
                 let error = super::not_found::grep_missing(ctx, &abs, raw, code).await;
-                return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, error, single_file: false, bad_pattern: false });
+                return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, scan_errors: 0, error, single_file: false, bad_pattern: false });
             }
             Err(e) => return Err(fs_failure(&e, raw)),
         };
@@ -1155,6 +1155,8 @@ impl GrepTool {
                 // `collect_until` does; an unlimited listing at the 200,000-match content cap. The sink below takes one
                 // hit before it checks a spent bound, so a bound of 0 still reads one.
                 limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
+                // A file list reads each file to its first match (`--files-with-matches`).
+                first_per_file: mode == Mode::Files,
                 deadline: Some(deadlines.soft),
                 class,
             },
@@ -1190,7 +1192,13 @@ impl GrepTool {
                 Err(e) => match e.kind {
                     FsErrorKind::InvalidPattern { message } => bad_pattern = Some(message),
                     FsErrorKind::Saturated => refused = true,
-                    _ => errors += 1,
+                    _ => {
+                        errors += 1;
+                        // A file whose search failed is not answered in part (Node's server drops its printed lines).
+                        if let Some(failed) = e.path {
+                            hits.retain(|h| h.path != failed);
+                        }
+                    }
                 },
             }
             true
@@ -1199,7 +1207,8 @@ impl GrepTool {
         let complete = match end {
             PullEnd::Cancelled => return Err(cancelled()),
             PullEnd::Deadline => false,
-            PullEnd::Exhausted => !timed_out,
+            // A file the scan could not read leaves the answer incomplete (serve_search/search.rs `response_window`).
+            PullEnd::Exhausted => !timed_out && errors == 0,
             // The search's hard deadline: the server never answered (`requestNative`'s timer, `timeoutError`); the search
             // was stopped as Node's client cancels and then ends its server.
             PullEnd::Timer => {
@@ -1213,9 +1222,9 @@ impl GrepTool {
         // The parser's own text, as Node relays the search server's refusal.
         if let Some(message) = bad_pattern {
             let error = format!("Error: regex parse error: {message}");
-            return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, error, single_file, bad_pattern: true });
+            return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, scan_errors: 0, error, single_file, bad_pattern: true });
         }
-        Ok(Scanned { hits, complete, timed_out, error: String::new(), single_file, bad_pattern: false })
+        Ok(Scanned { hits, complete, timed_out, scan_errors: errors, error: String::new(), single_file, bad_pattern: false })
     }
 }
 
@@ -1229,12 +1238,14 @@ fn declined_on_failure<T>(outcome: Result<T, ToolError>) -> Result<Option<T>, To
     }
 }
 
-/// One root's scan: its hits, whether it finished (`complete`) or reached its soft deadline (`timed_out`), the error that
-/// answers it instead, whether the root is a file, and whether the error is a refused pattern.
+/// One root's scan: its hits, whether it finished (`complete`) or reached its soft deadline (`timed_out`), the files it
+/// could not read (`scan_errors`, the server's `scanErrors`), the error that answers it instead, whether the root is a
+/// file, and whether the error is a refused pattern.
 struct Scanned {
     hits: Vec<Hit>,
     complete: bool,
     timed_out: bool,
+    scan_errors: usize,
     error: String,
     single_file: bool,
     bad_pattern: bool,
@@ -1263,6 +1274,22 @@ impl SearchDeadlines {
 
 /// grep-output.mjs `grepPartialWarning` for a timed-out scan.
 const TIMEOUT_WARNING: &str = "\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.";
+
+/// grep-output.mjs `grepPartialWarning` for an incomplete scan: a timed-out one, else one with files it could not read.
+/// Their count reaches it as `rgStderr` only through a windowed stream (native-search-client.mjs:888-892,
+/// `runRgWindowedLines`); `runRg`'s answer (an unlimited listing, a file list, counts) carries none
+/// (native-search-runner.mjs:39-44). Node keeps the first 300 characters of `rgStderr`, which this count never reaches.
+fn partial_warning(timed_out: bool, scan_errors: usize, streamed: bool) -> String {
+    if timed_out || scan_errors == 0 {
+        return TIMEOUT_WARNING.to_owned();
+    }
+    if !streamed {
+        return "\n[warning] rg exit 2 (partial results)".to_owned();
+    }
+    format!(
+        "\n[warning] rg exit 2 (partial results): {scan_errors} file(s) could not be read (permission or I/O error); matches from those files are missing"
+    )
+}
 
 #[async_trait]
 impl Tool for GrepTool {
@@ -1379,7 +1406,7 @@ impl GrepTool {
                             Err(e) => e.message_for_model,
                         });
                     }
-                    (bodies, Vec::new(), false)
+                    (bodies, Vec::new(), None)
                 }
             };
             let mut seen = std::collections::HashSet::new();
@@ -1390,8 +1417,8 @@ impl GrepTool {
                 text.push_str(&format!("\n\n# grep (unattributed matches)\n{}", residual[..residual.len().min(40)].join("\n")));
             }
             // The combined scan's one warning closes the answer.
-            if partial {
-                text.push_str(TIMEOUT_WARNING);
+            if let Some(warning) = partial {
+                text.push_str(&warning);
             }
             return Ok(text);
         }
@@ -1405,7 +1432,7 @@ impl GrepTool {
         let window = Window::of(args, mode);
         // The native search window (serve_search/search.rs `collect_until`): the scan stops one hit past what the call
         // can show, so the length of a cut stream is unknown.
-        let Collected { all, complete, errors, single, all_bad, .. } =
+        let Collected { all, complete, timed_out, scan_errors, errors, single, all_bad } =
             self.collect(ctx, args, pattern, mode, window.stream_bound(mode), SearchClass::Interactive).await?;
         if all.is_empty() && !errors.is_empty() {
             // A pattern the parser refused is a failed call, as Node's caller takes it; a missing path is a miss.
@@ -1422,9 +1449,9 @@ impl GrepTool {
             text.push_str(&format!("\n{e}"));
         }
         if !complete {
-            text.push_str(TIMEOUT_WARNING);
+            text.push_str(&partial_warning(timed_out, scan_errors, window.stream_bound(mode).is_some()));
         }
-        let _ = (BTreeSet::<u8>::new(), ToolPart::Text(String::new()), ToolOutput::default());
+        let _ =(BTreeSet::<u8>::new(), ToolPart::Text(String::new()), ToolOutput::default());
         Ok(text)
     }
 
@@ -1438,7 +1465,7 @@ impl GrepTool {
         args: &JsonValue,
         patterns: &[String],
         budget: usize,
-    ) -> Result<Option<(Vec<String>, Vec<String>, bool)>, ToolError> {
+    ) -> Result<Option<(Vec<String>, Vec<String>, Option<String>)>, ToolError> {
         // `new RegExp(p, request.caseInsensitive ? 'i' : '')`, `caseInsensitive` being `args['-i'] === true`.
         let flags = if args.get("-i") == Some(&JsonValue::Bool(true)) { "i" } else { "" };
         let Ok(regexes) = patterns.iter().map(|p| mixdog_js::JsRegex::new(p, flags)).collect::<Result<Vec<_>, _>>() else {
@@ -1460,9 +1487,10 @@ impl GrepTool {
         if !found.errors.is_empty() || found.single {
             return Ok(None);
         }
-        // `runCombinedFanout`: a scan its deadline cut keeps the lines it found (the server's window, at most the cap)
-        // and declines only when it found none; one that ran past its cap declines.
-        let partial = found.timed_out;
+        // `runCombinedFanout`: a partial scan (its deadline cut it, or a file could not be read) keeps the lines it found
+        // (the server's window, at most the cap) and declines only when it found none; one that ran past its cap
+        // declines.
+        let partial = found.timed_out || found.scan_errors > 0;
         if partial {
             if found.all.is_empty() {
                 return Ok(None);
@@ -1490,7 +1518,7 @@ impl GrepTool {
             });
         }
         let residual = residual.into_iter().map(|i| lines[i].clone()).collect();
-        Ok(Some((bodies, residual, partial)))
+        Ok(Some((bodies, residual, partial.then(|| partial_warning(found.timed_out, found.scan_errors, true)))))
     }
 
     /// grep-pattern-fanout.mjs `fanoutPrefilterCandidates`: before the per-pattern greps, one files-with-matches scan of
@@ -1517,11 +1545,13 @@ impl GrepTool {
         let mut single = false;
         let mut all_bad = true;
         let mut timed_out = false;
+        let mut scan_errors = 0;
         for raw in &roots {
             let left = bound.map(|n| n.saturating_sub(all.len()));
             let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, left, class).await?;
             complete &= scanned.complete;
             timed_out |= scanned.timed_out;
+            scan_errors += scanned.scan_errors;
             single = scanned.single_file && roots.len() == 1;
             if !scanned.error.is_empty() {
                 all_bad &= scanned.bad_pattern;
@@ -1531,7 +1561,7 @@ impl GrepTool {
             all.extend(label_hits(ctx, raw, scanned.single_file, scanned.hits)?);
         }
         sort_hits(&mut all);
-        Ok(Collected { all, complete, timed_out, errors, single, all_bad })
+        Ok(Collected { all, complete, timed_out, scan_errors, errors, single, all_bad })
     }
 
     /// grep-path-fanout.mjs `runCombinedPathFanout`: one scan over every path, attributed back to each path's section,
@@ -1799,6 +1829,8 @@ struct Collected {
     complete: bool,
     /// A root's scan reached its soft deadline.
     timed_out: bool,
+    /// Files the roots' scans could not read.
+    scan_errors: usize,
     errors: Vec<String>,
     single: bool,
     all_bad: bool,
