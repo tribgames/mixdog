@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 15996,
+      "bytes": 15949,
       "path": "golden.json",
-      "sha256": "a85e988e06aa5e73a9dc1afcd5493f2d2dba4f1f2d50333f7e9fd656d87574df"
+      "sha256": "664d2f93a28730a4e3021591c167e0cd81965a340efa860da1b85c39df6919da"
     }
   ],
   "inputs": [
@@ -30,6 +30,7 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
+    "MIXDOG_DATA_DIR": "the private temp data dir is written <data-dir>",
     "bootProfile ms": "the elapsed milliseconds a boot-profile call carries (wall clock) are written <ms>",
     "clock": "Date.now() fixed at clock.dateNowMs",
     "temp data dir": "paths in the golden are relative to the data dir"
@@ -52,10 +53,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-core-file.mjs",
-  "recorderSha256": "1194cf851d28b77d807114311a384793bfccb46f2ee346e4cf6cc3bd4ecc86f8",
+  "recorderSha256": "1945320ff3b8cc174014361ab05528ee6c0b3d23d46db532e8bf3b7ec113ce32",
   "replay": "mixdog-services memory: mem/core/snapshot.rs refresh / write (revision guard) / read and session_payload, over the same rows and a temp data dir; compares each result, the statements and the exact bytes of core-memory.json after each step",
   "set": "memory-core-file",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 15996,
+  "totalBytes": 15949,
   "uuidsNormalised": "golden.json: 6 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)"
 }

@@ -90,7 +90,7 @@ const cases = [];
       clean: (value) => String(value ?? '').trim(),
     });
     const context = await capture(() => plugins.loadCoreMemoryContext());
-    cases.push({ name: 'session core context reads the file without starting memory runtime (test line 91)', env, written, filesBefore: before, context, memoryStarts: hookCalls.filter((c) => c.hook === 'getMemoryModule').length, hookCalls, filesAfter: files(root) });
+    cases.push({ name: 'session core context reads the file without starting memory runtime (test line 91)', env: { ...env, MIXDOG_DATA_DIR: '<data-dir>' }, written, filesBefore: before, context, memoryStarts: hookCalls.filter((c) => c.hook === 'getMemoryModule').length, hookCalls, filesAfter: files(root) });
   } finally {
     for (const [k, v] of Object.entries(prior)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
@@ -105,7 +105,7 @@ finish(ctx, {
     entry: { runs: 'refreshCoreMemoryFile, writeCoreMemoryFileSnapshot, readCoreMemoryFile, readSessionCoreMemoryPayload (core-memory-file.mjs) over a real temp data directory, with the real atomic-file writer and project-id resolver', notRun: 'PostgreSQL (the test file\'s scripted db answers the two selects with fixed rows); the memory runtime start of case 91 is a scripted hook that throws and counts (memoryStarts)' },
     replay: 'mixdog-services memory: mem/core/snapshot.rs refresh / write (revision guard) / read and session_payload, over the same rows and a temp data dir; compares each result, the statements and the exact bytes of core-memory.json after each step',
     exclusions: 'none; every file and directory under the data root (path, size, bytes) is recorded after each step',
-    normalised: { 'bootProfile ms': 'the elapsed milliseconds a boot-profile call carries (wall clock) are written <ms>',  'temp data dir': 'paths in the golden are relative to the data dir', clock: 'Date.now() fixed at clock.dateNowMs' },
+    normalised: { 'MIXDOG_DATA_DIR': 'the private temp data dir is written <data-dir>', 'bootProfile ms': 'the elapsed milliseconds a boot-profile call carries (wall clock) are written <ms>',  'temp data dir': 'paths in the golden are relative to the data dir', clock: 'Date.now() fixed at clock.dateNowMs' },
   },
 });
 process.exit(0);
