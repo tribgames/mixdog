@@ -1,20 +1,20 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-transport-project-surface.mjs --tree <tree>",
-  "entry": "Case 12: ran src/standalone/session-service.mjs createSessionService().handleCall for every project.* route with a scripted project store (desktopRuntime.loadProjects). Case 144: ran the real session transport (HTTP on 127.0.0.1), the real src/standalone/session-client.mjs createSession() remote runtime and the same service/stub runtime as the test (scripts/session-transport/_shared.mjs of the tree), logging every call the service received. Did not run the TUI project picker (line 85, see header of the recorder) nor a real project registry (see the store-registry set for projects.json).",
+  "entry": "Case 12: ran src/standalone/session-service.mjs createSessionService().handleCall for every project.* route with a scripted project store (desktopRuntime.loadProjects). Case 144: ran the real session transport (HTTP on 127.0.0.1) behind a TCP tap that records every HTTP exchange (status line, headers in order, body), the real src/standalone/session-client.mjs createSession() remote runtime and the same service/stub runtime as the test (scripts/session-transport/_shared.mjs of the tree), logging every call the service received. Did not run the TUI project picker (line 85, see header of the recorder) nor a real project registry (see the store-registry set for projects.json).",
   "exclusions": [
     "line 85 (TUI project picker) not recorded: TUI client code with no Rust counterpart",
-    "wire envelope: the client-visible result of a call is recorded (what createSession returns), plus the call the service received; HTTP headers/bytes are not (the Rust transport is the app-server WebSocket)",
-    "client tokens (random uuid) -> <client N> by first appearance; daemon session ids sess_daemon_<ms>_<32 hex> -> <daemon session N>",
-    "revision / baseRevision values above 1e12 (epoch-based, restart-monotonic) -> <epoch revision>+offset from the first one seen in the case",
-    "the runtime root temp dir -> <runtime root>, this process's cwd -> <cwd>, its pid/ppid in leadPid fields -> <pid>/<ppid>",
-    "queuedMs of a service call (time in the lane) is not recorded: it is a wall-clock measure"
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0)",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\""
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 8693,
+      "bytes": 28472,
       "path": "recording.json",
-      "sha256": "912cde5ae68d4dfd8394da6eb18ed711dfab6252689fbfc01006453fd24010e2"
+      "sha256": "a24ceec726baedeaa119b817fd90c2fc5c9233d0fd6db99f9103ee6fa67ffb9a"
     }
   ],
   "inputs": [
@@ -23,16 +23,20 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/session-daemon-harness.mjs",
-      "sha256": "9527596ccea60373a9391e7dc25f5c24f4854791fa1d64141d2949a8cbaf7ebe"
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -53,9 +57,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-project-surface.mjs",
-  "recorderSha256": "d7629bfa222ac381616c12ef1825063454feda36c5088191b79b3936f61f7468",
-  "replay": "mixdog-app-server dispatch of project/list, project/add, project/inspect, project/touch, project/rename, project/remove, project/ensureDirectory and the cwd change (native/core/crates/mixdog-workspace service.rs project routes): feed each case's calls (name, args) to a scripted project store and compare every result/error and the store's own call list; for case 144 compare the ordered service calls (name, args, context) a client makes for listProjects, addProject, setCwd.",
+  "recorderSha256": "b965f9ee5072c738d6a5c8e5b0935b6514a42e143ebd0a93fc76b42e0f43a634",
+  "replay": "App-server protocol methods of the Rust core (native/core/crates/mixdog-app-protocol methods.rs, served by mixdog-app-server) over a scripted project store: project.list -> project/list, project.inspect -> project/read, project.add -> project/create, project.touch -> project/touch, project.rename -> project/update, project.remove -> project/delete, project.ensureDirectory -> project/ensureDirectory, and the remote runtime's setCwd -> thread/setCwd. Feed each case's calls (name, args as recorded in exactArgs form) and compare every result/error and the store's own call list; for case 144 compare the ordered service calls (name, args, context) a client makes for listProjects, addProject, setCwd. The HTTP exchange log (`wire`) documents the Node transport only (the Rust transport is the app-server WebSocket).",
   "set": "session-transport-project-surface",
   "testFile": "scripts/session-transport/project-surface.test.mjs",
-  "totalBytes": 8693
+  "totalBytes": 28472,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
