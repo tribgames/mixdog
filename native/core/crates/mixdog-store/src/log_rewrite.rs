@@ -33,6 +33,15 @@
 //! | M2 `VACUUM FULL session_search.messages` (table, TOAST and indexes written anew from the live rows) | the new rows; the old row versions in the table files and the WAL; the scrub row | M2-M4 | the new rows (waits on the table lock while M2 runs) |
 //! | M3 `pg_switch_wal()`, `CHECKPOINT`: the segments before the new redo point are removed (`wal_recycle = off`) | the old row versions in the WAL only; the scrub row | M2-M4 (M2 again is cheap) | the new rows |
 //! | M4 the scrub row deleted | nothing of the value | nothing | the new rows |
+//!
+//! The memory transcript's part, PENDING on branch `gaps-session-rest` (the transcript writer is not on this branch yet):
+//!
+//! | Step | Kill before it completes leaves | The next start | A reader |
+//! |---|---|---|---|
+//! | T1 every transcript file of the session rewritten line for line, the watcher's read position moved to the same line of the new file: `mixdog-core-session` `TranscriptFiles::redact_session(&self, thread: &str)` (`session/transcript_writer.rs`) | owed: lands with that branch, with its own kill behaviour | owed | owed |
+//!
+//! Open with T1 (its owner's branch): the search rows the watcher ingested from the transcript are replaced by M1 only if
+//! they carry the session's id, and the read position must not make the watcher ingest the pre-mark lines again.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "log file I/O runs only in lane jobs (lane proof arguments)")]
 
 use std::collections::BTreeSet;
