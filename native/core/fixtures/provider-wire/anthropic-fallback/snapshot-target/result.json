@@ -1,0 +1,126 @@
+{
+  "ok": {
+    "content": "Hi! How can I help?",
+    "model": "claude-opus-5-20260301",
+    "usage": {
+      "inputTokens": 412,
+      "outputTokens": 9,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "raw": {
+        "input_tokens": 412,
+        "output_tokens": 9
+      },
+      "promptTokens": 412
+    },
+    "stopReason": "end_turn",
+    "hasThinkingContent": false,
+    "contentBlockTypes": [
+      "fallback",
+      "text_delta"
+    ],
+    "assistantBlocks": [
+      {
+        "type": "text",
+        "text": "Hi! How can I help?"
+      }
+    ],
+    "providerReplay": {
+      "version": 1,
+      "provider": "anthropic",
+      "items": [
+        {
+          "type": "text",
+          "text": "Hi! How can I help?"
+        }
+      ]
+    },
+    "providerMetadata": {
+      "anthropicFallbacks": [
+        {
+          "trigger": "overloaded",
+          "originalModel": "claude-opus-5",
+          "fallbackModel": "claude-opus-5-20260301"
+        }
+      ]
+    },
+    "generationMs": 0,
+    "requestServiceTier": ""
+  },
+  "committed": {
+    "role": "assistant",
+    "content": "Hi! How can I help?",
+    "providerReplay": {
+      "version": 1,
+      "provider": "anthropic",
+      "items": [
+        {
+          "type": "text",
+          "text": "Hi! How can I help?"
+        }
+      ]
+    },
+    "providerMetadata": {
+      "anthropicFallbacks": [
+        {
+          "trigger": "overloaded",
+          "originalModel": "claude-opus-5",
+          "fallbackModel": "claude-opus-5-20260301"
+        }
+      ]
+    },
+    "stopReason": "end_turn"
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "textDelta",
+      "text": "Hi! How can I help?"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    }
+  ],
+  "rows": [
+    {
+      "ts": 1700000000000,
+      "day": "2023-11-15",
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-5-20260301",
+      "kind": "oauth",
+      "sessionId": "fallback-session",
+      "sourceType": "lead",
+      "input": 412,
+      "output": 9,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "costUsd": null,
+      "costSource": "unpriced",
+      "rates": "{\"requestedModel\":\"claude-opus-5\",\"pricingModel\":\"claude-opus-5-20260301\",\"pricingProvider\":\"anthropic-oauth\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+      "responseId": "",
+      "account": "default",
+      "origin": "live",
+      "durationMs": 0,
+      "requestedModel": "claude-opus-5",
+      "requestedProvider": "",
+      "status": "substituted",
+      "attempts": 1,
+      "ttftMs": 0,
+      "elapsedMs": 0,
+      "id": "<req>"
+    }
+  ]
+}

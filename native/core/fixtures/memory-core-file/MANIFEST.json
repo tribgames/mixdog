@@ -1,0 +1,66 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-core-file.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL (the test file's scripted db answers the two selects with fixed rows); the memory runtime start of case 91 is a scripted hook that throws and counts (memoryStarts)",
+    "runs": "refreshCoreMemoryFile, writeCoreMemoryFileSnapshot, readCoreMemoryFile, readSessionCoreMemoryPayload (core-memory-file.mjs) over a real temp data directory, with the real atomic-file writer and project-id resolver"
+  },
+  "exclusions": "none; every file and directory under the data root (path, size, bytes) is recorded after each step",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 16196,
+      "path": "golden.json",
+      "sha256": "289aaedb152bf214615b1aabd2f8ebc610b8a2b3e41e41334d953bbb79d60d2a"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "MIXDOG_DATA_DIR": "the private temp data dir is written <data-dir>",
+    "bootProfile ms": "the elapsed milliseconds a boot-profile call carries (wall clock) are written <ms>",
+    "clock": "Date.now() fixed at clock.dateNowMs",
+    "temp data dir": "paths in the golden are relative to the data dir"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-core-file.mjs",
+  "recorderSha256": "999d60d0f8f68491e10cc98bdd2910c69761d6229d3b6639b5f6cf3964723508",
+  "replay": "mixdog-services memory/core/snapshot.rs (pub): refresh (:118), read (:97), session_payload (:190), and the revision-guarded write; memory/core/context.rs: pub async fn load (:72), format_core_memory_lines (:23) for case 91 (zero memory-runtime starts: the start hook's call count). A replay compares each result, the statements and the exact bytes of every file under the data root after each step",
+  "set": "memory-core-file",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 16196,
+  "uuidsNormalised": "golden.json: 6 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
