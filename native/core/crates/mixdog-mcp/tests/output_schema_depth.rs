@@ -17,6 +17,10 @@ use tokio_util::sync::CancellationToken;
 
 const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
 
+/// V8's message of a `RangeError` thrown when the call stack runs out (a constant of V8's message table,
+/// `kStackOverflow`; Node's own sources do not spell it).
+const V8_STACK_OVERFLOW: &str = "Maximum call stack size exceeded";
+
 /// The overflow a fresh Node process answers for a chain past Ajv's stack, as recorded (`freshProcesses`, a chain of
 /// 2111): its code and message.
 fn recorded_overflow() -> (i64, String) {
@@ -30,7 +34,12 @@ fn recorded_overflow() -> (i64, String) {
         .expect("an overflow");
     let code = thrown["code"].as_i64().unwrap();
     let message = thrown["message"].as_str().unwrap().strip_prefix(&format!("MCP error {code}: ")).unwrap().to_owned();
-    assert!(message.ends_with("Maximum call stack size exceeded"), "{message}");
+    // The text as Node's sources make it: the SDK wraps what the validator threw (`McpError(InvalidParams, "Failed to
+    // validate structured content: " + error.message)`, `@modelcontextprotocol/sdk/dist/esm/client/index.js:505`, with
+    // `ErrorCode.InvalidParams` = -32602) and the thrown error is V8's `RangeError`, whose message is its stack-overflow
+    // text; the recording must say the same.
+    assert_eq!(code, -32602);
+    assert_eq!(message, format!("Failed to validate structured content: {V8_STACK_OVERFLOW}"));
     (code, message)
 }
 
@@ -63,19 +72,27 @@ fn deep_loop() -> Value {
 }
 
 /// Ajv's stack bounds, through the product's call (`McpServer::call_tool_settled`, its check a cpu-bulk lane job of the
-/// production lanes, the validation walk on its own thread): exactly at each bound the result passes, one past it and
-/// 100,000 references past it the call answers Node's overflow, and the process neither crashes nor overflows its own
-/// stack. Compile chains: 2,460 references (the bound), 2,461 and 100,000, a value that does not reach them. Validation
-/// paths: 2,111 references (the bound), 2,112, and 100,000 (a loop of 1,000 over 100 nested objects, compiled as a
-/// chain of 1,000).
+/// production lanes, the validation walk on its own thread): one below each bound and exactly at it the result passes,
+/// one past it and 100,000 references past it the call answers Node's overflow, and the process neither crashes nor
+/// overflows its own stack. Compile chains: 2,459 references, 2,460 (the bound), 2,461 and 100,000, a value that does
+/// not reach them. Validation paths: 2,110 references, 2,111 (the bound), 2,112, and 100,000 (a loop of 1,000 over 100
+/// nested objects, compiled as a chain of 1,000).
+///
+/// What the limit protects: a server whose output schema chains references this deep makes Ajv fail every result of the
+/// tool (compile) or the results that follow the chain (validation) with the SDK's error, as Node does; below the bound
+/// the same results validate and are returned. Without the bound the core would validate by recursion without end and
+/// overflow its own stack (a crash of the daemon, not a failed call), and a schema just under the bound would answer
+/// differently from Node.
 #[test]
 fn ajvs_stack_bounds_answer_as_node_through_the_products_call() {
     let overflow = recorded_overflow();
     let nested = (0..100).fold(json!({}), |inner, _| json!({"a": inner}));
     let cases: Vec<(&str, Value, Value, bool)> = vec![
+        ("compile_below", chain(2458), json!({}), true),
         ("compile_at", chain(2459), json!({}), true),
         ("compile_above", chain(2460), json!({}), false),
         ("compile_far", chain(99_999), json!({}), false),
+        ("validation_below", chain(2109), json!({"v": 1}), true),
         ("validation_at", chain(2110), json!({"v": 1}), true),
         ("validation_above", chain(2111), json!({"v": 1}), false),
         ("validation_far", deep_loop(), json!({"v": nested}), false),
