@@ -94,6 +94,14 @@ const cases = [];
   }
   calls.push(await run(execute, 'session', { action: 'list-projects' }, {}, 'list-projects'));
   calls.push(await run(execute, 'session', { action: 'set-project', path: dir }, {}, 'set-project'));
+  // :153, the test's caller-owned switch: the calling session's own `setCallerCwd` answers, never the workspace API
+  // (every model call carries one, dispatch.mjs:98); the golden names the double's answer as a suffix.
+  {
+    const before = switches.length;
+    const outcome = await run(execute, 'session', { path: dir }, { setCallerCwd: async (next) => `${next}::caller` }, 'the caller-owned switch');
+    calls.push({ ...outcome, context: { setCallerCwd: '<path>::caller' } });
+    if (switches.length !== before) throw new Error('the workspace API switched although the caller owned the switch');
+  }
   calls.push(await run(execute, 'session', { action: 'set-project' }, {}, 'set-project without a path'));
   calls.push(await run(execute, 'session', { action: 'set-project', path: join(dir, 'missing') }, {}, 'set-project to a missing directory'));
   calls.push(await run(execute, 'session', { action: 'dance' }, {}, 'unknown action'));
@@ -196,8 +204,6 @@ const excluded = {
     'agent, setup, memory, Skill); the unknown-tool throw is unreachable for a model, the surface refuses an unknown tool first',
   'session fork calls the lifecycle API and returns the new session id: fork without a lifecycle API':
     "the test's bare harness injects no getLifecycleApi (workspace-tools.mjs:145); every product runtime injects it (lifecycle-api.mjs:47)",
-  'session reports, lists, and switches the Project through the caller or the runtime: the caller-owned switch ({path} with setCallerCwd)':
-    "Node's MCP caller may own the cwd switch (setCallerCwd); the core's session tool has one switch, the session port's",
   'session reports, lists, and switches the Project through the caller or the runtime: the retired cwd tool':
     "Node's internal executor's own refusal of a tool it does not route; the core has no internal executor, and a model " +
     'never reaches either: the session surface refuses an unknown tool first',
@@ -213,7 +219,10 @@ writeSetManifest(stage, {
   identity,
   extra: {
     ...recorderProvenance(import.meta.url),
-    compared: "per call: the whole outcome, the tool's text or its error message; the Project directory as <dir>",
+    compared:
+      "per call: the whole outcome, the tool's text or its error message; the Project directory as <dir>; " +
+      "the fork case: the session id the test's lifecycle double minted (new-1) stands for the id the core's directory minted, " +
+      'and `forks` is [source, compacted] of the copy the core really made and compacted',
     excluded,
   },
 });

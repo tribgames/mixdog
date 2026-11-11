@@ -1,10 +1,21 @@
 //! Node's `session` tool Project and worktree cases (`fixtures/session-tool-project-cases`,
 //! `record-session-tool-project-cases.mjs`): each recorded call through the `SessionTool` over the
 //! `DirectorySessionPort`, the whole outcome (the tool's text or its error message) against Node's.
-//! The thread is `sess-1` in `C:/work` with an empty header and an empty Project registry, as the test's
-//! harness runtime is; the test's workspace switch answers `switchProject:ok`, so this port's thread
-//! answers the `thread/setCwd` request by storing that as the thread's cwd.
+//! The threads are real: `sess-1`, `worker-1` and `w` live in a `SessionDirectory` over the session rig, their headers
+//! are the directory's, and a fork and a compaction run the thread actors. Only the test's workspace switch is a double,
+//! as in Node's test: it answers `switchProject:ok` (the call's own `setCallerCwd` answers `<path>::caller`), so the
+//! `thread/setCwd` request stores that as the thread's cwd and every other request goes to the directory.
 
+use mixdog_core_api::Reply;
+use mixdog_core_api::ThreadHandle;
+use mixdog_core_api::call::CallContext;
+use mixdog_core_api::call::CoreRequest;
+use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::Method;
+use mixdog_core_api::ids::OpId;
+use mixdog_core_session::session::SessionDirectory;
+use mixdog_core_session::session::testing::Rig;
+use mixdog_core_session::session::thread_state::SessionThreads;
 use mixdog_tools::orch::session::SessionTool;
 
 use super::*;
@@ -13,46 +24,38 @@ fn golden() -> Value {
     serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-tool-project-cases/golden.json")).expect("json")
 }
 
-/// The test's workspace switch: records the switch and answers `switchProject:ok`. Its lifecycle API
-/// (`inheritToNewSession`): a fork answers the copy `new-1`, and its compaction a changed summary.
+/// The test's workspace switch (`switchProject`, or the call's `setCallerCwd`): records the switch and stores its
+/// answer as the thread's cwd; every other request is the directory's.
 struct Switch {
-    threads: Arc<Threads>,
+    directory: Arc<SessionDirectory>,
+    threads: Arc<SessionThreads>,
+    /// The workspace API's switches: `[method, path]`.
     calls: Mutex<Vec<Value>>,
-    /// The threads a `session compact` marked.
-    pending: Mutex<Vec<String>>,
-    /// Per fork: the source thread and whether its copy was compacted.
-    forks: Mutex<Vec<Value>>,
+    /// The call in flight carries its own `setCallerCwd`.
+    caller_owned: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
 impl ThreadRequests for Switch {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        if method == "thread/fork" {
-            self.threads.0.lock().expect("threads").insert("new-1".to_owned(), Map::new());
-            self.forks.lock().expect("forks").push(json!([thread.as_str(), false]));
-            return Ok(json!({ "thread": { "id": "new-1" } }));
+        if method != "thread/setCwd" {
+            return ThreadRequests::request(&*self.directory, thread, method, params).await;
         }
-        if method == "thread/compact/start" && params.get("options").is_none() {
-            assert_eq!(thread.as_str(), "new-1", "the copy is compacted, never the source");
-            self.forks.lock().expect("forks").last_mut().expect("a fork")[1] = json!(true);
-            return Ok(json!({ "changed": true }));
-        }
-        if method == "thread/compact/start" {
-            // The thread's actor marks itself (`pendingCompactSessionIds`); its run is the actor's own test.
-            assert_eq!(params["options"], json!({ "afterTurn": true }), "a compaction after the turn");
-            self.pending.lock().expect("pending").push(thread.as_str().to_owned());
-            return Ok(Value::Null);
-        }
-        self.calls.lock().expect("calls").push(json!([method, params["path"]]));
-        let set = Map::from_iter([("cwd".to_owned(), json!("switchProject:ok"))]);
+        let path = params["path"].as_str().expect("path").to_owned();
+        let cwd = if self.caller_owned.load(std::sync::atomic::Ordering::SeqCst) {
+            format!("{path}::caller")
+        } else {
+            self.calls.lock().expect("calls").push(json!([method, path]));
+            "switchProject:ok".to_owned()
+        };
+        let set = Map::from_iter([("cwd".to_owned(), json!(cwd))]);
         self.threads.patch_header(thread, set, Vec::new()).await.expect("the thread");
         Ok(Value::Null)
     }
-    fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {
-        Ok(false)
+    fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
+        ThreadRequests::interrupt(&*self.directory, thread)
     }
 }
-
 /// The Settings switch of AI titles, which a case turns off between calls (`rt.config.aiSessionTitles = false`).
 struct Toggle(std::sync::atomic::AtomicBool);
 
@@ -65,7 +68,7 @@ impl AiTitleSetting for Toggle {
 /// The store the title saves go through; armed, the user's manual rename lands right after the AI
 /// title is saved, as in the test's awaited save.
 struct Racing {
-    threads: Arc<Threads>,
+    threads: Arc<SessionThreads>,
     armed: bool,
 }
 
@@ -95,27 +98,111 @@ fn call_ctx(thread: &str, surface: SurfaceKind) -> ToolContext {
     ToolContext { thread_id: ThreadId::from(thread), surface, cwd: AbsPath::new(std::path::PathBuf::from("C:/work")).expect("absolute"), tool: "session".into(), ..ctx() }
 }
 
-#[tokio::test]
+fn connection() -> CallContext {
+    CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new())
+}
+
+/// The fork's answer names the copy the directory minted; the test's lifecycle double minted `new-1`, which stands for it.
+fn minted(outcome: Value, copies: &mut Vec<String>) -> Value {
+    let Some(text) = outcome["ok"].as_str() else { return outcome };
+    let Ok(mut answer) = serde_json::from_str::<Value>(text) else { return outcome };
+    if answer["action"] != "fork" {
+        return outcome;
+    }
+    copies.push(answer["sessionId"].as_str().expect("the copy's id").to_owned());
+    answer["sessionId"] = json!("new-1");
+    json!({ "ok": serde_json::to_string_pretty(&answer).expect("json") })
+}
+
+/// `[source, compacted]` of each copy the forks made: the copy's own header names its source, and the compaction engine ran
+/// (on the copy: the tool compacts nothing else) once the fork answered.
+async fn forks_made(threads: &SessionThreads, rig: &Rig, copies: &[String]) -> Vec<Value> {
+    let compacted = mixdog_core_session::session::testing::lock(&rig.compaction.calls).first().map(String::as_str) == Some("compact manual false");
+    let mut forks = Vec::new();
+    for copy in copies {
+        let header = threads.header(&ThreadId::from(copy.as_str())).await.expect("the copy");
+        forks.push(json!([header["inheritedFromSessionId"], compacted]));
+    }
+    forks
+}
+
+/// One finished user turn in `thread`: a conversation the fork has to carry (`inheritFrom` refuses a source with none).
+async fn converse(directory: &SessionDirectory, thread: &str) {
+    let id = ThreadId::from(thread);
+    let handle = directory.open_handle(&id, &connection()).await.expect("opens");
+    let op = OpId::from(uuid::Uuid::now_v7().to_string());
+    let params = json!({ "threadId": id, "opId": op.as_str(), "input": { "prompt": "write a haiku" } });
+    handle.request(CoreRequest { method: Method("turn/start"), params, op: Some(op), ctx: connection() }).await.expect("turn/start");
+    mixdog_core_session::session::testing::awaiting(
+        || format!("the turn of {thread} to finish"),
+        async {
+            loop {
+                let stepped = handle.stepped().notified();
+                tokio::pin!(stepped);
+                stepped.as_mut().enable();
+                let request = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: connection() };
+                if let Ok(Reply::Value(view)) = handle.request(request).await
+                    && view["items"].as_array().is_some_and(|items| items.iter().any(|item| item["type"] == "userMessage"))
+                    && view["state"]["runtime"]["busy"] != json!(true)
+                {
+                    return;
+                }
+                stepped.await;
+            }
+        },
+    )
+    .await;
+}
+
+/// What `session compact` marked: the next completed turn of `thread` runs one manual compaction in its actor. The answer
+/// lists the threads whose turn did.
+async fn completed_turn_compacts(directory: &SessionDirectory, rig: &Rig, thread: &str) -> Value {
+    let id = ThreadId::from(thread);
+    let handle = directory.open_handle(&id, &connection()).await.expect("opens");
+    let op = OpId::from(uuid::Uuid::now_v7().to_string());
+    let params = json!({ "threadId": id, "opId": op.as_str(), "input": { "prompt": "go on" } });
+    handle.request(CoreRequest { method: Method("turn/start"), params, op: Some(op), ctx: connection() }).await.expect("turn/start");
+    mixdog_core_session::session::testing::awaiting(
+        || format!("the compaction `session compact` scheduled to follow the turn of {thread}"),
+        async {
+            loop {
+                let stepped = handle.stepped().notified();
+                tokio::pin!(stepped);
+                stepped.as_mut().enable();
+                if mixdog_core_session::session::testing::lock(&rig.compaction.calls).len() >= 4 {
+                    return;
+                }
+                stepped.await;
+            }
+        },
+    )
+    .await;
+    assert_eq!(*mixdog_core_session::session::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "invalidate"]);
+    json!([thread])
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_recorded_session_project_call_answers_as_in_node() {
     let golden = golden();
     let dir = tempfile::tempdir().expect("dir");
     let shown_dir = dir.path().to_string_lossy().into_owned();
     for case in golden["cases"].as_array().unwrap() {
-        let threads = Arc::new(Threads::default());
+        let rig = Rig::new();
+        *mixdog_core_session::session::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let threads = Arc::new(SessionThreads::new(directory.clone()));
         for id in ["sess-1", "worker-1", "w"] {
-            threads.0.lock().expect("threads").insert(id.to_owned(), Map::new());
+            // The runtime session's fields the case set (`rt.session.title`, its route), or the session store the test's
+            // session manager holds, as the thread's stored header.
+            let header = if id == "sess-1" { case["recorded"]["session"].as_object().or(case["recorded"]["store"].as_object()).cloned().unwrap_or_default() } else { Map::new() };
+            directory.create_with_id(ThreadId::from(id), header, json!({})).await.expect("the thread");
         }
-        // The runtime session's fields the case set (`rt.session.title`, its route).
-        if let Some(session) = case["recorded"]["session"].as_object() {
-            threads.0.lock().expect("threads").insert("sess-1".to_owned(), session.clone());
-        }
-        // The session store the test's session manager holds, as the thread's stored header.
-        if let Some(store) = case["recorded"]["store"].as_object() {
-            threads.0.lock().expect("threads").insert("sess-1".to_owned(), store.clone());
+        if case["recorded"].get("forks").is_some() {
+            converse(&directory, "sess-1").await;
         }
         let racing: Arc<dyn ThreadState> = Arc::new(Racing { threads: threads.clone(), armed: case["recorded"]["store"]["title"] == "old" });
         let titles_on = Arc::new(Toggle(std::sync::atomic::AtomicBool::new(true)));
-        let switch = Arc::new(Switch { threads: threads.clone(), calls: Mutex::default(), pending: Mutex::default(), forks: Mutex::default() });
+        let switch = Arc::new(Switch { directory: directory.clone(), threads: threads.clone(), calls: Mutex::default(), caller_owned: Default::default() });
         let marks = HeartbeatSessions::new();
         let runs = UnattendedRunRegistry::new(Arc::new(NoStamps));
         let callers = Arc::new(ThreadCallers::new(threads.clone(), marks, runs));
@@ -133,6 +220,7 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
         let tool = SessionTool::new(Arc::new(port), callers);
         let mut calls = Vec::new();
         let mut live = None;
+        let mut copies = Vec::new();
         for call in case["recorded"]["calls"].as_array().unwrap() {
             match call["label"].as_str() {
                 // The test's store now answers `user-title`: the stored title is the user's.
@@ -152,6 +240,7 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
                 let workspace = Map::from_iter([("workspace".to_owned(), case["recorded"]["workspace"].clone())]);
                 threads.patch_header(&ThreadId::from("sess-1"), workspace, Vec::new()).await.expect("the thread");
             }
+            switch.caller_owned.store(call["context"].get("setCallerCwd").is_some(), std::sync::atomic::Ordering::SeqCst);
             let caller = call["context"]["callerSessionId"].as_str().unwrap_or("sess-1");
             let surface = if caller == "sess-1" { SurfaceKind::Lead } else { SurfaceKind::Agent };
             let outcome = match tool.call(&call_ctx(caller, surface), args).await {
@@ -161,6 +250,7 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
                 }
                 Err(error) => json!({ "error": error.message_for_model.replace(&shown_dir, "<dir>") }),
             };
+            let outcome = minted(outcome, &mut copies);
             calls.push(json!({ "label": call["label"], "tool": call["tool"], "args": call["args"], "context": call["context"], "outcome": outcome }));
             // The live session's title after the case's first call (`rt.session.title`/`titleSource`).
             if live.is_none() {
@@ -176,7 +266,7 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
             want["switches"] = json!(switches.as_array().unwrap().iter().map(|s| s[0].clone()).collect::<Vec<_>>());
         }
         if let Some(pending) = case["recorded"].get("pending") {
-            got["pending"] = json!(*switch.pending.lock().expect("pending"));
+            got["pending"] = completed_turn_compacts(&directory, &rig, "sess-1").await;
             want["pending"] = pending.clone();
         }
         if let Some(want_live) = case["recorded"].get("live") {
@@ -184,7 +274,7 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
             want["live"] = want_live.clone();
         }
         if let Some(forks) = case["recorded"].get("forks") {
-            got["forks"] = json!(*switch.forks.lock().expect("forks"));
+            got["forks"] = json!(forks_made(&threads, &rig, &copies).await);
             want["forks"] = json!(forks.as_array().unwrap().iter().map(|f| json!([f[0], f[1]["compact"]])).collect::<Vec<_>>());
         }
         if let Some(touched) = case["recorded"].get("touched") {
