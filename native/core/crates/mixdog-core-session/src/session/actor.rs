@@ -286,6 +286,8 @@ pub(crate) enum JobDone {
     PromptRetryDue(u64),
     /// A toast's time ran out (pushToast's timer).
     ToastExpired(String),
+    /// The debounce of the turn's usage writes ran out ([`USAGE_SAVE_DEBOUNCE`]).
+    UsageSaveDue,
     ApprovalId {
         turn: TurnId,
         ask: ApprovalAsk,
@@ -570,6 +572,9 @@ struct DoneClose<'a> {
 /// `pushToast`'s default `ttlMs` (`notice-surface.mjs:10`).
 const TOAST_TTL: std::time::Duration = std::time::Duration::from_millis(3000);
 
+/// `saveSession`'s debounce (`store.mjs`: "debounced (150 ms) unless `opts.immediate`").
+const USAGE_SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
+
 pub(crate) struct ActorChannels {
     pub ctl_rx: mpsc::Receiver<Ctl>,
     pub inbox_rx: mpsc::Receiver<Inbox>,
@@ -677,6 +682,10 @@ pub(crate) struct SessionActor {
     goal_tail: Option<tokio::task::JoinHandle<()>>,
     /// The expiry timer of each toast in the queue (`toastTimers`), by toast id: `thread/clear` and the thread's close cancel them.
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
+    /// The turn's usage books not yet written, and whether their debounced write is armed (Node's per-iteration
+    /// `saveSession` is debounced, `store.mjs` `saveSession`; the turn's terminal save writes what is still waiting).
+    usage_unsaved: Option<HeaderChange>,
+    usage_save_armed: bool,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
@@ -1005,6 +1014,8 @@ impl SessionActor {
             goal_deferred: false,
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
+            usage_unsaved: None,
+            usage_save_armed: false,
             after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
@@ -1392,10 +1403,65 @@ impl SessionActor {
 
     /// A header change the run's usage reports make, as one meta record; nothing when it changes nothing.
     fn accept_header(&mut self, change: Option<HeaderChange>) {
+        // What waits for the debounce is older: it is written first, so this change is not overwritten by it.
+        self.save_usage();
         if let Some(change) = change {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
+    }
+
+    /// A change of the turn's usage books (the turn's id, each call's metrics, the pre-send check): the session holds it at
+    /// once (`persistIterationMetrics` mutates the live session) and writes it after [`USAGE_SAVE_DEBOUNCE`], or with the
+    /// next write of the header, the turn's end among them (the terminal save supersedes the debounced one). A process that
+    /// dies before either keeps the books of the last write, as Node's does.
+    fn defer_header(&mut self, change: Option<HeaderChange>) {
+        let Some(change) = change else { return };
+        let meta = Arc::new(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change.clone()) }));
+        self.projected.apply(&Change::Record { record: meta, display: Display::None }, None);
+        let unsaved = self.usage_unsaved.get_or_insert_with(|| HeaderChange { set: Default::default(), unset: Vec::new() });
+        for key in change.unset {
+            unsaved.set.shift_remove(&key);
+            if !unsaved.unset.contains(&key) {
+                unsaved.unset.push(key);
+            }
+        }
+        for (key, value) in change.set {
+            unsaved.unset.retain(|unset| unset != &key);
+            unsaved.set.insert(key, value);
+        }
+        self.publish_live_header();
+        if !self.usage_save_armed {
+            self.usage_save_armed = true;
+            let jobs = self.jobs_tx.clone();
+            drop(tokio::spawn(async move {
+                tokio::time::sleep(USAGE_SAVE_DEBOUNCE).await;
+                let _ = jobs.send(JobDone::UsageSaveDue);
+            }));
+        }
+    }
+
+    /// Writes the usage books still waiting for their debounce.
+    fn save_usage(&mut self) {
+        self.usage_save_armed = false;
+        if let Some(change) = self.usage_unsaved.take() {
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+            self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
+    }
+
+    /// The live header: the stored one with the usage books still waiting for their write.
+    fn publish_live_header(&self) {
+        let mut header = self.acked.header.clone();
+        if let Some(unsaved) = &self.usage_unsaved {
+            for key in &unsaved.unset {
+                header.shift_remove(key);
+            }
+            for (key, value) in &unsaved.set {
+                header.insert(key.clone(), value.clone());
+            }
+        }
+        self.cell.header.store(Arc::new(header));
     }
 
     /// A view-only change, released in order with the records around it.
@@ -1529,6 +1595,12 @@ impl SessionActor {
                 }
                 let next = self.prompt_appends.flushed(unwritten);
                 self.run_prompt_step(next);
+            }
+            // A write that went with an earlier header write disarmed it: nothing is waiting.
+            JobDone::UsageSaveDue => {
+                if self.usage_save_armed {
+                    self.save_usage();
+                }
             }
             // A timer cancelled after it fired (its job already queued) finds no owner: its toast is gone.
             JobDone::ToastExpired(id) => {
@@ -2022,7 +2094,7 @@ impl SessionActor {
         if let Change::Record { record, .. } = &entry.change
             && matches!(**record, Record::Meta(_) | Record::Session(_))
         {
-            self.cell.header.store(Arc::new(self.acked.header.clone()));
+            self.publish_live_header();
             self.refresh_surface();
             // `sessionRecords.onChange`: this session's stored record changed.
             self.deps.agent_signals.session_record(self.id.as_str());
@@ -2644,6 +2716,8 @@ impl SessionActor {
         let Some(mut slot) = self.run.take_if(|run| run.turn == turn) else {
             return;
         };
+        // The turn's terminal save writes the books still waiting, before its end.
+        self.save_usage();
         self.cell.publish_run(None);
         // A stop that handed the prompt back (`reclaimInFlightPrompt`): it leaves the prompt history, another device's
         // composer is told, and the cancelled turn shows no end.
@@ -3898,7 +3972,12 @@ impl SessionActor {
                 self.usage_incremental = true;
                 let books = self.deps.compaction.books(&self.id, &self.projected.header);
                 let change = super::usage_books::usage_change(&self.projected.header, &usage, &report.outgoing, &report.send_tools, books.as_ref(), report.sent_at_ms as f64, now as f64);
-                self.accept_header(change);
+                // The request's reading goes out with the run's next draft write, as Node's checkpoint carries the session's
+                // context-pressure baseline (`turn-checkpoint-context.mjs` `contextCheckpointState`); recovery restores it.
+                if let (Some(run), Some(tokens)) = (self.run.as_mut(), change.as_ref().and_then(|change| change.set.get("lastContextTokens")).and_then(Value::as_u64)) {
+                    run.journal.context(tokens);
+                }
+                self.defer_header(change);
                 let note = Note::new(
                     "thread/tokenUsage/updated",
                     &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage },
@@ -3909,7 +3988,7 @@ impl SessionActor {
             RunShown::Check(check) => {
                 if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
                     let change = super::usage_books::check_change(&self.projected.header, &check, &books, self.deps.clock.now_ms() as f64);
-                    self.accept_header(change);
+                    self.defer_header(change);
                 }
             }
             RunShown::Settled(settled) => {
@@ -5244,7 +5323,6 @@ impl SessionActor {
         }
         // `bumpUsageMetricsTurnId` (`whileTurnDispatched`): the turn's usage counts under a new id.
         self.usage_incremental = false;
-        self.accept_header(super::usage_books::turn_started(&self.projected.header));
         let turn = TurnId::from(new_id());
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });
@@ -5346,6 +5424,9 @@ impl SessionActor {
         };
         let last_model = Some(input_row.clone());
         self.accept_record(Record::Item(input_row), Class::Normal, input_display, Vec::new(), Vec::new());
+        // `startUsageMetricsTurn` goes out with the turn's first save (the user message's), not the debounce: a process
+        // killed before that save keeps neither.
+        self.accept_header(super::usage_books::turn_started(&self.projected.header));
         self.deps.turn_starts.turn_started(&self.id);
         let started = Record::Run(RunRecord {
             rid: id(turn.as_str()),
@@ -5571,6 +5652,7 @@ impl SessionActor {
             let context = super::run::read_context(&store, &lanes, &thread).await;
             let mut ended = Vec::new();
             for (rid, draft) in runs {
+                let context_tokens = draft.context_tokens;
                 let crashed = match &context {
                     Ok(context) => {
                         let run = super::seams::CrashedRun { context: context.clone(), input: draft.input.clone().map(mixdog_core_api::ids::ItemId::from), draft };
@@ -5586,7 +5668,7 @@ impl SessionActor {
                 // unrecovered checkpoint aside, `setAsideUnrecoveredCheckpoint`).
                 match crashed {
                     Some(job) => match job.await {
-                        Ok(rows) => ended.push((rid, rows)),
+                        Ok(rows) => ended.push((rid, super::seams::CrashedRows { context_tokens, ..rows })),
                         Err(error) => tracing::error!("session {}: the crashed turn {rid} was not finalized, it stays for the next open: {error:?}", thread.as_str()),
                     },
                     None => tracing::error!("session {}: the crashed turn {rid} was not finalized, it stays for the next open", thread.as_str()),
@@ -5639,6 +5721,9 @@ impl SessionActor {
             set.insert("turnCoverage".into(), json!(rid));
             set.insert("updatedAt".into(), json!(at));
             set.insert("lastUsedAt".into(), json!(at));
+            if let Some(tokens) = left.context_tokens {
+                set.insert("lastContextTokens".into(), json!(tokens));
+            }
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
             self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
         }

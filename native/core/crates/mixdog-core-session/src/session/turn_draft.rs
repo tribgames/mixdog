@@ -23,6 +23,9 @@ pub struct RunDraft {
     /// The turn's final reply as its row would store it, written before that row (the 1.4.5 checkpoint's `sealed`): a
     /// turn whose reply row never landed is recovered finished with it.
     pub sealed: Option<Value>,
+    /// The last request's context reading the draft carried (the checkpoint's `contextState`), restored as the session's
+    /// `lastContextTokens` at recovery (`restoreCheckpointContext`).
+    pub context_tokens: Option<u64>,
 }
 
 impl RunDraft {
@@ -36,7 +39,10 @@ impl RunDraft {
     /// marked sensitive) and replaces what the records before it held.
     pub fn apply(&mut self, body: &Value) {
         if body.get("reset") == Some(&Value::Bool(true)) {
-            *self = RunDraft { input: self.input.take(), started: self.started, ..RunDraft::default() };
+            *self = RunDraft { input: self.input.take(), started: self.started, context_tokens: self.context_tokens, ..RunDraft::default() };
+        }
+        if let Some(tokens) = body.get("contextTokens").and_then(Value::as_u64) {
+            self.context_tokens = Some(tokens);
         }
         let text = |key: &str| body.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
         if let Some(text) = text("text") {
@@ -84,9 +90,23 @@ pub struct DraftJournal {
     tools: Option<bool>,
     written_text: String,
     written_reasoning: String,
+    /// The last request's context reading, not written yet: it goes with the next write.
+    context: Option<u64>,
 }
 
 impl DraftJournal {
+    /// A request's context reading, written with the draft's next chunk.
+    pub fn context(&mut self, tokens: u64) {
+        self.context = Some(tokens);
+    }
+
+    /// The reading still waiting goes into `out`, when `out` is written.
+    fn with_context(&mut self, out: &mut serde_json::Map<String, Value>) {
+        if let Some(tokens) = self.context.take() {
+            out.insert("contextTokens".into(), Value::from(tokens));
+        }
+    }
+
     /// The run's assistant message is a row now: the draft's message is done.
     pub fn message_committed(&mut self) {
         self.text.clear();
@@ -133,7 +153,11 @@ impl DraftJournal {
         if let Some(row) = body.get("sealed") {
             out.insert("sealed".into(), marks.redact_messages(thread, std::slice::from_ref(row)).into_iter().next().unwrap_or_default());
         }
-        (!out.is_empty()).then_some(Value::Object(out))
+        if out.is_empty() {
+            return None;
+        }
+        self.with_context(&mut out);
+        Some(Value::Object(out))
     }
 
     /// The whole draft, redacted with the thread's values as they are now; `None` for an empty draft.
@@ -149,6 +173,7 @@ impl DraftJournal {
         if let Some(tools) = self.tools {
             out.insert("tools".into(), Value::Bool(tools));
         }
+        self.with_context(&mut out);
         Value::Object(out)
     }
 

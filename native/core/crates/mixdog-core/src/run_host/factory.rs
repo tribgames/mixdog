@@ -281,7 +281,7 @@ fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_se
     // The turn was sealed (its final reply drafted) but the reply's row never landed: the reply is committed as that row
     // and the turn ends finished, as Node brings a sealed checkpoint back (`turn-checkpoint-recovery.mjs`).
     if let Some(row) = run.draft.sealed.clone() {
-        return CrashedRows { sealed: true, rows: vec![ItemCommit { iid: new_item_id(), role: Some("assistant".to_owned()), model: true, visible: true, body: row, prompt: None }], context: None };
+        return CrashedRows { sealed: true, rows: vec![ItemCommit { iid: new_item_id(), role: Some("assistant".to_owned()), model: true, visible: true, body: row, prompt: None }], ..CrashedRows::default() };
     }
     // A recovery whose rows landed but whose end record did not (the process died again in between) left the restart line
     // closing the turn: finalized again, the turn is rebuilt with that line at the same place, which is kept, not added again.
@@ -334,7 +334,7 @@ fn crashed_rows(run: mixdog_core_session::session::CrashedRun) -> mixdog_core_se
         }
         replacement.push((iid, body));
     }
-    CrashedRows { sealed: false, rows, context: Some(replacement) }
+    CrashedRows { sealed: false, rows, context: Some(replacement), context_tokens: None }
 }
 
 pub(super) fn new_item_id() -> ItemId {
