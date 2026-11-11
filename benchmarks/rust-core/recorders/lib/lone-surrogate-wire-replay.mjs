@@ -18,7 +18,7 @@ const WORLDS = join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-lone-surrog
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 
-export async function replay({ exe, golden, only, startServer, buildWorld }) {
+export async function replay({ exe, golden, manifest, only, startServer, buildWorld }) {
   const stubBin = buildWorld();
   const server = await startServer();
   // The echo stub first on PATH, so the core's `rust-analyzer` is the one Node's recording ran.
@@ -70,12 +70,17 @@ export async function replay({ exe, golden, only, startServer, buildWorld }) {
         else refused.push({ case: entry.name, node: node.node, nodeRequests: node.requests, core: core.detail });
         continue;
       }
-      // Node's first custom provider built for an origin warms it with a fire-and-forget `HEAD /` (openai-compat.mjs
-      // `preconnect`, once per origin and process), which the core does not send for a custom origin: a difference of
-      // provider construction, not of the string under test, so the warm-up is left out of both sides.
-      const sent = (log) => log.filter((request) => !(request.method === 'HEAD' && request.url === '/'));
+      // Node's requests without the ones the manifest declares Node-only (`nodeOnlyRequests`: the warm-up HEAD / of its first
+      // custom provider, at its recorded position); each declared one must be there as recorded. The core's are compared whole.
+      const sent = (log) => {
+        const declared = manifest.nodeOnlyRequests.filter((only) => only.case === entry.name);
+        for (const only of declared) {
+          if (!isDeepStrictEqual(log[only.index], only.request)) throw new Error(`${entry.name}: the declared Node-only request ${JSON.stringify(only.request)} is not at ${only.index} of the recording`);
+        }
+        return log.filter((_, index) => !declared.some((only) => only.index === index));
+      };
       const answer = got.ok ? { ok: true, value: got.value } : { ok: false, error: got.error };
-      let core = { node: answer, requests: sent(requests) };
+      let core = { node: answer, requests };
       // Node's value with each lone unit read as U+FFFD, as the core reads it (the manifest's normalisations).
       const asRead = (value) => JSON.parse(JSON.stringify(value).replace(/\\ud[89a-f][0-9a-f]{2}/g, '\\ufffd'));
       const received = (answer) => ({ ...answer, value: { ...answer.value, result: { received: asRead(answer.value.result.received) } } });
