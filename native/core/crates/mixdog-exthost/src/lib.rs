@@ -49,6 +49,7 @@ pub use pool::CANCEL_GRACE;
 pub use pool::DEFAULT_PENDING_CAP;
 pub use pool::ExtHostConfig;
 pub use pool::ExtHostPool;
+pub use pool::GraceWait;
 pub use pool::worker_count;
 pub use syntax::SyntaxCheck;
 pub use syntax::SyntaxKind;
