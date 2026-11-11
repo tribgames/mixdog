@@ -83,7 +83,7 @@
             "attachedIsTheRequestFunction": true
           },
           {
-            "step": "release(1)",
+            "step": "release(1): epoch 2 still attached, so nothing is detached",
             "detached": 0
           },
           {
