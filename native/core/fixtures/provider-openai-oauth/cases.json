@@ -1,6 +1,89 @@
 {
   "set": "provider-openai-oauth",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [
+    [
+      {
+        "name": "apply_patch",
+        "title": "Apply Patch",
+        "annotations": {
+          "title": "Apply Patch",
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "compressible": false,
+          "compressibleLossless": true
+        },
+        "description": "Edit files with one complete V4A patch in `patch`: every file of the stage in one patch, one file block per target with all its hunks. Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+        "freeformDescription": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+        "freeform": {
+          "type": "grammar",
+          "syntax": "lark",
+          "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n"
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "patch": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Complete V4A patch text."
+            }
+          },
+          "required": [
+            "patch"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "shell",
+        "title": "Shell",
+        "annotations": {
+          "title": "Shell",
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "compressible": true
+        },
+        "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+            },
+            "wait_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 600000,
+              "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+            },
+            "background": {
+              "type": "boolean",
+              "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  ],
   "cases": [
     {
       "id": "native-provider-tag-switch-keeps-tool-search-paired",
@@ -93,7 +176,95 @@
             ]
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs._convertMessagesToResponsesInputForTest",
+          "args": [
+            [
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "native-pair",
+                    "name": "load_tool",
+                    "arguments": {},
+                    "nativeType": "tool_search_call"
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "native-pair",
+                "content": "Loaded",
+                "nativeToolSearch": {
+                  "provider": "openai",
+                  "toolReferences": [
+                    "read"
+                  ],
+                  "openaiTools": [
+                    {
+                      "type": "function",
+                      "name": "read",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            {
+              "nativeToolSearchProvider": "openai-oauth"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs._convertMessagesToResponsesInputForTest",
+          "args": [
+            [
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "native-pair",
+                    "name": "load_tool",
+                    "arguments": {},
+                    "nativeType": "tool_search_call"
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "native-pair",
+                "content": "Loaded",
+                "nativeToolSearch": {
+                  "provider": "openai-oauth",
+                  "toolReferences": [
+                    "read"
+                  ],
+                  "openaiTools": [
+                    {
+                      "type": "function",
+                      "name": "read",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            {
+              "nativeToolSearchProvider": "openai"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-sse-max-output-cutoff-with-call-in-flight",
@@ -101,39 +272,48 @@
       "input": {},
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "OpenAI HTTP fallback response.incomplete (max_output_tokens) with tool call in flight",
-          "partialContent": "",
-          "partialModel": "gpt",
-          "pendingToolUse": true,
-          "streamStalled": true,
-          "incompleteReason": "max_output_tokens",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "http-sse",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": true,
-            "toolCallsComplete": 0,
-            "toolCallsDispatched": 0,
-            "dispatchAmbiguous": false,
-            "pendingToolInput": true,
-            "userAbort": false,
-            "stallObserved": true,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": false,
-            "sideEffectDispatched": false,
-            "replayUnsafe": false,
-            "replaySafe": true,
-            "successEligible": false
-          },
-          "partialToolCall": true
+          "props": {
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialModel": "gpt",
+            "pendingToolUse": true,
+            "streamStalled": true,
+            "incompleteReason": "max_output_tokens",
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "http-sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": true,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "partialToolCall": true
+          }
         },
         "request": [
           {
@@ -157,11 +337,37 @@
               ]
             ],
             "body": {
-              "bytesHex": "7b226d6f64656c223a22677074222c22746f6f6c73223a5b5d7d"
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "eyJtb2RlbCI6ImdwdCIsInRvb2xzIjpbXX0="
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs.sendViaHttpSse",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "body": {
+                "model": "gpt",
+                "tools": []
+              },
+              "useModel": "gpt",
+              "onToolCall": {
+                "$exact": "undefined"
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-sse-completed-call-then-cutoff-is-clean-length",
@@ -171,6 +377,9 @@
         "result": {
           "content": "",
           "model": "gpt",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "openai-responses",
@@ -193,9 +402,21 @@
               }
             }
           ],
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
+          },
           "stopReason": "length",
           "incompleteReason": "max_output_tokens",
           "responseId": "r",
+          "serviceTier": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         },
         "request": [
@@ -220,11 +441,37 @@
               ]
             ],
             "body": {
-              "bytesHex": "7b226d6f64656c223a22677074222c22746f6f6c73223a5b5d7d"
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "eyJtb2RlbCI6ImdwdCIsInRvb2xzIjpbXX0="
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs.sendViaHttpSse",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "body": {
+                "model": "gpt",
+                "tools": []
+              },
+              "useModel": "gpt",
+              "onToolCall": {
+                "$exact": "undefined"
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "request-mixed-custom-patch-function-shell-batch",
@@ -322,7 +569,25 @@
           }
         },
         "shellDescriptionMentionsVerificationOrPowerShell": false
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.buildRequestBody",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "patch then verify"
+              }
+            ],
+            "gpt-5.6-sol",
+            {
+              "$shared": 0
+            },
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "reasoning-replay-default-on-and-kill-switch",
@@ -510,7 +775,168 @@
             "verbosity": "low"
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs._convertMessagesToResponsesInputForTest",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "inspect it"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "reasoningItems": [
+                  {
+                    "type": "reasoning",
+                    "id": "rs_replay_1",
+                    "encrypted_content": "opaque-reasoning",
+                    "summary": []
+                  }
+                ],
+                "toolCalls": [
+                  {
+                    "id": "call_1",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_1",
+                "content": "contents"
+              }
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs._convertMessagesToResponsesInputForTest",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "inspect it"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "reasoningItems": [
+                  {
+                    "type": "reasoning",
+                    "id": "rs_replay_1",
+                    "encrypted_content": "opaque-reasoning",
+                    "summary": []
+                  }
+                ],
+                "toolCalls": [
+                  {
+                    "id": "call_1",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_1",
+                "content": "contents"
+              }
+            ],
+            {
+              "replayEncryptedReasoning": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.buildRequestBody",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "inspect it"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "reasoningItems": [
+                  {
+                    "type": "reasoning",
+                    "id": "rs_replay_1",
+                    "encrypted_content": "opaque-reasoning",
+                    "summary": []
+                  }
+                ],
+                "toolCalls": [
+                  {
+                    "id": "call_1",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_1",
+                "content": "contents"
+              }
+            ],
+            "gpt-5.6-sol",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.buildRequestBody",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "inspect it"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "reasoningItems": [
+                  {
+                    "type": "reasoning",
+                    "id": "rs_replay_1",
+                    "encrypted_content": "opaque-reasoning",
+                    "summary": []
+                  }
+                ],
+                "toolCalls": [
+                  {
+                    "id": "call_1",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_1",
+                "content": "contents"
+              }
+            ],
+            "gpt-5.6-sol",
+            [],
+            {
+              "replayEncryptedReasoning": true
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "always-standard-responses-payload",
@@ -590,7 +1016,42 @@
             "verbosity": "low"
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.buildRequestBody",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "stable instructions"
+              },
+              {
+                "role": "system",
+                "content": "session environment",
+                "cacheTier": "env"
+              },
+              {
+                "role": "user",
+                "content": "hello"
+              }
+            ],
+            "gpt-5.6-sol",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            ],
+            {
+              "turnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-sse-stateless-omits-anchor-headers",
@@ -605,7 +1066,34 @@
         "result": {
           "content": "",
           "model": "gpt-5.6-sol",
-          "responseId": "r"
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "responseId": "r",
+          "serviceTier": {
+            "$exact": "undefined"
+          }
         },
         "request": [
           {
@@ -653,11 +1141,41 @@
               ]
             ],
             "body": {
-              "bytesHex": "7b226d6f64656c223a226770742d352e362d736f6c222c22746f6f6c73223a5b5d7d"
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "eyJtb2RlbCI6ImdwdC01LjYtc29sIiwidG9vbHMiOltdfQ=="
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs.sendViaHttpSse",
+          "args": [
+            {
+              "auth": {
+                "access_token": "token",
+                "account_id": "account"
+              },
+              "body": {
+                "model": "gpt-5.6-sol",
+                "tools": []
+              },
+              "opts": {
+                "statelessConversation": true
+              },
+              "cacheKey": "stable-cache-key",
+              "useModel": "gpt-5.6-sol",
+              "onToolCall": {
+                "$exact": "undefined"
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-sse-mixed-custom-function-call-order",
@@ -669,6 +1187,9 @@
         "result": {
           "content": "",
           "model": "gpt",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "openai-responses",
@@ -706,7 +1227,25 @@
               }
             }
           ],
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
           "responseId": "r",
+          "serviceTier": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         },
         "request": [
@@ -731,7 +1270,9 @@
               ]
             ],
             "body": {
-              "bytesHex": "7b226d6f64656c223a22677074222c22746f6f6c73223a5b7b226e616d65223a226170706c795f7061746368227d2c7b226e616d65223a227368656c6c227d5d7d"
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "eyJtb2RlbCI6ImdwdCIsInRvb2xzIjpbeyJuYW1lIjoiYXBwbHlfcGF0Y2gifSx7Im5hbWUiOiJzaGVsbCJ9XX0="
             }
           }
         ],
@@ -752,7 +1293,38 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs.sendViaHttpSse",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "body": {
+                "model": "gpt",
+                "tools": [
+                  {
+                    "name": "apply_patch"
+                  },
+                  {
+                    "name": "shell"
+                  }
+                ]
+              },
+              "useModel": "gpt",
+              "onToolCall": {
+                "callback": ""
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "load-tool-native-tool-search-history",
@@ -909,7 +1481,82 @@
             "verbosity": "low"
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.buildRequestBody",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "sys"
+              },
+              {
+                "role": "user",
+                "content": "load a tool"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_load_1",
+                    "name": "tool_search",
+                    "arguments": {
+                      "names": [
+                        "read"
+                      ]
+                    },
+                    "nativeType": "tool_search_call"
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_load_1",
+                "content": "Loaded deferred tools: read",
+                "nativeToolSearch": {
+                  "provider": "openai-oauth",
+                  "toolReferences": [
+                    "read"
+                  ],
+                  "openaiTools": [
+                    {
+                      "type": "function",
+                      "name": "read",
+                      "description": "read",
+                      "defer_loading": true,
+                      "parameters": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "gpt-5.5",
+            [
+              {
+                "name": "load_tool",
+                "description": "load tools",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "custom-tool-call-item-to-canonical-call",
@@ -926,7 +1573,34 @@
         },
         "functionCall": null,
         "nullItem": null
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/custom-tool-wire.mjs.customToolCallFromResponseItem",
+          "args": [
+            {
+              "type": "custom_tool_call",
+              "call_id": "ctc_1",
+              "name": "apply_patch",
+              "input": "*** patch ***"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/custom-tool-wire.mjs.customToolCallFromResponseItem",
+          "args": [
+            {
+              "type": "function_call"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/custom-tool-wire.mjs.customToolCallFromResponseItem",
+          "args": [
+            null
+          ]
+        }
+      ]
     }
   ]
 }

@@ -1,16 +1,19 @@
 {
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-openai-oauth.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::openai input.rs:270-346,440-470,534-582, decoder.rs:789,1144-1179 and codec.rs:89-98: feed `input` (history/tools/opts, or `frames` for the HTTP/SSE cases) and compare `result`/`error` and the request body / headers recorded in `request` whole. K1 notes: the env kill switches MIXDOG_OAI_DISABLE_REASONING_REPLAY and MIXDOG_OAI_STATELESS_HTTP are Node-only (gaps G11).",
   "entry": "openai-oauth.mjs buildRequestBody / _convertMessagesToResponsesInputForTest, openai-oauth-http-sse.mjs sendViaHttpSse({ auth, body, useModel, opts, cacheKey, fetchFn, onToolCall }), custom-tool-wire.mjs customToolCallFromResponseItem, tools/patch-tool-defs.mjs PATCH_TOOL_DEFS and tools/builtin BUILTIN_TOOLS as tool inputs. Not run: a live endpoint.",
   "exclusions": [
-    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
-    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 28142,
+      "bytes": 49469,
       "path": "cases.json",
-      "sha256": "d1a35e765e803f6be9d06e7424b165b5e29b0a7c2a5d9646d380c8b5b8a259b1"
+      "sha256": "5f70b91ec0c229f911c471371c5d3ad4d98cf0ebf00068cc8c5447548ceb24c1"
     }
   ],
   "inputs": [
@@ -23,12 +26,16 @@
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -50,8 +57,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-oauth.mjs",
-  "recorderSha256": "f609a87a673709b707436a91dd2bb2fb77d1efc93d9a366c5168aecaa394f013",
-  "replay": "mixdog-ai providers::openai input.rs:270-346,440-470,534-582, decoder.rs:789,1144-1179 and codec.rs:89-98: feed `input` (history/tools/opts, or `frames` for the HTTP/SSE cases) and compare `result`/`error` and the request body / headers recorded in `request` whole. K1 notes: the env kill switches MIXDOG_OAI_DISABLE_REASONING_REPLAY and MIXDOG_OAI_STATELESS_HTTP are Node-only (gaps G11).",
+  "recorderSha256": "1d3a26945ec2bcb42442b82696d54493fae2471b8a3eec82a5b8afdd997e5844",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:494), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "set": "provider-openai-oauth",
-  "totalBytes": 28142
+  "totalBytes": 49469,
+  "valueTags": {
+    "{\"$bigint\":\"<digits>\"}": "bigint",
+    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
+    "{\"$cycle\":true}": "a reference back to an ancestor object",
+    "{\"$date\":\"<ISO>\"}": "Date",
+    "{\"$function\":\"<name>\"}": "a function",
+    "{\"$map\":[[k,v]...]}": "Map, insertion order",
+    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
+    "{\"$set\":[v...]}": "Set, insertion order",
+    "{\"$symbol\":\"<text>\"}": "a symbol",
+    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
+  }
 }
