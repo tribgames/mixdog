@@ -46,7 +46,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'stripLightKoreanParticle, normalizeLightKoreanToken, lightKoMorphStems (light-ko-morph.mjs) and tokenizeRecallQuery, buildFtsPrefixQuery (memory-text-utils.mjs)', notRun: 'the SQL that consumes the prefix query' },
-    replay: 'mixdog-services memory: mem/ko_morph.rs strip/normalize/stems and the recall query tokenizer + FTS prefix builder; compares every answer exactly',
+    replay: "mixdog-services memory/ko_morph.rs: pub fn strip_light_korean_particle (:61), pub fn normalize_light_korean_token (:90); memory/query_terms.rs: pub fn build_fts_prefix_query (:164), called by recall/hybrid.rs:297 for queries of at least 3 UTF-16 units. A replay compares each recorded token and query result exactly",
     exclusions: 'the last case holds extra probes the test file does not run',
     normalised: { none: 'no run-dependent value' },
   },
