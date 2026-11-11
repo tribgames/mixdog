@@ -2,16 +2,16 @@
   "command": "node benchmarks/rust-core/recorders/record-session-switch.mjs --tree <tree>",
   "entry": "Ran lifecycle/session-switch.mjs (createSessionSwitching) with scripted manager, route/cwd setters, status routes, agent tool, memory ingest and surface closer, and a scripted forgetSessionSearch (mock.module); deleted rows are real <id>.json files in a scratch MIXDOG_DATA_DIR sessions dir. Did not run the real manager, store or worktree cleanup (cleanupDeletedSessionWorktree is a scripted endpoint recording its arguments).",
   "exclusions": [
-    "functions in recorded call arguments are recorded as {function, result}: the close option isSessionLive is called after the op and its result stored",
-    "scratch data dir path -> <DATA>",
-    "the store dir is emptied and rewritten with the case's rows before every case (as in the test)"
+    "a function in a recorded call argument (the close option isSessionLive) cannot be encoded: it is recorded as {function: name, resultAtCall, resultAfterOp}, its own return value at the call and after the op",
+    "the scratch data dir path is replaced by <DATA> in the one value that holds it: the result of sessionStoreDir() (case 255); the separator is the one Node produced",
+    "the store dir is emptied and rewritten with the case's rows before every case (as in the test); its listing is recorded in the OS order, unsorted"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16691,
+      "bytes": 17347,
       "path": "recording.json",
-      "sha256": "6cdce14d3f662699ef1b77abe335e2e6827a84008d34406000dd82c3ce788258"
+      "sha256": "45f7304d9695ac2dde2bb83fa15f8b0df5e025a8e6c3f136ba5e0943b01ac755"
     }
   ],
   "inputs": [
@@ -20,12 +20,20 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -46,9 +54,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-switch.mjs",
-  "recorderSha256": "dd778026e38b9886713cb850574d61dc7dfd8f3fa92bcb585b696fbe24f4a8fb",
-  "replay": "mixdog-core-session S/delete.rs delete_session / S/worktree_maintenance.rs cleanup_deleted_session and the thread switch/new/prefetch ops: drive the same op with the same thread state and compare the return value, the ordered call list (close with tombstone flag, cancel tasks, clear route, delete, create, ...), the worktree cleanup arguments and the forgotten session ids, whole and in order.",
+  "recorderSha256": "fbe69dba606930d82b4235347e3f622958c29af3c221c20127789a06aab32fe5",
+  "replay": "App-server protocol methods of the Rust core (native/core/crates/mixdog-app-protocol methods.rs): deleteSession -> thread/delete (methods.rs:284; handled by delete.rs delete_session, which is crate-private and reached through that method, and through the pub SessionDirectory::delete_stored of directory.rs for the sweep), switchContext -> thread/switchContext (methods.rs:566), newSession -> thread/start, listSessions -> thread/list; prefetchSession and sessionStoreDir have no protocol method (Rust-side work). Drive the same op with the same thread state and compare the return value, the ordered call list (close with tombstone flag, cancel tasks, clear route, delete, create, ...), the worktree cleanup arguments (S/worktree_maintenance.rs cleanup_deleted_session behind them) and the forgotten session ids, whole and in order.",
   "set": "session-switch",
   "testFile": "src/session-runtime/lifecycle/session-switch.test.mjs",
-  "totalBytes": 16691
+  "totalBytes": 17347,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
