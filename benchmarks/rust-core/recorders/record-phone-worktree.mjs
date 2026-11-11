@@ -482,7 +482,8 @@ function filled(value, ctx) {
 
 /** The answer as the recording keeps it, whole (a carried session snapshot included): only what cannot be equal between two runs is
  *  normalised, each listed in the manifest's `normalized`: the session's own id as `<session>`, the host's control session's id as
- *  `<control>`, a time of the run as `<time>`, the hosting process's id as `<pid>`. */
+ *  `<control>`, a time of the run as `<time>`, the hosting process's id as `<pid>`, a transition's random id as `<tx>`; the snapshot's
+ *  `setupChanged` is left out of a call's answer and compared once settled (`settledSetup`). */
 function kept(frame, ctx) {
   // A call naming no session carries the host's control session's snapshot (Node: invokeControlResult; the core: the lane's
   // control thread); each product makes that id itself.
@@ -492,7 +493,12 @@ function kept(frame, ctx) {
     [ctx.session, '<session>'],
     [ctx.control, '<control>'],
   ].filter(([id]) => id);
+  if (frame?.ok && frame.value?.snapshot && typeof frame.value.snapshot === 'object') {
+    frame = clone(frame);
+    delete frame.value.snapshot.setupChanged;
+  }
   const walk = (value, key) => {
+    if (key === 'txId' && typeof value === 'string') return '<tx>';
     if (typeof value === 'string') return ids.reduce((text, [id, name]) => (text.includes(id) ? text.replaceAll(id, name) : text), value);
     if (/(^at|At)$/.test(key ?? '') && (typeof value === 'number' || typeof value === 'string')) return '<time>';
     if (key === 'clientHostPid' && typeof value === 'number') return '<pid>';
@@ -501,6 +507,26 @@ function kept(frame, ctx) {
     return value;
   };
   return walk(clone(frame));
+}
+
+/** The snapshots' `setupChanged` once the settings-change notices have landed: Node hands a `settings_changed` notice to the
+ *  session asynchronously (notification-router.mjs:33-36), so which answer first carries it is a race of the run itself; after a
+ *  group's last call the control session's (and the project session's) snapshot is read until `setupChanged` holds still over
+ *  two reads a second apart. `read(sessionId)` answers a snapshot or throws. */
+async function settledSetup(read, ctx) {
+  const once = async () => {
+    const out = { control: (await read(undefined))?.setupChanged ?? null };
+    if (ctx.session) out.session = (await read(ctx.session))?.setupChanged ?? null;
+    return kept({ ok: true, value: { value: out } }, ctx).value.value;
+  };
+  let last = await once();
+  for (let tries = 0; tries < 30; tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const next = await once();
+    if (isDeepStrictEqual(next, last)) return next;
+    last = next;
+  }
+  throw new Error(`setupChanged did not settle in 30 s: ${JSON.stringify(last)}`);
 }
 
 /** The last workspace revision an answer showed (the branch menu's, a transition's). */
@@ -575,6 +601,13 @@ async function recordGroup(group) {
       // client's pool drop idle sockets the daemon's keep-alive ended, or the next call goes out on one and reads ECONNRESET.
       await new Promise((resolve) => setImmediate(resolve));
     }
+    const settled = await settledSetup(async (sessionId) => {
+      const params = [{ capability: 'getWorktreeSettings', args: [], ...(sessionId ? { sessionId } : {}) }];
+      const frame = await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params }));
+      if (!frame.ok) throw new Error(`${group}: the settled read failed: ${frame.error}`);
+      return frame.value?.snapshot;
+    }, ctx);
+    cases.push({ group, settled });
     return cases;
   } finally {
     await host?.dispose?.();
@@ -634,6 +667,9 @@ writeSetManifest(stage, {
       control: "the host's control session's id (the snapshot a call naming no session carries) is <control> (each product makes its own)",
       time: 'a field named *At or at is <time> (the run time)',
       pid: 'clientHostPid is <pid> (the id of the process hosting the session runtime)',
+      tx: "a workspace transition's txId is <tx> (a random id each run makes)",
+      setupChanged:
+        "a call's snapshot leaves out setupChanged: Node hands the settings_changed notice to the session asynchronously (notification-router.mjs:33-36), so which answer first carries it, and its seq, differ between two recordings of this recorder; each group ends with one `settled` entry, the control (and project) session's setupChanged once it holds still, compared whole",
     },
     notRecorded: {
       notProducible: "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself",
@@ -716,7 +752,7 @@ async function replay(exe) {
       const host = { ctx: { browserId: PHONE_ID, fanOut() {} }, client: () => phone, declareLane() {}, onClient: (listener) => (listener(phone), () => undefined) };
       const router = createProtocolRouter(adapters, { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false });
       router.install();
-      const wanted = golden.cases.filter((entry) => entry.group === group);
+      const wanted = golden.cases.filter((entry) => entry.group === group && entry.request !== undefined);
       for (const [index, expected] of wanted.entries()) {
         const sent = filled(expected.request, ctx);
         const label = `${group} #${index} ${JSON.stringify(expected.request).slice(0, 140)}`;
@@ -729,7 +765,12 @@ async function replay(exe) {
           });
           frame = { ok: true, value: clone(await Promise.race([router.call('invokeCapability', [sent]), deadline])) };
         } catch (error) {
-          if (String(error?.message).startsWith("the replay's call stalled")) throw error;
+          if (String(error?.message).startsWith("the replay's call stalled")) {
+            // The group's later cases would queue behind the stalled call: the stall is its difference and the group ends here.
+            differences.push({ label, field: 'stall', node: expected.frame, core: `${error.message}\nmixdogd stderr:\n${stderr.slice(-4000)}` });
+            compared += 1;
+            break;
+          }
           frame = {
             ok: false,
             error: error.message,
@@ -746,6 +787,13 @@ async function replay(exe) {
           if (!isDeepStrictEqual(expected[field], got[field])) differences.push({ label, field, node: expected[field], core: got[field] });
         }
       }
+      const settled = await settledSetup(async (sessionId) => {
+        const value = await router.call('invokeCapability', [{ capability: 'getWorktreeSettings', args: [], ...(sessionId ? { sessionId } : {}) }]);
+        return value?.snapshot;
+      }, ctx);
+      const want = golden.cases.find((entry) => entry.group === group && entry.settled !== undefined)?.settled;
+      compared += 1;
+      if (!isDeepStrictEqual(want, settled)) differences.push({ label: `${group} settled setupChanged`, field: 'settled', node: want, core: settled });
     } finally {
       for (const client of clients) client.close?.();
       spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });

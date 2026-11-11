@@ -1,5 +1,5 @@
 {
-  "cases": 271,
+  "cases": 275,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the relay transport (encryption, admission) and the window process; the daemon runs without memory worker and MCP servers (MIXDOG_DAEMON_SKIP_MEMORY, MIXDOG_DISABLE_MCP), with the supervisor binary the real-turn harness cached",
@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 483522,
+      "bytes": 480509,
       "path": "golden.json",
-      "sha256": "04d42c77fbd41fe007ca13583a76cd6d44a09f012157957b9a002af422ea14d5"
+      "sha256": "b9357b8b2a8a6822226a3e44d948bcb25dd41ef86532c1e683b4b1a8a2395f73"
     }
   ],
   "inputs": [
@@ -32,7 +32,9 @@
     "control": "the host's control session's id (the snapshot a call naming no session carries) is <control> (each product makes its own)",
     "pid": "clientHostPid is <pid> (the id of the process hosting the session runtime)",
     "session": "the session's own id is <session> in every answer (each product makes its own)",
-    "time": "a field named *At or at is <time> (the run time)"
+    "setupChanged": "a call's snapshot leaves out setupChanged: Node hands the settings_changed notice to the session asynchronously (notification-router.mjs:33-36), so which answer first carries it, and its seq, differ between two recordings of this recorder; each group ends with one `settled` entry, the control (and project) session's setupChanged once it holds still, compared whole",
+    "time": "a field named *At or at is <time> (the run time)",
+    "tx": "a workspace transition's txId is <tx> (a random id each run makes)"
   },
   "notRecorded": {
     "notProducible": "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself"
@@ -55,10 +57,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
-  "recorderSha256": "f81d60367cf720f8150eb7e588757ebdea36f6481af2ee30751a4a8d29db34c5",
+  "recorderSha256": "f06bc88b46dbb794c34274cafd77bb050d3876b9716fd0f1a6aba3cedc65795a",
   "set": "phone-worktree",
   "syntheticInput": {
     "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
   },
-  "totalBytes": 483522
+  "totalBytes": 480509
 }
