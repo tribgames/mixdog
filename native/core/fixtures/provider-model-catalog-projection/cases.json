@@ -1119,7 +1119,7 @@
     },
     {
       "id": "tolerates-published-shapes",
-      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:176",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:178",
       "input": {},
       "result": {
         "modelsDevBroken": {},
