@@ -52,17 +52,34 @@ impl RuntimeView for HandleRuntime {
             .collect()
     }
 
-    /// `runtime.subscribe`: a message when a turn starts or ends; the observation ends once the
-    /// receiver is dropped.
+    /// `state.toolApproval.id` ([`super::room_approval::tool_approval`]'s id).
+    fn tool_approval_id(&self) -> Option<String> {
+        let shown = self.handle.cell.shown_approval.load_full()?;
+        Some(mixdog_js::value_to_string(&super::room_approval::tool_approval(&shown)["id"]))
+    }
+
+    /// `runtime.subscribe`: a message when a turn starts or ends and when the approval the session
+    /// shows changes; the observation ends once the receiver is dropped.
     fn subscribe(&self) -> mpsc::UnboundedReceiver<()> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let watched = tx.clone();
-        if let Some(unobserve) = self.directory.observe_session_turns(self.handle.id.as_str(), Arc::new(Changes(tx))) {
-            drop(mixdog_rt::spawn("task-report-subscription", mixdog_rt::TaskClass::Work, async move {
-                watched.closed().await;
+        let (watched, approvals) = (tx.clone(), tx.clone());
+        let mut shown = self.handle.cell.shown_changed.subscribe();
+        let unobserve = self.directory.observe_session_turns(self.handle.id.as_str(), Arc::new(Changes(tx)));
+        drop(mixdog_rt::spawn("task-report-subscription", mixdog_rt::TaskClass::Work, async move {
+            loop {
+                tokio::select! {
+                    () = watched.closed() => break,
+                    changed = shown.changed() => {
+                        if changed.is_err() || approvals.send(()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            if let Some(unobserve) = unobserve {
                 unobserve();
-            }));
-        }
+            }
+        }));
         rx
     }
 }

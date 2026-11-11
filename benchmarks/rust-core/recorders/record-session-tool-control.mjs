@@ -235,6 +235,8 @@ const SEND_TARGETS = {
   sess_home_bob: target('sess_home_bob', '', 'openai', 'gpt'),
 };
 const ANN_TASK = { id: 'sess_task_ann', sourceType: 'lead', taskOrigin: ANN_TASK_ORIGIN };
+// The approval a sent turn waits on (`state.toolApproval.id`); the core names its own minted id by this place.
+const APPROVAL_ID = 'approval_1';
 const sendTo = (sessionId, extra = {}) => ({ action: 'send', session_id: sessionId, prompt: 'Please check the build.', ...extra });
 
 // `create`: the Projects registered (`listProjects`), the Lead route (`configLeadRoute`), the id the session service
@@ -508,6 +510,10 @@ const SCENARIOS = [
   { name: 'send-bot-task-hop', send: {}, caller: { ...ANN_CHAT, turnHop: 3 }, args: sendTo('sess_task_ann') },
   { name: 'send-bot-watch-cap', send: { watch: 'cap' }, caller: ANN_CHAT, args: sendTo('sess_b') },
   { name: 'send-bot-watch-fails', send: { watch: 'fails' }, caller: ANN_CHAT, args: sendTo('sess_b') },
+  // The sent turn stops for the user's approval (`state.toolApproval`), which is then approved, denied, or left waiting.
+  { name: 'send-bot-approval-approved', send: { approval: 'approved', reports: 2 }, caller: ANN_CHAT, args: sendTo('sess_b') },
+  { name: 'send-bot-approval-denied', send: { approval: 'denied', reports: 2 }, caller: ANN_CHAT, args: sendTo('sess_b') },
+  { name: 'send-bot-approval-waiting', send: { approval: 'waiting', reports: 1 }, caller: ANN_CHAT, args: sendTo('sess_b') },
   // `create` (`agentTasks.create`): a bot's attended conversation starts a task session on a route (an explicit model,
   // else the Lead route, else the last-used model) in a Project or the caller's folder, optionally in its own worktree,
   // and sends it the brief as the bot's turn; "Started" goes to the bot's home before the brief's report.
@@ -597,10 +603,24 @@ function sendWorldOf(scenario) {
   // `create`: the sessions it creates and the worktree it asks of them (`configureSession`).
   const creating = scenario.create ?? null;
   if (creating) Object.assign(seen, { created: [], configured: [] });
-  let settle = () => {};
-  const settled = new Promise((resolveSettled) => {
-    settle = resolveSettled;
+  let resolveSettled = () => {};
+  const settled = new Promise((resolve) => {
+    resolveSettled = resolve;
   });
+  // The reports a scenario owes (`send.reports`, one by default) besides create's "Started".
+  let owed = scenario.send.reports ?? 1;
+  const settle = () => {
+    owed -= 1;
+    if (owed <= 0) resolveSettled();
+  };
+  // The target's runtime (`materializeSession`): its state, and its subscribers told of each change.
+  const state = { busy: false, queued: [] };
+  const listeners = new Set();
+  const changed = (next) => {
+    Object.assign(state, next);
+    for (const listener of [...listeners]) listener();
+  };
+  const tick = () => new Promise((resolveTick) => setImmediate(resolveTick));
   const service = {
     async readSession(params) {
       if (params.action === 'listProviderModels') return { value: clone(MODEL_ROWS) };
@@ -632,11 +652,30 @@ function sendWorldOf(scenario) {
     async submitSession({ sessionId, prompt, options }) {
       const { onSettled, follow: _follow, ...kept } = options;
       seen.submitted.push({ sessionId, prompt: clone(prompt), options: clone(kept), reports: typeof onSettled === 'function' });
-      if (typeof onSettled === 'function') queueMicrotask(() => onSettled({ status: 'done', result: { content: SEND_FINAL } }));
+      const approval = scenario.send.approval;
+      if (approval) {
+        // The turn runs and stops for the user's approval; an answer clears the wait and the turn ends done.
+        void (async () => {
+          await tick();
+          changed({ busy: true, toolApproval: { id: APPROVAL_ID } });
+          if (approval === 'waiting') return;
+          await tick();
+          changed({ toolApproval: null });
+          await tick();
+          changed({ busy: false });
+          onSettled?.({ status: 'done', result: { content: SEND_FINAL } });
+        })();
+      } else if (typeof onSettled === 'function') queueMicrotask(() => onSettled({ status: 'done', result: { content: SEND_FINAL } }));
       return { accepted: true };
     },
     async materializeSession() {
-      return { getState: () => ({ busy: false, queued: [] }), subscribe: () => () => {} };
+      return {
+        getState: () => clone(state),
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
     },
   };
   const watchError = scenario.send.watch === 'cap' ? Object.assign(new Error('watch cap'), { code: 'REPORT_WATCH_CAP' }) : scenario.send.watch === 'fails' ? new Error('the watch store is unavailable') : null;
@@ -804,7 +843,7 @@ if (only) {
     recorder: RECORDER,
     bots: BOTS,
     compaction: compacted.result,
-    send: { targets: SEND_TARGETS, modelRows: MODEL_ROWS, final: SEND_FINAL },
+    send: { targets: SEND_TARGETS, modelRows: MODEL_ROWS, final: SEND_FINAL, approvalId: APPROVAL_ID },
     create: { sessionId: CREATED_ID, projectsFile: PROJECTS_FILE, codexCatalog: CODEX_CATALOG, lead: LEAD_ROUTE, worktree: WORKTREE_OUTCOMES, dropFailure: DROP_FAILURE },
     scenarios,
   });

@@ -605,9 +605,31 @@ async fn replay_sends(prefix: &str) {
         let name = scenario["name"].as_str().expect("name");
         let rig = Rig::new();
         let answer = final_text.clone();
-        rig.set_script(Arc::new(move |_run| {
+        // A turn that stops for the user's approval first (the recorded `toolApproval`), then ends with the answer.
+        let approval = scenario["send"]["approval"].as_str().map(str::to_owned);
+        let asks = approval.is_some();
+        rig.set_script(Arc::new(move |run| {
             let content = answer.clone();
-            Box::pin(async move { mixdog_core_session::session::RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult { content, ..Default::default() })) })
+            Box::pin(async move {
+                if asks {
+                    use mixdog_core_api::domain::approval::ApprovalGate;
+                    run.port.input_durable().await.expect("input durable");
+                    let _decided = run
+                        .port
+                        .request(mixdog_core_api::domain::approval::ApprovalAsk {
+                            kind: mixdog_core_api::domain::approval::ApprovalKind::UserInput,
+                            call_id: None,
+                            tool: Some("ask_user".into()),
+                            action_kind: None,
+                            reason: None,
+                            payload: json!({ "questions": [{ "question": "May I?" }] }),
+                            remember: Vec::new(),
+                            expires_after: None,
+                        })
+                        .await;
+                }
+                mixdog_core_session::session::RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult { content, ..Default::default() }))
+            })
         }));
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let caller = scenario["caller"].as_object().expect("caller").clone();
@@ -730,7 +752,54 @@ async fn replay_sends(prefix: &str) {
                 runtimes.push((ThreadId::from(created_id), runtime, changes));
             }
         }
-        for ((target, runtime, mut changes), submitted) in runtimes.into_iter().zip(recorded["submitted"].as_array().expect("submitted")) {
+        // The approval the sent turn waits on: answered as recorded, or left waiting; the core's minted id is
+        // named by the recording's (`send.approvalId`).
+        let mut approval_named = None;
+        if let Some(approval) = approval.as_deref() {
+            let (target, _, _) = runtimes.first().expect("the approving target");
+            let target = target.clone();
+            let handle = directory.handle(&target).expect("the target's handle");
+            let shown = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    let stepped = handle.stepped().notified();
+                    tokio::pin!(stepped);
+                    stepped.as_mut().enable();
+                    if let Some(shown) = directory.member_approval(&target) {
+                        return shown;
+                    }
+                    stepped.await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("{name}: the sent turn did not stop for its approval within 10s"));
+            let id = mixdog_js::value_to_string(&shown["id"]);
+            approval_named = Some((format!("{}_{id}_blocked", target.as_str()), format!("{}_{}_blocked", target.as_str(), send["approvalId"].as_str().expect("approval id"))));
+            if approval != "waiting" {
+                // The report of the wait goes out before the answer clears it.
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    while home.delivered.lock().expect("delivered").is_empty() {
+                        home.settled.notified().await;
+                    }
+                })
+                .await
+                .unwrap_or_else(|_| panic!("{name}: the approval wait was not reported within 10s"));
+                let answered = directory
+                    .answer_member_approval(
+                        &target,
+                        &id,
+                        mixdog_core_api::ids::ConnectionId(1),
+                        "desktop".into(),
+                        mixdog_protocol::ConnectionKind::Desktop,
+                        mixdog_protocol::Origin::Local,
+                        json!({ "approved": approval == "approved" }),
+                    )
+                    .await
+                    .expect("answered");
+                assert!(answered, "{name}: the approval is answered");
+            }
+        }
+        let ends: Vec<_> = if approval.as_deref() == Some("waiting") { Vec::new() } else { runtimes };
+        for ((target, runtime, mut changes), submitted) in ends.into_iter().zip(recorded["submitted"].as_array().expect("submitted")) {
             // The turn's start and its end, each one change.
             tokio::time::timeout(std::time::Duration::from_secs(10), async {
                 let mut seen = 0;
@@ -777,7 +846,14 @@ async fn replay_sends(prefix: &str) {
             .iter()
             .map(|d| (d["agentId"].as_str().expect("agent").to_owned(), format!("{:?}", mixdog_services::task_reports::host::report_of(&d["report"]))))
             .collect();
-        assert_eq!(*home.delivered.lock().expect("delivered"), delivered, "{name}: the reports");
+        let reported: Vec<(String, String)> = home
+            .delivered
+            .lock()
+            .expect("delivered")
+            .iter()
+            .map(|(agent, report)| (agent.clone(), approval_named.as_ref().map_or_else(|| report.clone(), |(minted, named)| report.replace(minted, named))))
+            .collect();
+        assert_eq!(reported, delivered, "{name}: the reports");
         replayed += 1;
     }
     assert!(replayed > 0, "no send- scenario recorded");

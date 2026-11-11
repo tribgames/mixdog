@@ -1272,6 +1272,7 @@ impl DirInner {
             queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
             approvals: Default::default(),
             shown_approval: Default::default(),
+            shown_changed: tokio::sync::watch::Sender::new(0),
             takeover: Default::default(),
             view: arc_swap::ArcSwap::new(view),
             header: arc_swap::ArcSwap::from_pointee(state.header.clone()),

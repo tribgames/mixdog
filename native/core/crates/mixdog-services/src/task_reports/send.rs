@@ -263,6 +263,7 @@ impl TaskSends {
             subscription: Mutex::new(None),
             owning: AtomicBool::new(true),
             recorded: AtomicBool::new(false),
+            reported_approval: Mutex::new(None),
         });
         let accepted = match turn.submit(prompt).await {
             Ok(accepted) => accepted,
@@ -313,6 +314,8 @@ struct SendTurn {
     owning: AtomicBool,
     /// The work's durable record was written (a send that reports nothing).
     recorded: AtomicBool,
+    /// The approval wait last reported.
+    reported_approval: Mutex<Option<String>>,
 }
 
 impl SendTurn {
@@ -332,6 +335,9 @@ impl SendTurn {
                     if let Some(follow) = follow {
                         follow.check().await;
                     }
+                    if this.notify {
+                        this.approval_wait().await;
+                    }
                 }
             });
             *self.subscription.lock().expect("send subscription") = Some(forward.abort_handle());
@@ -344,6 +350,25 @@ impl SendTurn {
         };
         let submission = Submission { hop: origin.hop, bot_chain: origin.bot_chain.clone(), meta: sender_meta(origin), settled: true };
         self.sends.submit.submit(&self.session_id, sent, &self.id, submission).await
+    }
+
+    /// `approvalWaitReporter(id, report)` on the runtime's state: a wait for the user's approval
+    /// reports `blocked` once; a later, different one reports again. A send still queued behind
+    /// the running turn is not the turn waiting (that turn's own watcher reports it).
+    async fn approval_wait(&self) {
+        let Some(runtime) = self.runtime.lock().expect("send runtime").clone() else { return };
+        let Some(approval) = runtime.tool_approval_id() else {
+            *self.reported_approval.lock().expect("reported approval") = None;
+            return;
+        };
+        {
+            let mut reported = self.reported_approval.lock().expect("reported approval");
+            if reported.as_deref() == Some(approval.as_str()) || runtime.queued_ids().contains(&self.id) {
+                return;
+            }
+            *reported = Some(approval.clone());
+        }
+        self.report_with("blocked", "", &approval, "").await;
     }
 
     fn unwatch(&self) {
@@ -397,13 +422,17 @@ impl SendTurn {
     /// The report of `status` (`sendReporter.deliverReport`): a progress update (`working`)
     /// names its answer; an end names the watch and brings the turn's files unless text only.
     async fn deliver_report(&self, status: &str, text: &str, answer_id: &str) -> Result<(), String> {
+        self.deliver_report_with(status, text, "", answer_id).await
+    }
+
+    async fn deliver_report_with(&self, status: &str, text: &str, approval_id: &str, answer_id: &str) -> Result<(), String> {
         if let Some(mut ready) = self.before_report.clone() {
             // A gate dropped unopened (the create failed after the turn was taken) holds nothing back.
             let _ = ready.wait_for(|open| *open).await;
         }
         let (origin, session) = (&self.origin, &self.session_id);
         let mut payload = Map::new();
-        payload.insert("runId".into(), json!(turn_report_run_id(session, &self.id, status, "", answer_id)));
+        payload.insert("runId".into(), json!(turn_report_run_id(session, &self.id, status, approval_id, answer_id)));
         payload.insert("taskSessionId".into(), json!(session));
         payload.insert("title".into(), json!(origin.title));
         payload.insert("status".into(), json!(status));
@@ -435,7 +464,11 @@ impl SendTurn {
 
     /// `report`: [`Self::deliver_report`], its failure logged.
     async fn report(&self, status: &str, text: &str, answer_id: &str) {
-        if let Err(error) = self.deliver_report(status, text, answer_id).await {
+        self.report_with(status, text, "", answer_id).await;
+    }
+
+    async fn report_with(&self, status: &str, text: &str, approval_id: &str, answer_id: &str) {
+        if let Err(error) = self.deliver_report_with(status, text, approval_id, answer_id).await {
             mixdog_rt::node_stderr!("mixdog task sessions: report of {} failed: {error}", self.session_id);
         }
     }
