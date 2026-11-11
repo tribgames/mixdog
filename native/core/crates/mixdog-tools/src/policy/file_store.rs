@@ -167,42 +167,6 @@ fn json_field(value: &str) -> String {
     text
 }
 
-/// Replaces the `\uXXXX` escapes of an unpaired surrogate (which Node reads back as a lone
-/// surrogate and `serde_json` rejects) with U+FFFD, leaving every other byte as it is.
-fn without_lone_surrogates(line: &str) -> std::borrow::Cow<'_, str> {
-    let bytes = line.as_bytes();
-    let unit = |at: usize| -> Option<u16> {
-        let digits = bytes.get(at..at + 6)?;
-        (digits[0] == b'\\' && digits[1] == b'u')
-            .then(|| u16::from_str_radix(std::str::from_utf8(&digits[2..]).ok()?, 16).ok())
-            .flatten()
-    };
-    let mut out = String::new();
-    let (mut copied, mut at) = (0, 0);
-    while at < bytes.len() {
-        if bytes[at] != b'\\' {
-            at += 1;
-            continue;
-        }
-        match unit(at) {
-            Some(0xD800..=0xDBFF) if matches!(unit(at + 6), Some(0xDC00..=0xDFFF)) => at += 12,
-            Some(0xD800..=0xDFFF) => {
-                out.push_str(&line[copied..at]);
-                out.push_str("\\ufffd");
-                at += 6;
-                copied = at;
-            }
-            Some(_) => at += 6,
-            None => at += 2,
-        }
-    }
-    if copied == 0 {
-        return std::borrow::Cow::Borrowed(line);
-    }
-    out.push_str(&line[copied..]);
-    std::borrow::Cow::Owned(out)
-}
-
 #[allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
@@ -254,7 +218,7 @@ fn read_audit_lines(
         if line.is_empty() {
             continue;
         }
-        if let Ok(row) = serde_json::from_str::<Value>(&without_lone_surrogates(line))
+        if let Ok(row) = serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(line))
             && agent_id.is_none_or(|agent| row.get("agentId").and_then(Value::as_str) == Some(agent))
         {
             rows.push(AuditEntry {
@@ -599,12 +563,6 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].tool, format!("{}a\u{fffd}", "😀".repeat(99)));
         assert_eq!(rows[1].tool, "😀".repeat(100));
-    }
-
-    #[test]
-    fn only_unpaired_surrogate_escapes_are_replaced_when_reading() {
-        assert_eq!(without_lone_surrogates(r#"{"a":"\ud83d\ude00 \\ud83d \ud83d!"}"#), r#"{"a":"\ud83d\ude00 \\ud83d \ufffd!"}"#);
-        assert_eq!(without_lone_surrogates(r#"{"a":"\ude00"}"#), r#"{"a":"\ufffd"}"#);
     }
 
     #[tokio::test]

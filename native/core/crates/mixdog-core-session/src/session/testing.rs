@@ -343,11 +343,21 @@ pub struct MemStore {
     /// Runs once, inline, as the next batch that sets `compaction` reaches the store and before it is written: what
     /// happens to the session between a compaction's adoption and its save (Node's commit timing line). Holds nothing.
     pub on_compaction: CompactionHook,
+    /// The next batch holding a `meta` record that sets `title` to `.0` tells `.1` it arrived, then waits for `.2` before it
+    /// becomes durable.
+    pub title_gate: TitleGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
 }
 
 impl MemStore {
+    /// Holds the next batch that sets the title to `title` until the returned sender says go; `.0` wakes when it arrives.
+    pub fn hold_title(&self, title: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&self.title_gate) = Some((title.to_owned(), arrived.clone(), go.1));
+        (arrived, go.0)
+    }
+
     pub fn records(&self, id: &ThreadId) -> Vec<(u64, Record)> {
         lock(&self.logs)
             .get(id)
@@ -409,6 +419,20 @@ fn wait_for_release(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
     go.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("{gate} was not released within 10s"));
 }
 
+/// What [`MemStore::title_gate`] holds.
+type TitleGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+/// [`wait_for_release`] for a gate whose test needs the session's actor to step while the batch is held: the inline
+/// test backend runs the commit on the durability task's worker, whose LIFO slot may hold the actor the previous ack
+/// just woke; `block_in_place` hands that worker's queued tasks to another thread while this one waits.
+fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+    if tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread) {
+        tokio::task::block_in_place(|| wait_for_release(go, gate));
+    } else {
+        wait_for_release(go, gate);
+    }
+}
+
 /// What [`MemStore::fail_when`] holds: the batch holding a record the predicate takes fails once, after its records are
 /// written when `.1`.
 pub type FailWhen = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, bool)>>>;
@@ -421,6 +445,7 @@ struct MemLog {
     commit_gate: CommitGate,
     header_gate: CommitGate,
     on_compaction: CompactionHook,
+    title_gate: TitleGate,
     committed: Arc<tokio::sync::Notify>,
 }
 
@@ -460,6 +485,15 @@ impl SessionLog for MemLog {
         let hook = if sets_compaction { lock(&self.on_compaction).take() } else { None };
         if let Some(hook) = hook {
             hook();
+        }
+        let gate = {
+            let mut slot = lock(&self.title_gate);
+            let sets = |title: &str| batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.get("title").and_then(|t| t.as_str()) == Some(title)));
+            if slot.as_ref().is_some_and(|(title, _, _)| sets(title)) { slot.take() } else { None }
+        };
+        if let Some((_, arrived, go)) = gate {
+            arrived.notify_one();
+            wait_off_worker(&go, "the title gate");
         }
         let mut log = lock(&self.log);
         let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
@@ -698,6 +732,7 @@ impl ThreadStore for MemStore {
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
+            title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
         }))
     }
@@ -721,6 +756,7 @@ impl ThreadStore for MemStore {
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
+            title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];

@@ -33,6 +33,7 @@ pub mod time;
 pub mod tokens;
 #[cfg(feature = "virtual-clock")]
 pub mod virtual_clock;
+pub mod write_marks;
 
 /// A named core event a replay `wait`s for before it advances past real I/O (the replay clock's log; nothing on stderr).
 /// Nothing without the `virtual-clock` feature.
@@ -45,6 +46,7 @@ pub fn replay_event(name: &str) {
 }
 
 pub use cancel::CancelSource;
+pub use write_marks::WriteMarks;
 pub use cancel::CancelView;
 pub use gate::Gate;
 pub use gate::GateCancelled;

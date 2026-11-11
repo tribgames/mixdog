@@ -154,6 +154,9 @@ pub struct Real {
     pub sub_agent_retention: Arc<std::sync::Mutex<Option<crate::session_retention::Running>>>,
     /// The writer of `<data>/gateway-usage.local.jsonl`, the sessions' too.
     pub gateway_usage: mixdog_core_session::session::gateway_usage::GatewayUsage,
+    /// Replay-only: the write-behind writers `replay/storesSettled` drains besides the session store.
+    #[cfg(feature = "replay-controls")]
+    pub(crate) replay_writers: crate::replay_stores_settled::WriteBehind,
     /// The core's turn review and the tool pool its sessions run, as composed (the review is what the tools in the pool are wired to). Kept for
     /// the replay of Node's review recording against the composition (compose::review_restart_tests); a release core does not carry them.
     #[cfg(test)]
@@ -1669,6 +1672,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let reap = Arc::new(mixdog_core::run_host::agent_inputs::ConfigReap::new(config.clone())); // the one reap `recover` also takes
     let store_workers = Arc::new(mixdog_core_session::session::agent_registry::StoreWorkers::new(catalog_index.clone(), Arc::new(LateThreads(late.clone())), b.tokens.interactive_io));
     store_workers.bind_signals(activity.signals()).map_err(|_| ComposeError::AlreadyBound("store worker signals"))?;
+    #[cfg(feature = "replay-controls")]
+    let replay_workers = store_workers.clone();
     let agent_registry = Arc::new(mixdog_core_session::session::agent_registry::AgentRegistry::new(
         store_workers,
         Arc::new(mixdog_core::run_host::agent_inputs::LateLiveSessions(late.clone())),
@@ -3027,7 +3032,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage, #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers: replay_workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

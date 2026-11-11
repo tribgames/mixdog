@@ -197,6 +197,9 @@ pub struct ComposedCore {
     stop: tokio_util::sync::CancellationToken,
     /// Node's text of why the core is stopping (`daemon.mjs:272` `shutdown(reason)`), set once by the release before its first step; the stop steps read it.
     stop_reason: Arc<StopReasonCell>,
+    /// Replay-only: the service of `replay/storesSettled`.
+    #[cfg(feature = "replay-controls")]
+    stores_settled: crate::replay_stores_settled::StoresSettled,
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -502,6 +505,10 @@ impl CoreHandle for ComposedCore {
     }
 
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        #[cfg(feature = "replay-controls")]
+        if method == mixdog_app_server::REPLAY_STORES_SETTLED {
+            return Some(&self.stores_settled);
+        }
         self.real.domains.get(method)
     }
 
@@ -751,7 +758,6 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         stop.clone(),
     );
     let core = ComposedCore {
-        real,
         state: watch::Sender::new(LifecycleState::Serving),
         host_media,
         sections,
@@ -767,6 +773,9 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),
+        #[cfg(feature = "replay-controls")]
+        stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone(), real.replay_writers.clone(), real.gateway_usage.clone(), real.ledgers.clone()),
+        real,
         log,
         stop,
         stop_reason,

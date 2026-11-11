@@ -242,6 +242,15 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
+    /// replay barrier takes their accepted count as it arrives.
+    #[cfg(any(test, feature = "test-support"))]
+    pub prompt_marks: Arc<mixdog_rt::WriteMarks>,
+    /// The numbers of the thread's durable records ([`super::outbox::Outbox::numbered_on`]): accepted as the actor takes a
+    /// record into its outbox, written once the store synced and acked it, failed when it leaves uncommitted (its encode or
+    /// its barrier failed, or the actor ended first). The replay barrier takes their accepted count as it arrives.
+    #[cfg(any(test, feature = "test-support"))]
+    pub record_marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 impl ControlCell {

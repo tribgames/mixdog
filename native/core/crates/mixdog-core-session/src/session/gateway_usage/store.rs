@@ -63,10 +63,11 @@ impl Scheduler for TokioScheduler {
 #[derive(Default)]
 struct State {
     section: RouteSection,
-    pending: Vec<String>,
+    /// The buffered events, each with its number in [`Inner::marks`].
+    pending: Vec<(String, u64)>,
     flush_timer: Option<Cancel>,
-    /// Taken batches not yet written, in order.
-    batches: VecDeque<String>,
+    /// Taken batches not yet written, in order, with the numbers of their events.
+    batches: VecDeque<(String, Vec<u64>)>,
     draining: bool,
     compact_timer: Option<Cancel>,
     compacting: bool,
@@ -82,6 +83,8 @@ struct Inner {
     migrated: AtomicBool,
     /// Woken when a drain or a compaction ends.
     idle: Notify,
+    /// Every recorded event numbered, reported once the append that carries it ran.
+    marks: mixdog_rt::WriteMarks,
 }
 
 /// The writer of the gateway usage store.
@@ -182,6 +185,7 @@ impl GatewayUsage {
             state: Mutex::new(State::default()),
             migrated: AtomicBool::new(false),
             idle: Notify::new(),
+            marks: mixdog_rt::WriteMarks::new("the gateway usage events"),
         };
         Self { inner: Arc::new(inner) }
     }
@@ -199,7 +203,7 @@ impl GatewayUsage {
         let mut summary = event::summarize(&mut state.section, &*inner.pricing, route, provider_out, compact, duration_ms, now);
         summary.extend(extra);
         let line = mixdog_js::json_stringify(&event::event_of(&Value::Object(summary), now));
-        state.pending.push(line);
+        state.pending.push((line, inner.marks.accept()));
         if state.pending.len() >= FLUSH_BATCH {
             self.flush_locked(&mut state);
         } else if state.flush_timer.is_none() {
@@ -209,15 +213,15 @@ impl GatewayUsage {
     }
 
     /// `takePendingUsageBatch`: the pending events as one append, the timer cleared.
-    fn take_pending(state: &mut State) -> Option<String> {
+    fn take_pending(state: &mut State) -> Option<(String, Vec<u64>)> {
         if let Some(cancel) = state.flush_timer.take() {
             cancel();
         }
         if state.pending.is_empty() {
             return None;
         }
-        let events = std::mem::take(&mut state.pending);
-        Some(format!("\n{}\n", events.join("\n")))
+        let (events, marks): (Vec<String>, Vec<u64>) = std::mem::take(&mut state.pending).into_iter().unzip();
+        Some((format!("\n{}\n", events.join("\n")), marks))
     }
 
     fn flush_locked(&self, state: &mut State) {
@@ -259,6 +263,17 @@ impl GatewayUsage {
     /// run now instead of on its timer.
     pub async fn settle(&self) {
         self.flush_final().await;
+        self.compact_scheduled_now().await;
+    }
+
+    /// The events' numbers: a barrier takes `accepted()` when it arrives, calls [`Self::flush`], waits for `reached` of
+    /// it, then [`Self::compact_scheduled_now`].
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.inner.marks
+    }
+
+    /// The compaction the written appends scheduled runs now instead of on its timer, and one already running ends.
+    pub async fn compact_scheduled_now(&self) {
         let scheduled = lock(&self.inner.state).compact_timer.take();
         if let Some(cancel) = scheduled {
             cancel();
@@ -280,7 +295,7 @@ async fn drain(inner: Arc<Inner>) {
             }
             batch
         };
-        let Some(data) = batch else {
+        let Some((data, marks)) = batch else {
             inner.idle.notify_waiters();
             return;
         };
@@ -293,9 +308,15 @@ async fn drain(inner: Arc<Inner>) {
             Err(error) => Err(error.to_string()),
         };
         match written {
-            Ok(large) => maybe_schedule_compaction(&inner, large),
+            Ok(large) => {
+                marks.iter().for_each(|&mark| inner.marks.written(mark));
+                maybe_schedule_compaction(&inner, large);
+            }
             // Local telemetry never affects the routed call, but a lost batch is reported.
-            Err(error) => eprint!("[statusline] gateway usage events not saved: {error}\n"),
+            Err(error) => {
+                marks.iter().for_each(|&mark| inner.marks.failed(mark, &error));
+                eprint!("[statusline] gateway usage events not saved: {error}\n");
+            }
         }
     }
 }

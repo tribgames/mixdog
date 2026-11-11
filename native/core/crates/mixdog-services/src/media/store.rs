@@ -169,7 +169,8 @@ fn backup_path(path: &Path) -> PathBuf {
 pub(crate) fn read_state(path: &Path, valid: impl Fn(&Value) -> bool) -> Result<Option<Value>, MediaError> {
     let parse = |p: &Path| -> std::io::Result<Option<Value>> {
         match fs::read(p) {
-            Ok(bytes) => Ok(serde_json::from_slice::<Value>(&bytes).ok().filter(|v| valid(v))),
+            // Node cuts a prompt (4000 units) and a board name (120) inside an emoji: half of one is U+FFFD here.
+            Ok(bytes) => Ok(serde_json::from_slice::<Value>(&mixdog_js::json_well_formed(&bytes)).ok().filter(|v| valid(v))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         }
@@ -670,6 +671,33 @@ mod tests {
 
     fn save(store: &MediaStore, kind: &str) -> Value {
         store.save_asset(kind, "gemini", "m/1", "p", json!({}), if kind == "video" { "video/mp4" } else { "image/png" }, b"bytes", Map::new()).unwrap()
+    }
+
+    /// Node's catalog with a prompt cut at 4000 units and a board name cut at 120, each inside an emoji
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): read whole, and the next writes keep
+    /// every entry and field Node's own next writes keep.
+    #[test]
+    fn a_catalog_node_cut_inside_an_emoji_is_read_whole_and_written_back_whole() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "media-store").unwrap();
+        let (dir, s) = store();
+        let media = dir.path().join("media");
+        fs::create_dir_all(&media).unwrap();
+        for file in ["index.json", "boards.json"] {
+            fs::copy(set.join("media-store/before").join(file), media.join(file)).unwrap();
+        }
+        let asset_id = case["assetId"].as_str().unwrap();
+        assert_eq!(s.get_asset(asset_id).unwrap().unwrap(), case["before"]["index.json"]["assets"][0]);
+        assert_eq!(s.list_boards().unwrap(), case["nodeRead"]["boards"]);
+        let op = &case["op"];
+        s.set_asset_board(&op["setAssetBoard"][0], &op["setAssetBoard"][1]).unwrap();
+        s.rename_board(Some(&op["renameBoard"][0]), Some(&op["renameBoard"][1])).unwrap();
+        for file in ["index.json", "boards.json"] {
+            let written: Value = serde_json::from_slice(&fs::read(media.join(file)).unwrap()).unwrap();
+            // As text: entry and key order count too.
+            assert_eq!(written.to_string(), case["after"][file].to_string(), "{file}");
+        }
     }
 
     #[test]

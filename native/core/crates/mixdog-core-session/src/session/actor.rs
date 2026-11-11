@@ -921,10 +921,15 @@ impl SessionActor {
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
+        #[cfg(any(test, feature = "test-support"))]
+        let (prompt_marks, record_marks) = (cell.prompt_marks.clone(), cell.record_marks.clone());
         Self {
             goal_watch,
             surface,
             feed_id: FeedId::from(id.as_str()),
+            #[cfg(any(test, feature = "test-support"))]
+            outbox: Outbox::numbered_on(deps.limits, record_marks),
+            #[cfg(not(any(test, feature = "test-support")))]
             outbox: Outbox::new(deps.limits),
             slot: None,
             seed: None,
@@ -973,6 +978,9 @@ impl SessionActor {
             after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_appends: prompt_history::AppendQueue::numbered_on(prompt_marks),
+            #[cfg(not(any(test, feature = "test-support")))]
             prompt_appends: Default::default(),
             delete_closed: None,
             delete_mark: None,
@@ -2127,6 +2135,10 @@ impl SessionActor {
     }
 
     fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(durable) = &entry.durable {
+            self.outbox.note_failed(durable, format!("{error:?}"));
+        }
         // A queued prompt whose record was not stored is removed and its id forgotten, and the sender hears a refusal
         // (`drain-enqueue.mjs:64`, a failed durable mirror), so a retry is a new submission.
         let mut refused = None;
