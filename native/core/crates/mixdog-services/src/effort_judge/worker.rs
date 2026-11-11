@@ -32,10 +32,14 @@ pub(crate) const STUCK: Duration = Duration::from_secs(10);
 
 /// Judge threads alive at most, counting the one taking jobs and every one let go whose job has not
 /// returned yet.
-/// Node's terminated worker is gone at once; a thread here ends only when its job returns, which a
-/// stopped inference does at once but a model load (which the runtime cannot stop) does not. While
-/// two let-go threads are still running, no third starts: jobs answer "exited" at once until one
-/// returns, so a load that never returns can hold at most two threads and two models.
+///
+/// Node's terminated worker is gone at once; a thread here ends only when its job returns. A stopped
+/// inference returns at once, but work the terminate flag cannot reach (a model load, or a hang
+/// outside the session's run) holds its thread, and the model on it, until it returns. While
+/// [`THREADS`] such threads are alive no other starts: the load a judgment needs fails at once, so a
+/// turn answers `warming` at once (`judge.rs` `ask`, its cold-wait arm) until one returns. Node cannot reach that
+/// state, since its watchdog and its shutdown kill the worker whatever it is doing; this is the one
+/// remaining difference from Node's judge (`fixtures/tools/effort-judge/NOTES.md`).
 pub(crate) const THREADS: usize = 2;
 
 const EXITED: &str = "the effort judge thread exited";
@@ -53,6 +57,10 @@ pub(crate) struct Seat {
 /// Arms the judge's deadlines: the core ticker in the product, a clock the test advances in tests.
 pub(crate) trait Alarm: Send + Sync {
     fn after(&self, delay: Duration, ring: Box<dyn FnOnce() + Send>);
+
+    /// Called by a ringing watchdog before it decides; a test holds it here to let runs end and
+    /// start meanwhile.
+    fn watchdog_rang(&self) {}
 }
 
 /// The core ticker. A ring is never disarmed: one for a wait that already ended does nothing.
@@ -110,8 +118,27 @@ struct Live {
     jobs: Mutex<mpsc::Sender<Job>>,
     /// Fired when the thread is let go: its waiters answer "exited" without it.
     gone: CancellationToken,
+    flight: Arc<Mutex<Flight>>,
+}
+
+/// The thread's run in flight. Its lock is the one runs start and end under, so a stop decided
+/// under it reaches the run it was decided about and no other.
+#[derive(Default)]
+struct Flight {
+    /// The number of the job running, while one runs.
+    running: Option<u64>,
     /// The loaded model's [`Stopper`], set by the thread after each job.
-    stop: Arc<Mutex<Option<Stopper>>>,
+    stop: Option<Stopper>,
+}
+
+impl Flight {
+    fn stop_running(&self) {
+        if self.running.is_some()
+            && let Some(stop) = &self.stop
+        {
+            stop();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -133,24 +160,38 @@ impl Shared {
     /// Lets thread `generation` (any when `None`) go if it is the one taking jobs; counted until it
     /// ends. `answer` answers its waiters "exited" now (a panicking job answers its own waiter).
     fn retire(&self, generation: Option<u64>, answer: bool) {
-        let left = {
-            let mut threads = lock(&self.threads);
-            if !threads.current.as_ref().is_some_and(|live| generation.is_none_or(|g| g == live.generation)) {
-                return;
-            }
-            threads.retiring += 1;
-            threads.current.take()
-        };
-        if let Some(live) = left {
-            if answer {
-                live.gone.cancel();
-            }
-            let stop = lock(&live.stop).clone();
-            if let Some(stop) = stop {
-                stop();
-            }
+        let Some(live) = self.detach(generation) else { return };
+        if answer {
+            live.gone.cancel();
         }
+        lock(&live.flight).stop_running();
         self.tick.bump();
+    }
+
+    /// Node's watchdog for job `number` of thread `generation`: when that job is still the one in
+    /// flight, the thread is let go and the run stopped, both under the lock runs end and start
+    /// under, so a run that ended meanwhile, and the one after it, are left alone.
+    fn watchdog(&self, generation: u64, flight: &Mutex<Flight>, number: u64) {
+        self.alarm.watchdog_rang();
+        let flight = lock(flight);
+        if flight.running != Some(number) {
+            return;
+        }
+        let Some(live) = self.detach(Some(generation)) else { return };
+        live.gone.cancel();
+        flight.stop_running();
+        drop(flight);
+        self.tick.bump();
+    }
+
+    /// Takes thread `generation` (any when `None`) from taking jobs, if it does; counted until it ends.
+    fn detach(&self, generation: Option<u64>) -> Option<Arc<Live>> {
+        let mut threads = lock(&self.threads);
+        if !threads.current.as_ref().is_some_and(|live| generation.is_none_or(|g| g == live.generation)) {
+            return None;
+        }
+        threads.retiring += 1;
+        threads.current.take()
     }
 
     fn is_current(&self, generation: u64) -> bool {
@@ -239,6 +280,7 @@ impl JudgeWorker {
         if let Some(live) = &threads.current {
             return Ok(live.clone());
         }
+        // At the bound the load fails at once; a turn answers it `warming` (see [`THREADS`]).
         if threads.retiring + 1 > THREADS {
             return Err(JudgeError::Worker(EXITED.to_owned()));
         }
@@ -250,12 +292,12 @@ impl JudgeWorker {
 
     fn start(&self, generation: u64) -> Result<Arc<Live>, JudgeError> {
         let (tx, rx) = mpsc::channel::<Job>();
-        let stop = Arc::new(Mutex::new(None));
-        let (shared, stopper) = (Arc::downgrade(&self.shared), stop.clone());
+        let flight = Arc::new(Mutex::new(Flight::default()));
+        let (shared, theirs) = (Arc::downgrade(&self.shared), flight.clone());
         self.token
-            .spawn_thread("mixdog-effort-judge", move |_| run_thread(generation, &rx, &stopper, &shared))
+            .spawn_thread("mixdog-effort-judge", move |_| run_thread(generation, &rx, &theirs, &shared))
             .map_err(|error| JudgeError::Worker(format!("effort judge thread: {error}")))?;
-        Ok(Arc::new(Live { generation, jobs: Mutex::new(tx), gone: CancellationToken::new(), stop }))
+        Ok(Arc::new(Live { generation, jobs: Mutex::new(tx), gone: CancellationToken::new(), flight }))
     }
 
     /// Sends `job` to `live` and waits for its answer: `Err(Some(panic))` when it panicked, `Err(None)`
@@ -294,30 +336,31 @@ impl JudgeWorker {
 }
 
 /// The thread's loop. The seat, and the model in it, end here, on this thread.
-fn run_thread(generation: u64, jobs: &mpsc::Receiver<Job>, stop: &Mutex<Option<Stopper>>, shared: &Weak<Shared>) {
+fn run_thread(generation: u64, jobs: &mpsc::Receiver<Job>, flight: &Arc<Mutex<Flight>>, shared: &Weak<Shared>) {
     let mut seat = Seat { model: None, generation };
-    let finished = Arc::new(AtomicU64::new(0));
     let mut number = 0;
     for job in jobs {
         number += 1;
+        lock(flight).running = Some(number);
         if job.watched
             && let Some(owner) = shared.upgrade()
         {
-            let (done, shared) = (finished.clone(), shared.clone());
+            let (flight, shared) = (flight.clone(), shared.clone());
             owner.alarm.after(
                 STUCK,
                 Box::new(move || {
-                    if done.load(Ordering::Acquire) < number
-                        && let Some(shared) = shared.upgrade()
-                    {
-                        shared.retire(Some(generation), true);
+                    if let Some(shared) = shared.upgrade() {
+                        shared.watchdog(generation, &flight, number);
                     }
                 }),
             );
         }
         let ran = std::panic::catch_unwind(AssertUnwindSafe(|| (job.run)(&mut seat)));
-        finished.store(number, Ordering::Release);
-        *lock(stop) = seat.model.as_ref().map(|model| model.stopper());
+        {
+            let mut flight = lock(flight);
+            flight.running = None;
+            flight.stop = seat.model.as_ref().map(|model| model.stopper());
+        }
         let Some(owner) = shared.upgrade() else { break };
         match ran {
             Ok(Ok(())) => {}
