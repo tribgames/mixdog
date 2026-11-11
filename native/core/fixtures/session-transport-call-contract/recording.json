@@ -1,0 +1,1145 @@
+{
+  "domain": "session-transport-call-contract",
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-call-contract.mjs",
+  "testFile": "scripts/session-transport/call-contract.test.mjs",
+  "cases": [
+    {
+      "name": "daemon-owned-oauth-flows-expose-serializable-status-completion-and-cancellation",
+      "testLine": 15,
+      "input": {
+        "registry": "createSessionOAuthFlowRegistry() defaults (ttl 10 min)",
+        "providers": [
+          "anthropic-oauth",
+          "openai"
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "register({provider: anthropic-oauth, manualUrl, completeCode: code === 'code-123'})",
+            "status": {
+              "flowId": "oauth_<ms>_1",
+              "provider": "anthropic-oauth",
+              "url": null,
+              "manualUrl": "https://example.test/oauth",
+              "userCode": null,
+              "state": "pending",
+              "completed": false,
+              "error": null,
+              "manualCodeSupported": true
+            },
+            "structuredCloneOk": true
+          },
+          {
+            "step": "complete(flowId, 'code-123')",
+            "status": {
+              "flowId": "oauth_<ms>_1",
+              "provider": "anthropic-oauth",
+              "url": null,
+              "manualUrl": "https://example.test/oauth",
+              "userCode": null,
+              "state": "complete",
+              "completed": true,
+              "error": null,
+              "manualCodeSupported": true
+            }
+          },
+          {
+            "step": "register({provider: openai, cancel})",
+            "status": {
+              "flowId": "oauth_<ms>_2",
+              "provider": "openai",
+              "url": null,
+              "manualUrl": null,
+              "userCode": null,
+              "state": "pending",
+              "completed": false,
+              "error": null,
+              "manualCodeSupported": false
+            }
+          },
+          {
+            "step": "cancel(second flowId)",
+            "status": {
+              "flowId": "oauth_<ms>_2",
+              "provider": "openai",
+              "url": null,
+              "manualUrl": null,
+              "userCode": null,
+              "state": "cancelled",
+              "completed": false,
+              "error": null,
+              "manualCodeSupported": false
+            },
+            "cancelCallbackCalls": 1
+          },
+          {
+            "step": "status(second flowId) after cancel",
+            "status": {
+              "flowId": "oauth_<ms>_2",
+              "provider": "openai",
+              "url": null,
+              "manualUrl": null,
+              "userCode": null,
+              "state": "cancelled",
+              "completed": false,
+              "error": null,
+              "manualCodeSupported": false
+            }
+          }
+        ],
+        "timersArmedDelaysMs": [
+          600000,
+          600000
+        ]
+      }
+    },
+    {
+      "name": "session-catalog-has-one-explicit-route-and-never-rides-session-responses",
+      "testLine": 82,
+      "input": {
+        "listSessions": "rows [{id: catalog-row, updatedAt: <scan count>}]",
+        "getRemoteSessionState": {
+          "enabled": true,
+          "sessionId": "catalog-row"
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "session.list",
+            "ok": {
+              "sessions": [
+                {
+                  "id": "catalog-row",
+                  "updatedAt": 1
+                }
+              ],
+              "remoteSession": {
+                "enabled": true,
+                "sessionId": "catalog-row"
+              }
+            },
+            "scans": 1,
+            "hasSync": false
+          },
+          {
+            "step": "session.create",
+            "ok": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "scans": 1,
+            "hasSync": false
+          },
+          {
+            "step": "session.read {sessionId, baseRevision: created.revision}",
+            "ok": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0"
+            },
+            "scans": 1,
+            "hasSync": false
+          },
+          {
+            "step": "session.configure {action: renameSessionTitle, args: ['renamed'], baseRevision: read.revision}",
+            "ok": {
+              "value": true,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "scans": 1,
+            "hasSync": false
+          },
+          {
+            "step": "session.list again",
+            "ok": {
+              "sessions": [
+                {
+                  "id": "catalog-row",
+                  "updatedAt": 2
+                }
+              ],
+              "remoteSession": {
+                "enabled": true,
+                "sessionId": "catalog-row"
+              }
+            },
+            "scans": 2,
+            "hasSync": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "canonical-session-read-returns-raw-agent-messages",
+      "testLine": 130,
+      "input": {
+        "call": [
+          "session.read",
+          {
+            "sessionId": "agent_read_session",
+            "messageStart": 1
+          }
+        ],
+        "stored": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "worker brief"
+            },
+            {
+              "role": "assistant",
+              "content": "worker handoff"
+            }
+          ]
+        },
+        "runtimeHasSessionProperty": false
+      },
+      "result": {
+        "outcome": {
+          "ok": {
+            "sessionId": "agent_read_session",
+            "reservedOnly": false,
+            "projection": true,
+            "revision": "<epoch revision>+0",
+            "full": {
+              "items": [],
+              "sessionId": "agent_read_session",
+              "queued": []
+            },
+            "messageCount": 2,
+            "messages": [
+              {
+                "role": "assistant",
+                "content": "worker handoff"
+              }
+            ]
+          }
+        },
+        "readStoredSessionCalls": [
+          {
+            "sessionId": "agent_read_session",
+            "options": {
+              "transcriptItemLimit": 512,
+              "paging": false
+            }
+          },
+          {
+            "sessionId": "agent_read_session",
+            "options": {
+              "includeMessages": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "call-idempotency-is-isolated-per-client-process",
+      "testLine": 156,
+      "input": {
+        "clients": [
+          {
+            "leadPid": "<pid>"
+          },
+          {
+            "leadPid": "<ppid>"
+          }
+        ],
+        "callId": "same-process-local-id"
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "first.submit callId same-process-local-id",
+            "ok": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "same payload"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "second.submit callId same-process-local-id (other leadPid)",
+            "ok": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+2",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "same payload"
+                  },
+                  {
+                    "id": 2,
+                    "text": "same payload"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "first.read",
+            "itemCount": 2,
+            "items": [
+              {
+                "id": 1,
+                "text": "same payload"
+              },
+              {
+                "id": 2,
+                "text": "same payload"
+              }
+            ]
+          }
+        ],
+        "serviceCalls": [
+          {
+            "name": "session.create",
+            "args": {
+              "cwd": "<cwd>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.submit",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "prompt": "same payload"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "same payload"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.submit",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "prompt": "same payload"
+            },
+            "context": {
+              "clientToken": "<client 2>",
+              "leadPid": "<ppid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+2",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "same payload"
+                  },
+                  {
+                    "id": 2,
+                    "text": "same payload"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "<daemon session 1>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "revision": "<epoch revision>+2",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "same payload"
+                  },
+                  {
+                    "id": 2,
+                    "text": "same payload"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "session-protocol-acks-intake-and-unsubscribe-never-interrupts-execution",
+      "testLine": 243,
+      "input": {
+        "clients": [
+          "terminal (frames)",
+          "desktop"
+        ],
+        "submit": {
+          "prompt": "keep running",
+          "options": {
+            "id": "durable-submit"
+          },
+          "callId": "session-submit:durable-session:durable-submit"
+        },
+        "runtime": "detachable: submit leaves it busy until the recorder calls finishWork"
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "terminal session.create",
+            "sessionIdMatches": true,
+            "revisionIsEpoch": true,
+            "reservedOnly": true,
+            "eagerSessionCreates": 0
+          },
+          {
+            "step": "desktop session.subscribe",
+            "subscribed": true
+          },
+          {
+            "step": "terminal session.submit (callId session-submit:durable-session:durable-submit)",
+            "accepted": true,
+            "reservedOnly": false
+          },
+          {
+            "step": "terminal stream reports busy",
+            "finishWorkIsFunction": true
+          },
+          {
+            "step": "desktop unsubscribe + close",
+            "abortCalls": 0,
+            "serviceSize": 1
+          },
+          {
+            "step": "work finished; terminal snapshot",
+            "busy": false,
+            "lastItem": {
+              "id": "answer",
+              "text": "completed after detach"
+            },
+            "itemTexts": [
+              "keep running",
+              "completed after detach"
+            ],
+            "abortCalls": 0
+          }
+        ],
+        "serviceCalls": [
+          {
+            "name": "session.create",
+            "args": {
+              "cwd": "<cwd>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.subscribe",
+            "args": {
+              "sessionId": "<daemon session 1>"
+            },
+            "context": {
+              "clientToken": "<client 2>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "subscribed": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.submit",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "prompt": "keep running",
+              "options": {
+                "id": "durable-submit"
+              }
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": "prompt",
+                    "text": "keep running"
+                  }
+                ],
+                "busy": true
+              }
+            }
+          },
+          {
+            "name": "session.unsubscribe",
+            "args": {
+              "sessionId": "<daemon session 1>"
+            },
+            "context": {
+              "clientToken": "<client 2>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "unsubscribed": true
+            }
+          },
+          {
+            "name": "session.unsubscribe",
+            "args": {
+              "sessionId": "<daemon session 1>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "unsubscribed": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "session-faults-answer-as-call-errors-and-non-serializable-values-are-dropped",
+      "testLine": 299,
+      "input": {
+        "actions": [
+          "getProfile (stub throws \"stub failure\")",
+          "getOutputStyle (not on the stub)",
+          "getTheme (returns {ok, callback: fn, when: Date(0)})"
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "session.read action getProfile",
+            "error": {
+              "message": "stub failure",
+              "code": null
+            }
+          },
+          {
+            "step": "session.read action getOutputStyle",
+            "error": {
+              "message": "session action getOutputStyle is unavailable",
+              "code": null
+            }
+          },
+          {
+            "step": "session.read action getTheme",
+            "ok": {
+              "value": {
+                "ok": true,
+                "when": "1970-01-01T00:00:00.000Z"
+              },
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          }
+        ],
+        "serviceCalls": [
+          {
+            "name": "session.create",
+            "args": {
+              "cwd": "<cwd>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getProfile",
+              "args": []
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "error": {
+              "message": "stub failure",
+              "code": null
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getOutputStyle",
+              "args": []
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "error": {
+              "message": "session action getOutputStyle is unavailable",
+              "code": null
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getTheme",
+              "args": []
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": {
+                "ok": true,
+                "when": "1970-01-01T00:00:00.000Z"
+              },
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "addressed-session-action-cannot-silently-move-to-another-id",
+      "testLine": 320,
+      "input": {
+        "create": {
+          "sessionId": "addressed-session"
+        },
+        "configure": {
+          "action": "setRoute",
+          "args": [
+            {
+              "model": "test-model",
+              "applyToCurrentSession": true
+            }
+          ]
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "session.create {sessionId: 'addressed-session'}",
+            "ok": {
+              "sessionId": "addressed-session",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "addressed-session",
+                "items": [],
+                "queued": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "session.configure setRoute (the runtime then reports another id)",
+            "ok": {
+              "value": true,
+              "sessionId": "addressed-session",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "addressed-session",
+                "items": [],
+                "queued": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "session.read",
+            "ok": {
+              "sessionId": "addressed-session",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "unavailable": true
+            }
+          }
+        ],
+        "logLines": [
+          "session created session=addressed-session",
+          "session action setRoute session=addressed-session result=true",
+          "session addressed-session changed its durable address to silently-rebound-session; serving last snapshot",
+          "session disposed session=addressed-session (recorder end)"
+        ]
+      }
+    },
+    {
+      "name": "responses-after-an-address-mismatch-keep-the-addressed-id",
+      "testLine": 369,
+      "input": {
+        "runtime": "setRoute rebinds the runtime to runtime-new-id",
+        "sessions": [
+          "addressed-a",
+          "addressed-b"
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "create addressed-a / addressed-b",
+            "createdSessionId": "addressed-a",
+            "otherSessionId": "addressed-b"
+          },
+          {
+            "step": "session.configure setRoute",
+            "ok": {
+              "value": true,
+              "sessionId": "addressed-a",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "addressed-a",
+                "items": [],
+                "queued": [],
+                "busy": false
+              }
+            },
+            "sessionId": "addressed-a",
+            "fullSessionId": "addressed-a"
+          },
+          {
+            "step": "session.read",
+            "sessionId": "addressed-a"
+          },
+          {
+            "step": "session.subscribe",
+            "sessionId": "addressed-a"
+          },
+          {
+            "step": "createTransitions(binding addressed-a).applyResult(configured, 'configure')",
+            "bindingSessionId": "addressed-a",
+            "poolMoves": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "retried-call-with-the-same-id-runs-exactly-one-runtime-mutation",
+      "testLine": 438,
+      "input": {
+        "callId": "stable-call-id",
+        "payload": {
+          "prompt": "once"
+        },
+        "times": 2
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "session.submit once (callId stable-call-id)",
+            "ok": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "once"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "session.submit once again (same callId, same payload)",
+            "ok": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "once"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "session.read",
+            "itemCount": 1,
+            "items": [
+              {
+                "id": 1,
+                "text": "once"
+              }
+            ]
+          }
+        ],
+        "serviceCalls": [
+          {
+            "name": "session.create",
+            "args": {
+              "cwd": "<cwd>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.submit",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "prompt": "once"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "once"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "<daemon session 1>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "once"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "reusing-a-mutation-callid-with-a-different-payload-fails-closed",
+      "testLine": 507,
+      "input": {
+        "callId": "conflicting-call-id",
+        "payloads": [
+          "first",
+          "second"
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "session.submit prompt first (callId conflicting-call-id)",
+            "ok": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "first"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "session.submit prompt second (same callId)",
+            "error": {
+              "message": "callId 'conflicting-call-id' was reused with a different payload",
+              "code": "ECALLIDCONFLICT"
+            }
+          },
+          {
+            "step": "session.read",
+            "itemCount": 1,
+            "firstText": "first"
+          }
+        ],
+        "serviceCalls": [
+          {
+            "name": "session.create",
+            "args": {
+              "cwd": "<cwd>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.submit",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "prompt": "first"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "first"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "<daemon session 1>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "sessionId": "<daemon session 1>",
+              "reservedOnly": false,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "first"
+                  }
+                ],
+                "busy": false
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "notRecorded": [
+    {
+      "testLine": 48,
+      "name": "session calls log only a bounded result summary, never the transcript body",
+      "reason": "asserts the text of a Node daemon log line (`session action ... result=object items=200`); the Rust core has no per-call result log"
+    },
+    {
+      "testLine": 451,
+      "name": "replay-safe session reads do not retain snapshots in the mutation cache",
+      "reason": "asserts the Node transport's callCacheEntries counter (a health-probe metric of an in-memory cache that does not exist in Rust)"
+    },
+    {
+      "testLine": 465,
+      "name": "the remote session projection keeps the store contract",
+      "reason": "the Node TUI's remote runtime client (createSession proxy projection, subscribe/notify store contract); client code replaced by the app-server protocol"
+    }
+  ]
+}
