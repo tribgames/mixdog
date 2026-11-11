@@ -55,14 +55,14 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch",
-      "sha256": "7a69ae7e16ca79a691a443419824ebafe4f5c0f9e45930ab746361fe075592fa"
+      "sha256": "f33ef8adebc869a6b94e38f606fdc3753c2625917578e343bb753c6d6284365b"
     }
   ],
   "nodeVersion": "v22.20.0",
   "patch": {
     "applied": "to a temporary copy of the tree's src (restart-prefix-parity.fixture.mjs only)",
     "file": "benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch",
-    "fixes": "The scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY. The sleep stood for the journal appends of the stopped turn having landed, but settleTurnJournalWrites only says the write lane is idle, which a FAILED write also leaves, so neither the sleep nor the settle shows the record is on disk. The fixture now waits for the thing itself: the record the turn stops at (killtool: the assistant message calling call_3 and phase tools; killrequest: the tool result of call_2 and phase streaming) readable back through readTurnCheckpointHeader + replayTurnJournal from the header and journal files, polled every 5 ms with a 30 s deadline, failing with the write error when the one-time stderr warning of _warnJournalOnce (turn-checkpoint-journal.mjs) reports a failed write. Node gives no completion for an append (appendJournalLines only queues it; _pumpJournal settles only the open op, which has no handle the fixture can reach), so the file is read back; the appends are not fsynced (Node durability, untouched). New Node test restart-prefix-ready.test.mjs (in the patch): READY comes with the record readable; with the journal append made to fail (journal op gate) READY is never announced and the child fails with the write error: the unpatched fixture announces READY with no record on disk and fails it"
+    "fixes": "The scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY. The sleep stood for the journal appends of the stopped turn having landed, but settleTurnJournalWrites only says the write lane is idle, which a FAILED write also leaves, so neither the sleep nor the settle shows the record is on disk. The fixture now waits for the thing itself: the record the turn stops at (killtool: the assistant message calling call_3 and phase tools; killrequest: the tool result of call_2 and phase streaming) readable back through readTurnCheckpointHeader + replayTurnJournal from the header and journal files, awaited on file-system events, not by polling: a watch on the checkpoint directory armed right after the session exists (before the turn that appends) re-reads the journal on each change notification, with one read on entry; the deadline is a real 30 s timer (the preload freezes Date.now, not timers) and its message names the record awaited and what the journal held; the one-time stderr warning of _warnJournalOnce (turn-checkpoint-journal.mjs) reporting a failed write fails the wait with the write error. Node gives no completion for an append (appendJournalLines only queues it; _pumpJournal settles only the open op, which has no handle the fixture can reach), so the file is read back; the appends are not fsynced (Node durability, untouched). New Node test restart-prefix-ready.test.mjs (in the patch): READY comes with the record readable; with the journal append made to fail (journal op gate) READY is never announced and the child fails with the write error: the unpatched fixture announces READY with no record on disk and fails it"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -81,7 +81,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-restart-prefix.mjs",
-  "recorderSha256": "aa7a2fb566d4daf9daf2f541c47ee42eb5925c7e4eac4f98b232d02bef5a4556",
+  "recorderSha256": "026a363b623aaf49c6f7787fe08181826017c067cdc46513fe3a7edea72410d0",
   "replay": "The Rust core's restart path is the thread/resume + turn/start protocol (native/core/crates/mixdog-app-protocol methods.rs: thread/resume, turn/start, turn/interrupt) over mixdog-core-session recovery and the Anthropic request builder (mixdog-ai, the anthropic-oauth request body); the cache warmer is native/core/crates/mixdog-ai warmer (chain_tests.rs op rearm). Replay each scenario with the scripted provider steps (the script of the fixture: toolStep/textStep), restart the core at the recorded point (idle, in a tool run, request on the wire), and compare every request body block for block (\bodies), the prefix changes, the re-armed warmBody (null when killed mid-turn) and comparisons (derived by the test's own block walk). \u001bnvironment is an input: the system prompt's machine-derived environment text (cwd, shell tools, git state, cwd entries) as the recording machine produced it; the replay injects that text verbatim into the system prompt instead of computing its own.",
   "set": "session-restart-prefix",
   "testFile": "src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs",
