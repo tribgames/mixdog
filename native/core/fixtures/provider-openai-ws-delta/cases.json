@@ -1061,7 +1061,9 @@
                 "event": "send-result",
                 "phase": "learn",
                 "content": "",
-                "responseId": null
+                "responseId": {
+                  "$exact": "undefined"
+                }
               },
               {
                 "event": "send-start",
@@ -1245,7 +1247,9 @@
                 "event": "send-result",
                 "phase": "replay-with-mismatch",
                 "content": "",
-                "responseId": null
+                "responseId": {
+                  "$exact": "undefined"
+                }
               }
             ]
           },
@@ -1436,7 +1440,9 @@
                 "event": "send-result",
                 "phase": "learn",
                 "content": "",
-                "responseId": null
+                "responseId": {
+                  "$exact": "undefined"
+                }
               },
               {
                 "event": "send-start",
@@ -1620,7 +1626,9 @@
                 "event": "send-result",
                 "phase": "replay-with-mismatch",
                 "content": "",
-                "responseId": null
+                "responseId": {
+                  "$exact": "undefined"
+                }
               }
             ]
           }

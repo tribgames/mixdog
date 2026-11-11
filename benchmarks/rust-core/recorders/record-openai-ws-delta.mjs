@@ -6,11 +6,21 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
+  pure: {
+    'default-delta-*': 'mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180',
+    'ws-delta-*': 'mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180',
+    'canonical-*': 'mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180',
+    'message-mismatch-diagnostics-hash-content': 'openai/delta.rs:84 logical_item_match (pub) decides the mismatch; the diagnostic content hashes are trace fields with no Rust counterpart (looked in openai/delta.rs: no hash fn)',
+    'diagnostic-hashes-*': 'RUST WORK: diagnostic hashes of normalized request forms have no Rust counterpart (looked in openai/delta.rs and openai/cache_key.rs)',
+    'tool-search-*': 'RUST WORK: no public Rust parser of the tool_search arguments (looked in openai/input.rs and openai/decoder.rs: the arguments are decoded inside ResponsesDecoder, not a public function)',
+    'native-tool-search-*': 'RUST WORK: the canonical replay of a native tool-search output is part of the private input lowering (openai/input.rs), reached only through the codec encode (wire)',
+    'cache-observation-*': 'RUST WORK: cache observation / continuity reset reasons are trace fields of the Node sender; no public Rust function (looked in openai/cache_key.rs, openai/continuation.rs)',
+  },
   set: 'provider-openai-ws-delta',
   net: false,
   entry: 'openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (over a real loopback WebSocket; _agentTraceFn collects the trace rows); Not run: the seams of the Node test (:316-318); the real acquire, send and stream run instead, openai-compat-stream.mjs isInvalidToolArgsMarker.',
   compare: 'mixdog-ai providers::openai delta.rs (:197-298) and decoder.rs:271-287; mixdog-trace builders.rs:765-781 (no production caller: K1 gaps G12): compare `result` whole (frame mode/reason/previous_response_id/input, hashes of the mismatch diagnostics, parsed tool_search args, cache observations). `traceRows` are the rows Node writes; Rust writes none today (diagnostic only).',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
+  replay: "PURE cases, per `levels`: mixdog-ai/src/providers/openai/delta.rs (`pub mod delta` at providers/openai/mod.rs:11): compute(&Chain, &body) -> Framed :284, response_create :207, sans_input :25, logical_item_match :84, Chain::anchor :180 (the delta chain and frame builders). WIRE case (mismatch-diagnostics-reach-trace-rows): the OpenAI WS send through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback WebSocket. Cases marked RUST WORK have no public Rust function of the same input and output.",
 });
 const P = 'agent/orchestrator/providers/';
 const { isInvalidToolArgsMarker } = await rec.P(`${P}openai-compat-stream.mjs`);
@@ -101,7 +111,7 @@ await rec.run('mismatch-diagnostics-reach-trace-rows', `${SRC}:262`, { env: 'ws-
         auth: { type: 'xai', access_token: 'test-token' }, body, poolKey: `mismatch-trace-${expected.type}`, cacheKey: 'mismatch-trace-test', iteration: 1, useModel: 'gpt-5.5', traceProvider: 'xai',
         _agentTraceFn: (row) => { rows.push(row); world.note({ event: 'trace-row', row }); },
       });
-      world.note({ event: 'send-result', phase, content: out.content, responseId: out.responseId ?? null });
+      world.note({ event: 'send-result', phase, content: out.content, responseId: out.responseId });
       return out;
     };
     await send({ model: 'gpt-5.5', input: [prior] }, 'learn');
