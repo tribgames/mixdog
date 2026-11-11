@@ -157,11 +157,12 @@ fn sidecar_names(text: &str) -> Vec<String> {
 }
 
 impl ToolResultArtifacts {
-    /// `pruneOffloadSession`'s listing: the session's sidecars at least ten minutes old (at `now_ms`);
-    /// none when there are none or the directory cannot be listed.
-    pub async fn prune_candidates(&self, now_ms: u64) -> Vec<PathBuf> {
+    /// `pruneOffloadSession`'s listing: the session's sidecars, by name only (one directory listing: a
+    /// sidecar's age is read by `prune` once nothing the session names keeps it); none when there are none
+    /// or the directory cannot be listed.
+    pub async fn prune_candidates(&self) -> Vec<PathBuf> {
         let dir = self.dir.clone();
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| old_sidecars(lane, &dir, now_ms)) else {
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| listed_sidecars(lane, &dir)) else {
             return Vec::new();
         };
         job.await.unwrap_or_default()
@@ -169,77 +170,25 @@ impl ToolResultArtifacts {
 
     /// The rest of `pruneOffloadSession`: of `candidates`, deletes the sidecars `transcripts` (the
     /// session's message lists, serialized as `JSON.stringify` writes them) neither names by path or
-    /// file name nor reaches through the archives it names, and still old at `now_ms`. Best-effort:
-    /// an unreadable archive deletes nothing. The prune has run: none is pending any more
-    /// (`clearOffloadPrunePending`).
+    /// file name nor reaches through the archives it names, and old at `now_ms`. Best-effort: an
+    /// unreadable archive deletes nothing (a later prune, the next open's, finds it again).
     pub async fn prune(&self, candidates: Vec<PathBuf>, transcripts: String, now_ms: u64) {
+        if candidates.is_empty() {
+            return;
+        }
         let dir = self.dir.clone();
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| {
-            if !candidates.is_empty() {
-                prune_dir(lane, &dir, candidates, &transcripts, now_ms);
-            }
-            clear_pending(lane, &dir);
-        }) else {
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| prune_dir(lane, &dir, candidates, &transcripts, now_ms)) else {
             return;
         };
         let _ = job.await;
     }
 
-    /// `markOffloadPrunePending`: the prune a running turn stopped is pending on disk (`{"retain":[]}` in the
-    /// session's tool-result directory, never a sidecar), so it runs after a close or a process stop too. A session
-    /// with no directory has nothing to prune; a pending one stays as it is (Node writes the same retained ids back).
-    pub async fn mark_prune_pending(&self) {
-        let dir = self.dir.clone();
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| mark_pending(lane, &dir)) else {
-            return;
-        };
-        let _ = job.await;
-    }
-
-    /// `readOffloadPrunePending`: whether a prune is pending on disk.
-    pub async fn prune_pending(&self) -> bool {
-        let path = self.dir.join(PRUNE_PENDING);
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| pending_exists(lane, &path)) else {
-            return false;
-        };
-        job.await.unwrap_or(false)
-    }
-}
-
-/// The pending prune's marker in the session's tool-result directory.
-const PRUNE_PENDING: &str = ".prune-pending";
-
-#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
-fn mark_pending(_lane: &InLane<DurabilityIo>, dir: &Path) {
-    let path = dir.join(PRUNE_PENDING);
-    if dir.is_dir() && !path.exists() {
-        // Best-effort, as the prune itself.
-        let _ = publish_file_with(&path, br#"{"retain":[]}"#, Access::OwnerOnly);
-    }
 }
 
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
-fn pending_exists(_lane: &InLane<DurabilityIo>, path: &Path) -> bool {
-    path.exists()
-}
-
-#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
-fn clear_pending(_lane: &InLane<DurabilityIo>, dir: &Path) {
-    // None was pending, or it cannot be removed: as Node's `unlinkSync` in a `try`.
-    let _ = std::fs::remove_file(dir.join(PRUNE_PENDING));
-}
-
-#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
-fn old_sidecars(_lane: &InLane<DurabilityIo>, dir: &Path, now_ms: u64) -> Vec<PathBuf> {
+fn listed_sidecars(_lane: &InLane<DurabilityIo>, dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let age = age_ms(entry.metadata().ok()?.modified().ok()?, now_ms)?;
-            (name.ends_with(".txt") && age >= PRUNE_MIN_AGE_MS).then(|| entry.path())
-        })
-        .collect()
+    entries.flatten().filter(|entry| entry.file_name().to_string_lossy().ends_with(".txt")).map(|entry| entry.path()).collect()
 }
 
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
@@ -265,6 +214,10 @@ fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>,
             reachable.push(name);
         }
     }
+    let old = |path: &Path| std::fs::metadata(path).ok().and_then(|info| info.modified().ok()).and_then(|modified| age_ms(modified, now_ms)).is_some_and(|age| age >= PRUNE_MIN_AGE_MS);
+    unreferenced.retain(|(name, _)| !reachable.contains(name));
+    // Only an old sidecar can be deleted: without one, the archives are not walked.
+    unreferenced.retain(|(_, path)| old(path));
     let mut retain = |reachable: &[String]| {
         unreferenced.retain(|(name, _)| !reachable.contains(name));
         !unreferenced.is_empty()
@@ -291,7 +244,7 @@ fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>,
     let _held = sidecars();
     for (_, path) in unreferenced {
         // Reused since it was listed: a turn holds it now.
-        let still_old = std::fs::metadata(&path).ok().and_then(|info| info.modified().ok()).and_then(|modified| age_ms(modified, now_ms)).is_some_and(|age| age >= PRUNE_MIN_AGE_MS);
+        let still_old = old(&path);
         // Best-effort, as Node's `unlink(...).catch(() => {})`: a sidecar that cannot be deleted stays.
         if still_old {
             let _ = std::fs::remove_file(path);

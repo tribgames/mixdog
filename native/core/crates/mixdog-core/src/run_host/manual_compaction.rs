@@ -241,10 +241,9 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     (working, committed.result)
 }
 
-/// `pruneOffloadSession`'s listing over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
-pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId) -> Vec<std::path::PathBuf> {
-    let now = u64::try_from(clock.now_ms()).unwrap_or(0);
-    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune_candidates(now).await
+/// `pruneOffloadSession`'s listing over the thread's tool-result store under `data_dir`.
+pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune_candidates().await
 }
 
 /// The rest of `pruneOffloadSession` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
@@ -438,19 +437,11 @@ impl ManualCompaction for HostManualCompaction {
     }
 
     async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
-        offload_candidates(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread).await
+        offload_candidates(&self.parts.io, &self.parts.data_dir, thread).await
     }
 
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
         prune_offloads(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread, candidates, transcripts).await;
-    }
-
-    async fn defer_prune(&self, thread: &ThreadId) {
-        ToolResultArtifacts::new(self.parts.io.clone(), &self.parts.data_dir, thread.as_str()).mark_prune_pending().await;
-    }
-
-    async fn prune_pending(&self, thread: &ThreadId) -> bool {
-        ToolResultArtifacts::new(self.parts.io.clone(), &self.parts.data_dir, thread.as_str()).prune_pending().await
     }
 
     /// `rearmLateDeferredTools(session)` and `rearmPromptSettingsNotice(session)` of the session ops,

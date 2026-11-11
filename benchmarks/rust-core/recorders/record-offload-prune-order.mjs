@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Records what a compaction leaves on disk when the session moves around its prune, through Node's own
 // `compactSessionMessages` with the prune-after-save fix (the prune runs once the compacted transcript is stored, idle
-// only, reading the references the session holds when it deletes; a prune a running turn stopped is pending on disk,
-// `.prune-pending` in the session's tool-result directory, and runs once the turn ends or when the session is next
-// resumed: `pruneCompactedOffloads`, `pruneOffloadSession`, `resumePendingOffloadPrune`). A stored session holds three
-// sidecars an hour old on the recorder's clock: `kept` (the summary names it), `queued` (only a queued message may name
-// it) and `stray` (only the request the compaction drops names it). "A turn" is Node's own ask markers
-// (`markSessionAskStart`, and `markSessionDone` / `markSessionCancelled` / `markSessionError` for its end): the turn's
-// state and its end, no turn rows. Cases:
+// only, reading the references the session holds when it deletes; a prune a running turn stopped runs once the turn
+// ends; nothing of a prune is remembered on disk: every resume reconciles the session's tool-result directory with what
+// is stored then: `pruneCompactedOffloads`, `pruneOffloadSession`, `reconcileOffloadsOnResume`). A stored session holds
+// three sidecars an hour old on the recorder's clock: `kept` (the summary names it), `queued` (only a queued message may
+// name it) and `stray` (only the request the compaction drops names it). "A turn" is Node's own ask markers
+// (`markSessionAskStart`, and `markSessionDone` for its end: the turn's state and its end, no turn rows), except in
+// `cancelled-turn` and `failed-turn`, which run a real turn (`askSession`, the scripted provider's model request).
+// Cases:
 //   queued-at-listing   a message naming `queued` is queued while the prune lists the session's sidecars;
 //   turn-before-save    a turn starts once the compaction is adopted, before its save; the turn then ends, and the
 //                       prune it stopped runs with no second compaction (`after-turn-end`);
@@ -16,13 +17,22 @@
 //   superseded          another writer records after this copy before the save: the save is refused;
 //   thrown              the save's fsync fails;
 //   auto-clear          the automatic compaction (`requireReduction`, the idle auto-clear's): pruned once saved;
-//   cancelled-turn      as turn-before-save, the turn cancelled;
-//   failed-turn         as turn-before-save, the turn failed;
+//   cancelled-turn      a real turn is asked once the compaction is adopted, before its save; it claims the session
+//                       after the save (`settleTurnBase` waits for it), so the prune runs at the save; its model
+//                       request is then cancelled (`abortSessionTurn`, the turn's interrupt);
+//   failed-turn         as cancelled-turn, the model request failing;
 //   closed-before-turn-end  the session is closed (no tombstone, as a resume-away or an exit closes it) before the
 //                       turn ends, then resumed;
 //   process-stopped     the process stops before the turn ends (a child recorder process, which exits), then the
 //                       session is resumed;
-//   re-referenced       before the turn ends, the stored transcript names `stray` again: the prune keeps it.
+//   re-referenced       before the turn ends, the stored transcript names `stray` again: the prune keeps it;
+//   saved-then-stopped  the process stops once the compacted transcript is durable, before the prune (a child recorder
+//                       process, which exits in the save's fsync callback); the session is then resumed;
+//   unreadable-archive  a session (not compacted) whose transcript names an archive sidecar naming another sidecar, and
+//                       a `stray` nothing names: resumed while the archive cannot be read (a directory in its place),
+//                       closed, the archive put back, resumed again;
+//   nothing-to-prune    a session (not compacted) whose transcript names its old sidecar and whose other sidecar is
+//                       young: resumed; each file's mtime is recorded too.
 // "Adopted, before its save" is the commit's timing line (`recordCompactionTiming`); "while it lists" is the prune's
 // `readdir` of the session's tool-result directory. At each observed point the recording holds the session's
 // tool-result directory whole (every file in `readdir` order, its text) and the stored transcript whole (the session's
@@ -35,7 +45,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fsp from 'node:fs/promises';
-import { appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,7 +84,6 @@ const { parseSessionLog, resolveSessionRecordSync } = await importFrom(tree, `${
 const { encodePatch } = await importFrom(tree, `${S}/store/session-log-format.mjs`);
 const { loadLegacySession } = await importFrom(tree, `${S}/store/legacy-session.mjs`);
 const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
-
 // The prune's listing: `pruneOffloadSession` reads the directory with `readdir` of node:fs/promises.
 let onListing = null;
 const readdir = fsp.readdir;
@@ -123,7 +132,7 @@ function seededElsewhere(tag) {
 
 // `compactSessionMessages` with a summary naming `kept`; `adopted` runs once the compaction is adopted (the live session
 // then holds the compacted transcript, kept as `compacted`), before it is saved.
-async function compact(seeded, { adopted = () => {}, listing = () => {}, options = {} } = {}) {
+async function compact(seeded, { adopted = () => {}, listing = () => {}, options = {}, turn = null } = {}) {
   const { sessionId, files } = seeded;
   const write = process.stderr.write;
   process.stderr.write = function (chunk, ...rest) {
@@ -136,7 +145,9 @@ async function compact(seeded, { adopted = () => {}, listing = () => {}, options
   onListing = (path) => {
     if (path.endsWith(sessionId)) listing();
   };
-  const provider = { name: 'anthropic', send: async () => ({ content: summaryNaming(files.kept) }) };
+  // `turn` answers every model request after the compaction's own (a real turn's).
+  let requests = 0;
+  const provider = { name: 'anthropic', send: async (...request) => ((requests += 1) === 1 || !turn ? { content: summaryNaming(files.kept) } : turn(...request)) };
   try {
     return await _withRegisteredProviderForTestAsync('anthropic', provider, () => manager.compactSessionMessages(sessionId, options));
   } finally {
@@ -145,13 +156,15 @@ async function compact(seeded, { adopted = () => {}, listing = () => {}, options
   }
 }
 
-// The data dir is a temporary one: every string naming it names `<DATA>` instead, and the summary header's hash of the
-// dropped messages (which name it) is `<SHA>`.
+// The data dir is a temporary one: every string naming it names `<DATA>` instead, the summary header's hash of the
+// dropped messages (which name it) is `<SHA>`, a turn completion's `attemptId` (a random UUID) is `<ATTEMPT>` and its
+// `verb` (the client's label) is `<VERB>`.
 const masked = (value) =>
   JSON.parse(
     JSON.stringify(value)
       .replaceAll(JSON.stringify(dataDir).slice(1, -1), '<DATA>')
       .replace(/(messages=\d+ sha256=)[0-9a-f]{16}/g, '$1<SHA>')
+      .replace(/("status":"[a-z]+","attemptId":)"[0-9a-f-]{36}"(,"at":\d+,"verb":)"[A-Za-z]+"/g, '$1"<ATTEMPT>"$2"<VERB>"')
   );
 
 /** The stored transcript: the session's record as it is on disk. */
@@ -161,10 +174,62 @@ function storedTranscript({ sessionId }) {
   return outcome.session.messages;
 }
 
-/** What is on disk now: the session's tool-result directory (each file in `readdir` order, its text) and its stored transcript. */
-function point(at, seeded) {
-  const toolResults = readdirSync(seeded.dir).map((name) => [name, readFileSync(join(seeded.dir, name), 'utf8')]);
+/** What is on disk now: the session's tool-result directory (each entry in `readdir` order, its text, null for a
+ *  directory; with `mtimes`, each file's mtime too) and its stored transcript. */
+function point(at, seeded, { mtimes = false } = {}) {
+  const toolResults = readdirSync(seeded.dir).map((name) => {
+    const path = join(seeded.dir, name);
+    const stat = statSync(path);
+    const entry = [name, stat.isDirectory() ? null : readFileSync(path, 'utf8')];
+    return mtimes ? [...entry, stat.mtimeMs] : entry;
+  });
   return { at, toolResults, transcript: storedTranscript(seeded) };
+}
+
+/** A stored session, not compacted: `sidecars` (role, content, mtime) and the transcript `messages(files)` names. */
+async function plainSession(tag, sidecars, messages) {
+  const sessionId = `sess_prune_order_${tag.replaceAll('-', '_')}`;
+  const files = {};
+  for (const { role, content, mtimeMs } of sidecars) {
+    files[role] = persistToolResultArtifactSync({ sessionId, toolCallId: `call_${role}`, content }).path;
+    utimesSync(files[role], mtimeMs / 1000, mtimeMs / 1000);
+  }
+  await saveSessionAsync({ id: sessionId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: messages(files), tools: [], generation: 0, closed: false });
+  const seeded = { sessionId, files, dir: join(dataDir, 'tool-results', sessionId) };
+  return { ...seeded, seed: { sessionId, sidecars, transcript: storedTranscript(seeded) } };
+}
+const sidecarName = (content) => `${createHash('sha256').update(content).digest('hex')}.txt`;
+
+// A real turn (`askSession`) asked once the compaction is adopted: its model request waits until the turn is observed,
+// then fails (`failed`) or is cancelled (`cancelled`, `abortSessionTurn`).
+async function realTurn(seeded, how) {
+  let requested;
+  const inFlight = new Promise((resolve) => (requested = resolve));
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  let ask = null;
+  const turn = async () => {
+    requested();
+    await released;
+    if (how === 'failed') throw new Error('the provider failed');
+    return { content: 'done' };
+  };
+  const provider = { name: 'anthropic', send: async () => ({ content: summaryNaming(seeded.files.kept) }) };
+  return _withRegisteredProviderForTestAsync('anthropic', provider, async () => {
+    const outcome = await settled(compact(seeded, { turn, adopted: () => (ask = manager.askSession(seeded.sessionId, 'do the thing').catch((error) => error)) }));
+    provider.send = turn;
+    await inFlight;
+    // The turn's prompt is saved before its model request; the save lands before the directory is read.
+    await settleRecorder(seeded.sessionId);
+    const points = [point('after-commit', seeded)];
+    if (how === 'cancelled') manager.abortSessionTurn(seeded.sessionId);
+    release();
+    await ask;
+    await _settleDeferredPrunesForTest();
+    await settleRecorder(seeded.sessionId);
+    points.push(point('after-turn-end', seeded));
+    return [outcome, points];
+  });
 }
 
 // Runs `compact`; a rejection is the case's `error` (its code).
@@ -194,10 +259,6 @@ async function resumed(seeded) {
   await settleRecorder(seeded.sessionId);
   return point('after-resume', seeded);
 }
-const ended = (end) => async (seeded) => {
-  const outcome = await underATurn(seeded);
-  return [outcome, [point('after-commit', seeded), await turnEnds(seeded, end)]];
-};
 const SCENARIOS = {
   'queued-at-listing': async (seeded) => [await settled(compact(seeded, { listing: () => queue(seeded) })), [point('after-commit', seeded)]],
   'turn-before-save': async (seeded) => {
@@ -235,8 +296,8 @@ const SCENARIOS = {
     }
   },
   'auto-clear': async (seeded) => [await settled(compact(seeded, { options: { requireReduction: true } })), [point('after-commit', seeded)]],
-  'cancelled-turn': ended((id) => manager.markSessionCancelled(id)),
-  'failed-turn': ended((id) => manager.markSessionError(id, 'the provider failed')),
+  'cancelled-turn': (seeded) => realTurn(seeded, 'cancelled'),
+  'failed-turn': (seeded) => realTurn(seeded, 'failed'),
   'closed-before-turn-end': async (seeded) => {
     const outcome = await underATurn(seeded);
     const points = [point('after-commit', seeded)];
@@ -247,13 +308,7 @@ const SCENARIOS = {
   },
   'process-stopped': async (seeded) => {
     // The child recorder seeds this case's session on this data dir, compacts it under a turn and exits.
-    const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', args.get('tree'), '--patch', args.get('patch'), '--child', 'process-stopped', '--data', dataDir], {
-      encoding: 'utf8',
-      timeout: 120_000,
-      windowsHide: true,
-    });
-    if (run.status !== 0) throw new Error(`the stopped process failed: ${run.error ?? run.stderr}`);
-    const stopped = JSON.parse(run.stdout.trim().split('\n').at(-1));
+    const stopped = stoppedChild('process-stopped');
     seeded.seed = stopped.seed;
     seeded.compacted = stopped.compacted;
     return [stopped.outcome, [point('after-stop', seeded), await resumed(seeded)]];
@@ -268,7 +323,72 @@ const SCENARIOS = {
     points.push(point('after-reference', seeded), await turnEnds(seeded, (id) => manager.markSessionDone(id)));
     return [outcome, points];
   },
+  'saved-then-stopped': async (seeded) => {
+    const stopped = stoppedChild('saved-then-stopped');
+    seeded.seed = stopped.seed;
+    seeded.compacted = stopped.compacted;
+    return [stopped.outcome, [point('after-stop', seeded), await resumed(seeded)]];
+  },
+  'unreadable-archive': async (seeded) => {
+    const content = readFileSync(seeded.files.archive, 'utf8');
+    rmSync(seeded.files.archive);
+    mkdirSync(seeded.files.archive);
+    const points = [{ ...(await resumed(seeded)), at: 'after-unreadable-resume' }];
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    rmSync(seeded.files.archive, { recursive: true });
+    persistToolResultArtifactSync({ sessionId: seeded.sessionId, toolCallId: 'call_archive', content });
+    points.push({ ...(await resumed(seeded)), at: 'after-readable-resume' });
+    return [{ changed: null, error: null }, points];
+  },
+  'nothing-to-prune': async (seeded) => {
+    const before = point('before-resume', seeded, { mtimes: true });
+    evictLiveSession(seeded.sessionId);
+    if (!(await manager.resumeSession(seeded.sessionId))) throw new Error(`${seeded.sessionId} was not resumed`);
+    await _settleDeferredPrunesForTest();
+    await settleRecorder(seeded.sessionId);
+    return [{ changed: null, error: null }, [before, point('after-resume', seeded, { mtimes: true })]];
+  },
 };
+
+// The sessions the cases that do not compact seed.
+const PLAIN = {
+  'unreadable-archive': () =>
+    plainSession(
+      'unreadable-archive',
+      [
+        { role: 'archived', content: 'archived output', mtimeMs: SIDECAR_MTIME_MS },
+        { role: 'archive', content: `older output is at ${sidecarName('archived output')}`, mtimeMs: SIDECAR_MTIME_MS },
+        { role: 'stray', content: 'stray output', mtimeMs: SIDECAR_MTIME_MS },
+      ],
+      (files) => [
+        { role: 'user', content: `the archive is at ${files.archive}` },
+        { role: 'assistant', content: 'noted' },
+      ]
+    ),
+  'nothing-to-prune': () =>
+    plainSession(
+      'nothing-to-prune',
+      [
+        { role: 'named', content: 'named output', mtimeMs: SIDECAR_MTIME_MS },
+        { role: 'young', content: 'young output', mtimeMs: CLOCK_MS },
+      ],
+      (files) => [
+        { role: 'user', content: `the result is at ${files.named}` },
+        { role: 'assistant', content: 'noted' },
+      ]
+    ),
+};
+
+/** Runs this recorder as the child `name` on this data dir; its last stdout line is the case it reports. */
+function stoppedChild(name) {
+  const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', args.get('tree'), '--patch', args.get('patch'), '--child', name, '--data', dataDir], {
+    encoding: 'utf8',
+    timeout: 120_000,
+    windowsHide: true,
+  });
+  if (run.status !== 0) throw new Error(`the stopped process failed: ${run.error ?? run.stderr}`);
+  return JSON.parse(run.stdout.trim().split('\n').at(-1));
+}
 
 if (child === 'process-stopped') {
   const seeded = await storedSession(child);
@@ -276,14 +396,32 @@ if (child === 'process-stopped') {
   console.log(JSON.stringify({ seed: seeded.seed, compacted: seeded.compacted, outcome }));
   process.exit(0);
 }
+if (child === 'saved-then-stopped') {
+  // The process exits in the fsync callback of the compaction's save: the compacted transcript is durable and the
+  // prune has not run. The compaction never answers: no outcome.
+  const seeded = await storedSession(child);
+  const io = _sessionLogIoForTest();
+  const fsync = io.fsync;
+  await compact(seeded, {
+    adopted: () => {
+      io.fsync = (fd, done) =>
+        fsync(fd, (error) => {
+          if (error) return done(error);
+          console.log(JSON.stringify({ seed: seeded.seed, compacted: seeded.compacted, outcome: { changed: null, error: null } }));
+          process.exit(0);
+        });
+    },
+  });
+  process.exit(1);
+}
 
 const only = args.get('only');
 if (only && !SCENARIOS[only]) throw new Error(`no case ${only}`);
 const cases = [];
 for (const [name, scenario] of Object.entries(SCENARIOS)) {
   if (only && only !== name) continue;
-  // The stopped process seeds its own session (`--child`).
-  const seeded = name === 'process-stopped' ? seededElsewhere(name) : await storedSession(name);
+  // A stopped process seeds its own session (`--child`).
+  const seeded = ['process-stopped', 'saved-then-stopped'].includes(name) ? seededElsewhere(name) : PLAIN[name] ? await PLAIN[name]() : await storedSession(name);
   const [outcome, points] = await scenario(seeded);
   cases.push(masked({ name, ...outcome, seed: seeded.seed, compacted: seeded.compacted, points }));
 }
@@ -313,6 +451,9 @@ writeSetManifest(stage, {
     normalised: {
       dataDir: 'the data dir is a temporary one: every string naming it names <DATA>',
       summaryHash: "the summary header's `sha256=` hashes the dropped messages, which name the temporary data dir: it is <SHA>",
+      attemptId: "a turn completion's `attemptId` (meta.transcript.completion, cancelled-turn and failed-turn) is a random UUID on both sides: it is <ATTEMPT>",
+      completionVerb:
+        "a turn completion's `verb` is the client's label: Node's runtime has none without a client (`failedTurnCompletion`'s `Thought`), the core's `turn/start` stamps the client's `pickDoneVerb(stats.turns)` (`Mapped` for its first turn); it is <VERB>",
     },
     exclusions: {
       sessionFiles: "the session store's own files (sessions/<id>.json, <id>.log.jsonl) are Node's format; the core's store writes its own record log, so their names and bytes are not compared: the stored transcript is, whole, as each store reads it back",

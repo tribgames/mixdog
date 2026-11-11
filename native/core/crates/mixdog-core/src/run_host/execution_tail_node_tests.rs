@@ -154,7 +154,7 @@ impl Replay {
             let transcripts = mixdog_js::json_stringify(&Value::Array(rows));
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
             let store = archive(&self.data, session);
-            let candidates = store.prune_candidates(now + 3_600_000).await;
+            let candidates = store.prune_candidates().await;
             store.prune(candidates, transcripts, now + 3_600_000).await;
             let mut listing = Vec::new();
             listed(&self.data, &mut listing);
