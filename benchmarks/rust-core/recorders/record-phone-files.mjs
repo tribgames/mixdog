@@ -19,7 +19,7 @@ import { FIXED_NOW_MS, filesRelayScript, filesScript, filesWorld, play, treeOf, 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-phone-files.mjs';
 // Every module of this repository the recorder loads (its replay too), each by sha256 in the manifest.
-const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-files-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
+const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-files-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-relay-core.mjs', 'lib/core-stop.mjs', 'lib/process-job.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-files');
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
