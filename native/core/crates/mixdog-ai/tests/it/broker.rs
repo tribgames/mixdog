@@ -222,6 +222,8 @@ impl ModelStream for ScriptedStream {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
 }
 
 #[async_trait]
