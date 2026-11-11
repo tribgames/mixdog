@@ -3,11 +3,495 @@
     {
       "case": "a job started after reclaim and reload reaches the pane as stopped; a running job keeps its session loaded",
       "observed": {
-        "threw": {
-          "$exact": "error",
-          "name": "Error",
-          "message": "the running job to reach the pane: no answer within 60000 ms",
-          "props": {}
+        "sessionId": "sess_lifecycle_owner",
+        "idleEvictMs": 300,
+        "jobId": "job_<ms>_000000",
+        "steps": [
+          {
+            "step": "created and shown",
+            "atMs": 0,
+            "status": {
+              "live": 1,
+              "busy": 0,
+              "watched": 1,
+              "retained": 0,
+              "projected": 1,
+              "pendingViewerSessions": 0
+            },
+            "paneRowCount": 1
+          },
+          {
+            "step": "hidden; the idle delay advanced; reclaimed",
+            "atMs": 1200,
+            "status": {
+              "live": 0,
+              "busy": 0,
+              "watched": 0,
+              "retained": 0,
+              "projected": 0,
+              "pendingViewerSessions": 0
+            },
+            "paneRowCount": 1,
+            "disposedSessions": [
+              "sess_lifecycle_owner"
+            ]
+          },
+          {
+            "step": "shown again (reloaded)",
+            "atMs": 1200,
+            "status": {
+              "live": 1,
+              "busy": 0,
+              "watched": 1,
+              "retained": 0,
+              "projected": 1,
+              "pendingViewerSessions": 0
+            },
+            "paneRowCount": 2,
+            "runtimesCreated": 2
+          },
+          {
+            "step": "the job runs and is on the pane",
+            "atMs": 11400,
+            "status": {
+              "live": 1,
+              "busy": 1,
+              "watched": 1,
+              "retained": 0,
+              "projected": 1,
+              "pendingViewerSessions": 0
+            },
+            "paneRowCount": 3,
+            "started": {
+              "stdout": "",
+              "stderr": "",
+              "exitCode": null,
+              "signal": null,
+              "timedOut": false,
+              "killed": false,
+              "killCause": null,
+              "stdoutPath": "<fixtureRoot>\\MIXDOG_DATA_DIR\\shell-output\\shell_00000000.stdout",
+              "stdoutFileSize": 0,
+              "stderrPath": "<fixtureRoot>\\MIXDOG_DATA_DIR\\shell-output\\shell_00000000.stderr",
+              "stderrFileSize": 0,
+              "taskId": "shell_00000000",
+              "partialOutput": true,
+              "outputCaptureError": null,
+              "failurePhase": null,
+              "failureReason": null,
+              "backgrounded": true,
+              "jobId": "job_<ms>_000000",
+              "settled": null,
+              "backgroundMessage": "moved to background after the 0s hold; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.",
+              "descendants": null
+            },
+            "running": {
+              "count": 1,
+              "elapsedLabel": "",
+              "jobs": [
+                {
+                  "taskId": "job_<ms>_000000",
+                  "command": "serve",
+                  "cwd": "<fixtureRoot>",
+                  "startedAt": "<iso>"
+                }
+              ],
+              "finished": []
+            }
+          },
+          {
+            "step": "hidden with the job running; the idle delay advanced 4x",
+            "atMs": 12600,
+            "status": {
+              "live": 1,
+              "busy": 1,
+              "watched": 0,
+              "retained": 1,
+              "projected": 0,
+              "pendingViewerSessions": 0
+            },
+            "paneRowCount": 3,
+            "disposedSessions": [
+              "sess_lifecycle_owner"
+            ]
+          },
+          {
+            "step": "stopped",
+            "atMs": 22600,
+            "status": {
+              "live": 0,
+              "busy": 0,
+              "watched": 0,
+              "retained": 0,
+              "projected": 0,
+              "pendingViewerSessions": 0
+            },
+            "paneRowCount": 6,
+            "stopped": {
+              "stopped": true
+            },
+            "settled": {
+              "count": 0,
+              "elapsedLabel": "",
+              "jobs": [],
+              "finished": [
+                {
+                  "taskId": "job_<ms>_000000",
+                  "command": "serve",
+                  "cwd": "<fixtureRoot>",
+                  "startedAt": "<iso>",
+                  "status": "cancelled",
+                  "exitCode": 137,
+                  "finishedAt": "<iso>"
+                }
+              ]
+            },
+            "lastPane": {
+              "count": 0,
+              "elapsedLabel": "",
+              "jobs": [],
+              "finished": [
+                {
+                  "taskId": "job_<ms>_000000",
+                  "command": "serve",
+                  "cwd": "<fixtureRoot>",
+                  "startedAt": "<iso>",
+                  "status": "cancelled",
+                  "exitCode": 137,
+                  "finishedAt": "<iso>"
+                }
+              ]
+            }
+          }
+        ],
+        "paneRows": [
+          {
+            "count": 0,
+            "elapsedLabel": "",
+            "jobs": [],
+            "finished": []
+          },
+          {
+            "count": 0,
+            "elapsedLabel": "",
+            "jobs": [],
+            "finished": []
+          },
+          {
+            "count": 1,
+            "elapsedLabel": "",
+            "jobs": [
+              {
+                "taskId": "job_<ms>_000000",
+                "command": "serve",
+                "cwd": "<fixtureRoot>",
+                "startedAt": "<iso>"
+              }
+            ],
+            "finished": []
+          },
+          {
+            "count": 0,
+            "elapsedLabel": "",
+            "jobs": [],
+            "finished": []
+          },
+          {
+            "count": 0,
+            "elapsedLabel": "",
+            "jobs": [],
+            "finished": []
+          },
+          {
+            "count": 0,
+            "elapsedLabel": "",
+            "jobs": [],
+            "finished": [
+              {
+                "taskId": "job_<ms>_000000",
+                "command": "serve",
+                "cwd": "<fixtureRoot>",
+                "startedAt": "<iso>",
+                "status": "cancelled",
+                "exitCode": 137,
+                "finishedAt": "<iso>"
+              }
+            ]
+          }
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 0,
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 1000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 300
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
+              "atMs": 1200
+            },
+            {
+              "api": "setInterval",
+              "ms": 1000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 30000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 0,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 30000,
+              "atMs": 1200
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 1200
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 200,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 1400
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 1400
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 6400
+            },
+            {
+              "api": "setTimeout",
+              "ms": 1000,
+              "atMs": 11400
+            },
+            {
+              "api": "setInterval",
+              "ms": 1000,
+              "atMs": 11400
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 12600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 12600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 3000,
+              "atMs": 12600
+            },
+            {
+              "api": "setInterval",
+              "ms": 60000,
+              "atMs": 12600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 12600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 12600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 12600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 12600
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 12900
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 17600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 1800000,
+              "atMs": 17600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 22600
+            }
+          ],
+          "fired": [
+            {
+              "api": "setTimeout",
+              "ms": 0,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 300
+            },
+            {
+              "api": "setInterval",
+              "ms": 1000,
+              "atMs": 1000
+            },
+            {
+              "api": "setTimeout",
+              "ms": 0,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 200,
+              "atMs": 1400
+            },
+            {
+              "api": "setInterval",
+              "ms": 1000,
+              "atMs": 2200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 6400
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 11400
+            },
+            {
+              "api": "setTimeout",
+              "ms": 1000,
+              "atMs": 12400
+            },
+            {
+              "api": "setInterval",
+              "ms": 1000,
+              "atMs": 12400
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 12900
+            },
+            {
+              "api": "setTimeout",
+              "ms": 3000,
+              "atMs": 15600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 17600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 22600
+            }
+          ],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 60000,
+              "dueMs": 72600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 1800000,
+              "dueMs": 1817600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "dueMs": 27600
+            }
+          ]
         }
       }
     }
