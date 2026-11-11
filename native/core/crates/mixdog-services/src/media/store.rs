@@ -91,16 +91,18 @@ pub struct MediaStore {
     /// `readIndex`): a screen of thumbnails reads it once. Held across a disk read, so a burst of
     /// readers finds one read.
     index: Mutex<IndexCache>,
-    /// Stops a save between its asset and its index (a process killed there).
+    /// Runs in a catalog mutation after its first read of the index and before its locked
+    /// read-modify-write: a test holds two saves there to make both read before either writes.
     #[cfg(test)]
-    before_index_publish: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    after_index_read: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
-/// `indexSignature`: what `index.json` looked like when the cache was filled.
+/// `indexSignature` (`store.mjs:61-65`): `mtimeMs:ctimeMs:size` of `index.json`. The ctime is the
+/// inode change time on Unix and `FILE_BASIC_INFO.ChangeTime` on Windows, as libuv reports it.
 #[derive(Clone, PartialEq)]
 enum IndexSignature {
     Missing,
-    File { modified: Option<std::time::SystemTime>, created: Option<std::time::SystemTime>, len: u64 },
+    File { mtime_ns: i128, ctime_ns: i128, size: u64 },
 }
 
 /// `indexCacheSignature` / `indexCacheAssets` and the counters of `mediaStoreCacheStats`.
@@ -258,7 +260,7 @@ impl MediaStore {
             layout_checked: std::sync::atomic::AtomicBool::new(false),
             index: Mutex::new(IndexCache::default()),
             #[cfg(test)]
-            before_index_publish: Mutex::new(None),
+            after_index_read: Mutex::new(None),
         }
     }
 
@@ -376,10 +378,9 @@ impl MediaStore {
     }
 
     /// `indexSignature`: only an absent file is missing; any other failure to look propagates.
-    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     fn index_signature(&self) -> Result<IndexSignature, MediaError> {
-        match fs::metadata(self.index_path()) {
-            Ok(meta) => Ok(IndexSignature::File { modified: meta.modified().ok(), created: meta.created().ok(), len: meta.len() }),
+        match mixdog_workspace::ident::stat_version(&self.index_path()) {
+            Ok(version) => Ok(IndexSignature::File { mtime_ns: version.mtime_ns, ctime_ns: version.ctime_ns, size: version.size }),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(IndexSignature::Missing),
             Err(error) => Err(error.into()),
         }
@@ -414,12 +415,21 @@ impl MediaStore {
     }
 
     /// The one catalog read-modify-write (`mutateIndex`); `mutate` returning `None` writes nothing.
-    /// The catalog is read through the cache first (which sets a damaged one aside), then afresh for
-    /// the change; what was written becomes the cached catalog, and a failed write leaves the cache
-    /// as it was.
+    /// The catalog is read through the cache first (which sets a damaged one aside), then afresh
+    /// under the lock for the change, as `updateJsonAtomicSync` reads it under `<file>.lock`
+    /// (`atomic-file.mjs:668-679`): a save that read the catalog before another's write still
+    /// changes the catalog that write left. What was written becomes the cached catalog, and a
+    /// failed write leaves the cache as it was.
     fn mutate_assets<T>(&self, mutate: impl FnOnce(Vec<Value>) -> (Option<Vec<Value>>, T)) -> Result<T, MediaError> {
-        let _guard = self.lock.lock().unwrap();
         self.read_index()?;
+        #[cfg(test)]
+        {
+            let gate = self.after_index_read.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate();
+            }
+        }
+        let _guard = self.lock.lock().unwrap();
         let (next, out) = mutate(self.read_assets()?);
         if let Some(next) = next {
             self.write_assets(&next)?;
@@ -463,13 +473,7 @@ impl MediaStore {
         let path = self.stored_asset_path(&file).ok_or_else(|| invalid("invalid media asset path"))?;
         // Durable before the index names it.
         write_atomic(&path, bytes, false)?;
-        #[cfg(test)]
-        {
-            let stop = self.before_index_publish.lock().unwrap().take();
-            if let Some(stop) = stop {
-                stop();
-            }
-        }
+        mixdog_workspace::killpoint::hit("media-save:before-index");
         entry["file"] = json!(file);
         let saved = entry.clone();
         self.mutate_assets(|mut assets| {
@@ -958,6 +962,42 @@ mod tests {
             .collect()
     }
 
+    /// An edit from outside that keeps the size and the mtime still changes the change time, which
+    /// `indexSignature` includes: the next read sees it.
+    #[test]
+    fn an_outside_rewrite_of_the_same_size_with_the_mtime_restored_is_seen() {
+        let (_d, s) = store();
+        let a = save(&s, "image");
+        assert_eq!(s.list_assets(None, None, None, "").unwrap()["assets"][0]["prompt"], "p");
+        let path = s.index_path();
+        let before = mixdog_workspace::ident::stat_version(&path).unwrap();
+        let mtime = fs::metadata(&path).unwrap().modified().unwrap();
+        let edited = String::from_utf8(fs::read(&path).unwrap()).unwrap().replace("\"prompt\":\"p\"", "\"prompt\":\"q\"");
+        // File times tick (NTFS: about 16 ms): the edit is repeated until it lands in a later tick
+        // than the cached read, as an outside editor's would.
+        loop {
+            fs::write(&path, &edited).unwrap();
+            fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(mtime).unwrap();
+            let after = mixdog_workspace::ident::stat_version(&path).unwrap();
+            assert_eq!((after.size, after.mtime_ns), (before.size, before.mtime_ns), "same size, mtime restored");
+            if after.ctime_ns != before.ctime_ns {
+                break;
+            }
+        }
+        let listed = s.list_assets(None, None, None, "").unwrap();
+        assert_eq!((listed["assets"][0]["id"].clone(), listed["assets"][0]["prompt"].clone()), (a["id"].clone(), json!("q")));
+    }
+
+    /// The child of the kill test: a save over the parent's folder, aborted at the kill point
+    /// between the asset and the index (`MIXDOG_KILL_AT`).
+    #[test]
+    fn kill_child() {
+        let Ok(dir) = std::env::var("MIXDOG_MEDIA_KILL_DIR") else { return };
+        let s = MediaStore::new(Path::new(&dir), mixdog_rt::testing::tokens().durability_io);
+        save(&s, "video");
+        unreachable!("the save is killed before its index");
+    }
+
     /// A process killed after the asset is written and before the index names it leaves what Node's
     /// `saveMediaAsset` leaves: the asset's file, listed nowhere, and the index as it was, readable.
     #[test]
@@ -965,9 +1005,13 @@ mod tests {
         let (dir, s) = store();
         let kept = save(&s, "image");
         let index = fs::read(s.index_path()).unwrap();
-        *s.before_index_publish.lock().unwrap() = Some(Box::new(|| panic!("killed between the asset and the index")));
-        let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| save(&s, "video")));
-        assert!(killed.is_err(), "the save stopped where it was killed");
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "media::store::tests::kill_child", "--nocapture", "--test-threads=1"])
+            .env("MIXDOG_MEDIA_KILL_DIR", dir.path())
+            .env("MIXDOG_KILL_AT", "media-save:before-index")
+            .status()
+            .unwrap();
+        assert!(!status.success(), "the child dies at the kill point");
         assert_eq!(fs::read(s.index_path()).unwrap(), index, "the index is untouched");
         let orphans = files_under(&s.assets_dir().join("videos"));
         assert_eq!(orphans.len(), 1, "the asset's bytes are on disk: {orphans:?}");
@@ -978,27 +1022,32 @@ mod tests {
         assert!(!fs::read_dir(&next.dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".corrupt-")), "nothing was set aside");
     }
 
+    /// Two saves that both read the index before either writes (each held at the gate until the
+    /// other has read) both end up in it: the change is made to a fresh read under the lock.
     #[test]
     fn two_saves_at_once_both_reach_the_index() {
         let (dir, s) = store();
-        let start = std::sync::Barrier::new(2);
+        save(&s, "image");
+        let first = s.list_assets(None, None, None, "").unwrap()["assets"][0].clone();
+        let both_read = Arc::new(std::sync::Barrier::new(2));
+        *s.after_index_read.lock().unwrap() = Some(Arc::new({
+            let both_read = both_read.clone();
+            move || {
+                both_read.wait();
+            }
+        }));
         let (a, b) = std::thread::scope(|scope| {
-            let a = scope.spawn(|| {
-                start.wait();
-                save(&s, "image")
-            });
-            let b = scope.spawn(|| {
-                start.wait();
-                save(&s, "video")
-            });
+            let a = scope.spawn(|| save(&s, "image"));
+            let b = scope.spawn(|| save(&s, "video"));
             (a.join().unwrap(), b.join().unwrap())
         });
+        *s.after_index_read.lock().unwrap() = None;
         let ids = |listed: Value| {
             let mut ids: Vec<String> = listed["assets"].as_array().unwrap().iter().map(|e| str_field(e, "id").to_owned()).collect();
             ids.sort();
             ids
         };
-        let mut want = vec![str_field(&a, "id").to_owned(), str_field(&b, "id").to_owned()];
+        let mut want = vec![str_field(&first, "id").to_owned(), str_field(&a, "id").to_owned(), str_field(&b, "id").to_owned()];
         want.sort();
         assert_eq!(ids(s.list_assets(None, None, None, "").unwrap()), want);
         let next = MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io);
