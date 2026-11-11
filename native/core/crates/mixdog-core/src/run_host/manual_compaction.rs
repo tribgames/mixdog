@@ -377,6 +377,12 @@ impl ManualCompaction for HostManualCompaction {
         let snapshot_ids: Vec<ItemId> = context.iter().map(|(iid, _)| iid.clone()).collect();
         match directory.commit_compaction(thread, snapshot_ids, compaction, Some(header)).await? {
             CompactionCommit::Applied => {
+                // `pruneCompactedOffloads`: the sidecars the compacted transcript no longer reaches go. The commit was
+                // refused while a turn ran, so the transcript is the session's whole live context.
+                if let Ok(live) = directory.model_context(thread).read().await {
+                    let rows: Vec<&Value> = live.iter().map(|(_, row)| row).collect();
+                    ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, thread.as_str()).prune(json!(rows).to_string()).await;
+                }
                 let result = answer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
             }
