@@ -115,6 +115,9 @@ pub struct SpawnOptions {
     /// A terminal tab's exit, raised when node-pty raised it (see [`NodePtyExit`]) instead of after [`ProcessConfig::output_drain`].
     /// Only a Windows pseudo-console process uses it.
     pub node_pty_exit: Option<NodePtyExit>,
+    /// The process is the framed scripted shell (`crate::scripted::in_place_of`): its output reaches the feed one scripted chunk per read.
+    #[cfg(feature = "scripted-shell")]
+    pub scripted_frames: bool,
 }
 
 /// When node-pty (the copy Node's desktop loaded) raised a Windows terminal's `exit`, which Node's terminal manager answered with the
@@ -952,6 +955,8 @@ fn launch_process(
     let mut filter = options.filter;
     let drain = Drain::new(readers.len());
     for (stream, reader) in readers {
+        #[cfg(feature = "scripted-shell")]
+        let reader: Box<dyn std::io::Read + Send> = if options.scripted_frames { Box::new(crate::scripted::Frames::new(reader)) } else { reader };
         let feed = Arc::clone(&feed);
         let filter = filter.take();
         let reading = Reading(Arc::clone(&drain));
