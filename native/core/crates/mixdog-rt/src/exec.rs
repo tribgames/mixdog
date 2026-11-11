@@ -9,7 +9,7 @@
 //! | io-interactive | 4, queue 16 | normal |
 //! | io-durability | 4, queue 256 | normal |
 //! | io-maintenance | 2, queue 256 | below normal |
-//! | io-spawn | 2, queue 64 | normal |
+//! | io-spawn | 4, queue 256 | normal |
 //! | io-pty | one thread per job, 64 live per core | normal |
 //! | control / computer / webrtc-media / sqlite-writer | one thread per token spawn | above / normal / below / normal |
 //!
@@ -119,7 +119,9 @@ const fn lane_priority(kind: LaneKind) -> Priority {
 ///   group-commit batch (`session/durability.rs`, at most `batch_bytes`); fsync on stalled
 ///   storage is the hang this catches. 15x the lock wait. Multi-file jobs report progress.
 /// - io-spawn 30 s: one process creation plus job-object setup (`mixdog-spawn manager.rs`
-///   `launch_process`), milliseconds; headroom for a first-run virus scan.
+///   `launch_process`), or one filesystem call of a shell call's start (`mixdog-tools exec`:
+///   log files, scratch and launcher directories, program lookup), milliseconds; headroom for
+///   a first-run virus scan.
 /// - cpu-bulk and io-maintenance 10 min: jobs here are loops that report progress (repo
 ///   walks, blob census per shard); the longest unreported step is one recursive delete of a
 ///   session scratch or tool-result tree (`session/purge.rs` `remove_all`), assumed at most
@@ -195,13 +197,20 @@ impl RtConfig {
                 threads: 4,
                 queue: 256,
             },
+            // Background loops only (walks, censuses, deletes, searches): the lease table above
+            // allows one job minutes, so no tool call's start or output waits here.
             maintenance_io: PoolParams {
                 threads: 2,
                 queue: 256,
             },
+            // Every shell call's start: a few single filesystem calls and one process creation,
+            // milliseconds each. The lease table's slow case (a first-run scan) may hold a thread
+            // for seconds, so two may stall while two keep serving; more threads buy nothing at
+            // millisecond service times. A call has one job in flight at a time, so the queue
+            // holds a start per concurrent call (30 agents x 8 parallel calls), as io-durability's.
             spawn_io: PoolParams {
-                threads: 2,
-                queue: 64,
+                threads: 4,
+                queue: 256,
             },
             pty_max_live: 64 * cores,
         }
