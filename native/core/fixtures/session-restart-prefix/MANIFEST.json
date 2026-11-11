@@ -43,7 +43,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+      "sha256": "da1f370e4e41df1b21edd733ec5db174423ef54a4cf7712d5b97922844c2e7b3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
@@ -66,14 +66,15 @@
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
-      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
-      "commitFilesMissingFromTree": 199,
-      "exact": false,
-      "filesDifferingFromCommit": 238
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -81,8 +82,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-restart-prefix.mjs",
-  "recorderSha256": "175372fa0e3396c918137c7b3f9388796d840af4492c95cfb99ae51d94a60330",
-  "replay": "native/core/crates/mixdog-core/src/run_host/restart_prefix_tests.rs runs each phase through the core over a real store on a temp data directory and the production Anthropic adapter (AnthropicAdapter::oauth over ReqwestLink) sending to a loopback HTTP server: a lead session on anthropic-oauth (Korean, so every request carries the language reminder), its route and Node's recorded system texts set through the header (inputs, with the recording machine's environment block), Node's tool definitions with read calling the core's read tool, the scripted answers sent as Anthropic event streams. The first process is a child process of the test binary, killed (no shutdown path) idle, inside the third read once the row calling call_3 is on disk, or when the request carrying call_2's result arrives; a second process reopens the directory and runs the third task. Every request body is compared as the bytes the server received with Node's JSON.stringify of the recorded body, before and after the restart; changes and comparisons are a walk over those bodies, so equal bodies give equal walks. A request waits for the rows it carries to be durable (mixdog-agent run.rs Run::drive). Not yet replayed: warmBody (the warm request is rebuilt by HostRunParts::next_request, NextRequestSource::last_sent, which this harness does not host).",
+  "recorderSha256": "605c6b5ed7dc77721b59d885961a194cbd2a55d4f6f61cacc34491d3de070d4f",
+  "replay": "native/core/crates/mixdog-core/src/run_host/restart_prefix_tests.rs runs each phase through the core over a real store on a temp data directory and the production Anthropic adapter (AnthropicAdapter::oauth over ReqwestLink) sending to a loopback HTTP server: a lead session on anthropic-oauth (Korean, so every request carries the language reminder), its route and Node's recorded system texts set through the header (inputs, with the recording machine's environment block), Node's tool definitions with read calling the core's read tool, the scripted answers sent as Anthropic event streams. The first process is a child process of the test binary, killed (no shutdown path) idle, inside the third read once the row calling call_3 is on disk, or when the request carrying call_2's result arrives; a second process reopens the directory and runs the third task. Every request body is compared as the bytes the server received with Node's JSON.stringify of the recorded body, before and after the restart; changes and comparisons are a walk over those bodies, so equal bodies give equal walks. A request waits for the rows it carries to be durable (mixdog-agent run.rs Run::drive). warmBody: Node rebuilds the warm from the stored session (lastSentMainRequest, side-question.mjs:108, whose system prompt is the stored header's and whose tools are session.tools), so the replay gives the core the same stored inputs (the header's prompt fields and tools) and the restarted process sends its warm through the production pieces: HostRunParts::next_request behind NextRequestSource::last_sent over the reopened store, SessionsWarm::last_sent_request and ProvidersWarm::send to the production adapter; the body the server received equals Node's warmBody byte for byte (null after a restart inside a turn: no warm is sent). After the reopen and before the third task, thread/read shows the conversation Node's first request after the restart carries.",
   "set": "session-restart-prefix",
   "testFile": "src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs",
   "totalBytes": 894140,

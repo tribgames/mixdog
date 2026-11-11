@@ -2382,13 +2382,19 @@ mod tests {
     }
 
     async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
+        turn_world_over(provider, None, None).await
+    }
+
+    /// [`turn_world`] over `threads` (the rig's memory store when `None`) with `pool` as the tool pool (`list` and `Skill`
+    /// when `None`).
+    async fn turn_world_over(provider: Arc<dyn ProviderAdapter>, threads: Option<Arc<dyn mixdog_core_session::session::ThreadStore>>, pool: Option<Vec<Arc<dyn Tool>>>) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
         let ledger = Arc::new(Ledger::default());
         let sink: Arc<dyn mixdog_ai::registry::accounting::UsageSink> = ledger.clone();
         let accounting = mixdog_ai::registry::accounted::AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
-        let pool: Vec<Arc<dyn Tool>> = vec![named("list"), named("Skill")];
+        let pool: Vec<Arc<dyn Tool>> = pool.unwrap_or_else(|| vec![named("list"), named("Skill")]);
         let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(MockProcessManager::default());
         let clock: Arc<dyn Clock> = Arc::new(Fixed);
         let connectors: Arc<dyn mixdog_tools::policy::ConnectorPermissions> = mixdog_mcp::permissions::ConnectorPolicy::new(
@@ -2454,11 +2460,16 @@ mod tests {
             liveness,
             search_usage: mixdog_tools::web::NativeSearchUsageSinks::new(),
             deps: Box::new({
-                let store = rig.store.clone();
+                // A world over a real store hosts a stored session: its surface is the production one, the header's tools.
+                let production_surface = threads.is_some();
+                let store = threads.unwrap_or_else(|| -> Arc<dyn mixdog_core_session::session::ThreadStore> { rig.store.clone() });
                 let rig_deps = rig.deps_parts(store);
                 move |runs| {
                     let mut deps = rig_deps;
                     deps.runs = runs;
+                    if production_surface {
+                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(Arc::new(mixdog_core_session::session::NoRouteExclusions)));
+                    }
                     deps.side = Arc::new(super::super::side_question_store::SideQuestionService::new(side_store, side_next));
                     deps
                 }
