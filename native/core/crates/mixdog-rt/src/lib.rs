@@ -221,6 +221,38 @@ pub mod testing {
         }
     }
 
+    /// The lanes held full ([`hold_full`]), each with the notify its waiters park on.
+    static FULL: std::sync::Mutex<Vec<(LaneKind, Arc<tokio::sync::Notify>)>> = std::sync::Mutex::new(Vec::new());
+
+    fn full(lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
+        FULL.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(kind, _)| *kind == lane).map(|(_, freed)| freed.clone())
+    }
+
+    /// While alive, `lane` is full for every thread, as a lane whose threads and queue gated jobs fill: a plain submit is
+    /// refused (`LaneFull`) and [`crate::tokens::LaneToken::submit_wait`] waits; dropping the guard frees the lane and wakes
+    /// the waiters, as a gate that lets its jobs end does.
+    #[must_use]
+    pub struct HeldFull(LaneKind);
+
+    /// Holds `lane` full until the guard is dropped.
+    pub fn hold_full(lane: LaneKind) -> HeldFull {
+        FULL.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((lane, Arc::new(tokio::sync::Notify::new())));
+        HeldFull(lane)
+    }
+
+    impl Drop for HeldFull {
+        fn drop(&mut self) {
+            let freed = {
+                let mut held = FULL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let at = held.iter().position(|(kind, _)| *kind == self.0);
+                at.map(|at| held.remove(at).1)
+            };
+            if let Some(freed) = freed {
+                freed.notify_waiters();
+            }
+        }
+    }
+
     /// Runs lane jobs inline on the submitting thread (deterministic), spawns tasks on the
     /// ambient tokio runtime, and starts dedicated threads without priorities.
     pub struct InlineBackend;
@@ -246,11 +278,15 @@ pub mod testing {
         fn record_poll(&self, _task: &'static str, _class: TaskClass, _elapsed: Duration) {}
 
         fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
-            if REFUSE.get() {
+            if REFUSE.get() || full(job.lane()).is_some() {
                 return Err(LaneFull { lane: job.lane() });
             }
             job.run();
             Ok(())
+        }
+
+        fn capacity_notify(&self, lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
+            full(lane)
         }
 
         fn enter_thread(&self, _kind: ThreadKind) {}
