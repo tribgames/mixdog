@@ -152,19 +152,18 @@ export async function replay({ exe, golden, manifest, only }) {
           const next = await within(raw.phone.next(), `the close of ${raw.clientId} after ${step.name}`);
           got = next.closed !== undefined ? { closed: next.closed } : { frame: next.frame };
         } else {
-          // No Node counterpart (the core's method names are its own): the answer is compared whole with the core's own refusal of a
-          // name that does not exist, sent next on the same connection, and the connection must answer the frame after that.
+          // No Node counterpart (the core's method names are its own; manifest `coreOnly`, declared): the frame is answered with an
+          // error and no result, the connection stays open and answers the next frame; its lack of effect is in the folder and
+          // preferences compared at the end. Nothing expected here comes from another answer of the core.
           const answerTo = (id, what) => firstFrame(() => raw.phone.next(), (f) => f?.id === id, `the answer of ${raw.clientId} to ${what}`);
           const lone = await answerTo(step.coreId, step.name);
-          await raw.phone.send(frame(step.coreStandIn.raw));
-          const standIn = await answerTo(step.coreId, `${step.name}: the stand-in`);
           await raw.phone.send(frame(step.coreNext.raw));
           const after = await answerTo(step.coreNext.id, `${step.name}: the next frame`);
-          if (standIn.closed !== undefined || !standIn.frame.error) throw new Error(`${step.name}: the core did not refuse its stand-in: ${JSON.stringify(standIn)}`);
-          got = { answer: lone.closed !== undefined ? { closed: lone.closed } : lone.frame, nextAnswered: after.closed === undefined && after.frame.result !== undefined };
+          const refusal = (answer) => answer.closed === undefined && answer.frame.error !== undefined && answer.frame.result === undefined;
+          got = { refused: refusal(lone), nextAnswered: after.closed === undefined && after.frame.result !== undefined };
           compared += 1;
-          const expected = { answer: standIn.frame, nextAnswered: true };
-          if (!isDeepStrictEqual(got, expected)) unexpected.push({ step: `${step.name} (compared with the core's refusal of ${step.coreStandIn.raw})`, node: expected, core: got });
+          const expected = { refused: true, nextAnswered: true };
+          if (!isDeepStrictEqual(got, expected)) unexpected.push({ step: `${step.name} (declared: refused, the next frame answered)`, node: expected, core: { ...got, answer: lone.closed !== undefined ? { closed: lone.closed } : lone.frame } });
           continue;
         }
       } else {
