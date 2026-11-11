@@ -374,6 +374,33 @@ impl Replay {
             other => panic!("unknown op {other}"),
         }
     }
+
+    /// The queue file and every thread, as one text.
+    fn everything(&self) -> String {
+        format!("{}{:?}", self.queue_file(), self.world.threads.lock().unwrap())
+    }
+}
+
+/// A task's report and a routine run's result leave the session they come from: a value that session marked sensitive
+/// is the marker in the queued item and in the home row (Node `agent-home-delivery.mjs` `taskReportItem`,
+/// `routineResultItem`).
+#[tokio::test(start_paused = true)]
+async fn a_task_report_and_a_routine_result_reach_the_home_with_their_sessions_sensitive_values_as_the_marker() {
+    const CODE: &str = "482913";
+    let replay = Replay::new();
+    let marks = Arc::new(crate::memory::sensitive::SensitiveStore::default());
+    let fill = |code: &str| json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": code } } });
+    assert!(marks.remember("sess_task", &[fill(CODE)]));
+    assert!(marks.remember("sess_run", &[fill(CODE)]));
+    assert!(replay.delivery.redact_with(marks));
+    let report = task_report(&json!({ "runId": "t1", "taskSessionId": "sess_task", "title": "T", "status": "done", "text": format!("the code is {CODE}") }));
+    replay.delivery.enqueue_task("reviewer", &report).await.unwrap();
+    let item = delivery_item(&json!({ "runId": "r1", "kind": "schedule", "ok": true, "text": format!("ran with {CODE}"), "runSessionId": "sess_run" }));
+    replay.delivery.enqueue("reviewer", "nightly", &item).await.unwrap();
+    replay.quiesce().await;
+    let all = replay.everything();
+    assert!(!all.contains(CODE), "{all}");
+    assert!(all.contains("the code is [redacted]") && all.contains("ran with [redacted]"), "{all}");
 }
 
 #[tokio::test(start_paused = true)]
