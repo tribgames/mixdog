@@ -255,8 +255,9 @@ pub(crate) enum Inbox {
     /// A test's injected unwind of the actor.
     #[cfg(test)]
     Unwind(UnwindAt),
-    /// Replay-only ([`super::SessionDirectory::durability_settled`]): answered once every record accepted so far is durable
-    /// or failed and released (the outbox is empty), which is at once when nothing is pending.
+    /// Replay-only ([`super::SessionDirectory::durability_settled`]): answered once every record accepted before it is
+    /// committed (or failed) and every prompt-history append pushed before it is written; what is accepted after it
+    /// neither holds nor hastens the answer. At once when nothing from before it is pending.
     #[cfg(any(test, feature = "test-support"))]
     Settled { tx: oneshot::Sender<()> },
 }
@@ -649,9 +650,10 @@ pub(crate) struct SessionActor {
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
-    /// [`Inbox::Settled`] callers waiting for the outbox to empty.
+    /// [`Inbox::Settled`] callers, each with the positions taken when it arrived: the outbox's last accepted entry and the
+    /// prompt-history appends pushed ([`SessionActor::answer_settled`]).
     #[cfg(any(test, feature = "test-support"))]
-    settled: Vec<oneshot::Sender<()>>,
+    settled: Vec<((u64, u64), oneshot::Sender<()>)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -1063,11 +1065,7 @@ impl SessionActor {
             self.pump();
             // After the pump, which may return early on a failed hand-off: every iteration ends here.
             #[cfg(any(test, feature = "test-support"))]
-            if self.outbox.is_empty() {
-                for waiting in self.settled.drain(..) {
-                    let _ = waiting.send(());
-                }
-            }
+            self.answer_settled();
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -1084,6 +1082,10 @@ impl SessionActor {
                 && self.delete_closed.is_none()
                 && self.delete_mark.is_none()
             {
+                // The close flushed: every accepted record is committed, and, when the prompt-history appends all landed,
+                // a barrier that finds this thread gone counts it settled.
+                #[cfg(any(test, feature = "test-support"))]
+                self.cell.flushed.store(self.prompt_appends.landed() == self.prompt_appends.accepted(), SeqCst);
                 break;
             }
         }
@@ -3958,9 +3960,9 @@ impl SessionActor {
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
             #[cfg(test)]
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
-            // Answered at the end of this iteration of the run loop once the outbox is empty.
+            // The accept watermarks now; answered at the end of an iteration of the run loop once both are reached.
             #[cfg(any(test, feature = "test-support"))]
-            Inbox::Settled { tx } => self.settled.push(tx),
+            Inbox::Settled { tx } => self.settled.push(((self.outbox.last_accepted(), self.prompt_appends.accepted()), tx)),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -5362,6 +5364,19 @@ impl SessionActor {
         let _ = self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| {
             let _ = jobs.send(JobDone::PromptPersisted(prompts.load(lane, &cwd)));
         });
+    }
+
+    /// Answers each [`Inbox::Settled`] whose records are committed through its mark (the store's sync acked them:
+    /// `on_durability` -> `Outbox::acked`) and whose prompt appends are written; the rest wait.
+    #[cfg(any(test, feature = "test-support"))]
+    fn answer_settled(&mut self) {
+        for ((records, prompts), tx) in std::mem::take(&mut self.settled) {
+            if self.outbox.committed_through(records) && self.prompt_appends.landed() >= prompts {
+                let _ = tx.send(());
+            } else {
+                self.settled.push(((records, prompts), tx));
+            }
+        }
     }
 
     /// `appendPromptHistory(cwd, text)` for a user-submitted prompt, off the actor.

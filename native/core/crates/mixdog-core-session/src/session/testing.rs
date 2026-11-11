@@ -261,11 +261,21 @@ pub struct MemStore {
     /// The next batch holding a `meta` record that sets `compaction` (a manual compaction's header) tells `.0` it arrived, then
     /// waits for `.1` before it becomes durable.
     pub header_gate: CommitGate,
+    /// The next batch holding a `meta` record that sets `title` to `.0` tells `.1` it arrived, then waits for `.2` before it
+    /// becomes durable.
+    pub title_gate: TitleGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
 }
 
 impl MemStore {
+    /// Holds the next batch that sets the title to `title` until the returned sender says go; `.0` wakes when it arrives.
+    pub fn hold_title(&self, title: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&self.title_gate) = Some((title.to_owned(), arrived.clone(), go.1));
+        (arrived, go.0)
+    }
+
     pub fn records(&self, id: &ThreadId) -> Vec<(u64, Record)> {
         lock(&self.logs)
             .get(id)
@@ -280,12 +290,28 @@ impl MemStore {
 
 /// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
 type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+type TitleGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+#[cfg(test)]
+fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>) {
+    if tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread) {
+        let _ = tokio::task::block_in_place(|| go.recv());
+    } else {
+        let _ = go.recv();
+    }
+}
+
+#[cfg(not(test))]
+fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>) {
+    let _ = go.recv();
+}
 
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
     commit_gate: CommitGate,
     header_gate: CommitGate,
+    title_gate: TitleGate,
     committed: Arc<tokio::sync::Notify>,
 }
 
@@ -310,6 +336,17 @@ impl SessionLog for MemLog {
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
             let _ = go.recv();
+        }
+        let gate = {
+            let mut slot = lock(&self.title_gate);
+            let sets = |title: &str| batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.get("title").and_then(|t| t.as_str()) == Some(title)));
+            if slot.as_ref().is_some_and(|(title, _, _)| sets(title)) { slot.take() } else { None }
+        };
+        if let Some((_, arrived, go)) = gate {
+            arrived.notify_one();
+            // The inline test backend runs this commit on the durability task's worker, whose LIFO slot may hold the actor the
+            // previous ack just woke; `block_in_place` hands that worker's queued tasks to another thread while this one waits.
+            wait_off_worker(&go);
         }
         let mut log = lock(&self.log);
         let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
@@ -491,6 +528,7 @@ impl ThreadStore for MemStore {
             fail_next: self.fail_next.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
         }))
     }
@@ -511,6 +549,7 @@ impl ThreadStore for MemStore {
             fail_next: self.fail_next.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];

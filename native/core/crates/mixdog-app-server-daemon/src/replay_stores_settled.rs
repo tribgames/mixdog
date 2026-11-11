@@ -1,8 +1,12 @@
 //! Replay-only (`replay-controls`, refused in a release build by build.rs): `replay/storesSettled`, the barrier the lone-surrogate
-//! wire replay (`benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs`) takes before it reads the core's files. It
-//! answers once every loaded thread's session durability task has nothing pending (every record accepted before the call is
-//! committed or failed, and released: `SessionDirectory::durability_settled`), with how many threads were loaded. A thread that
-//! ends first, or a wait past [`DEADLINE`], answers an error that says which; no path leaves the call unanswered.
+//! wire replay (`benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs`) takes before it reads the core's files. In
+//! order, it waits for every write-behind writer under the core's folders to have written what it took before the call:
+//! the agent index's queued row writes (`StoreWorkers::settled`, which hands header changes to the threads), then each thread
+//! loaded at the call (every record accepted before it committed and every prompt-history append pushed before it written:
+//! `SessionDirectory::durability_settled`), the read-state snapshots (`ReadState::flush_all`), the gateway usage events
+//! (`GatewayUsage::settle`) and the usage ledger, when open (`UsageWriter::settle_writes`). It answers how many threads were
+//! asked. A thread that ends with something unwritten, a ledger that fails to settle, or a wait past [`DEADLINE`] answers an
+//! error that says which; no path leaves the call unanswered.
 //!
 //! The other stores a call writes need no control of their own: the config file and the MCP server list in it are written through
 //! the config's one writer, which the replay's `config/setTheme` waits for; a secret is written on the durability lane inside the
@@ -26,13 +30,39 @@ use serde_json::json;
 /// Longer than any group commit of a replay's world takes; past it the call fails, naming the wait.
 const DEADLINE: Duration = Duration::from_secs(20);
 
+/// The write-behind writers the composition hands this control besides the session directory.
+#[derive(Clone)]
+pub(crate) struct WriteBehind {
+    pub(crate) workers: Arc<mixdog_core_session::session::agent_registry::StoreWorkers>,
+    pub(crate) read_state: Arc<mixdog_tools::fs::ReadState>,
+}
+
 pub(crate) struct StoresSettled {
     directory: Arc<SessionDirectory>,
+    writers: WriteBehind,
+    gateway_usage: mixdog_core_session::session::gateway_usage::GatewayUsage,
+    ledgers: Arc<mixdog_core::run_host::ledger_source::LedgerSource>,
 }
 
 impl StoresSettled {
-    pub(crate) fn new(directory: Arc<SessionDirectory>) -> Self {
-        Self { directory }
+    pub(crate) fn new(
+        directory: Arc<SessionDirectory>,
+        writers: WriteBehind,
+        gateway_usage: mixdog_core_session::session::gateway_usage::GatewayUsage,
+        ledgers: Arc<mixdog_core::run_host::ledger_source::LedgerSource>,
+    ) -> Self {
+        Self { directory, writers, gateway_usage, ledgers }
+    }
+
+    async fn settle(&self) -> Result<usize, String> {
+        self.writers.workers.settled().await;
+        let threads = self.directory.durability_settled().await?;
+        self.writers.read_state.flush_all().await;
+        self.gateway_usage.settle().await;
+        if let Some(ledger) = self.ledgers.if_open() {
+            ledger.writer.settle_writes().await.map_err(|error| format!("the usage ledger's queued writes did not settle: {error}"))?;
+        }
+        Ok(threads)
     }
 }
 
@@ -47,10 +77,10 @@ impl DomainService for StoresSettled {
     }
 
     async fn call(&self, _req: CoreRequest) -> Result<Reply, CoreError> {
-        match tokio::time::timeout(DEADLINE, self.directory.durability_settled()).await {
+        match tokio::time::timeout(DEADLINE, self.settle()).await {
             Ok(Ok(threads)) => Ok(Reply::Value(json!({ "threads": threads }))),
             Ok(Err(detail)) => Err(failed(detail)),
-            Err(_) => Err(failed(format!("the loaded threads' session records were not all durable within {DEADLINE:?}"))),
+            Err(_) => Err(failed(format!("the core's write-behind writers had not all written within {DEADLINE:?}"))),
         }
     }
 

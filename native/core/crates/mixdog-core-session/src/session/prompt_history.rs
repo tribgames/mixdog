@@ -76,6 +76,15 @@ pub struct AppendQueue {
     /// A flush came due while one was running: it goes when that one ends.
     flush_after: bool,
     epoch: u64,
+    /// How many appends were pushed, and how many of them landed: the replay barrier's positions
+    /// ([`super::SessionDirectory::durability_settled`]). The appends land in push order, so the first `landed` did.
+    #[cfg(any(test, feature = "test-support"))]
+    accepted: u64,
+    #[cfg(any(test, feature = "test-support"))]
+    landed: u64,
+    /// How many appends the running flush took.
+    #[cfg(any(test, feature = "test-support"))]
+    flushing: usize,
 }
 
 impl AppendQueue {
@@ -83,7 +92,23 @@ impl AppendQueue {
         self.in_flight = true;
         self.timer = None;
         self.flush_after = false;
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.flushing = self.pending.len();
+        }
         std::mem::take(&mut self.pending)
+    }
+
+    /// How many appends were pushed so far.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn accepted(&self) -> u64 {
+        self.accepted
+    }
+
+    /// How many of the pushed appends are written.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn landed(&self) -> u64 {
+        self.landed
     }
 
     fn arm(&mut self, delay: Duration) -> Next {
@@ -95,6 +120,10 @@ impl AppendQueue {
     /// A prompt to append.
     pub fn push(&mut self, text: String) -> Next {
         self.pending.push(text);
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.accepted += 1;
+        }
         if self.pending.len() >= FLUSH_CAP {
             if self.in_flight {
                 self.timer = None;
@@ -109,6 +138,10 @@ impl AppendQueue {
     /// The flush ended; `unwritten` is what did not land (oldest first).
     pub fn flushed(&mut self, unwritten: Vec<String>) -> Next {
         self.in_flight = false;
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.landed += (self.flushing - unwritten.len()) as u64;
+        }
         if unwritten.is_empty() {
             self.failures = 0;
             return if self.flush_after && !self.pending.is_empty() { Next::Flush(self.begin()) } else { Next::Idle };

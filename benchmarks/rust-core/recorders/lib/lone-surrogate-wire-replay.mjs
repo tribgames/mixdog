@@ -107,9 +107,9 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
     // The barrier before every look at the files, one step per store a call writes (manifest `worldFiles.barrier`), each after the
     // refused call's answer: the config writer (the config file and the MCP server list in it) by a config write
     // of the theme the config already holds, answered once that one writer has written it, so a write the refused call queued on it
-    // is written first; the session store by `replay/storesSettled`, answered once every loaded thread's durability task has
-    // committed what it was given; the secrets store needs none (a secret is written inside the call that writes it). Each answer is
-    // required to be the expected one.
+    // is written first; the session store, the prompt history and the write-behind writers (agent index, read state, gateway usage,
+    // usage ledger) by `replay/storesSettled`, answered once each has written what it took before the call; the secrets store needs
+    // none (a secret is written inside the call that writes it). Each answer is required to be the expected one.
     let theme = null;
     const settle = async () => {
       theme ??= (await call('config/getTheme', {})).value;
