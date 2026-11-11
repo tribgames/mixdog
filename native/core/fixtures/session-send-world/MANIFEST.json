@@ -1,0 +1,84 @@
+{
+  "command": "node --import tsx benchmarks/rust-core/recorders/record-session-send-world.mjs --tree <tree> --service <daemon.cjs>   (cwd <tree>/apps/desktop)",
+  "exclusions": [
+    "The model endpoint is the one stand-in: a scripted OpenAI-chat endpoint (cases.mjs createModel) answering by the mark in the last user message; every other step is the real app main process, its daemon (the tree desktop service built by apps/desktop/scripts/build-daemon.mjs) and the supervisor, with a stop and restart of the process at the named step.",
+    "Normal form (cases.mjs normalized): session ids by alias, minted ids (atask, msg, sess_desktop, call, it, desktop-submit, uuids) numbered by first appearance, padding runs named, and a compaction handoff hash (messages=N sha256=<16 hex>, a hash over the compacted messages and their minted ids and times) kept as <hash>, its count and roles kept.",
+    "Both runs were recorded with this recorder before its normal form named the handoff hash and desktop-submit ids; the two raw runs were normalized again with the final normal form and are identical, golden.json is run-1 in that form."
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 142785,
+      "path": "golden.json",
+      "sha256": "47c3accb0d4c8414cc5faeed27107238eab3878a82eab24daa1f6977a1c099cd"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5",
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "files": 9139,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "exact": true,
+      "filesDifferingFromCommit": 0,
+      "commitFilesMissingFromTree": 0
+    },
+    "exact": true
+  },
+  "provenance": {
+    "inputs": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+        "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+        "sha256": "07bec252644efbc5645c2e15ebf3aa3302b405deb7313637b712a26e719a9177"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+        "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+        "sha256": "fa3050809ac5062841f34949b691f887f45c4099962d9f1c47197d0450b411bf"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs",
+        "sha256": "1cbc436a9e9e2fdd168f4cb25f898368369e673abad8c94564122d21cacd575c"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs",
+        "sha256": "1f016f7f06e363cb56090adb234223128e67d40aa23bdeec9fa32d663e43f618"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/session-send-world/cases.mjs",
+        "sha256": "48232859c32104f7d2051bac75d60b36bdf307e0bfc02a07afd2315b05fa0c4a"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/session-send-world/replay.mjs",
+        "sha256": "973ed448f738816e05ee2e2b41e8148bbb932fb86458c90c8c087e735ca0cc2a"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/session-send-world/world.mjs",
+        "sha256": "96ae6d8fc8343838b5439b7f6b288041a15a13f2bd52cc632c5eda1d3206f68c"
+      }
+    ],
+    "nodeVersion": "v22.20.0",
+    "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
+    "recorderSha256": "dfca648b7d978a3f14b5b2ca7b81ad8585c00d7c5a9cad343fe08147b79ec085"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-send-world.mjs",
+  "cases": 15,
+  "set": "session-send-world",
+  "totalBytes": 142785
+}
