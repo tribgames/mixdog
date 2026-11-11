@@ -205,7 +205,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "830ff3b6082865118e97f6172b93db038ff887de5f0e197150a7df390acf6954"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -220,6 +220,10 @@
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "c36e8ec88173d0ee3099fe2134ad03cc777070a2addd6ab2c21b4d64ef32cc7c"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
       "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     },
@@ -229,7 +233,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "227390fd2d1f96b579ec2ce564d8884be0fc714379b484f3e77d93743f997538"
+      "sha256": "99cc7ebf0dff68ce4087ef3cadf8540d04f69c975720081066421c7b1de08420"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -251,7 +255,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs",
-  "recorderSha256": "46152581ab7cc54b5deeba785d7c9d335a0b7ed99c1edea76d4106d5fddf7687",
+  "recorderSha256": "f6ea14818a65270b89c5520a566da2cc2e2faa381f100c7c0ec4eef37369438d",
   "replay": {
     "compare": "Rust compaction archive (see rustTargets, existsButNotPublicOnO1 and missingOnO1 for what exists on o1): replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values",
     "entry": "Drive these public items on o1: mixdog-store/src/compaction_view.rs:203 archive_items_for_compaction.",

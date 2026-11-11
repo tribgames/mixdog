@@ -11,6 +11,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock } from 'node:test';
+import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('session-reentry-cases', import.meta.url, { clock: false });
@@ -20,7 +21,7 @@ const { setTranscriptReadDiagnosticSink } = await set.load('apps/desktop/src/sha
 const NOW = 1_800_000_000_000;
 const realSetTimeout = globalThis.setTimeout; const realClearTimeout = globalThis.clearTimeout; // the mock timers replace the globals
 /** Waits for the event that ends a step; a step that never happens fails the recording, naming the step (the deadline is a real timer, outside the mocked clock). */
-const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = realSetTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { realClearTimeout(timer); resolve(v); }, (e) => { realClearTimeout(timer); reject(e); }); });
+const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = realSetTimeout(() => reject(new RecorderError(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { realClearTimeout(timer); resolve(v); }, (e) => { realClearTimeout(timer); reject(e); }); });
 async function sessionFixture() {
   mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'], now: NOW });
   const directory = await mkdtemp(join(tmpdir(), 'session-reentry-'));

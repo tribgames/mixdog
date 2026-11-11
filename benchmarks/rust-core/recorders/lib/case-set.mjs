@@ -6,6 +6,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, writeText } from './common.mjs';
 import { exact } from './exact.mjs';
+import { RecorderError, isRecorderError, refuseRecorderErrors } from './recorder-error.mjs';
 import { normalisePaths } from './normalise-paths.mjs';
 import { replayFor } from './replay-targets.mjs';
 import { recorderProvenance } from './provenance.mjs';
@@ -31,10 +32,16 @@ export function openSet(setName, recorderUrl, { clock = true, classes = {} } = {
     /** Runs one case; `fn` returns what the test asserted on. */
     async run(name, fn, extra = {}) {
       let observed;
+      const where = `${setName}: case "${name}"`;
       try {
-        observed = exact(await fn(), { path: name, classes });
+        const returned = await fn();
+        refuseRecorderErrors(returned, where);
+        observed = exact(returned, { path: name, classes });
       } catch (e) {
+        // the recorder's own failures abort the run (no fixture is written); only what Node's code under test threw is an outcome
+        if (isRecorderError(e)) throw String(e.message).startsWith(where) ? e : new RecorderError(`${where}: ${e.message}`);
         if (String(e?.message).startsWith('exact:')) throw e;
+        refuseRecorderErrors(e, where);
         observed = { threw: exact(e, { path: name, classes }) };
       }
       cases.push({ case: name, ...extra, observed });

@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, promises as fsPromises, readdirSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { RecorderError } from './lib/recorder-error.mjs';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
 import { exact } from './lib/exact.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
@@ -114,7 +115,7 @@ async function gated(provider, start) {
   const run = start();
   await within('the summary request to reach the provider', Promise.race([provider.sent, run.then(() => {}, () => {})]));
   provider.release();
-  return run;
+  return within('the compaction to settle after the summary was released', run);
 }
 const compact = (session, provider) => gated(provider, () => runSessionCompaction(session, { mode: 'manual', force: true, config: {}, provider, model: 'fake-model' }));
 const archiveLines = (id) => {
@@ -177,7 +178,7 @@ async function parkedSession(tag, guard = (label, promise) => within(label, prom
   const original = process.stderr.write;
   process.stderr.write = (chunk) => { log.push(String(chunk)); return true; };
   const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
-  await guard('parked write reaching its refusal', Promise.race([parked, scheduled.written.then(() => { throw new Error('publication ended without parking'); })]));
+  await guard('parked write reaching its refusal', Promise.race([parked, scheduled.written.then(() => { throw new RecorderError('publication ended without parking'); })]));
   const release = () => { process.stderr.write = original; _setCompactionArchivePublishHook(null); _setCompactionArchiveParkHook(null); takePendingWrite(session.id); };
   return { session, record, scheduled, log, release, restoreStderr: () => { process.stderr.write = original; } };
 }
