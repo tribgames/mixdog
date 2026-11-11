@@ -3,16 +3,16 @@
   "exclusions": {
     "clock": "Date.now is fixed at `now` so the stamps and the pane window are reproducible",
     "deltaSendTools": ":32 passes no sendTools; the loop always reports the request tools (the core event always carries the list), so the recorder passes an empty list",
-    "liveProgress": ":83 stubs progress with {}; the recorder runs the real session progress over a manager holding no runtime, and the rows pass liveAgentStatusRow as the core publishes them",
+    "liveProgress": ":83 stubs progress with {}; the recorder runs the real session progress over a manager holding no runtime, and the rows pass liveAgentStatusRow as the core publishes them; `pulses` are two status-pulse reads (memoryOnly) around the role policy resolving, the path the core lists live rows on",
     "storedRows": ":46 calls listStoredAgentWorkers; the core lists through the async reader and the daemon chain (record-agent-pool.mjs), recorded with nothing live; the recorder records both and the replay checks the sync rows equal the async listing",
     "undefinedSession": "the test also passes undefined; JSON has no undefined, and `session?.` reads it exactly as null, which is recorded"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11379,
+      "bytes": 12948,
       "path": "golden.json",
-      "sha256": "8320cc823ed265bfcf477f700108092fa8ea75935d9084743794cf612c9c8c02"
+      "sha256": "5bb23ed154d69351c6159da839f3237840835c708a8626719cd4296516cd1262"
     }
   ],
   "inputs": [
@@ -44,10 +44,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-usage-totals.mjs",
-  "recorderSha256": "5747c624bd50d9e4d804132977cc4ea53290aa0532aeca489ad788ef857fa3be",
+  "recorderSha256": "fd165e7ba8803ddfdfb85d11c84654b77d17ef72c5da4d3fade76acb3aa08a14",
   "set": "session-usage-totals",
   "tests": [
     "src/runtime/shared/session-usage-totals.test.mjs (:13, :32, :46, :83)"
   ],
-  "totalBytes": 11379
+  "totalBytes": 12948
 }
