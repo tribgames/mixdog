@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 9: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 10: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 9;
+PRAGMA user_version = 10;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -348,6 +348,17 @@ CREATE TABLE fork_edges (
     PRIMARY KEY (base, child)
 ) WITHOUT ROWID;
 CREATE INDEX fork_edges_child ON fork_edges(child);
+
+-- Reference sets (offload_sources.rs): each session's header `offloadSources`, one row per
+-- source segment, `inheriting` while a copy of a conversation is still being made into it
+-- (`offloadInheriting`): the sessions naming a session's sidecars are one range.
+CREATE TABLE offload_refs (
+    source TEXT NOT NULL,
+    session TEXT NOT NULL,
+    inheriting INTEGER NOT NULL,
+    PRIMARY KEY (source, session)
+) WITHOUT ROWID;
+CREATE INDEX offload_refs_session ON offload_refs(session);
 
 -- Prompt history (the `promptHistoryList` of 1.4.5): every visible `user` message row's
 -- prompt text, keyed by the JS rule `text.trim().replace(/\s+/g, ' ')`.

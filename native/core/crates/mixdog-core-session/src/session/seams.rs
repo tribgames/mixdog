@@ -336,10 +336,11 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
-    /// The copies of `id`'s conversation the catalog lists: the sessions whose own header names `id` as their source
-    /// (`inheritedFromSessionId`: an inheritance's heir, a clear's fork), once the catalog holds every acked
-    /// projection, without opening any session. An error when the catalog cannot answer, or holds a session it could
-    /// not read (whether that one is a copy is not known).
+    /// The copies of `id`'s conversation the catalog lists: the sessions whose reference set names `id`
+    /// (`mixdog_store::offload_sources`: an inheritance's heir, a clear's fork, the copies of those, a session
+    /// migrated naming `id`'s sidecars), once the catalog holds every acked projection, without opening any session.
+    /// An error when the catalog cannot answer, holds a session it could not read (whether that one names `id` is not
+    /// known), or one of them is still being made (`offloadInheriting`).
     fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
 
     /// After a delete mark is acked: the index takes every projection acked so far, then the

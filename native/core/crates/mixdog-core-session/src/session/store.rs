@@ -946,11 +946,15 @@ impl ThreadStore for StoreThreads {
         let (projector, index, id) = (self.projector.clone(), self.index.clone(), id.as_str().to_owned());
         Box::pin(async move {
             projector.caught_up().await?;
-            let (heirs, unreadable) = index.inherited_from(&id).await.map_err(|e| internal("copies", &e))?;
+            let segment = mixdog_store::offload_sources::safe_segment(&id);
+            let (referencers, unreadable) = index.offload_referencers(&segment).await.map_err(|e| internal("copies", &e))?;
             if let Some(unreadable) = unreadable {
                 return Err(internal("copies", &format!("the session {unreadable} cannot be read")));
             }
-            Ok(heirs)
+            if let Some((heir, _)) = referencers.iter().find(|(_, inheriting)| *inheriting) {
+                return Err(internal("copies", &format!("the session {heir} is still inheriting the conversation")));
+            }
+            Ok(referencers.into_iter().map(|(session, _)| session).filter(|session| *session != id).collect())
         })
     }
 

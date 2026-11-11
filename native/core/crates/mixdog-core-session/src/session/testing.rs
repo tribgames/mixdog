@@ -226,11 +226,19 @@ pub struct TestInherit {
     pub budget: Mutex<Option<u64>>,
     /// What a conversation of that many messages measures (`limit`, `used`, `compactable`), before `basis` answers.
     pub measured: Mutex<std::collections::HashMap<usize, (u64, u64, bool)>>,
+    /// The next measurement (an inheritance's, once the source's rows are copied and before the heir holds them)
+    /// tells `.0` it arrived, then waits for `.1`.
+    pub fit_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 #[async_trait::async_trait]
 impl super::inheritance::InheritanceFit for TestInherit {
     async fn basis(&self, target: &super::inheritance::InheritTarget, messages: &[Value]) -> Option<super::inheritance::FitBasis> {
+        let gate = lock(&self.fit_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            go.notified().await;
+        }
         lock(&self.asked).push((target.provider.clone(), target.model.clone(), target.selected_context_window, target.tools_of.clone(), messages.len()));
         let (limit, used, compactable) = lock(&self.measured).get(&messages.len()).copied().or(*lock(&self.basis))?;
         Some(super::inheritance::FitBasis { limit, used, compactable })
@@ -524,21 +532,29 @@ impl ThreadStore for MemStore {
         Box::pin(async { Ok(Vec::new()) })
     }
 
-    /// Every thread whose header names `id` as `inheritedFromSessionId`, in id order; an error naming the first
-    /// damaged session while one is.
+    /// Every thread not deleted whose header's reference set names `id`, in id order (as the index's `offload_refs`);
+    /// an error naming the first damaged session while one is, or the first of them a copy is still being made into.
     fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         let damaged = lock(&self.damaged).first().cloned();
         let answer = match damaged {
             Some(damaged) => Err(Self::unreadable(&damaged)),
             None => {
+                let segment = mixdog_store::offload_sources::safe_segment(id.as_str());
                 let threads: Vec<ThreadId> = lock(&self.logs).keys().cloned().collect();
-                let mut heirs: Vec<String> = threads
+                let mut referencers: Vec<(String, bool)> = threads
                     .into_iter()
-                    .filter(|thread| self.header_of(thread).ok().is_some_and(|header| header.get("inheritedFromSessionId").and_then(Value::as_str) == Some(id.as_str())))
-                    .map(|thread| thread.as_str().to_owned())
+                    .filter(|thread| thread != id)
+                    .filter_map(|thread| {
+                        let header = self.header_of(&thread).ok().filter(|header| !mixdog_store::summary::is_deleted(header))?;
+                        let inheriting = header.get(mixdog_store::offload_sources::INHERITING).and_then(Value::as_str).is_some_and(|source| !source.is_empty());
+                        mixdog_store::offload_sources::sources(&header).contains(&segment).then(|| (thread.as_str().to_owned(), inheriting))
+                    })
                     .collect();
-                heirs.sort();
-                Ok(heirs)
+                referencers.sort();
+                match referencers.iter().find(|(_, inheriting)| *inheriting) {
+                    Some((heir, _)) => Err(CoreError::Internal { incident_id: format!("session-store-copies: the session {heir} is still inheriting the conversation").into() }),
+                    None => Ok(referencers.into_iter().map(|(session, _)| session).collect()),
+                }
             }
         };
         Box::pin(async move { answer })
