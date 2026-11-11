@@ -66,7 +66,9 @@
             },
             {
               "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
-              "params": null,
+              "params": {
+                "$exact": "undefined"
+              },
               "inTransaction": true
             },
             {
@@ -102,7 +104,9 @@
             },
             {
               "sql": "\n      SELECT id, summary, project_id, agent_id, updated_at\n      FROM core_entries\n      WHERE status IS NULL OR status = 'active'\n      ORDER BY project_id NULLS FIRST, id ASC\n    ",
-              "params": null
+              "params": {
+                "$exact": "undefined"
+              }
             }
           ],
           "files": [
@@ -200,7 +204,9 @@
             },
             {
               "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
-              "params": null,
+              "params": {
+                "$exact": "undefined"
+              },
               "inTransaction": true
             },
             {
@@ -236,7 +242,9 @@
             },
             {
               "sql": "\n      SELECT id, summary, project_id, agent_id, updated_at\n      FROM core_entries\n      WHERE status IS NULL OR status = 'active'\n      ORDER BY project_id NULLS FIRST, id ASC\n    ",
-              "params": null
+              "params": {
+                "$exact": "undefined"
+              }
             }
           ],
           "files": [
@@ -407,7 +415,9 @@
               }
             ]
           },
-          "options": null,
+          "options": {
+            "$exact": "undefined"
+          },
           "result": {
             "revision": 4,
             "written": true

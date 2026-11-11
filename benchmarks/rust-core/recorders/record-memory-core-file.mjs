@@ -45,8 +45,8 @@ const cases = [];
   const statements = [];
   const coreRows = [{ id: 1, summary: 'common rule', project_id: null, updated_at: 10 }, { id: 2, summary: 'alpha rule', project_id: 'alpha', updated_at: 20 }, { id: 3, summary: 'other rule', project_id: 'beta', updated_at: 30 }];
   const generatedRows = [{ core_summary: 'common generated', project_id: null, score: 1, last_seen_at: 10 }, { core_summary: 'alpha generated', project_id: 'alpha', score: 2, last_seen_at: 20 }, { core_summary: 'other generated', project_id: 'beta', score: 3, last_seen_at: 30 }];
-  const db = { query: async (sql, params) => { statements.push({ sql, params: exact(params ?? null) }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: generatedRows }; } };
-  db.transaction = (run) => run({ query: async (sql, params) => { statements.push({ sql, params: exact(params ?? null), inTransaction: true }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: [] }; } });
+  const db = { query: async (sql, params) => { statements.push({ sql, params: exact(params) }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: generatedRows }; } };
+  db.transaction = (run) => run({ query: async (sql, params) => { statements.push({ sql, params: exact(params), inTransaction: true }); return sql.includes('FROM core_entries') ? { rows: coreRows } : { rows: [] }; } });
   const steps = [];
   const migrated = await capture(() => refreshCoreMemoryFile(db, root));
   steps.push({ label: 'refreshCoreMemoryFile(db, dataDir)', ...migrated, statements: statements.splice(0), files: files(root) });
@@ -59,7 +59,7 @@ const cases = [];
 {
   const root = tempRoot();
   const steps = [];
-  const write = async (label, snapshot, options) => steps.push({ label, snapshot, options: options ?? null, ...(await capture(() => writeCoreMemoryFileSnapshot(root, snapshot, options))), files: files(root) });
+  const write = async (label, snapshot, options) => steps.push({ label, snapshot, options, ...(await capture(() => writeCoreMemoryFileSnapshot(root, snapshot, options))), files: files(root) });
   await write('revision 2 snapshot "newer"', { curated: [{ id: 1, summary: 'newer', project_id: null }] }, { revision: 2 });
   await write('revision 1 snapshot "older" is rejected', { curated: [{ id: 1, summary: 'older', project_id: null }] }, { revision: 1 });
   steps.push({ label: 'readCoreMemoryFile(dataDir)', ...(await capture(() => readCoreMemoryFile(root))) });
@@ -103,7 +103,7 @@ finish(ctx, {
   golden: { domain: 'memory-core-file', source: 'scripts/core-memory-file-test.mjs', clock: { dateNowMs: CLOCK_MS, reason: 'updatedAt the file stamps' }, cases },
   extra: {
     entry: { runs: 'refreshCoreMemoryFile, writeCoreMemoryFileSnapshot, readCoreMemoryFile, readSessionCoreMemoryPayload (core-memory-file.mjs) over a real temp data directory, with the real atomic-file writer and project-id resolver', notRun: 'PostgreSQL (the test file\'s scripted db answers the two selects with fixed rows); the memory runtime start of case 91 is a scripted hook that throws and counts (memoryStarts)' },
-    replay: 'mixdog-services memory: mem/core/snapshot.rs refresh / write (revision guard) / read and session_payload, over the same rows and a temp data dir; compares each result, the statements and the exact bytes of core-memory.json after each step',
+    replay: "mixdog-services memory/core/snapshot.rs (pub): refresh (:118), read (:97), session_payload (:190), and the revision-guarded write; memory/core/context.rs: pub async fn load (:72), format_core_memory_lines (:23) for case 91 (zero memory-runtime starts: the start hook's call count). A replay compares each result, the statements and the exact bytes of every file under the data root after each step",
     exclusions: 'none; every file and directory under the data root (path, size, bytes) is recorded after each step',
     normalised: { 'MIXDOG_DATA_DIR': 'the private temp data dir is written <data-dir>', 'bootProfile ms': 'the elapsed milliseconds a boot-profile call carries (wall clock) are written <ms>',  'temp data dir': 'paths in the golden are relative to the data dir', clock: 'Date.now() fixed at clock.dateNowMs' },
   },
