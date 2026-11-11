@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -68,6 +68,7 @@
   "replay": {
     "compare": "mixdog-app-server thread feed batching: replay the steps against the Rust mailbox on a virtual clock; compare the frames (sequence, value, critical) and pending-timer counts after every step, and for the encoder cases the wires",
     "entry": "NO RUST ENTRY ON o1: the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the remote streaming mailbox, REMOTE_STREAM_BATCH_MS and streamingPartialSuffix: no counterpart found in the app-server, daemon, core-api, core-base or remote crates"
     ],
