@@ -2,7 +2,8 @@
 //! `task-session-route.mjs`): a prompt queued in another session. The Lead's send is the Lead's
 //! message there (`sender: 'lead'`) and reports nothing back; a bot conversation's send is the
 //! bot's turn, run and reported by [`TaskSends`] (`agentTasks.send`). The effort, hop and bot-chain
-//! checks refuse before anything is queued. Room sends are the room host's (not served here).
+//! checks refuse before anything is queued. A send to a group room's log is a message to one
+//! member there, through the room host (`roomAddressee`, `roomSubmitter`).
 //! Replayed against Node's answers: `fixtures/session-tool-control/golden.json` (`send-*`).
 
 use std::sync::Arc;
@@ -17,6 +18,9 @@ use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_id_of_session;
 use mixdog_core_base::rooms::ids::room_member_of_session;
 use mixdog_core_base::rooms::ids::room_session_id;
+use mixdog_core_rooms::rooms::room_ask::Addressee;
+use mixdog_core_rooms::rooms::room_ask::Ask;
+use mixdog_core_rooms::rooms::room_ask::RoomAsk;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::delegation::bot_chain_of;
 use mixdog_core_session::session::delegation::delegation_chain;
@@ -185,6 +189,73 @@ pub struct SessionSend {
     pub rebind: Arc<dyn Rebind>,
     /// What `session action=create` starts a task session through.
     pub create: Arc<dyn super::session_create::CreateHost>,
+    /// `agentRoomHost()`: a send to a room log goes to one member through it.
+    pub rooms: Arc<mixdog_core_rooms::rooms::room_hosts::RoomHostRegistry>,
+}
+
+/// `roomSubmitter(room, sessionId, prompt, from)`: a send's turn taken as a message into room log
+/// `room_session` for member `agent_id`; the member's turn carries the send's hop, and its bot
+/// chain is remembered under every submission id that turn may take.
+struct RoomSubmit {
+    host: Arc<dyn RoomAsk>,
+    room_session: String,
+    agent_id: String,
+    from_session: String,
+    from_agent: String,
+}
+
+/// A followed room call's watch, the bot chain remembered under the submission id it follows.
+struct RoomFollow {
+    chain: Vec<String>,
+    follow: mixdog_services::task_reports::send::SubmissionFollow,
+}
+
+#[async_trait]
+impl mixdog_core_rooms::rooms::calls::CallFollow for RoomFollow {
+    async fn follow(&self, submission_id: &str) -> Result<(), String> {
+        mixdog_core_session::session::delegation::remember_submission(submission_id, &self.chain);
+        (self.follow)(submission_id.to_owned()).await
+    }
+}
+
+/// `turnStatus(detail)`: a room call's end as a session turn's.
+fn turn_end(settled: &mixdog_core_rooms::rooms::calls::Settled) -> TurnEnd {
+    let status = match settled.status.as_str() {
+        "done" | "completed" => "completed",
+        "failed" => "failed",
+        _ => "cancelled",
+    };
+    let text = settled.content.clone().filter(|content| !content.is_empty()).or_else(|| settled.error.clone()).unwrap_or_default();
+    TurnEnd { status: status.into(), text }
+}
+
+#[async_trait]
+impl TurnSubmit for RoomSubmit {
+    async fn submit(&self, _: &str, content: Value, id: &str, submission: Submission) -> Result<Option<oneshot::Receiver<TurnEnd>>, String> {
+        let id = if submission.settled { id } else { "" };
+        mixdog_core_session::session::delegation::remember_submission(id, &submission.bot_chain);
+        let (tx, rx) = oneshot::channel();
+        let on_settled = submission.settled.then(|| {
+            let tx = std::sync::Mutex::new(Some(tx));
+            Arc::new(move |settled: &mixdog_core_rooms::rooms::calls::Settled| {
+                if let Some(tx) = tx.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    let _ = tx.send(turn_end(settled));
+                }
+            }) as Arc<dyn Fn(&mixdog_core_rooms::rooms::calls::Settled) + Send + Sync>
+        });
+        let follow = submission.follow.map(|follow| Arc::new(RoomFollow { chain: submission.bot_chain.clone(), follow }) as Arc<dyn mixdog_core_rooms::rooms::calls::CallFollow>);
+        let ask = Ask {
+            agent_id: self.agent_id.clone(),
+            prompt: content,
+            from_session: self.from_session.clone(),
+            from_agent: self.from_agent.clone(),
+            id: id.to_owned(),
+            hop: submission.hop,
+            on_settled,
+            follow,
+        };
+        Ok(self.host.ask(&self.room_session, ask).await?.then_some(rx))
+    }
 }
 
 /// The send's intake, bound once the directory, the report host and the route service exist
@@ -250,10 +321,13 @@ pub fn check_effort(value: &Value, provider: &str, model: &str, rows: &[Value]) 
     Ok(level)
 }
 
-/// `unreportedSendResult(sessionId, addressed, accepted, hop)`.
-fn unreported(session_id: &str, accepted: bool, hop: u32) -> Value {
+/// `unreportedSendResult(sessionId, addressed, accepted, hop)`; `to`: the room member addressed.
+fn unreported(session_id: &str, to: Option<&str>, accepted: bool, hop: u32) -> Value {
     let mut out = Map::new();
     out.insert("sessionId".into(), json!(session_id));
+    if let Some(to) = to {
+        out.insert("to".into(), json!(to));
+    }
     out.insert("accepted".into(), json!(accepted));
     out.insert("reportsBack".into(), json!(false));
     if accepted {
@@ -314,19 +388,35 @@ impl SessionSend {
     pub async fn send(&self, call: &ControlCall, session_id: &str) -> Result<Value, String> {
         let (args, caller) = (&call.args, call.caller_thread.as_str());
         assert_send_request(args, session_id)?;
-        if room_id_of_session(session_id).is_some() {
-            return Err("session: a send to a group room is the room host's; it is not available in this runtime".into());
+        // A send to a room's log is a message to one member there (`to`, or a leading @name); the
+        // member's turn in its member session is the turn that answers and reports.
+        let room = if room_id_of_session(session_id).is_some() { Some(self.room_addressee(session_id, args).await?) } else { None };
+        if room.as_ref().is_some_and(|room| room.session_id == caller) {
+            return Err("session: send must target another session".into());
         }
         let (agent_id, bot_id) = (call.caller.attended_agent.as_str(), call.caller.acting_bot.as_str());
         // A bot conversation's turn carries its chain on; any other session hands work to any bot.
         let bot_chain = if bot_id.is_empty() { Vec::new() } else { bot_chain_of(self.chains.bot_chain(caller).iter().map(String::as_str)) };
         let this = if bot_id.is_empty() { agent_id } else { bot_id };
-        assert_bot_chain_target(&agent_id_of_home_session(session_id).unwrap_or_default(), &bot_chain, this, "session")?;
-        let prompt = handoff_content(args["prompt"].as_str().unwrap_or_default(), &call.attachment_parts);
-        let mut origin = self.report_origin(session_id, agent_id, caller).await;
+        let target_bot = match &room {
+            Some(room) => room.agent_id.clone(),
+            None => agent_id_of_home_session(session_id).unwrap_or_default(),
+        };
+        assert_bot_chain_target(&target_bot, &bot_chain, this, "session")?;
+        let text = room.as_ref().map_or_else(|| args["prompt"].as_str().unwrap_or_default(), |room| room.text.as_str());
+        let prompt = handoff_content(text, &call.attachment_parts);
+        let turn_session = room.as_ref().map_or(session_id, |room| room.session_id.as_str()).to_owned();
+        let submit = room.as_ref().map(|room| {
+            Arc::new(RoomSubmit { host: room.host.clone(), room_session: session_id.to_owned(), agent_id: room.agent_id.clone(), from_session: caller.to_owned(), from_agent: agent_id.to_owned() })
+        });
+        let to = room.as_ref().map(|room| room.agent_id.as_str());
+        let mut origin = self.report_origin(&turn_session, agent_id, caller).await;
         // The menu's effort pick on the target: checked now, applied just before the prompt is queued.
         let mut level: Option<Option<String>> = None;
         if let Some(effort) = args.get("effort") {
+            if room.is_some() {
+                return Err("session: effort applies to a session, not a group room".into());
+            }
             if !this.is_empty() && self.report_origin(session_id, this, caller).await.is_some_and(|o| o.target_session) {
                 return Err("session: a bot may set the effort only of the task sessions it created".into());
             }
@@ -352,9 +442,15 @@ impl SessionSend {
                 self.rebind.rebind(session_id, caller).await?;
             }
             apply_effort(level).await?;
-            let sent = self.tasks.send(session_id, &prompt, origin).await?;
+            let sent = match submit {
+                Some(submit) => self.tasks.send_through(&turn_session, &prompt, origin, submit).await?,
+                None => self.tasks.send(session_id, &prompt, origin).await?,
+            };
             let mut out = Map::new();
             out.insert("sessionId".into(), json!(session_id));
+            if let Some(to) = to {
+                out.insert("to".into(), json!(to));
+            }
             out.extend(sent);
             if hop > 0 {
                 out.insert("hop".into(), json!(hop));
@@ -363,11 +459,38 @@ impl SessionSend {
         }
         let hop = if turn_hop > 0 { chained_hop(turn_hop + 1)? } else { 0 };
         apply_effort(level).await?;
-        self.rebind.rebind(session_id, caller).await?;
-        let meta = Map::from_iter([("sender".to_owned(), json!("lead"))]);
-        let id = format!("send_{}", uuid::Uuid::new_v4());
-        let submission = mixdog_services::task_reports::send::Submission { hop, bot_chain, meta, settled: false };
-        let accepted = self.tasks.intake().submit(session_id, prompt.clone(), &id, submission).await?.is_some();
-        Ok(unreported(session_id, accepted, hop))
+        let accepted = match submit {
+            // The member's turn carries only the hop (`submit({ transcriptMeta: { hop } })`).
+            Some(submit) => {
+                let submission = Submission { hop, bot_chain: Vec::new(), meta: Map::new(), settled: false, follow: None };
+                submit.submit(&turn_session, prompt.clone(), "", submission).await?.is_some()
+            }
+            None => {
+                // New work from this sender: a delegated target acts as the sender does.
+                self.rebind.rebind(session_id, caller).await?;
+                let meta = Map::from_iter([("sender".to_owned(), json!("lead"))]);
+                let id = format!("send_{}", uuid::Uuid::new_v4());
+                let submission = Submission { hop, bot_chain, meta, settled: false, follow: None };
+                self.tasks.intake().submit(session_id, prompt.clone(), &id, submission).await?.is_some()
+            }
+        };
+        Ok(unreported(session_id, to, accepted, hop))
     }
+
+    /// `roomAddressee(sessionId, args)`: the member a send to room log `session_id` addresses,
+    /// through the room host; refused when no host is attached or no member resolves.
+    async fn room_addressee(&self, session_id: &str, args: &Value) -> Result<RoomAddressee, String> {
+        let host = self.rooms.active_ask().map_err(|error| format!("session: cannot send to {session_id}: {error}"))?;
+        let member = host.member(session_id, args.get("to").unwrap_or(&Value::Null), args.get("prompt").unwrap_or(&Value::Null)).await.map_err(|error| format!("session: {error}"))?;
+        let Addressee { agent_id, session_id, text, .. } = member;
+        Ok(RoomAddressee { host, agent_id, session_id, text })
+    }
+}
+
+/// `roomAddressee`'s answer: the room host and the member it resolved.
+struct RoomAddressee {
+    host: Arc<dyn RoomAsk>,
+    agent_id: String,
+    session_id: String,
+    text: String,
 }

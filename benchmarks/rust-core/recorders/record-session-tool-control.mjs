@@ -17,6 +17,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
 const sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'session-tool-control-')));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
@@ -51,6 +52,25 @@ const { createBotStatus } = await importFrom(tree, 'src/session-runtime/bot-stat
 const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
 const { listProjects } = await importFrom(tree, 'src/runtime/shared/projects.mjs');
 const { getPluginData } = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mjs');
+const { registerAgentRoomHost } = await importFrom(tree, 'src/runtime/shared/agent-room-host.mjs');
+const { roomMemberSessionId } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/agent-room.mjs');
+
+// A send to a group room goes through the desktop room host (`agentRoomHost().member` / `.ask`): the real room messages
+// (`createRoomMessages` of apps/desktop/src/main/agent-room-messages.ts, bundled with esbuild as it is) over a stand-in
+// room host (the room's record and member labels, the log's post, the member sessions, the scheduler) that keeps what
+// it is given.
+const esbuild = await importFrom(tree, 'node_modules/esbuild/lib/main.js');
+const DESKTOP_MAIN = join(tree, 'apps/desktop/src/main');
+const ROOM_MESSAGES_BUNDLE = join(sandbox, 'agent-room-messages.mjs');
+await esbuild.build({
+  entryPoints: [join(DESKTOP_MAIN, 'agent-room-messages.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: ROOM_MESSAGES_BUNDLE,
+  logLevel: 'error',
+});
+const { createRoomMessages } = await import(pathToFileURL(ROOM_MESSAGES_BUNDLE).href);
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 
@@ -233,7 +253,27 @@ const SEND_TARGETS = {
   sess_task_quiet: target('sess_task_quiet', 'Quiet task', 'anthropic', 'opus', { taskOrigin: { ...ANN_TASK_ORIGIN, title: 'Quiet task', notify: false } }),
   sess_other_route: target('sess_other_route', 'Other route', 'other', 'x'),
   sess_home_bob: target('sess_home_bob', '', 'openai', 'gpt'),
+  // Bob's member session in the group room (`ensureMemberSession` created it on an earlier turn).
+  sess_rmem_abcdef_bob: target('sess_rmem_abcdef_bob', '', 'anthropic', 'opus'),
 };
+
+// A group room (`ROOM.id`, its log `sess_room_abcdef`): its record's name and members, each member's label as the agent
+// catalog gives it (`memberLabels`: Cara is switched off), and the agents' display names (`names`). Its host's clock and
+// ids are fixed (`at` ROOM.now, ids `n1`, `n2`, ...), so both sides post the same rows.
+const ROOM = {
+  id: 'abcdef',
+  name: 'Plan room',
+  members: ['ann', 'bob', 'cara'],
+  labels: {
+    ann: { id: 'ann', name: 'Ann', route: null, description: '', disabled: false },
+    bob: { id: 'bob', name: 'Bob', route: null, description: '', disabled: false },
+    cara: { id: 'cara', name: 'Cara', route: null, description: '', disabled: true },
+  },
+  names: { ann: 'Ann', bob: 'Bob', cara: 'Cara' },
+  now: 1700000000000,
+};
+const ROOM_LOG = `sess_room_${ROOM.id}`;
+const roomSend = (extra = {}) => ({ action: 'send', session_id: ROOM_LOG, prompt: 'Please check the build.', ...extra });
 const ANN_TASK = { id: 'sess_task_ann', sourceType: 'lead', taskOrigin: ANN_TASK_ORIGIN };
 // The approval a sent turn waits on (`state.toolApproval.id`); the core names its own minted id by this place.
 const APPROVAL_ID = 'approval_1';
@@ -514,6 +554,25 @@ const SCENARIOS = [
   { name: 'send-bot-approval-approved', send: { approval: 'approved', reports: 2 }, caller: ANN_CHAT, args: sendTo('sess_b') },
   { name: 'send-bot-approval-denied', send: { approval: 'denied', reports: 2 }, caller: ANN_CHAT, args: sendTo('sess_b') },
   { name: 'send-bot-approval-waiting', send: { approval: 'waiting', reports: 1 }, caller: ANN_CHAT, args: sendTo('sess_b') },
+  // A send to a group room's log is a message to one member there: `to` (an id or a name), else a leading `@name`; it is
+  // posted in the room as a row naming its sender and answered by that member alone. The Lead's reports nothing; a bot's
+  // is its turn, reported home. Refused: no member named, a name no member has, two members, the caller's own member,
+  // a switched-off member, an effort.
+  { name: 'send-room-lead-to', send: {}, room: {}, args: roomSend({ to: 'bob' }) },
+  { name: 'send-room-lead-to-name', send: {}, room: {}, args: roomSend({ to: ' BOB ' }) },
+  { name: 'send-room-lead-mention', send: {}, room: {}, args: roomSend({ prompt: '@Bob Please check the build.' }) },
+  { name: 'send-room-lead-mention-only', send: {}, room: {}, args: roomSend({ prompt: '@Bob' }) },
+  { name: 'send-room-lead-hop', send: {}, room: {}, caller: { ...HUMAN, turnHop: 1 }, args: roomSend({ to: 'bob' }) },
+  { name: 'send-room-missing-member', send: {}, room: {}, args: roomSend({ to: 'zed' }) },
+  { name: 'send-room-no-member', send: {}, room: {}, args: roomSend() },
+  { name: 'send-room-two-members', send: {}, room: {}, args: roomSend({ prompt: '@Bob, Ann Please check the build.' }) },
+  { name: 'send-room-switched-off', send: {}, room: {}, args: roomSend({ to: 'cara' }) },
+  { name: 'send-room-effort', send: {}, room: {}, args: roomSend({ to: 'bob', effort: 'high' }) },
+  { name: 'send-room-member-to-member', send: {}, room: {}, caller: ROOM_MEMBER, args: roomSend({ to: 'bob' }) },
+  { name: 'send-room-member-to-self', send: {}, room: {}, caller: ROOM_MEMBER, args: roomSend({ to: 'ann' }) },
+  { name: 'send-room-bot', send: {}, room: {}, caller: ANN_CHAT, args: roomSend({ to: 'bob' }) },
+  { name: 'send-room-unknown', send: {}, room: {}, args: { ...roomSend({ to: 'bob' }), session_id: 'sess_room_zzzzzz' } },
+  { name: 'send-room-no-host', send: {}, room: { host: false }, args: roomSend({ to: 'bob' }) },
   // `create` (`agentTasks.create`): a bot's attended conversation starts a task session on a route (an explicit model,
   // else the Lead route, else the last-used model) in a Project or the caller's folder, optionally in its own worktree,
   // and sends it the brief as the bot's turn; "Started" goes to the bot's home before the brief's report.
@@ -718,6 +777,57 @@ function sendWorldOf(scenario) {
   return { service, agentTasks, seen, settled };
 }
 
+// ---- the desktop room host over a room scenario: the real `createRoomMessages` (`addressee` as `member`, `ask`) over a
+// stand-in host that keeps what it is given (`seen.room`, in order): the posted rows, the member sessions asked for, the
+// requests routed to the scheduler (each call's fields, its functions as `true`), the room's saves and catalog
+// republishes. The scheduler's intake runs the request with no stop pending; a routed call's member turn ends done with
+// `send.final` (`onSettled`), after the route returns.
+function roomHostOf(seen) {
+  const room = { name: ROOM.name, members: [...ROOM.members], lastAt: 0 };
+  let ids = 0;
+  const call = ({ onSettled, follow, ...fields }) => ({ ...clone(fields), ...(onSettled ? { onSettled: true } : {}), ...(follow ? { follow: true } : {}) });
+  const messages = createRoomMessages({
+    deps: { republishCatalog: () => seen.push(['republishCatalog']) },
+    ready: async () => {},
+    roomOf(roomId) {
+      if (roomId !== ROOM.id) throw new Error('This room no longer exists.');
+      return room;
+    },
+    memberLabels: async (record) => new Map(record.members.map((id) => [id, clone(ROOM.labels[id])])),
+    names: new Map(Object.entries(ROOM.names)),
+    persist: async () => {
+      seen.push(['persist', { lastAt: room.lastAt }]);
+    },
+    post: async (roomId, rows) => {
+      seen.push(['post', roomId, clone(rows)]);
+    },
+    memberSession: async (roomId, member) => {
+      seen.push(['memberSession', roomId, member.id]);
+      return roomMemberSessionId(roomId, member.id);
+    },
+    scheduler: {
+      intake: (roomId, run) => run({ stopped: false, release() {} }),
+      route(roomId, request) {
+        seen.push(['route', roomId, { ...clone({ ...request, calls: undefined }), calls: (request.calls ?? []).map(call) }]);
+        for (const routed of request.calls ?? []) queueMicrotask(() => routed.onSettled?.({ status: 'done', result: { content: SEND_FINAL } }));
+      },
+      relayWhenIdle() {
+        throw new Error('recorder: no relay runs');
+      },
+    },
+    now: () => ROOM.now,
+    newId: () => `n${++ids}`,
+  });
+  return {
+    member: (sessionId, request) => messages.addressee(sessionId, request),
+    ask: (sessionId, request) => messages.ask(sessionId, request),
+    relay() {
+      throw new Error('recorder: no relay runs');
+    },
+    stop: () => false,
+  };
+}
+
 // The send's id (`atask_<uuid>`), minted per run: named by its place, not its value.
 const SEND_ID = /atask_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const masked = (value) => JSON.parse(JSON.stringify(value).replace(SEND_ID, 'atask_<send>'));
@@ -767,6 +877,7 @@ function botStatusOf(scenario) {
 
 async function record(scenario) {
   const unregister = registerSessionSidebarHost(async () => {}, { state: async () => ({ archived: clone(scenario.archived) }) });
+  const cleanups = [unregister];
   try {
     // `storedLiveWork` (daemon-session-control.mjs:45) over the scenario's sources, line for line:
     // its own reads are process state and the store's worker indexes.
@@ -778,6 +889,9 @@ async function record(scenario) {
     }
     const live = { own, agents: new Set([...agentWorking, ...sessionsWithPendingWork(pool)]) };
     const sending = scenario.send ? sendWorldOf(scenario) : null;
+    if (scenario.room) sending.seen.room = [];
+    const unregisterRoom = scenario.room && scenario.room.host !== false ? registerAgentRoomHost(roomHostOf(sending.seen.room)) : () => {};
+    cleanups.push(unregisterRoom);
     const executeSessionControl = createSessionControl({
       getSessionService: () => (scenario.noService ? null : sending ? sending.service : serviceOf(scenario)),
       ...(sending ? { agentTasks: sending.agentTasks } : {}),
@@ -799,7 +913,8 @@ async function record(scenario) {
       const answer = { ok: true, text, pendingCompact: scheduled() };
       // A bot's send: what its turn's end delivered (or, reporting nothing, dropped) once it settled.
       if (sending) {
-        if (sending.seen.submitted.some((entry) => entry.reports)) {
+        const routedReports = (sending.seen.room ?? []).some(([step, , request]) => step === 'route' && request.calls.some((routed) => routed.onSettled));
+        if (sending.seen.submitted.some((entry) => entry.reports) || routedReports) {
           let timer;
           const late = new Promise((_, reject) => {
             timer = setTimeout(() => reject(new Error(`recorder: ${scenario.name}: the reporting turn did not settle within 10s`)), 10_000);
@@ -825,7 +940,7 @@ async function record(scenario) {
       return sending ? masked({ ...refused, send: sending.seen }) : refused;
     }
   } finally {
-    unregister();
+    for (const cleanup of cleanups) cleanup();
   }
 }
 
@@ -844,6 +959,7 @@ if (only) {
     bots: BOTS,
     compaction: compacted.result,
     send: { targets: SEND_TARGETS, modelRows: MODEL_ROWS, final: SEND_FINAL, approvalId: APPROVAL_ID },
+    room: ROOM,
     create: { sessionId: CREATED_ID, projectsFile: PROJECTS_FILE, codexCatalog: CODEX_CATALOG, lead: LEAD_ROUTE, worktree: WORKTREE_OUTCOMES, dropFailure: DROP_FAILURE },
     scenarios,
   });
@@ -857,9 +973,9 @@ if (only) {
       exclusions: [
         'The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.',
         "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
-        'Room sends, members and asks are not recorded (out of scope).',
+        "A send to a group room runs the real `createRoomMessages` (apps/desktop/src/main/agent-room-messages.ts, bundled by the tree's esbuild with no change) registered as the desktop room host (`registerAgentRoomHost`: its `addressee` as `member`, its `ask`), over a stand-in host: the room `room` (its record, `memberLabels` from `room.labels`, `names` from `room.names`, a clock fixed at `room.now` and ids `n1`, `n2`, ...), and `post`, `memberSession` (answering `roomMemberSessionId`), `persist` and `republishCatalog` kept as given; the scheduler's `intake` runs the request with no stop pending (the stop latch is not recorded) and its `route` is kept as given, each routed call's member turn ending done with `send.final` after the route returns (the member's exchange itself is the room's, not recorded here). `room.host: false` registers no host. A routed call's functions are recorded as `true`.",
         "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run and recorded as `sess_<heir>`.",
-        "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded. The stand-in replaces the recipient session's intake (`submitSession`, `materializeSession`): what is recorded is what the send path gives the recipient (each submission whole) and what it does with the turn's end; the recipient's own handling of a submission (its queue, a busy or closed session) is the session runtime's, which the core's replay runs for real (its own intake over its session directory) and which this recording does not cover.",
+        "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. A refused submission is not recorded. The stand-in replaces the recipient session's intake (`submitSession`, `materializeSession`): what is recorded is what the send path gives the recipient (each submission whole) and what it does with the turn's end; the recipient's own handling of a submission (its queue, a busy or closed session) is the session runtime's, which the core's replay runs for real (its own intake over its session directory) and which this recording does not cover.",
         "A create runs the real `createAgentTaskSessions(...).create` over the send stand-ins above, with the real `listProjects` (`projects.mjs`) reading `create.projectsFile` from the sandbox's MIXDOG_HOME and the real `migrateCodexRoute` reading the saved openai-oauth catalog `create.codexCatalog` from its data dir (`Date.now()` past the catalog's retirement), plus: `newTaskDefault` (the scenario's `create.newTaskDefault`), `leadRoute` (`create.lead`, or the scenario's), the session service's `createSession` (kept as given; it answers `create.sessionId`), its `configureSession` for `requestWorktree` (answering `create.worktree[<scenario's create.worktree>]`) and `deleteSession` (answering true, false for `drop: 'refused'`, or throwing `create.dropFailure` for `drop: 'fails'`), and `listSessionCatalog` (the scenario's `create.catalog`, one page). `configModelRoute` reads the recorder's empty config (no presets). A created session's request id is recorded as `atask_<send>`. A Project named by a directory path and attachments are not recorded.",
         "A bots call runs the real `createBotStatus` over the scenario's catalog (the session service's page read above, with `liveSessionAwaitingApproval` true for `bots.approvals`) and the scenario's `bots` sources in place of their process stores: `listBots` (`bots.list`), `taskWatches` (`bots.watches`), `heldRequests` (`bots.held`), `routines` (`bots.routines`, rows already of their kind, or a throw of `bots.routinesError`), `mixyName` (`bots.mixy`) and `now` (`bots.now`). A failing bot list, watch store, held requests or name read, and the over-budget refusal (no bot status a model can ask for reaches it), are not recorded.",
         "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered.",

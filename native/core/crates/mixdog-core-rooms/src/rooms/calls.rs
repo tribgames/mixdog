@@ -192,6 +192,9 @@ struct State {
     running: HashMap<String, Arc<Run>>,
     /// Relays held back per room while its talk runs: a relay never cuts a member off.
     relays: HashMap<String, Vec<RoomCall>>,
+    /// Per room, the send/ask requests still on their way to `route` (`intakes`): the stop button
+    /// cancels them even when no exchange runs yet.
+    intakes: HashMap<String, Vec<Arc<AtomicBool>>>,
 }
 
 pub struct RoomCalls<R: CallRunner> {
@@ -243,6 +246,26 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
 
     pub fn is_running(&self, room_id: &str) -> bool {
         self.state().running.contains_key(room_id)
+    }
+
+    /// `intake(roomId, run)`: a request on its way to `route`, registered before its first await;
+    /// the returned latch reads true once the stop button was pressed. [`Self::release_intake`]
+    /// drops it.
+    pub fn intake(&self, room_id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.state().intakes.entry(room_id.to_owned()).or_default().push(flag.clone());
+        flag
+    }
+
+    /// The request of `flag` reached `route` or failed.
+    pub fn release_intake(&self, room_id: &str, flag: &Arc<AtomicBool>) {
+        let mut state = self.state();
+        if let Some(pending) = state.intakes.get_mut(room_id) {
+            pending.retain(|each| !Arc::ptr_eq(each, flag));
+            if pending.is_empty() {
+                state.intakes.remove(room_id);
+            }
+        }
     }
 
     /// Routes a new request into room `room_id`: it starts an exchange or, while one runs, merges
@@ -357,15 +380,22 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         self.route(room_id, Request { to, everyone: false, waiting: false, only: true, calls: queued });
     }
 
-    /// The stop button: the relays held back end cancelled, the speaking member's turn is cut off
-    /// and no one else gets a turn. True when an exchange was cancelled.
+    /// The stop button: the relays held back end cancelled, the requests on their way are stopped,
+    /// the speaking member's turn is cut off and no one else gets a turn. True when an exchange or
+    /// an incoming request was cancelled.
     pub fn stop(self: &Arc<Self>, room_id: &str) -> bool {
-        let (queued, active) = {
+        let (queued, active, incoming) = {
             let mut state = self.state();
-            (state.relays.remove(room_id).unwrap_or_default(), state.running.get(room_id).cloned())
+            let incoming = state.intakes.get(room_id).map_or(0, |pending| {
+                for request in pending {
+                    request.store(true, Ordering::SeqCst);
+                }
+                pending.len()
+            });
+            (state.relays.remove(room_id).unwrap_or_default(), state.running.get(room_id).cloned(), incoming)
         };
         cancel_all(&queued);
-        let Some(active) = active else { return false };
+        let Some(active) = active else { return incoming > 0 };
         active.set_stopped();
         if let Some(pending) = active.pending().take() {
             cancel_all(&pending.calls);

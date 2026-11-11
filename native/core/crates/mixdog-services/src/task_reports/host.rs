@@ -171,6 +171,9 @@ pub trait HomeQueue: Send + Sync + 'static {
     async fn own(&self, work: Value) -> Result<(), String>;
     /// `watches.disown(ids)`: the records of the work one turn ended, in one write.
     async fn disown_all(&self, run_ids: Vec<String>) -> Result<(), String>;
+    /// `watches.follow(runId, submissionId)`: the watch of `run_id` follows the turn submitted as
+    /// `submission_id`.
+    async fn follow(&self, run_id: &str, submission_id: &str) -> Result<(), String>;
 }
 
 #[async_trait]
@@ -198,6 +201,9 @@ impl HomeQueue for Arc<AgentHomeDelivery> {
     }
     async fn owned(&self) -> Result<Vec<Value>, String> {
         self.owned_tasks().await
+    }
+    async fn follow(&self, run_id: &str, submission_id: &str) -> Result<(), String> {
+        self.follow_task(run_id, submission_id).await
     }
 }
 
