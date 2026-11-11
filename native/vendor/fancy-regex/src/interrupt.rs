@@ -144,6 +144,23 @@ pub mod probe {
         static READS: RefCell<Option<Vec<u64>>> = const { RefCell::new(None) };
     }
 
+    std::thread_local! {
+        static NO_LAZY_DFA: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    }
+
+    /// Runs `build` with every regex compiled on this thread getting no stepped lazy DFA, as a pattern no lazy DFA can
+    /// be built for does: its delegated searches go to the meta engine whole.
+    pub fn without_lazy_dfa<R>(build: impl FnOnce() -> R) -> R {
+        let before = NO_LAZY_DFA.with(|flag| flag.replace(true));
+        let built = build();
+        NO_LAZY_DFA.with(|flag| flag.set(before));
+        built
+    }
+
+    pub(crate) fn no_lazy_dfa() -> bool {
+        NO_LAZY_DFA.with(core::cell::Cell::get)
+    }
+
     pub(crate) fn record(taken: u64) {
         READS.with(|reads| {
             if let Some(reads) = reads.borrow_mut().as_mut() {

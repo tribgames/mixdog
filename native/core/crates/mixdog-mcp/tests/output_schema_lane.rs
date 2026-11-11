@@ -209,6 +209,43 @@ fn a_long_match_reads_its_stop_within_a_bounded_number_of_steps_and_frees_its_la
     }
 }
 
+/// Where no lazy DFA can be built for a (sub-)pattern, its search goes to the meta engine in one pass over the haystack.
+/// The pass is charged its length and the stop is read right after it (`interrupt`'s bound): the match reads its stop at
+/// a step count of at least the haystack's length, and a stop set while the pass ran ends the match there.
+#[test]
+fn a_search_the_meta_engine_runs_whole_is_charged_and_its_stop_read_after_it() {
+    let build = |pattern: &str| {
+        probe::without_lazy_dfa(|| fancy_regex::RegexBuilder::new(pattern).backtrack_limit(usize::MAX).build().unwrap())
+    };
+    let run = |regex: &fancy_regex::Regex, haystack: &str, stop: bool| {
+        probe::take_reads();
+        let answer = fancy_regex::interrupt::checking(Arc::new(AtomicBool::new(stop)), || regex.is_match(haystack));
+        (answer, probe::take_reads())
+    };
+    // (shape, pattern, haystack length): `is_match` of a wrapped pattern; a delegate after a lookahead; an absent
+    // repeater's delegate (one call per advance, so a shorter haystack).
+    for (shape, pattern, length) in [
+        ("a wrapped is_match", r"a+$", 300_000),
+        ("a delegate", r"^(?=a)a+$", 300_000),
+        ("an absent repeater's delegate", r"^(?=a)(?~b)$", 70_000),
+    ] {
+        let regex = build(pattern);
+        let haystack = "a".repeat(length);
+        let (answer, reads) = run(&regex, &haystack, false);
+        assert!(matches!(answer, Ok(true)), "{shape}: {answer:?}");
+        assert!(reads.last().is_some_and(|last| *last >= length as u64), "{shape}: reads {:?}, the pass is {length}", reads.last());
+    }
+
+    // The stop set while the wrapped pass runs: no read precedes it, so the match ends at the read right after it.
+    let (answer, reads) = run(&build(r"a+$"), &"a".repeat(300_000), true);
+    assert!(
+        matches!(answer, Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded))),
+        "{answer:?}"
+    );
+    assert_eq!(reads.len(), 1, "ended at the first read");
+    assert!(reads[0] >= 300_000, "the read follows the pass: {}", reads[0]);
+}
+
 /// A check whose call is already cancelled ends at the matcher's first read of its stop and answers cancelled.
 #[test]
 fn a_cancelled_calls_check_answers_cancelled() {
