@@ -3,9 +3,8 @@
 //! accepts a rewritten prefix (an intentional break); outside one a rewritten or shrunk history is an unexpected break, and a
 //! changed request prefix is an intentional `request_configuration` break. Every break is handed to the cache-break trace.
 //!
-//! Node also refuses the send on an unexpected break (`ProviderPrefixMutationError`); the core only traces it: the guard is
-//! the diagnostic this port adds, and a refusal on a wire projection that differs from Node's in a way the trace cannot see
-//! would fail turns Node completes.
+//! An unexpected break refuses the send, as Node's guard throws `ProviderPrefixMutationError` after tracing it (the loop,
+//! `send.rs` `prepare_prefix_guard`).
 
 use serde_json::Map;
 use serde_json::Value;

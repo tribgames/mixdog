@@ -419,6 +419,270 @@
       }
     ]
   },
+  "routes": [
+    {
+      "name": "a history that shrank, a prefix that was rewritten",
+      "session": "sess_cache_route_0",
+      "model": "claude-test",
+      "steps": [
+        {
+          "name": "first",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "one"
+            ]
+          ],
+          "provider": "anthropic",
+          "nativeTools": [],
+          "sent": 1,
+          "thrown": null,
+          "rows": [],
+          "stderr": []
+        },
+        {
+          "name": "continued",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "one"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "two"
+            ]
+          ],
+          "provider": "anthropic",
+          "nativeTools": [],
+          "sent": 1,
+          "thrown": null,
+          "rows": [],
+          "stderr": []
+        },
+        {
+          "name": "shrunk",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "one"
+            ],
+            [
+              "assistant",
+              "answer"
+            ]
+          ],
+          "provider": "anthropic",
+          "nativeTools": [],
+          "sent": 0,
+          "thrown": {
+            "name": "ProviderPrefixMutationError",
+            "code": "PROVIDER_PREFIX_MUTATION",
+            "message": "provider message history shrank outside compaction"
+          },
+          "rows": [
+            "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"unexpected\",\"reason\":\"history_shrink\",\"source\":null,\"provider\":\"anthropic\",\"model\":\"claude-test\",\"transport\":null,\"payload\":{\"classification\":\"unexpected\",\"reason\":\"history_shrink\",\"provider\":\"anthropic\",\"model\":\"claude-test\",\"index\":3,\"previous_count\":4,\"next_count\":3,\"previous_hash\":\"42e80f30bf28f8a6\",\"previous_request_prefix_hash\":\"b7d9967a90279bdb\",\"next_request_prefix_hash\":\"b7d9967a90279bdb\",\"request_prefix_changed\":false,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_route_0\"}"
+          ],
+          "stderr": [
+            "[cache-break] classification=\"unexpected\" reason=\"history_shrink\" session=\"sess_cache_route_0\" provider=\"anthropic\" model=\"claude-test\" iteration=1 index=3 previousCount=4 nextCount=3 previousHash=\"42e80f30bf28f8a6\""
+          ]
+        },
+        {
+          "name": "rewritten",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "ONE"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "two"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "three"
+            ]
+          ],
+          "provider": "anthropic",
+          "nativeTools": [],
+          "sent": 0,
+          "thrown": {
+            "name": "ProviderPrefixMutationError",
+            "code": "PROVIDER_PREFIX_MUTATION",
+            "message": "provider message prefix changed outside compaction"
+          },
+          "rows": [
+            "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"unexpected\",\"reason\":\"message_prefix\",\"source\":null,\"provider\":\"anthropic\",\"model\":\"claude-test\",\"transport\":null,\"payload\":{\"classification\":\"unexpected\",\"reason\":\"message_prefix\",\"provider\":\"anthropic\",\"model\":\"claude-test\",\"index\":1,\"previous_count\":4,\"next_count\":6,\"previous_hash\":\"bf39f3d3b16d7df4\",\"next_hash\":\"7477660f42757f64\",\"previous_request_prefix_hash\":\"b7d9967a90279bdb\",\"next_request_prefix_hash\":\"b7d9967a90279bdb\",\"request_prefix_changed\":false,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_route_0\"}"
+          ],
+          "stderr": [
+            "[cache-break] classification=\"unexpected\" reason=\"message_prefix\" session=\"sess_cache_route_0\" provider=\"anthropic\" model=\"claude-test\" iteration=1 index=1 previousCount=4 nextCount=6 previousHash=\"bf39f3d3b16d7df4\" nextHash=\"7477660f42757f64\""
+          ]
+        },
+        {
+          "name": "continued again",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "one"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "two"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "three"
+            ]
+          ],
+          "provider": "anthropic",
+          "nativeTools": [],
+          "sent": 1,
+          "thrown": null,
+          "rows": [],
+          "stderr": []
+        }
+      ]
+    },
+    {
+      "name": "a route to another provider, a native tool added",
+      "session": "sess_cache_route_1",
+      "model": "claude-test",
+      "steps": [
+        {
+          "name": "first",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "one"
+            ]
+          ],
+          "provider": "anthropic",
+          "nativeTools": [],
+          "sent": 1,
+          "thrown": null,
+          "rows": [],
+          "stderr": []
+        },
+        {
+          "name": "another provider",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "one"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "two"
+            ]
+          ],
+          "provider": "openai",
+          "nativeTools": [],
+          "sent": 1,
+          "thrown": null,
+          "rows": [
+            "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"intentional\",\"reason\":\"provider_changed\",\"source\":\"request_configuration\",\"provider\":\"openai\",\"model\":\"claude-test\",\"transport\":null,\"payload\":{\"classification\":\"intentional\",\"reason\":\"provider_changed\",\"source\":\"request_configuration\",\"provider\":\"openai\",\"model\":\"claude-test\",\"index\":0,\"previous_count\":2,\"next_count\":4,\"previous_request_prefix_hash\":\"b7d9967a90279bdb\",\"next_request_prefix_hash\":\"eddc18bdfecdc020\",\"request_prefix_changed\":true,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_route_1\"}"
+          ],
+          "stderr": [
+            "[cache-break] classification=\"intentional\" reason=\"provider_changed\" source=\"request_configuration\" session=\"sess_cache_route_1\" provider=\"openai\" model=\"claude-test\" iteration=1 index=0 previousCount=2 nextCount=4"
+          ]
+        },
+        {
+          "name": "a native tool",
+          "convo": [
+            [
+              "system",
+              "Stable instructions."
+            ],
+            [
+              "user",
+              "one"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "two"
+            ],
+            [
+              "assistant",
+              "answer"
+            ],
+            [
+              "user",
+              "three"
+            ]
+          ],
+          "provider": "openai",
+          "nativeTools": [
+            {
+              "type": "web_search"
+            }
+          ],
+          "sent": 1,
+          "thrown": null,
+          "rows": [
+            "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"intentional\",\"reason\":\"native_tool_schema_changed\",\"source\":\"request_configuration\",\"provider\":\"openai\",\"model\":\"claude-test\",\"transport\":null,\"payload\":{\"classification\":\"intentional\",\"reason\":\"native_tool_schema_changed\",\"source\":\"request_configuration\",\"provider\":\"openai\",\"model\":\"claude-test\",\"index\":0,\"previous_count\":4,\"next_count\":6,\"previous_request_prefix_hash\":\"eddc18bdfecdc020\",\"next_request_prefix_hash\":\"40ca10c403208530\",\"request_prefix_changed\":true,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_route_1\"}"
+          ],
+          "stderr": [
+            "[cache-break] classification=\"intentional\" reason=\"native_tool_schema_changed\" source=\"request_configuration\" session=\"sess_cache_route_1\" provider=\"openai\" model=\"claude-test\" iteration=1 index=0 previousCount=4 nextCount=6"
+          ]
+        }
+      ]
+    }
+  ],
   "guard": [
     {
       "name": "continued",
