@@ -65,24 +65,42 @@
         "normalized": [
           {
             "remember": "once",
-            "result": "once"
+            "response": {
+              "approved": true,
+              "response": "approve",
+              "remember": "once"
+            }
           },
           {
             "remember": "session",
-            "result": "session"
+            "response": {
+              "approved": true,
+              "response": "approve",
+              "remember": "session"
+            }
           },
           {
             "remember": "always",
-            "result": "always"
+            "response": {
+              "approved": true,
+              "response": "approve",
+              "remember": "always"
+            }
           },
           {
             "remember": "agent",
-            "result": "once"
+            "response": {
+              "approved": true,
+              "response": "approve",
+              "remember": "once"
+            }
           }
         ],
-        "requestNamingNoKey": [
-          "once"
-        ]
+        "requestNamingNoKey": {
+          "remember": [
+            "once"
+          ]
+        }
       }
     },
     {
@@ -2560,7 +2578,11 @@
             ]
           }
         ],
-        "deniedRemember": "once"
+        "denied": {
+          "approved": false,
+          "response": "deny",
+          "remember": "once"
+        }
       }
     },
     {
@@ -3831,14 +3853,45 @@
           }
         ],
         "grantActions": {
-          "comment": "comment",
-          "shell": "tool:shell",
-          "merge": "tool:github",
+          "comment": {
+            "kind": "approval",
+            "remember": [
+              "once",
+              "session",
+              "always"
+            ],
+            "agentId": "lead",
+            "grantAction": "comment"
+          },
+          "shell": {
+            "remember": [
+              "once",
+              "session",
+              "always"
+            ],
+            "agentId": "lead",
+            "grantAction": "tool:shell"
+          },
+          "merge": {
+            "remember": [
+              "once",
+              "session",
+              "always"
+            ],
+            "agentId": "lead",
+            "grantAction": "tool:github"
+          },
           "mcp__stripe__create_payment": {
-            "$exact": "undefined"
+            "remember": [
+              "once"
+            ],
+            "agentId": "lead"
           },
           "setup": {
-            "$exact": "undefined"
+            "remember": [
+              "once"
+            ],
+            "agentId": "lead"
           }
         }
       }

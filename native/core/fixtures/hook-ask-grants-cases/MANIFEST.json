@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 104737,
+      "bytes": 106009,
       "path": "golden.json",
-      "sha256": "f901fa9c5d79615eea568952e8caeab8ea470edc2c604fe94412a6adc01f0428"
+      "sha256": "6dac501ceb679758780a0316469a5f817fee12893cb966ada46f5ff62f642bda"
     }
   ],
   "inputs": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-hook-ask-grants-cases.mjs",
-  "recorderSha256": "2d6e31a068386ca4be0698c5993c1fb479428409462720c4fbbf89a9d1df233e",
+  "recorderSha256": "b140102a06a274e5d3af166db9b8cafd1e71a0802d527ab97bbd3e0c63320c87",
   "replay": {
     "compare": "mixdog-tools policy (gate.rs, grants.rs, card.rs): replay each log step in order (decide / choose / answer / advance / reset / grant / setMode / setAgentPermission / config) on a store and a session-grant registry with the recorded clock (start 1_000_000 ms) and compare every step's output and the grants/audit views",
     "entry": "Drive these public items on o1: mixdog-tools/src/policy/gate.rs:237 decide; mixdog-tools/src/policy/session_grants.rs:49 grant; mixdog-tools/src/policy/session_grants.rs:68 has; mixdog-tools/src/policy/grants.rs:158 set_mode; mixdog-tools/src/policy/grants.rs:321 GrantStore; mixdog-tools/src/policy/card.rs:59 build.",
@@ -111,6 +111,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "hook-ask-grants-cases",
-  "totalBytes": 104737,
+  "totalBytes": 106009,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
