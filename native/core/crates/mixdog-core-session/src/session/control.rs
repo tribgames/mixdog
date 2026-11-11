@@ -52,6 +52,9 @@ pub(crate) enum Ctl {
     RetryStorage,
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
     RefreshSurface,
+    /// A client resumed the thread: what its queue holds from before a restart drains, as the desktop's resume drains the
+    /// rows it restored (`restoreLeadSteeringFromDisk`, then the release hook, `session-api/lifecycle/resume.mjs:72`).
+    Resumed,
     /// A workspace change applied the session's cwd (`applyResolvedCwd`), `changed` when the
     /// folder moved: the code-graph warm follows.
     CwdApplied { changed: bool },

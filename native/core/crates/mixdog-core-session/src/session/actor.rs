@@ -784,10 +784,10 @@ pub const SUBMIT_REFUSED: &str = "SUBMIT_REFUSED";
 /// `turn-durability.mjs:21`).
 pub const TURN_NOT_DURABLE: &str = "ETURNNOTDURABLE";
 
-/// An outbox entry whose failure a client hears: a request's own record, or a queued prompt (refused, so a retry is a
-/// new submission).
+/// An outbox entry whose failure a client hears: a request's own record, a close's mark, a toast its caller waits on, or
+/// a queued prompt (refused, so a retry is a new submission).
 fn answers_a_client(entry: &Entry) -> bool {
-    entry.effects.iter().any(|effect| matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some()))
+    entry.effects.iter().any(|effect| matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some()) || matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_)))
         || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Queue(queue) if queue.action == QueueAction::Enqueue))
 }
 
@@ -1247,7 +1247,7 @@ impl SessionActor {
             return;
         };
         let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
-        self.accept_record(meta, Class::Control, Display::None, Vec::new(), vec![Effect::ItemAck(marked)]);
+        self.accept_record(meta, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(marked)]);
     }
 
     /// Unloads when the last subscriber has left and nothing is live: no run, no queued
@@ -2378,7 +2378,7 @@ impl SessionActor {
                     run.input.send_replace(InputState::Durable);
                 }
             }
-            Effect::ItemAck(tx) => {
+            Effect::ItemAck(tx) | Effect::MarkAck(tx) => {
                 let _ = tx.send(Ok(()));
             }
             Effect::PublishApproval(request) => {
@@ -2444,7 +2444,7 @@ impl SessionActor {
                         run.cancel.abort_default();
                     }
                 }
-                Effect::ItemAck(tx) => {
+                Effect::ItemAck(tx) | Effect::MarkAck(tx) => {
                     let _ = tx.send(Err(RunError::NotApplied));
                 }
                 Effect::PublishApproval(request) => {
@@ -2508,6 +2508,13 @@ impl SessionActor {
             if let Some((change, kept, effects)) = self.outbox.hold(id) {
                 let entry = Entry { id, durable: None, change, notes: kept, effects, needs: None, held: false };
                 self.release(entry, None, &mut notes);
+            }
+        }
+        // A close's mark or a toast waiting behind the failed barrier was part of the save that threw in Node (`closeSession`
+        // answers `false`, the notice posting rejects): its caller hears the failure.
+        for id in self.outbox.waiting(|effect| matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_))) {
+            for entry in self.outbox.remove(id).into_iter().chain(self.outbox.remove_needing(id)).collect::<Vec<_>>() {
+                self.fail_entry(entry, error);
             }
         }
         self.rebuild_projected();
@@ -2711,6 +2718,11 @@ impl SessionActor {
                         self.book.answer(aid, &interrupted);
                         self.resolve(aid, &turn, interrupted);
                     }
+                }
+            }
+            Ctl::Resumed => {
+                if !self.projected.queued_rows().is_empty() {
+                    self.start_next_queued();
                 }
             }
             Ctl::Prioritize { queued } => {
@@ -4571,8 +4583,11 @@ impl SessionActor {
             _ => Err(invalid("method", "a session-actor method")),
         };
         // Node's own row and header changes mutate the session in memory and never refuse on a failed save (`inheritFrom`'s
-        // `target.messages.push`, a room's rows, `session.title = …`); a client's change answers the failure.
+        // `target.messages.push`, a room's rows, `session.title = …`); a client's change answers the failure. A lifecycle
+        // write (a close's tombstone, a generation bump) is Node's durable lifecycle barrier (`session-close.mjs:138`), whose failure its caller hears.
+        let lifecycle = req.params.get("set").and_then(Value::as_object).is_some_and(|set| set.contains_key("closed") || set.contains_key("generation"));
         let kept = req.op.is_none()
+            && !lifecycle
             && !matches!(req.ctx.caller, Caller::Connection(_))
             && matches!(req.method.as_str(), "thread/header/patch" | "thread/roomRows/commit");
         match result {
@@ -5819,6 +5834,32 @@ impl SessionActor {
         let at = self.deps.clock.now_ms();
         if let Some(reset) = self.provider_state_change(None) {
             self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
+        }
+        // A queued entry the crashed run already took (a steered row naming it) was delivered: its dequeue did not land
+        // before the kill, and it goes now rather than run twice (`restoreLeadSteeringFromDisk`'s delivered submissions,
+        // `steering.mjs:241`).
+        let delivered: std::collections::HashSet<String> = ended
+            .iter()
+            .flat_map(|(_, left)| &left.rows)
+            .filter(|item| item.role.as_deref() == Some("user"))
+            .flat_map(|item| {
+                let meta = item.body.get("meta");
+                let ids = |at: Option<&Value>| at.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>();
+                let mut out = ids(meta.and_then(|m| m.get("submissionIds")));
+                out.extend(ids(meta.and_then(|m| m.pointer("/transcript/submissionIds"))));
+                out.extend(meta.and_then(|m| m.pointer("/transcript/checkpointId")).and_then(Value::as_str).map(str::to_owned));
+                out
+            })
+            .collect();
+        let taken: Vec<String> = self
+            .projected
+            .queue
+            .iter()
+            .filter(|q| delivered.contains(&q.qid) || q.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).is_some_and(|id| delivered.contains(id)))
+            .map(|q| q.qid.clone())
+            .collect();
+        for qid in taken {
+            self.accept_record(dequeue(&qid), Class::Control, Display::None, Vec::new(), Vec::new());
         }
         for (rid, left) in ended {
             let turn = TurnId::from(rid.clone());
