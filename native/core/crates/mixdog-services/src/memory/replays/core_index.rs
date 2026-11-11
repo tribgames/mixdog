@@ -473,7 +473,7 @@ mod pg {
         // The core's UUIDs in the order the comparison meets them, step by step (label, args, result, statements,
         // tables), then the files: each step is labelled as it is pushed, so its parameters compare with the
         // recording's labelled ones as values.
-        let mut seen = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
         for recorded in c.get("steps").as_array() {
             let label = recorded.get("label").as_str();
             let mut args = recorded.get("args").to_plain().expect("args JSON");
