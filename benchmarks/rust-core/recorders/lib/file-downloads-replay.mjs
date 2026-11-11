@@ -53,6 +53,26 @@ const killTree = (child) => {
   if (ended.error || (ended.status !== 0 && ended.status !== 128)) throw new Error(`could not end the core (pid ${child.pid}): ${ended.error?.message ?? `taskkill exited ${ended.status}`}`);
 };
 
+/** Ends every process still running on `folder` and waits (30 s) for each to exit. The core's Postgres postmaster outlives the core, as in
+ *  Node (`pg_ctl start` is not waited for, so it is not in the core's tree), and it, its backends and the shell `pg_ctl` started it under
+ *  hold `<profile>/pg.log` open: the folder cannot be removed before they are gone. */
+const endLeftovers = (folder) => {
+  const script = [
+    '$all = @(Get-CimInstance Win32_Process)',
+    '$ids = @($all | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($env:REPLAY_FOLDER, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { [int]$_.ProcessId })',
+    'do { $count = $ids.Count; $ids = @(@($ids) + @($all | Where-Object { $ids -contains [int]$_.ParentProcessId } | ForEach-Object { [int]$_.ProcessId }) | Sort-Object -Unique) } while ($ids.Count -ne $count)',
+    '$procs = @($ids | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })',
+    'if ($procs.Count) { $procs | Stop-Process -Force -ErrorAction SilentlyContinue; $procs | Wait-Process -Timeout 30 -ErrorAction Stop }',
+  ].join('\n');
+  const ended = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    env: { ...process.env, REPLAY_FOLDER: folder },
+    encoding: 'utf8',
+    timeout: 60_000,
+    windowsHide: true,
+  });
+  if (ended.error || ended.status !== 0) throw new Error(`could not end the processes left on ${folder}: ${ended.error?.message ?? ended.stderr.trim()}`);
+};
+
 /** The core, started on a data dir of its own with the relay it dials and the folder it talks to this replay through; up when it has
  *  written its discovery file and the controls' first answer (a core built without them never writes one). */
 async function startCore(exe, root, relayPort, talk) {
@@ -630,7 +650,8 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       problems.push(...unexpected.map((line) => `${label} ${line}`));
     }
   } finally {
-    // The core is ended first and its exit awaited, then the relay closed, then the work folder removed once: a failure of any is an error.
+    // The core is ended first and its exit awaited, then the relay closed, then what it left running on the work folder (its Postgres) ended
+    // and awaited, then the folder removed once: a failure of any is an error.
     const failures = [];
     for (const client of clients) client.close?.();
     try {
@@ -644,6 +665,7 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
     }
     relay?.close();
     try {
+      endLeftovers(WORLDS);
       rmSync(WORLDS, { recursive: true, force: true });
     } catch (error) {
       failures.push(error);

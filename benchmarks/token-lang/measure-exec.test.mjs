@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { assertTreeGone } from '../../scripts/rust-core/lib/process-probe.mjs';
+import { runTree, spawnTree } from '../../scripts/rust-core/lib/process-tree.mjs';
+
+const PROBE = fileURLToPath(new URL('../../scripts/rust-core/lib/process-probe.mjs', import.meta.url));
 import { LANGS, MODELS, execInputTokens, inputTokensOfFirstRequest, measureModel, renderTable, usageLogInput } from './measure-exec.mjs';
 
 const lines = (...events) => events.map((event) => JSON.stringify(event)).join('\n');
@@ -13,12 +20,19 @@ test('the table is the one Node measured: rendering results.json gives table.md'
   assert.equal(`${renderTable(results)}\n`, readFileSync(new URL('./results/table.md', import.meta.url), 'utf8'));
 });
 
-// The comparison drops "Qwen 3.8 Flash" on purpose: MODELS lists it, but results/results.json (the recorded run)
-// holds only the other eight models, so there is no recorded row to compare it against.
-test('every model results.json holds is measured, in its order (results.json predates Qwen)', () => {
+// results.json records the whole model list (`models`: name, route, model id, effort) and names the models it has no
+// measurement for (`unmeasured`, with the reason: Qwen 3.8 Flash has no row in the Node run). The test compares the
+// complete list, so a removed, renamed, remapped or added model fails it; nothing is filtered out.
+test('results.json records the whole model list, and every model has a row or a stated reason', () => {
   const recorded = JSON.parse(readFileSync(new URL('./results/results.json', import.meta.url), 'utf8'));
-  // Dropped: Qwen 3.8 Flash (in MODELS, absent from results/results.json's model list); Node's measure.mjs never recorded it.
-  assert.deepEqual(MODELS.map(([name]) => name).filter((name) => recorded.results.some((row) => row.name === name)), recorded.results.map((row) => row.name));
+  assert.deepEqual(recorded.models, MODELS.map(([name, provider, model, effort]) => ({ name, provider, model, ...(effort ? { effort } : {}) })));
+  const measured = recorded.results.map((row) => row.name);
+  const unmeasured = recorded.unmeasured.map((row) => row.name);
+  assert.deepEqual(unmeasured, ['Qwen 3.8 Flash']);
+  assert.ok(recorded.unmeasured.every((row) => row.reason.length > 20));
+  assert.deepEqual(MODELS.map(([name]) => name), recorded.models.map((model) => model.name));
+  // The only name dropped is the one asserted above, Qwen 3.8 Flash; Node's measure.mjs run has no row for it either.
+  assert.deepEqual(MODELS.map(([name]) => name).filter((name) => !unmeasured.includes(name)), measured, 'rows are the models without a stated gap, in order');
   assert.deepEqual(LANGS.map(([lang]) => lang), Object.keys(recorded.results[0].net));
 });
 
@@ -88,4 +102,75 @@ test('the net count of a language is its count less the "." baseline', async () 
   assert.equal(measured.baseline, 7);
   assert.equal(measured.raw.English, 17);
   assert.deepEqual(measured.net, Object.fromEntries(LANGS.map(([lang], i) => [lang, 10 * (i + 1)])));
+});
+
+// A child that never answers; `endImpl` records the end instead of killing, as the fake has no process.
+const silentChild = () => () => {
+  const c = new EventEmitter();
+  c.stdout = new EventEmitter();
+  c.stderr = new EventEmitter();
+  return c;
+};
+
+test('an exec that does not finish by the deadline is ended and reported, not waited for', async () => {
+  const ended = [];
+  await assert.rejects(
+    execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: silentChild(), endImpl: async (child) => ended.push(child), deadlineMs: 20 }),
+    /did not finish within 20ms and was ended/,
+  );
+  assert.equal(ended.length, 1);
+});
+
+test('a child that cannot start is ended and rejects', async () => {
+  const ended = [];
+  const broken = () => {
+    const c = silentChild()();
+    queueMicrotask(() => c.emit('error', new Error('spawn ENOENT')));
+    return c;
+  };
+  await assert.rejects(execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: broken, endImpl: async (child) => ended.push(child), deadlineMs: 60_000 }), /could not run: spawn ENOENT/);
+  assert.equal(ended.length, 1);
+});
+
+test('a tree that cannot be ended is reported beside the deadline', async () => {
+  const stuck = async () => {
+    throw new Error('taskkill of the process tree of pid 7 exited 1');
+  };
+  await assert.rejects(
+    execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: silentChild(), endImpl: stuck, deadlineMs: 20 }),
+    /did not finish within 20ms and was ended.*; taskkill of the process tree of pid 7 exited 1/,
+  );
+});
+
+test('at the deadline the exec and everything it started are gone, on a real process tree', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'measure-exec-tree-'));
+  const previous = process.env.NODE_OPTIONS;
+  try {
+    // `node exec --json ...` stands for mixdogd: the preload starts a grandchild, records both pids and blocks, which is a hung core with a tool process under it.
+    const preload = join(dir, 'hang.cjs').replaceAll('\\', '/');
+    writeFileSync(
+      preload,
+      `delete process.env.NODE_OPTIONS;\nconst { startTimeOfSync } = require(${JSON.stringify(PROBE)});\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: process.platform === 'win32' });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid].map((pid) => ({ pid, start: startTimeOfSync(pid) }))));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
+    );
+    process.env.NODE_OPTIONS = `--require "${preload}"`;
+    await assert.rejects(execInputTokens({ bin: process.execPath, provider: 'x', model: 'm', text: 't', cwd: dir, deadlineMs: 30_000, spawnImpl: spawnTree }), /did not finish within 30000ms and was ended/);
+    const members = JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'));
+    assert.equal(members.length, 2);
+    await assertTreeGone(members);
+  } finally {
+    if (previous === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = previous;
+    // Nothing to end here: the tree belongs to the helper (job object / process group), which ended it with the run.
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test('the command fails when a selected model fails, and leaves results.json as it was', async () => {
+  const results = new URL('./results/results.json', import.meta.url);
+  const before = readFileSync(results, 'utf8');
+  // node is the "mixdogd" here: `node exec --json ...` exits 1, which is a failed measurement of the selected model.
+  const run = await runTree(process.execPath, [fileURLToPath(new URL('./measure-exec.mjs', import.meta.url)), '--mixdogd', process.execPath, '--models', 'kimi', '--n', '1'], { label: 'measure-exec with a failing exec', deadlineMs: 60_000 });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /FAILED: Kimi K3/);
+  assert.match(run.stderr, /measurement failed for: Kimi K3/);
+  assert.equal(readFileSync(results, 'utf8'), before);
 });
