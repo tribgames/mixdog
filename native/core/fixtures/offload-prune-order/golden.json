@@ -5665,6 +5665,193 @@
       ]
     },
     {
+      "name": "clear-fork",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_clear_fork",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of clear-fork",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of clear-fork",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_clear_fork\\69eaa2acfcc22a7f586277cb933ed7b486059e53a3b61221a56ecac9923f965a.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ],
+        "forkId": "sess_prune_order_clear_fork_archive"
+      },
+      "points": [
+        {
+          "at": "after-clear",
+          "toolResults": [
+            [
+              "69eaa2acfcc22a7f586277cb933ed7b486059e53a3b61221a56ecac9923f965a.txt",
+              "named output of clear-fork"
+            ],
+            [
+              "e1044c35d9fe89b2b055658449e9040e0eab6a43c9ad206ccc84dd585341366b.txt",
+              "stray output of clear-fork"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "69eaa2acfcc22a7f586277cb933ed7b486059e53a3b61221a56ecac9923f965a.txt",
+              "named output of clear-fork"
+            ]
+          ],
+          "transcript": []
+        }
+      ]
+    },
+    {
+      "name": "heir-fork",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_heir_fork",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of heir-fork",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of heir-fork",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_heir_fork\\77e4b0f8f92c74125bfe38ab23c5944d3260169687a7a38767888321b471dd2a.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ]
+      },
+      "points": [
+        {
+          "at": "after-clear",
+          "toolResults": [
+            [
+              "77e4b0f8f92c74125bfe38ab23c5944d3260169687a7a38767888321b471dd2a.txt",
+              "named output of heir-fork"
+            ],
+            [
+              "bc054ab84ead0ebbee89b9061331cd48c2a175138c023c76a5ce227f5f279dda.txt",
+              "stray output of heir-fork"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "77e4b0f8f92c74125bfe38ab23c5944d3260169687a7a38767888321b471dd2a.txt",
+              "named output of heir-fork"
+            ]
+          ],
+          "transcript": []
+        }
+      ]
+    },
+    {
+      "name": "owner-let-go",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_owner_let_go",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of owner-let-go",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of owner-let-go",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_owner_let_go\\613faf4e07a3089bbf19cc4e1ed1e3b5f05a9e35eb8d45964b0c8d541ec0f2ed.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ]
+      },
+      "points": [
+        {
+          "at": "after-close",
+          "toolResults": [
+            [
+              "613faf4e07a3089bbf19cc4e1ed1e3b5f05a9e35eb8d45964b0c8d541ec0f2ed.txt",
+              "named output of owner-let-go"
+            ],
+            [
+              "67f958794d3e3821c943d7fd66e34e50930b4306d62a62a777e1298094723fe1.txt",
+              "stray output of owner-let-go"
+            ]
+          ],
+          "transcript": [
+            {
+              "role": "user",
+              "content": "the result is at <DATA>\\tool-results\\sess_prune_order_owner_let_go\\613faf4e07a3089bbf19cc4e1ed1e3b5f05a9e35eb8d45964b0c8d541ec0f2ed.txt"
+            },
+            {
+              "role": "assistant",
+              "content": "noted"
+            }
+          ]
+        },
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "613faf4e07a3089bbf19cc4e1ed1e3b5f05a9e35eb8d45964b0c8d541ec0f2ed.txt",
+              "named output of owner-let-go"
+            ]
+          ],
+          "transcript": [
+            {
+              "role": "user",
+              "content": "the result is at <DATA>\\tool-results\\sess_prune_order_owner_let_go\\613faf4e07a3089bbf19cc4e1ed1e3b5f05a9e35eb8d45964b0c8d541ec0f2ed.txt"
+            },
+            {
+              "role": "assistant",
+              "content": "noted"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "nothing-to-prune",
       "changed": null,
       "error": null,
