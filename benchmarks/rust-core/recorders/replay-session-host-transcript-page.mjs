@@ -7,10 +7,11 @@
 // The core is run over a data directory laid by `seed_transcript_page_session` (a connection cannot store rows; the core's own writer does,
 // as it does for a stored session): the 300 rows `c0`..`c299` of the recording, and `n0`, `n1` more for the changed session.
 //
-// What the user sees at the end, per case, is compared whole with the recorded `snapshot.items` (96 rows, text trimmed as a stored message
+// What the user sees at the end, per case, is compared with the recorded `snapshot.items` (96 rows, text trimmed as a stored message
 // restores, ids left out: manifest `replay.normalised`):
-// - an older page crosses ...: the reader follows the tail (a short first window filling the pane): the hook grows the window by a page, the
-//   host reads the 32 rows held + 64 again from the core.
+// - an older page crosses ...: the reader has scrolled up and nothing moves: the pager reads the page before its oldest held row, as in K1.
+//   The pager asks for 512 rows (renderer/transcript-history.ts), Node's recorded host 64 (manifest `replay.normalised.pageSize`): the recorded
+//   64 rows are compared as the newest 64 of what the pager reveals, the held rows as held, the newest 96 displayed with `snapshot.items`.
 // - a session that changed between reads: the reader has scrolled up, so the pager reads the page before its oldest held row; while that read
 //   is held in flight the tail changes (the two appended rows reach the held rows), the pager drops the page and the hook reads the window the
 //   request was made for (32 held + 64 = 96 rows), not one grown from the 34 held now.
@@ -98,6 +99,8 @@ async function replay({ prefix, seed, opened, following, move }) {
 
     // The read the pager sends can be held in flight (before it leaves the host adapter); the window growth is observed as the host adapter gets it.
     const reads = [];
+    const pages = [];
+    const shown = deferred();
     const grows = [];
     const entered = deferred();
     const grew = deferred();
@@ -111,7 +114,9 @@ async function replay({ prefix, seed, opened, following, move }) {
           entered.resolve();
           await within(hold.promise, LIMIT, `${name}: the page read being released`);
         }
-        return api.readTranscriptHistory(threadId, request);
+        const page = await api.readTranscriptHistory(threadId, request);
+        pages.push(page);
+        return page;
       },
       prefetchSession: (threadId, items) => {
         grows.push([threadId, items]);
@@ -126,6 +131,7 @@ async function replay({ prefix, seed, opened, following, move }) {
     let latest = null;
     const Reader = ({ items }) => {
       latest = useTranscriptWindow(ID, items, state().transcriptHasOlder === true, following);
+      if (latest.historyActive) shown.resolve();
       return null;
     };
     const show = () => act(async () => pane.render(React.createElement(Reader, { items: live })));
@@ -134,12 +140,32 @@ async function replay({ prefix, seed, opened, following, move }) {
     const heldFirst = latest.items[0].id;
 
     await act(async () => latest.requestEarlier());
-    if (move) {
-      await within(entered.promise, LIMIT, `${name}: the page read reaching the host adapter`);
-      live = move(live, state().items);
-      await show();
-      await act(async () => hold.resolve());
+    if (!move) {
+      // The pager's own request: nothing moves, the page lands and the reader's window is the page above the held rows.
+      await within(shown.promise, LIMIT, `${name}: the page being displayed`);
+      const page = pages[0];
+      assert.deepEqual(grows, [], `${name}: the pager reads a page; the window is not grown`);
+      assert.equal(reads.length, 1, `${name}: one page read`);
+      assert.equal(reads[0].before, heldFirst, `${name}: the page was asked before the oldest held row`);
+      assert.equal(reads[0].limit, 512, `${name}: the pager asks for its own page of 512 rows`);
+      const read = recording.reads[0].result.page;
+      // The pager reveals 512 rows where Node's recorded host asked for 64 (manifest replay.normalised.pageSize): the recorded 64 are the
+      // newest 64 of the revealed rows, in order; the held rows stay as held.
+      assert.deepEqual(rowsOf(page.items.slice(-read.items.length)), rowsOf(read.items), `${name}: the recorded 64 rows are the newest of the revealed rows`);
+      assert.equal(latest.items.length, page.items.length + held, `${name}: the revealed rows above the held rows`);
+      assert.deepEqual(rowsOf(latest.items.slice(-held)), rowsOf(recording.heldBeforePage), `${name}: the held rows are kept as held`);
+      assert.deepEqual(rowsOf(latest.items.slice(-recording.snapshot.items.length)), rowsOf(recording.snapshot.items), `${name}: the newest 96 rows displayed`);
+      // The recorded 64-row page stops short of the first row (hasOlder true); the pager's page reaches the session's first row.
+      assert.equal(page.hasOlder, latest.hasOlder, `${name}: the window says what the page said`);
+      assert.equal(latest.hasOlder, false, `${name}: the 512-row page reaches the first of the 300 rows`);
+      assert.equal(read.state.transcriptHasOlder, true, `${name}: the recorded 64-row page left older rows`);
+      console.log(`${name}: replayed`);
+      return;
     }
+    await within(entered.promise, LIMIT, `${name}: the page read reaching the host adapter`);
+    live = move(live, state().items);
+    await show();
+    await act(async () => hold.resolve());
     await within(grew.promise, LIMIT, `${name}: the window being read again`).then((done) => within(done, LIMIT, `${name}: the window read`));
     // The grown window folds into the client's state from the feed after the reply.
     await within(waitStore(client, () => (state().items.length === 96 ? true : undefined)), LIMIT, `${name}: the grown window being folded`).catch((error) => {
@@ -150,8 +176,7 @@ async function replay({ prefix, seed, opened, following, move }) {
 
     assert.equal(latest.historyActive, false, `${name}: the reader is on the live tail again`);
     assert.deepEqual(grows, [[ID, 96]], `${name}: the window read is the 32 rows held when the request was made plus a page`);
-    if (move) assert.equal(reads[0].before, heldFirst, `${name}: the page was asked before the oldest held row`);
-    else assert.deepEqual(reads, [], `${name}: a reader on the tail grows the window; no page is read`);
+    assert.equal(reads[0].before, heldFirst, `${name}: the page was asked before the oldest held row`);
     assert.deepEqual(rowsOf(latest.items), rowsOf(recording.snapshot.items), `${name}: the rows displayed at the end`);
     console.log(`${name}: replayed`);
   } finally {
@@ -161,7 +186,7 @@ async function replay({ prefix, seed, opened, following, move }) {
 }
 
 try {
-  await replay({ prefix: 'an older page', seed: join(seeds, 'c300'), opened: 32, following: true, move: null });
+  await replay({ prefix: 'an older page', seed: join(seeds, 'c300'), opened: 32, following: false, move: null });
   // The client's feed carries the appended rows to the held rows while the page is in flight.
   await replay({ prefix: 'a session that changed', seed: join(seeds, 'c302'), opened: 34, following: false, move: (_held, all) => all });
   // The recorder's movement: the held copy loses its first row.

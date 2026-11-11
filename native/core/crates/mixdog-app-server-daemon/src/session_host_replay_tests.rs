@@ -130,7 +130,8 @@ async fn counted_paged_directory(extra: &[&str]) -> (tempfile::TempDir, Arc<Sess
 
 /// Case "an older page crosses the daemon hop as the revealed rows only, and the host keeps its held copy": the client holds the newest
 /// 32 rows (`heldBeforePage`); its older page (cursor: the oldest held row, 64 rows) answers only the 64 revealed rows (the recorded
-/// `page.items`), and the held rows with them make the recorded 96-row window.
+/// `page.items`) and `hasOlder`. The window the reader then sees is the product pager's, replayed by
+/// `benchmarks/rust-core/recorders/replay-session-host-transcript-page.mjs`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_older_page_answers_only_the_revealed_rows_as_node_recorded() {
     let observed = observed("session-host-transcript-page-cases", "an older page crosses the daemon hop as the revealed rows only, and the host keeps its held copy");
@@ -145,8 +146,6 @@ async fn an_older_page_answers_only_the_revealed_rows_as_node_recorded() {
     let (revealed, answer) = page(&directory, 64, Some(&older)).await;
     assert_rows(&folded(&revealed), &recorded_page_rows(recorded_page.get("items")), "the revealed rows");
     assert_eq!(answer["hasOlder"], json!(plain(recorded_page.get("state"))["transcriptHasOlder"]), "older rows remain");
-    let window: Vec<Value> = revealed.iter().chain(held.iter()).cloned().collect();
-    assert_rows(&folded(&window), &recorded_page_rows(observed.get("snapshot").get("items")), "the window the client holds");
 }
 
 /// Appends assistant rows to the open paged session the way the session's rows are written (`thread/inheritedRows/append`).
