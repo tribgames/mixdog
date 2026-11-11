@@ -58,7 +58,7 @@ export function failure(error: unknown): unknown {
   return rebuilt;
 }
 
-const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> => {
+export const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> => {
   try {
     // `nodeErrors` (projectFs calls only; the other methods' params are closed): this is the phone's call, so an entry beyond its project is
     // answered as Node's plain `Error`, not the core's permission refusal.

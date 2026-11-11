@@ -775,9 +775,11 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         .and_then(|p| p.get("disableParallelToolUse"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let tools = wire_tools(&request.tools, cfg.provider_name, cfg.first_party, &mut |excluded| {
+    // Hosted tools first, then the function tools (`requestAnthropicTools`, anthropic-request-utils.mjs:786-792).
+    let mut tools = crate::providers::hosted::anthropic_tools(&request.options);
+    tools.extend(wire_tools(&request.tools, cfg.provider_name, cfg.first_party, &mut |excluded| {
         report_exclusion(&request.options, excluded)
-    });
+    }));
     let choice = if tools.is_empty() {
         None
     } else {

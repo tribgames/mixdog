@@ -32,6 +32,7 @@ use super::providers::OAUTH_PROVIDER_NAMES;
 use super::providers::ProviderBuilder;
 use crate::accounts::AccountStore;
 use crate::accounts::CredentialState;
+use crate::accounts::rotation::AccountRotation;
 use crate::catalog::CachedModelInfo;
 use crate::catalog::ListingLookup;
 use crate::oauth::CredentialFile;
@@ -54,7 +55,13 @@ use crate::providers::compat::profile::CompatProfile;
 use crate::providers::cursor::CursorAdapter;
 use crate::providers::cursor::auth::ApiKeyAccess;
 use crate::providers::cursor::auth::FileAccess;
+use super::gateway::GatewayAdapter;
+use super::gateway::GatewayHttp;
+use super::gateway::ResponsesEngine;
+use super::gateway::Sdk;
+use super::gateway::WirePick;
 use super::multiwire::MultiWireAdapter;
+use crate::providers::compat::responses::CompatResponsesCodec;
 use super::vertex_metadata;
 use crate::providers::anthropic::AnthropicCodec;
 use crate::providers::anthropic::Flavor;
@@ -154,11 +161,55 @@ pub struct DefaultProviderBuilder {
     metadata_project: tokio::sync::OnceCell<Option<String>>,
     /// The stored-row capability of each built adapter whose class has `getCachedModelInfo`, by provider name.
     capabilities: std::sync::Mutex<HashMap<String, Arc<dyn CachedModelInfo>>>,
+    /// The roster walk of every custom provider's key pool (quota strikes, session bindings).
+    key_rotation: AccountRotation,
 }
 
 impl DefaultProviderBuilder {
     pub fn new(env: BuilderEnv) -> Self {
-        Self { env, metadata_project: tokio::sync::OnceCell::new(), capabilities: std::sync::Mutex::default() }
+        let key_rotation = AccountRotation::new(env.accounts.clone(), Arc::new(super::key_pool::NoMeter), env.pace.clone());
+        Self { env, metadata_project: tokio::sync::OnceCell::new(), capabilities: std::sync::Mutex::default(), key_rotation }
+    }
+
+    /// A custom provider with additional API keys sends through its key roster (`createCustomKeyPoolProvider`);
+    /// one without sends with its primary key alone.
+    async fn build_custom_pool(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        let primary = self.build_custom(name, cfg)?;
+        let ids: Vec<String> = cfg
+            .get(super::providers::CUSTOM_KEY_IDS)
+            .and_then(Value::as_array)
+            .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        if ids.is_empty() {
+            return Ok(primary);
+        }
+        let mut keys = Vec::with_capacity(ids.len());
+        for id in ids {
+            let engine = self.custom_key_engine(name, cfg, &id).await;
+            keys.push((id, engine));
+        }
+        Ok(Arc::new(super::key_pool::KeyPoolAdapter::new(name, primary, keys, self.key_rotation.clone())))
+    }
+
+    /// `customKeyEngine`: the provider's configuration with the additional key as its only key source.
+    async fn custom_key_engine(&self, name: &str, cfg: &Value, id: &str) -> super::key_pool::KeyEngine {
+        let key = self
+            .env
+            .keys
+            .read_custom(name, id)
+            .await
+            .map_err(|error| format!("An additional API key of {name} could not be read: {error}."))?;
+        if key.is_empty() {
+            return Err(format!("An additional API key of {name} is not readable; enter it again in its settings."));
+        }
+        let mut config = cfg.clone();
+        if let Some(object) = config.as_object_mut() {
+            // The key is the only source: an environment variable names the primary key alone.
+            object.shift_remove("apiKeyEnv");
+            object.shift_remove(super::providers::CUSTOM_KEY_IDS);
+            object.insert("apiKey".into(), json!(key));
+        }
+        self.build_custom_parts(name, &config).map(|parts| parts.adapter)
     }
 }
 
@@ -341,6 +392,47 @@ impl Credential for CustomKey {
     }
 }
 
+/// A gateway key in one header (`x-api-key`, or `authorization` as a bearer), re-read per request; a 401 reloads
+/// it.
+struct KeyHeader {
+    source: Arc<dyn ApiKeySource>,
+    header: &'static str,
+    bearer: bool,
+}
+
+#[async_trait]
+impl Credential for KeyHeader {
+    async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
+        let key = if force_refresh { self.source.reload().await? } else { self.source.key().await? };
+        Ok(Some((self.header.to_owned(), if self.bearer { format!("Bearer {key}") } else { key })))
+    }
+
+    fn refreshable(&self) -> bool {
+        true
+    }
+}
+
+/// OpenCode Go's Gemini route: the access token as a bearer and as the Google key (`OpenCodeGoGeminiEngine`).
+struct GoBearerAuth(Arc<dyn ApiKeySource>);
+
+#[async_trait]
+impl RequestAuth for GoBearerAuth {
+    async fn authorize(&self) -> Result<google::auth::Authorization, ProviderError> {
+        let token = self.0.key().await?;
+        Ok(google::auth::Authorization {
+            headers: vec![("authorization".into(), format!("Bearer {token}")), ("x-goog-api-key".into(), token)],
+            identity: String::new(),
+        })
+    }
+
+    async fn rejected(&self, rejected: &google::auth::Authorization) -> bool {
+        match self.0.reload().await {
+            Ok(token) => rejected.headers.iter().all(|(_, v)| *v != token),
+            Err(_) => false,
+        }
+    }
+}
+
 /// A key that never changes.
 struct FixedKey(String);
 
@@ -516,6 +608,9 @@ impl DefaultProviderBuilder {
         let http = self.env.http.clone();
         if name == "anthropic" {
             let keys = self.key_source(name, cfg);
+            // The API-key provider posts through the Anthropic client, the user's headers as its `defaultHeaders`
+            // (anthropic.mjs:116-125).
+            let http = Arc::new(GatewayHttp::new(http).through_sdk(Sdk::Anthropic, &config.extra_headers));
             return Ok(adapter(AnthropicAdapter::api_key(config, http, keys, self.env.gzip_lane)));
         }
         let session = Arc::new(OAuthSession::new(self.file(name)?, http.clone()));
@@ -568,26 +663,60 @@ impl DefaultProviderBuilder {
         )))
     }
 
-    fn compat_codec(
+    fn compat_config(
         &self,
-        profile: CompatProfile,
+        profile: &CompatProfile,
         cfg: &Value,
         base_url: Option<String>,
         login_headers: Vec<(String, String)>,
-    ) -> CompatChatCodec {
+    ) -> CompatConfig {
         let mut extra_headers = string_pairs(cfg, "extraHeaders");
         extra_headers.extend(login_headers);
-        let config = CompatConfig {
+        CompatConfig {
             base_url: base_url.or_else(|| text(cfg, "baseURL").map(|u| u.trim_end_matches('/').to_owned())),
             client_version: self.env.client_version.clone(),
             extra_headers,
-            ..CompatConfig::for_profile(&profile)
-        };
-        CompatChatCodec::new(profile, config)
+            ..CompatConfig::for_profile(profile)
+        }
+    }
+
+    /// A gateway's Anthropic Messages engine (`GatewayMessagesEngine`, `OpenCodeGoMessagesEngine`,
+    /// `CommandCodeMessagesEngine`): the API-key Anthropic codec on the gateway's base, beta headers off, the
+    /// gateway's identifying headers and the user's own on every request.
+    fn gateway_messages_engine(
+        &self,
+        name: &str,
+        base: String,
+        credential: Arc<dyn Credential>,
+        headers: Vec<(String, String)>,
+        http: Arc<dyn crate::transport::HttpSend>,
+    ) -> HttpAdapter {
+        let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
+        config.base_url = base;
+        config.disable_beta_headers = true;
+        // The Anthropic SDK's `accept`, which the gateway engines send ahead of their own headers.
+        config.extra_headers = std::iter::once(("accept".to_owned(), "application/json".to_owned())).chain(headers).collect();
+        config.listing = self.env.listing.clone();
+        let policy = AnthropicAdapter::api_key(config.clone(), http.clone(), Arc::new(FixedKey(String::new())), self.env.gzip_lane)
+            .retry_policy()
+            .clone();
+        HttpAdapter::new(ProviderId::from(name), Arc::new(AnthropicCodec::new(Flavor::ApiKey, config)), http, credential, policy)
+    }
+
+    /// xAI's API mode (`useXaiResponsesApi`): Responses unless the request, config or environment names Chat.
+    fn xai_wire(&self, cfg: &Value) -> Wire {
+        let raw = text(cfg, "apiMode")
+            .or_else(|| text(cfg, "xaiApiMode"))
+            .map(str::to_owned)
+            .or_else(|| self.env.env.var("MIXDOG_XAI_API_MODE"))
+            .or_else(|| self.env.env.var("MIXDOG_XAI_RESPONSES"));
+        match raw.map(|v| v.trim().to_lowercase()) {
+            Some(mode) if ["0", "false", "off", "chat", "chat-completions", "chat_completions"].contains(&mode.as_str()) => Wire::Chat,
+            _ => Wire::Responses,
+        }
     }
 
     async fn build_compat(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        let http = self.env.http.clone();
         let mut login_headers: Vec<(String, String)> = Vec::new();
         let (profile, key, base_url): (CompatProfile, Arc<dyn ApiKeySource>, Option<String>) = match name {
             "xai" => (CompatProfile::xai(), self.key_source(name, cfg), None),
@@ -624,23 +753,104 @@ impl DefaultProviderBuilder {
             }
             other => return Err(format!("unknown enabled provider: {other}")),
         };
-        let codec = self.compat_codec(profile, cfg, base_url, login_headers);
+        let config = self.compat_config(&profile, cfg, base_url, login_headers);
+        // The OpenAI client's `defaultHeaders`: the gateway's own headers and the user's (MiMo's through its
+        // `extraHeaders`, mimo-oauth.mjs:172).
+        let defaults: Vec<(String, String)> =
+            profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).chain(config.extra_headers.iter().cloned()).collect();
+        let http: Arc<dyn crate::transport::HttpSend> = Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &defaults));
+        let codec = CompatChatCodec::new(profile.clone(), config.clone());
+        let chat_base = codec.base_url().to_owned();
         let model_wires = cfg
             .get("modelWires")
             .and_then(Value::as_object)
             .map(|map| map.iter().filter_map(|(m, w)| Some((m.clone(), Wire::parse(w.as_str()?)?))).collect())
             .unwrap_or_default();
         let routing = RouteInputs { model_wires, catalog: None };
-        let caches_model_info = codec.profile().listing.caches_model_info;
-        let built = Arc::new(
-            CompatAdapter::new(codec, http, Some(key))
+        let caches_model_info = profile.listing.caches_model_info;
+        let account = Arc::new(
+            CompatAdapter::new(codec, http.clone(), Some(key.clone()))
                 .with_routing(routing)
                 .with_listing_lookup(self.env.listing.clone()),
         );
         if caches_model_info {
-            self.declare(name, built.clone());
+            self.declare(name, account.clone());
         }
-        Ok(built)
+        let responses = || -> Arc<dyn ProviderAdapter> {
+            let codec = CompatResponsesCodec::new(profile.clone(), config.clone(), TransportKind::Http1);
+            Arc::new(ResponsesEngine::new(account.clone(), codec))
+        };
+        // The gateway's own identifying headers, then the user's (`extraHeaders`), ride every wire.
+        let mut identifying: Vec<(String, String)> =
+            profile.headers.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("accept")).map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        identifying.extend(config.extra_headers.iter().cloned());
+        let keyed = |header: &'static str, bearer: bool| -> Arc<dyn Credential> { Arc::new(KeyHeader { source: key.clone(), header, bearer }) };
+        // The Messages engines post through the Anthropic client, the gateway's headers as its `defaultHeaders`.
+        let anthropic_http = || GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &identifying);
+        // The Anthropic SDK appends `/v1/messages` to the base (`messagesBaseFromOpenAIBase`).
+        let messages_base = |base: &str| -> String {
+            let base = base.trim_end_matches('/');
+            match base.len().checked_sub(3).filter(|at| base.is_char_boundary(*at)) {
+                Some(at) if base[at..].eq_ignore_ascii_case("/v1") => base[..at].to_owned(),
+                _ => base.to_owned(),
+            }
+        };
+        let (engines, pick, session_header): (Vec<(Wire, Arc<dyn ProviderAdapter>)>, WirePick, bool) = match name {
+            "xai" => (vec![(Wire::Responses, responses())], WirePick::Fixed(self.xai_wire(cfg)), false),
+            "muse-code-oauth" => (vec![(Wire::Responses, responses())], WirePick::Fixed(Wire::Responses), false),
+            "deepseek" => {
+                let base = format!("{}/anthropic", messages_base(&chat_base));
+                let engine = self.gateway_messages_engine(name, base, keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
+                (vec![(Wire::Messages, Arc::new(engine))], WirePick::Routed, false)
+            }
+            "openrouter" => {
+                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), Arc::new(anthropic_http()));
+                (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
+            }
+            "command-code-oauth" => {
+                // The key as `x-api-key` and, right after it, as a bearer (`CommandCodeMessagesEngine`).
+                let mirrored: Arc<dyn crate::transport::HttpSend> = Arc::new(anthropic_http().mirroring_key_as_bearer());
+                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), mirrored);
+                (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
+            }
+            "opencode-go-oauth" => {
+                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
+                // The generateContent routes live under `.../go/v1`, not the organization's chat base
+                // (`opencode-go.mjs` `_geminiEngine`); the Gemini codec writes `/v1beta`.
+                let origin = chat_base.strip_suffix("/openai/v1").unwrap_or(&chat_base).to_owned();
+                let gemini_http: Arc<dyn crate::transport::HttpSend> =
+                    Arc::new(
+                        GatewayHttp::new(self.env.http.clone())
+                            .moving_path("/v1beta/models/", "/v1/models/")
+                            .plain_system_instruction()
+                            .with_headers(identifying.clone()),
+                    );
+                let gemini = google::adapter::GoogleAdapter::new(
+                    google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()),
+                    google::policy::gemini(),
+                    gemini_http,
+                    Arc::new(GoBearerAuth(key.clone())),
+                    String::new(),
+                );
+                let engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> =
+                    vec![(Wire::Responses, responses()), (Wire::Messages, Arc::new(messages)), (Wire::Gemini, Arc::new(gemini))];
+                (engines, WirePick::Routed, true)
+            }
+            // MiMo is reached over Chat only.
+            _ => return Ok(account),
+        };
+        // The Messages ceiling: the roster row's `outputTokens`, and for DeepSeek and OpenRouter the shared
+        // catalog's after it (`WireGatewayProvider._modelMaxOutputTokens`; OpenCode Go and Command Code read their
+        // roster alone).
+        let rows: Arc<dyn CachedModelInfo> = account.clone();
+        let catalog = matches!(name, "deepseek" | "openrouter").then(|| (self.env.listing.clone(), name.to_owned()));
+        let ceiling = move |model: &str| -> Option<u32> {
+            let listed = rows.cached_row(model).and_then(|row| row.get("outputTokens").and_then(Value::as_u64)).filter(|n| *n > 0);
+            let declared = listed.or_else(|| catalog.as_ref().and_then(|(lookup, provider)| lookup.output_tokens(provider, model)));
+            declared.map(|n| u32::try_from(n).unwrap_or(u32::MAX))
+        };
+        let gateway = GatewayAdapter::new(account, engines, pick).with_messages_ceiling(Arc::new(ceiling));
+        Ok(Arc::new(if session_header { gateway.with_session_header() } else { gateway }))
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -816,7 +1026,7 @@ impl DefaultProviderBuilder {
         let auth = vertex::VertexAuth::new(http.clone(), credential, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
         let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, traits)))
+        Ok(adapter(google::vertex(place, auth, identity, http, traits, self.env.anthropic_caps.clone())))
     }
 
     /// No gcloud login: the metadata server's default service account, when a
@@ -846,7 +1056,7 @@ impl DefaultProviderBuilder {
         let auth = vertex_metadata::MetadataAuth::new(http.clone(), &served, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
         let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, self.env.google_traits.clone())))
+        Ok(adapter(google::vertex(place, auth, identity, http, self.env.google_traits.clone(), self.env.anthropic_caps.clone())))
     }
 
     async fn build_antigravity(&self, name: &str) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -914,25 +1124,36 @@ impl DefaultProviderBuilder {
             .retry_policy();
         let request = CustomRequestConfig { base_url: base_url.clone(), headers, request_body, model_body, model_headers };
         let mut engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> = Vec::new();
-        let mut handle: Option<Arc<CustomListing>> = None;
+        if !served.contains(&protocol_wire) {
+            return Err("[custom-provider] the protocol wire is not served".into());
+        }
+        let header = if protocol_wire == Wire::Messages { key("x-api-key", false) } else { key("authorization", true) };
+        let handle = Arc::new(CustomListing::new(
+            name,
+            protocol.clone(),
+            &base_url,
+            request.headers.clone(),
+            self.env.http.clone(),
+            header,
+            keyless,
+            cfg,
+            self.env.listing.clone(),
+        ));
+        // The Chat wire replays a model's reasoning as its own row says (`getCachedModelInfo`), at the turn's
+        // effort, else the provider's `reasoningEffort`.
+        let replay = {
+            let rows = handle.clone();
+            let configured = text(cfg, "reasoningEffort").map(str::to_owned);
+            let base = base_url.clone();
+            crate::providers::compat::chat::CustomReplay(Arc::new(move |request: &mixdog_core_api::domain::provider::ModelRequest| {
+                let row = crate::catalog::CachedModelInfo::cached_row(&*rows, &request.model);
+                let effort = request.options.effort.as_deref().or(configured.as_deref());
+                custom::chat_replays(row.as_deref(), effort, &base)
+            }))
+        };
         for wire in &served {
             // The provider lists its models once, through the engine of its protocol's wire.
-            let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> {
-                let header = if *wire == Wire::Messages { key("x-api-key", false) } else { key("authorization", true) };
-                let concrete = Arc::new(CustomListing::new(
-                    name,
-                    protocol.clone(),
-                    &base_url,
-                    request.headers.clone(),
-                    self.env.http.clone(),
-                    header,
-                    keyless,
-                    cfg,
-                    self.env.listing.clone(),
-                ));
-                handle = Some(concrete.clone());
-                concrete
-            });
+            let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> { handle.clone() });
             let engine: Arc<dyn ProviderAdapter> = match wire {
                 Wire::Messages => {
                     let engine = self.custom_messages_engine(name, &request, key("x-api-key", false));
@@ -943,14 +1164,14 @@ impl DefaultProviderBuilder {
                 }
                 other => {
                     let family = if *other == Wire::Chat {
-                        custom::chat_codec(name, &base_url)
+                        custom::chat_codec(name, &base_url, replay.clone())
                     } else {
                         custom::responses_codec(name, &base_url)
                     };
                     let engine = HttpAdapter::new(
                         ProviderId::from(name),
                         Arc::new(RewriteCodec::new(family, CustomRewriter { config: request.clone() })),
-                        self.env.http.clone(),
+                        Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &request.headers)),
                         key("authorization", true),
                         retry.clone(),
                     );
@@ -962,7 +1183,7 @@ impl DefaultProviderBuilder {
             };
             engines.push((*wire, engine));
         }
-        let listing = handle.ok_or("[custom-provider] the protocol wire is not served")?;
+        let listing = handle;
         // `createCustomProvider` registers a wire profile for every OpenAI-compatible protocol, one wire or
         // several, so such a provider always routes (and pins) its wire; only the anthropic protocol has none.
         if engines.len() == 1 && protocol == Protocol::Anthropic {
@@ -984,6 +1205,9 @@ impl DefaultProviderBuilder {
             Some(at) if base[at..].eq_ignore_ascii_case("/v1") => base[..at].to_owned(),
             _ => base.to_owned(),
         };
+        config.custom_endpoint = true;
+        // The Anthropic SDK's own `accept`.
+        config.extra_headers = vec![("accept".to_owned(), "application/json".to_owned())];
         // The Anthropic engine's retry rows, read off an adapter built the same way.
         let policy = AnthropicAdapter::api_key(
             config.clone(),
@@ -997,7 +1221,7 @@ impl DefaultProviderBuilder {
         HttpAdapter::new(
             ProviderId::from(name),
             Arc::new(RewriteCodec::new(Arc::new(codec), CustomRewriter { config: request.clone() })),
-            self.env.http.clone(),
+            Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &request.headers)),
             credential,
             policy,
         )
@@ -1027,7 +1251,7 @@ impl DefaultProviderBuilder {
 impl DefaultProviderBuilder {
     async fn build_unversioned(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         if name.starts_with("custom-") && text(cfg, "type") == Some("custom") {
-            return self.build_custom(name, cfg);
+            return self.build_custom_pool(name, cfg).await;
         }
         match name {
             "anthropic" | "anthropic-oauth" => self.build_anthropic(name, cfg).await,

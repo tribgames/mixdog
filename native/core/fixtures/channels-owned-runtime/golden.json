@@ -1,0 +1,562 @@
+{
+  "domain": "channels-owned-runtime",
+  "source": "src/runtime/channels/lib/owned-runtime.test.mjs",
+  "cases": [
+    {
+      "name": "start advertises, arms automation once and notifies acquired",
+      "steps": [
+        "startOwnedRuntime",
+        "startOwnedRuntime"
+      ],
+      "calls": [
+        [
+          [
+            "advert",
+            "inst-1"
+          ],
+          [
+            "notify",
+            "notifications/mixdog/remote",
+            {
+              "state": "acquired"
+            }
+          ],
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.start"
+          ],
+          [
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
+          ],
+          [
+            "pipeline.new",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "webhook.new",
+            {
+              "enabled": true
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ],
+          [
+            "ownership",
+            "active owner lead=42 pid=<pid>"
+          ]
+        ],
+        []
+      ],
+      "state": {
+        "connected": true,
+        "webhookServer": "FakeWebhookServer",
+        "eventPipeline": "FakeEventPipeline"
+      },
+      "stderr": []
+    },
+    {
+      "name": "start does nothing while the bridge is inactive",
+      "steps": [
+        "channelBridgeActive=false",
+        "startOwnedRuntime"
+      ],
+      "calls": [
+        []
+      ],
+      "state": {
+        "connected": false,
+        "webhookServer": null,
+        "eventPipeline": null
+      },
+      "stderr": []
+    },
+    {
+      "name": "stop tears automation down and is idempotent",
+      "steps": [
+        "startOwnedRuntime",
+        "stopOwnedRuntime('bridge inactive')",
+        "stopOwnedRuntime('again')"
+      ],
+      "calls": [
+        [
+          [
+            "advert",
+            "inst-1"
+          ],
+          [
+            "notify",
+            "notifications/mixdog/remote",
+            {
+              "state": "acquired"
+            }
+          ],
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.start"
+          ],
+          [
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
+          ],
+          [
+            "pipeline.new",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "webhook.new",
+            {
+              "enabled": true
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ],
+          [
+            "ownership",
+            "active owner lead=42 pid=<pid>"
+          ]
+        ],
+        [
+          [
+            "scheduler.stop"
+          ],
+          [
+            "snapshot.stop"
+          ],
+          [
+            "webhook.stop"
+          ],
+          [
+            "pipeline.stop"
+          ],
+          [
+            "locks.release",
+            "inst-1"
+          ],
+          [
+            "advert.clear",
+            "inst-1"
+          ],
+          [
+            "ownership",
+            "standby: bridge inactive"
+          ]
+        ],
+        []
+      ],
+      "state": {
+        "connected": false,
+        "webhookServer": null,
+        "eventPipeline": null
+      },
+      "stderr": []
+    },
+    {
+      "name": "a stop landing mid-start makes the in-flight start bail without arming automation",
+      "steps": [
+        "startOwnedRuntime (initProviders held)",
+        "stopOwnedRuntime('shutdown')",
+        "initProviders released, start settles"
+      ],
+      "calls": [
+        [
+          [
+            "advert",
+            "inst-1"
+          ],
+          [
+            "notify",
+            "notifications/mixdog/remote",
+            {
+              "state": "acquired"
+            }
+          ],
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.stop"
+          ],
+          [
+            "snapshot.stop"
+          ],
+          [
+            "locks.release",
+            "inst-1"
+          ],
+          [
+            "advert.clear",
+            "inst-1"
+          ],
+          [
+            "ownership",
+            "standby: shutdown"
+          ]
+        ],
+        [
+          [
+            "locks.release",
+            "inst-1"
+          ],
+          [
+            "advert.clear",
+            "inst-1"
+          ]
+        ]
+      ],
+      "connectedAfterStop": false,
+      "state": {
+        "connected": false,
+        "webhookServer": null,
+        "eventPipeline": null
+      },
+      "stderr": []
+    },
+    {
+      "name": "reload re-arms the scheduler and hot-reloads automation services",
+      "steps": [
+        "startOwnedRuntime",
+        "reloadRuntimeConfig (loaded config: webhook enabled, no schedules)"
+      ],
+      "calls": [
+        [
+          [
+            "advert",
+            "inst-1"
+          ],
+          [
+            "notify",
+            "notifications/mixdog/remote",
+            {
+              "state": "acquired"
+            }
+          ],
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.start"
+          ],
+          [
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
+          ],
+          [
+            "pipeline.new",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "webhook.new",
+            {
+              "enabled": true
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ],
+          [
+            "ownership",
+            "active owner lead=42 pid=<pid>"
+          ]
+        ],
+        [
+          [
+            "loadConfig"
+          ],
+          [
+            "scheduler.reload",
+            [],
+            {
+              "restart": true
+            }
+          ],
+          [
+            "pipeline.reload",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.reload",
+            {
+              "enabled": true
+            },
+            {
+              "autoStart": false
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ]
+        ]
+      ],
+      "state": {
+        "connected": true,
+        "webhookServer": "FakeWebhookServer",
+        "eventPipeline": "FakeEventPipeline"
+      },
+      "stderr": []
+    },
+    {
+      "name": "reload on a stopped runtime tears the webhook and event runtime down",
+      "steps": [
+        "reloadRuntimeConfig on a runtime never started"
+      ],
+      "calls": [
+        [
+          [
+            "loadConfig"
+          ],
+          [
+            "scheduler.reload",
+            [],
+            {
+              "restart": false
+            }
+          ]
+        ]
+      ],
+      "state": {
+        "connected": false,
+        "webhookServer": null,
+        "eventPipeline": null
+      },
+      "stderr": []
+    },
+    {
+      "name": "startAutomationRuntime is idempotent and a stop during its init aborts arming",
+      "steps": [
+        "startAutomationRuntime",
+        "startAutomationRuntime",
+        "stopOwnedRuntime('done')",
+        "startAutomationRuntime (initProviders held) with stopOwnedRuntime issued in the same tick, then released"
+      ],
+      "calls": [
+        [
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.start"
+          ],
+          [
+            "snapshot.start",
+            {
+              "start": {
+                "$callable": "start"
+              },
+              "stop": {
+                "$callable": "stop"
+              },
+              "reloadConfig": {
+                "$callable": "reloadConfig"
+              }
+            }
+          ],
+          [
+            "pipeline.new",
+            {
+              "rules": []
+            }
+          ],
+          [
+            "wire.events",
+            {}
+          ],
+          [
+            "pipeline.start"
+          ],
+          [
+            "webhook.new",
+            {
+              "enabled": true
+            }
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ]
+        ],
+        [
+          [
+            "pipeline.start"
+          ],
+          [
+            "wire.webhook"
+          ],
+          [
+            "webhook.start"
+          ]
+        ],
+        [
+          [
+            "scheduler.stop"
+          ],
+          [
+            "snapshot.stop"
+          ],
+          [
+            "webhook.stop"
+          ],
+          [
+            "pipeline.stop"
+          ],
+          [
+            "locks.release",
+            "inst-1"
+          ],
+          [
+            "advert.clear",
+            "inst-1"
+          ],
+          [
+            "ownership",
+            "standby: done"
+          ]
+        ],
+        [
+          [
+            "agent.loadConfig"
+          ],
+          [
+            "initProviders",
+            {}
+          ],
+          [
+            "scheduler.stop"
+          ],
+          [
+            "snapshot.stop"
+          ],
+          [
+            "locks.release",
+            "inst-1"
+          ],
+          [
+            "advert.clear",
+            "inst-1"
+          ],
+          [
+            "ownership",
+            "standby: shutdown"
+          ]
+        ]
+      ],
+      "state": {
+        "connected": false,
+        "webhookServer": null,
+        "eventPipeline": null
+      },
+      "stderr": [
+        "mixdog: automation runtime up\n"
+      ]
+    }
+  ]
+}

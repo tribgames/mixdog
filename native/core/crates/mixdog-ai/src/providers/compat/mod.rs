@@ -24,4 +24,18 @@ pub(crate) mod xai_cache;
 mod tests;
 
 pub use chat::{CompatChatCodec, CompatConfig};
+
+/// The profile's per-send session header ([`profile::ChatDialect::session_header`]): the trimmed session id, else a
+/// UUID drawn for the send.
+pub(crate) fn session_header(profile: &CompatProfile, request: &mixdog_core_api::domain::provider::ModelRequest) -> Option<(String, String)> {
+    let name = profile.chat.session_header?;
+    let session = [request.options.session_id.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|s| !s.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(crate::registry::accounting::random_uuid);
+    Some((name.to_owned(), session))
+}
 pub use profile::CompatProfile;

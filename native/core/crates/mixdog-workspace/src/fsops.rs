@@ -613,7 +613,7 @@ pub struct LocalEntry {
 
 pub fn stat_local(path: &str) -> WsResult<LocalEntry> {
     let absolute = crate::pathguard::absolute_local_path(path)?;
-    let meta = fs::metadata(&absolute)?;
+    let meta = fs::metadata(&absolute).at("stat", &absolute)?;
     Ok(LocalEntry {
         name: display_name(&absolute),
         absolute_path: absolute.to_string_lossy().into_owned(),
@@ -632,8 +632,14 @@ pub struct LocalFile {
 }
 
 pub fn read_local(path: &str) -> WsResult<LocalFile> {
+    let (file, name, size) = local_file(path)?;
+    Ok(LocalFile { name, size, mime_type: mime_type(&file), data: base64::engine::general_purpose::STANDARD.encode(fs::read(&file)?) })
+}
+
+/// The checks of `readLocalFileAbs` before the read (an absolute path to a file of at most 20 MB): the file, its display name and size.
+pub fn local_file(path: &str) -> WsResult<(PathBuf, String, u64)> {
     let file = crate::pathguard::absolute_local_path(path)?;
-    let meta = fs::metadata(&file)?;
+    let meta = fs::metadata(&file).at("stat", &file)?;
     let name = display_name(&file);
     if !meta.is_file() {
         return Err(WsError::new(Reason::NotAFile, "Only files can be attached."));
@@ -641,12 +647,7 @@ pub fn read_local(path: &str) -> WsResult<LocalFile> {
     if meta.len() > LOCAL_FILE_MAX {
         return Err(WsError::new(Reason::TooLarge, format!("{name}: files must be 20 MB or smaller.")));
     }
-    Ok(LocalFile {
-        name,
-        size: meta.len(),
-        mime_type: mime_type(&file),
-        data: base64::engine::general_purpose::STANDARD.encode(fs::read(&file)?),
-    })
+    Ok((file, name, meta.len()))
 }
 
 #[cfg(test)]
