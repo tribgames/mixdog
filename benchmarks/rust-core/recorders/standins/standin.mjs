@@ -26,14 +26,10 @@ const apiKey = option('--api-key');
 const port = Number(option('--port'));
 log({ tool, self, argv, cwd: process.cwd(), cudaVisibleDevices: 'CUDA_VISIBLE_DEVICES' in process.env ? { set: true, value: process.env.CUDA_VISIBLE_DEVICES } : { set: false } });
 
-// The stand-in is not a daemon: it ends when the process that started it (the launcher) is gone.
-setInterval(() => {
-  try {
-    process.kill(process.ppid, 0);
-  } catch {
-    process.exit(0);
-  }
-}, 200);
+// The stand-in ends when the pipe its launcher holds on its standard input closes (the launcher is gone: stopped by the product, or killed), an event, not a poll.
+process.stdin.on('end', () => process.exit(0));
+process.stdin.on('error', () => process.exit(0));
+process.stdin.resume();
 
 const json = (status, value) => ({ status, contentType: 'application/json', body: JSON.stringify(value) });
 const answer = (request) => {
