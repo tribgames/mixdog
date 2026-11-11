@@ -1,0 +1,219 @@
+{
+  "domain": "memory-scope-filter",
+  "source": "src/runtime/memory/lib/memory-recall-scope-filter.test.mjs",
+  "cases": [
+    {
+      "name": "projectScopePredicate keeps common/all/slug SQL shapes and param offsets",
+      "probes": [
+        {
+          "input": {
+            "scope": "common",
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "project_id IS NULL",
+            "params": []
+          }
+        },
+        {
+          "input": {
+            "scope": "all",
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "",
+            "params": []
+          }
+        },
+        {
+          "input": {
+            "scope": {
+              "$undefined": true
+            },
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "",
+            "params": []
+          }
+        },
+        {
+          "input": {
+            "scope": "mixdog",
+            "next": 5,
+            "options": {
+              "column": "e.project_id"
+            }
+          },
+          "result": {
+            "clause": "(e.project_id IS NULL OR e.project_id = $5)",
+            "params": [
+              "mixdog"
+            ]
+          }
+        },
+        {
+          "input": {
+            "scope": "mixdog",
+            "next": 1,
+            "options": null
+          },
+          "result": {
+            "clause": "(project_id IS NULL OR project_id = $1)",
+            "params": [
+              "mixdog"
+            ]
+          }
+        },
+        {
+          "input": {
+            "scope": "mixdog",
+            "next": 12,
+            "options": {
+              "column": "x.pid"
+            }
+          },
+          "result": {
+            "clause": "(x.pid IS NULL OR x.pid = $12)",
+            "params": [
+              "mixdog"
+            ]
+          }
+        },
+        {
+          "input": {
+            "scope": null,
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "",
+            "params": []
+          }
+        },
+        {
+          "input": {
+            "scope": "",
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "",
+            "params": []
+          }
+        },
+        {
+          "input": {
+            "scope": 0,
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "",
+            "params": []
+          }
+        },
+        {
+          "input": {
+            "scope": "COMMON",
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "(project_id IS NULL OR project_id = $3)",
+            "params": [
+              "COMMON"
+            ]
+          }
+        },
+        {
+          "input": {
+            "scope": "ALL",
+            "next": 3,
+            "options": null
+          },
+          "result": {
+            "clause": "(project_id IS NULL OR project_id = $3)",
+            "params": [
+              "ALL"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "appendProjectScopeClause binds the next placeholder without reordering existing params",
+      "runs": [
+        {
+          "start": {
+            "where": [
+              "chunk_root IS NULL"
+            ],
+            "params": [
+              10
+            ]
+          },
+          "steps": [
+            {
+              "scope": "mixdog",
+              "where": [
+                "chunk_root IS NULL",
+                "(project_id IS NULL OR project_id = $2)"
+              ],
+              "params": [
+                10,
+                "mixdog"
+              ]
+            },
+            {
+              "scope": "all",
+              "where": [
+                "chunk_root IS NULL",
+                "(project_id IS NULL OR project_id = $2)"
+              ],
+              "params": [
+                10,
+                "mixdog"
+              ]
+            }
+          ]
+        },
+        {
+          "start": {
+            "where": [],
+            "params": []
+          },
+          "steps": [
+            {
+              "scope": "common",
+              "where": [
+                "project_id IS NULL"
+              ],
+              "params": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "projectScopePredicate binds truthy numeric/object scopes without coercion (JS typing artefact)",
+      "probes": [
+        {
+          "label": "number 7 at $3",
+          "clause": "(project_id IS NULL OR project_id = $3)",
+          "paramCount": 1,
+          "boundParamIsTheScopeItself": true
+        },
+        {
+          "label": "object at $4",
+          "clause": "(project_id IS NULL OR project_id = $4)",
+          "paramCount": 1,
+          "boundParamIsTheScopeItself": true
+        }
+      ]
+    }
+  ]
+}
