@@ -677,6 +677,51 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     assert_eq!(unknown, json!({"content": [{"type": "text", "text": "unknown tool: reply"}], "isError": true}));
 }
 
+/// `fixtures/session-transport-state-lanes` case 327 with Node's fix (`node-fix-remote-state-null-session.patch`): a
+/// manual ON of the bridge for `session_remote`, then its OFF, publish the pinned session and then none. What a client
+/// reads of each publication is `enabled` and `sessionId` (`applyRemoteSessionState`, desktop
+/// `session-host-publication.ts:290`; the core's `hostState.remoteSession` from the binding observer,
+/// `compose_flip.rs` `observe_binding`). Node's second state is the client registration adding its cwd, which the core
+/// has no counterpart of (no channel transport client registers): it changes neither field.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_bridge_binding_publishes_the_pinned_session_as_node_does() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-transport-state-lanes/recording.json");
+    let recording: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let case = recording["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["name"] == "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence--with-the-fix")
+        .unwrap();
+    let e = env().await;
+    let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
+    let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
+    let published = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let sink = published.clone();
+    calls.observe_binding(Arc::new(move |enabled, session| sink.lock().unwrap().push(json!({ "enabled": enabled, "sessionId": session }))));
+    let svc = ChannelService::new(e.admin.clone(), calls);
+    let node = |states: &Value| -> Vec<Value> {
+        let mut seen: Vec<Value> = Vec::new();
+        for state in states.as_array().unwrap() {
+            let shown = json!({ "enabled": state["enabled"], "sessionId": state["sessionId"] });
+            if seen.last() != Some(&shown) {
+                seen.push(shown);
+            }
+        }
+        seen
+    };
+    let steps = case["result"]["steps"].as_array().unwrap();
+    assert_eq!(steps[0]["call"], "POST /client/register");
+    for (n, step) in steps[1..].iter().enumerate() {
+        assert_eq!(step["call"]["name"], ACTIVATE_TOOL);
+        let reply = svc.call(request("channel/call", json!({ "name": ACTIVATE_TOOL, "args": step["call"]["args"] }), Some(&format!("op-{n}")))).await.unwrap();
+        let Reply::Value(reply) = reply else { panic!("not a value") };
+        assert_ne!(reply["isError"], true, "step {n}: {reply}");
+        assert_eq!(*published.lock().unwrap(), node(&step["statesSoFar"]), "step {n}: the published binding");
+    }
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
 /// Node's boot check (`scheduleAutomationAutostart`, `channel-start.test.mjs` / `prewarm.channels.test.mjs`):
 /// enabled automation starts the runtime on its own, nothing enabled starts nothing, and
 /// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing either.
