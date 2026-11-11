@@ -588,7 +588,7 @@ impl LogFile for OsFile {
     }
 
     fn sync(&mut self) -> io::Result<()> {
-        self.0.sync_all()
+        fsio::flush(&self.0)
     }
 
     fn truncate(&mut self, len: u64) -> io::Result<()> {

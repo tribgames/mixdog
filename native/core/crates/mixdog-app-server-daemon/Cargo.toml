@@ -117,6 +117,9 @@ mixdog-core-run = { workspace = true, features = ["replay-controls", "test-suppo
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-agent = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).
