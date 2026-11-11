@@ -8,22 +8,23 @@ import { sseBody, startRecording, stream } from './lib/provider-case-recorder.mj
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-deepseek-replay',
-  entry: 'openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, parseToolCalls, knownToolNames }); OpenAICompatProvider("deepseek", { apiKey, preconnect: false }) driven by session/agent-loop.mjs agentLoop over a loopback Chat endpoint (the OpenAI SDK sends real HTTP); openai-compat-wire.mjs toOpenAIMessages. Not run: a live endpoint.',
-  compare: 'mixdog-ai providers::compat chat decode (decode.rs:286-292, :530-537) and encode: feed `input.chunks` / the `requests[*].reply` SSE and compare `result` (reasoningContent and whether reasoning_content is present), the second request body (assistant message reasoning_content "") and the replayed messages.',
+  entry: 'OpenAICompatProvider("deepseek", { apiKey, preconnect: false }) driven by session/agent-loop.mjs agentLoop over a loopback Chat endpoint (the OpenAI SDK sends real HTTP); openai-compat-wire.mjs toOpenAIMessages. Not run: a live endpoint.',
+  compare: 'WIRE: serve each case\'s chat stream (`input.chunks` / the replies) from a loopback endpoint through the Rust compat chat send and compare `result` (reasoningContent present or absent), the second request body as it arrived (assistant message reasoning_content "") and the replayed messages (toOpenAIMessages rows are pure: compat encode).',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
 const { OpenAICompatProvider, parseToolCalls } = await rec.P(`${P}openai-compat.mjs`);
-const { consumeCompatChatCompletionStream } = await rec.P(`${P}openai-compat-stream.mjs`);
 const { toOpenAIMessages } = await rec.P(`${P}openai-compat-wire.mjs`);
 const { agentLoop } = await rec.P('agent/orchestrator/session/agent-loop.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/deepseek-replay.test.mjs';
 
 for (const reasoning of ['', null]) {
   const input = [{ choices: [{ delta: { content: 'answer', ...(reasoning !== null ? { reasoning_content: reasoning } : {}) }, finish_reason: 'stop' }] }];
-  await rec.run(`empty-vs-absent-reasoning:${reasoning === null ? 'absent' : 'empty'}`, `${SRC}:12`, { chunks: input }, async () => {
-    const result = await consumeCompatChatCompletionStream(stream(input), { label: 'fixture', parseToolCalls, knownToolNames: new Set() });
-    return { result, messageHasReasoningContent: Object.hasOwn(result.response.choices[0].message, 'reasoning_content') };
+  // WIRE level: the real provider (real SDK client) reads the scripted chat stream from the loopback endpoint; `result` is what its send returns.
+  await rec.run(`empty-vs-absent-reasoning:${reasoning === null ? 'absent' : 'empty'}`, `${SRC}:12`, { chunks: input }, async ({ net }) => {
+    net.reply = () => ({ status: 200, contentType: 'text/event-stream', body: `${sseBody(input)}data: [DONE]\n\n` });
+    const result = await new OpenAICompatProvider('deepseek', { apiKey: 'fixture', preconnect: false }).send([{ role: 'user', content: 'Check.' }], 'deepseek-v4-pro', [], {});
+    return { result, messageHasReasoningContent: Object.hasOwn(result, 'reasoningContent') };
   });
 }
 
