@@ -1,0 +1,107 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "claude-sonnet-4-6",
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "raw": {
+        "input_tokens": 20,
+        "output_tokens": 8
+      },
+      "promptTokens": 20
+    },
+    "stopReason": "end_turn",
+    "hasThinkingContent": false,
+    "contentBlockTypes": [
+      "text_delta"
+    ],
+    "assistantBlocks": [
+      {
+        "type": "text",
+        "text": "The answer is 42."
+      }
+    ],
+    "providerReplay": {
+      "version": 1,
+      "provider": "anthropic",
+      "items": [
+        {
+          "type": "text",
+          "text": "The answer is 42."
+        }
+      ]
+    },
+    "generationMs": 1300,
+    "requestServiceTier": ""
+  },
+  "committed": {
+    "role": "assistant",
+    "content": "The answer is 42.",
+    "providerReplay": {
+      "version": 1,
+      "provider": "anthropic",
+      "items": [
+        {
+          "type": "text",
+          "text": "The answer is 42."
+        }
+      ]
+    },
+    "stopReason": "end_turn"
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer is 42."
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    }
+  ],
+  "rows": [
+    {
+      "ts": 1700000002000,
+      "day": "2023-11-15",
+      "provider": "anthropic-oauth",
+      "model": "claude-sonnet-4-6",
+      "kind": "oauth",
+      "sessionId": "timing-session",
+      "sourceType": "lead",
+      "input": 20,
+      "output": 8,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "costUsd": null,
+      "costSource": "unpriced",
+      "rates": "{\"requestedModel\":\"claude-sonnet-4-6\",\"pricingModel\":\"claude-sonnet-4-6\",\"pricingProvider\":\"anthropic-oauth\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+      "responseId": "",
+      "account": "default",
+      "origin": "live",
+      "durationMs": 2000,
+      "requestedModel": "",
+      "requestedProvider": "",
+      "status": "completed",
+      "attempts": 1,
+      "ttftMs": 700,
+      "elapsedMs": 0,
+      "id": "<req>"
+    }
+  ]
+}

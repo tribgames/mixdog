@@ -1,0 +1,56 @@
+{
+  "provider": "openai-oauth",
+  "config": {},
+  "credential": {
+    "file": "openai-oauth.json",
+    "document": {
+      "access_token": "fixture-access-token",
+      "refresh_token": "fixture-refresh-token",
+      "expires_at": 4000000000000,
+      "account_id": "acct-fixture",
+      "email": "fixture@example.invalid"
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "gpt-5.2",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+      "role": "user",
+      "content": "find x"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "role": "web-search",
+    "sessionId": "lead-1:native-web-search:loyw3v28",
+    "sourceType": "native-web-search",
+    "sourceName": "web_search",
+    "nativeTools": [
+      {
+        "type": "web_search",
+        "search_context_size": "medium",
+        "filters": {
+          "allowed_domains": [
+            "a.com",
+            "b.com"
+          ]
+        }
+      }
+    ],
+    "nativeInclude": [
+      "web_search_call.action.sources"
+    ],
+    "toolChoice": "required",
+    "fast": false,
+    "modelParameters": {}
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta"
+  ]
+}

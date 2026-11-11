@@ -1,0 +1,268 @@
+{
+  "domain": "memory-score",
+  "source": "src/runtime/memory/lib/memory-score.test.mjs",
+  "cases": [
+    {
+      "name": "all generated categories age uniformly; unknown is null",
+      "grades": {
+        "rule": 1.6,
+        "constraint": 1.6,
+        "decision": 1.6,
+        "fact": 1.6,
+        "goal": 1.6,
+        "preference": 1.6,
+        "task": 1.6,
+        "issue": 1.6
+      },
+      "scores": [
+        {
+          "input": {
+            "category": "rule",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "constraint",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "decision",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "fact",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "goal",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "preference",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "task",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "issue",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "unknown",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": null
+        },
+        {
+          "input": {
+            "category": "rule",
+            "lastSeenAt": 34560000000,
+            "nowMs": 34560000000
+          },
+          "result": 1.6
+        }
+      ]
+    },
+    {
+      "name": "case folding, string and non-finite timestamps, future last-seen",
+      "scores": [
+        {
+          "input": {
+            "category": "rule",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "RULE",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "Fact",
+            "lastSeenAt": 8640000000,
+            "nowMs": 34560000000
+          },
+          "result": 1.098751723588365
+        },
+        {
+          "input": {
+            "category": "task",
+            "lastSeenAt": 34559999999,
+            "nowMs": 34560000000
+          },
+          "result": 1.599999999953704
+        },
+        {
+          "input": {
+            "category": "issue",
+            "lastSeenAt": 34646400000,
+            "nowMs": 34560000000
+          },
+          "result": 1.6
+        },
+        {
+          "input": {
+            "category": "goal",
+            "lastSeenAt": 0,
+            "nowMs": 315360000000
+          },
+          "result": 0.5688161930796437
+        },
+        {
+          "input": {
+            "category": "decision",
+            "lastSeenAt": "0",
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "preference",
+            "lastSeenAt": "86400000",
+            "nowMs": 34560000000
+          },
+          "result": 1.031155468061334
+        },
+        {
+          "input": {
+            "category": "constraint",
+            "lastSeenAt": null,
+            "nowMs": 34560000000
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": "constraint",
+            "lastSeenAt": {
+              "$exact": "undefined"
+            },
+            "nowMs": 34560000000
+          },
+          "result": 1.6
+        },
+        {
+          "input": {
+            "category": "constraint",
+            "lastSeenAt": {
+              "$exact": "NaN"
+            },
+            "nowMs": 34560000000
+          },
+          "result": 1.6
+        },
+        {
+          "input": {
+            "category": "constraint",
+            "lastSeenAt": "x",
+            "nowMs": 34560000000
+          },
+          "result": 1.6
+        },
+        {
+          "input": {
+            "category": "rule",
+            "lastSeenAt": 0,
+            "nowMs": {
+              "$exact": "NaN"
+            }
+          },
+          "result": null
+        },
+        {
+          "input": {
+            "category": "rule",
+            "lastSeenAt": 0,
+            "nowMs": {
+              "$exact": "undefined"
+            }
+          },
+          "result": null
+        },
+        {
+          "input": {
+            "category": "rule",
+            "lastSeenAt": 0,
+            "nowMs": "34560000000"
+          },
+          "result": 1.030560169827299
+        },
+        {
+          "input": {
+            "category": null,
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": null
+        },
+        {
+          "input": {
+            "category": {
+              "$exact": "undefined"
+            },
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": null
+        },
+        {
+          "input": {
+            "category": "",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": null
+        },
+        {
+          "input": {
+            "category": " rule",
+            "lastSeenAt": 0,
+            "nowMs": 34560000000
+          },
+          "result": null
+        }
+      ]
+    }
+  ]
+}

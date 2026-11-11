@@ -1,0 +1,33 @@
+{
+  "provider": "deepseek",
+  "config": {
+    "apiKey": "fixture-key",
+    "preconnect": false
+  },
+  "clientVersion": "1.4.5",
+  "model": "deepseek-chat",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "sessionId": "timing-session",
+    "sourceType": "lead"
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}
