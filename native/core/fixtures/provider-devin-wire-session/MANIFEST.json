@@ -8,18 +8,18 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "devin-wire-session.mjs normalizeDevinSessionToken, devinRequestMetadata, exchangeDevinUserJwt({ sessionToken, fetchFn }), validateDevinApiHost; devin-wire-protobuf.mjs encode/decodeDevinMessage for the scripted replies and the recorded request metadata. Not run: a live endpoint.",
+  "entry": "devin-wire-session.mjs normalizeDevinSessionToken, devinRequestMetadata, exchangeDevinUserJwt({ sessionToken }), validateDevinApiHost; devin-wire-protobuf.mjs encode/decodeDevinMessage for the scripted replies and the recorded request metadata. Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 35000,
+      "bytes": 45731,
       "path": "cases.json",
-      "sha256": "43ac6d80c7087edd4fc9f4e36a77b51d97e355a0c8b88339a43e39507bb4c34b"
+      "sha256": "c4e14975dbd3779ad6971db9bc3e8f9ae92330e886f63e63b85a10e71208108e"
     }
   ],
   "inputs": [
@@ -41,11 +41,44 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "token-prefix-exactly-once",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "request-metadata-identities",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "get-user-jwt-prefixed-token-validated-host",
+      "level": "wire"
+    },
+    {
+      "id": "rejected-prefixed-token-retried-raw-once",
+      "level": "wire"
+    },
+    {
+      "id": "failure-never-echoes-session-token",
+      "level": "wire"
+    },
+    {
+      "id": "empty-jwt-missing-token-unsafe-host",
+      "level": "wire"
+    },
+    {
+      "id": "api-host-validation",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +100,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-devin-wire-session.mjs",
-  "recorderSha256": "e2c446834c75bba8294aafffd3f75c5e7bd7d25301c367fecc78189375b2f8e7",
+  "recorderSha256": "bb8443962b795af4b2764a1fd0bedc97a81cef29e87a8c42b3d2ed539d86fa52",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). The session login (JWT exchange) has no pub item located (devin/session.rs is private): work for the Rust side.",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-devin-wire-session",
-  "totalBytes": 35000,
+  "totalBytes": 45731,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
