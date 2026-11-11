@@ -2,12 +2,12 @@
 //! wire replay (`benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs`) takes before it reads the core's files. It
 //! waits for every write-behind writer under the core's folders to have written what it accepted before the call, and nothing
 //! accepted after: each writer numbers its writes ([`mixdog_rt::WriteMarks`]), the call takes every writer's accepted count
-//! as it arrives and waits for that writer's committed count to reach it. In order: the agent index's row writes
-//! (`StoreWorkers::marks`, which hand header changes to the threads), then each thread loaded at the call (every record
-//! accepted before it committed and every prompt-history append pushed before it written, counted at the moment the thread
-//! is asked: `SessionDirectory::durability_settled`), the read-state snapshots (`ReadState::marks`, their debounce cut
-//! short), the gateway usage events (`GatewayUsage::marks`, then the compaction their appends scheduled, run now) and the
-//! usage ledger, when open (`UsageWriter::marks`). It answers how many threads were asked. A write from before the call that
+//! as it arrives, every one before it waits for any, then waits for all of them at once, each writer's committed count to
+//! reach its own: the agent index's row writes (`StoreWorkers::marks`), each thread loaded at the call (every record its
+//! actor took before the question committed, and every prompt-history append pushed before the call written:
+//! `SessionDirectory::durability_settled`), the read-state snapshots (`ReadState::marks`, their debounce cut short), the
+//! gateway usage events (`GatewayUsage::marks`, then the compaction their appends scheduled, run now) and the usage ledger,
+//! when open (`UsageWriter::marks`). It answers how many threads were asked. A write from before the call that
 //! failed answers an error naming its store, as does a thread that ended with something unwritten or a wait past
 //! [`DEADLINE`]; no path leaves the call unanswered.
 //!
@@ -58,7 +58,8 @@ impl StoresSettled {
     }
 
     async fn settle(&self) -> Result<usize, String> {
-        // Every writer's accepted count as the call arrives; each is then awaited to that count only.
+        // Every writer's accepted count as the call arrives, all of them before any wait: a write accepted while one store
+        // is still being waited for is not the call's, whichever store takes it.
         let workers = self.writers.workers.marks().accepted();
         let read_state = self.writers.read_state.marks().accepted();
         let gateway = self.gateway_usage.marks().accepted();
@@ -66,16 +67,27 @@ impl StoresSettled {
             let mark = ledger.writer.marks().accepted();
             (ledger, mark)
         });
-        self.writers.workers.marks().reached(workers).await?;
-        let threads = self.directory.durability_settled().await?;
+        let threads = self.directory.durability_settled();
         self.writers.read_state.flush_pending();
-        self.writers.read_state.marks().reached(read_state).await?;
         self.gateway_usage.flush();
-        self.gateway_usage.marks().reached(gateway).await?;
-        self.gateway_usage.compact_scheduled_now().await;
-        if let Some((ledger, mark)) = ledger {
-            ledger.writer.marks().reached(mark).await?;
-        }
+        // Then every store is waited for at once. A worker row is a header patch answered once its record is durable, so a
+        // row write from before the call is committed on its own thread whenever the agent index counts it written.
+        let (threads, (), (), (), ()) = futures::try_join!(
+            threads,
+            self.writers.workers.marks().reached(workers),
+            self.writers.read_state.marks().reached(read_state),
+            async {
+                self.gateway_usage.marks().reached(gateway).await?;
+                self.gateway_usage.compact_scheduled_now().await;
+                Ok::<(), String>(())
+            },
+            async {
+                match ledger {
+                    Some((ledger, mark)) => ledger.writer.marks().reached(mark).await,
+                    None => Ok(()),
+                }
+            },
+        )?;
         Ok(threads)
     }
 }
@@ -102,3 +114,7 @@ impl DomainService for StoresSettled {
         Admit::Accepted
     }
 }
+
+#[cfg(test)]
+#[path = "replay_stores_settled_tests.rs"]
+mod tests;
