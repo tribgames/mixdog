@@ -43,6 +43,12 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
         "turn/start",
         &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand", "/input/options/pastedImages/*/metadataText"],
     ),
+    // A user's message to a room: the turn input `turn/start` takes.
+    (
+        Kind::Request,
+        "room/send",
+        &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand", "/input/options/pastedImages/*/metadataText"],
+    ),
     // A server's arguments and environment values as a person typed them (the names stay identifiers). Its header values are
     // not here: a value that becomes a header is refused naming the field, nothing saved (decisions.md "Lone UTF-16 surrogates
     // in client strings"; Node saves it and its fetch refuses it, recorded in native/core/fixtures/lone-surrogate-wire).
