@@ -52,5 +52,3 @@ impl HomeDirectory for DefinitionsDirectory {
     }
 }
 
-#[cfg(test)]
-mod tests;

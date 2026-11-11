@@ -12,7 +12,26 @@ use mixdog_mcp::skill_deps::DependencySource;
 use mixdog_mcp::skill_state::body_present;
 use serde_json::json;
 
-use super::*;
+use mixdog_core::run_host::skill_session::*;
+use mixdog_mcp::skill_port::DeferredToolArm as _;
+use mixdog_mcp::skill_port::TranscriptTexts as _;
+use std::sync::Arc;
+use async_trait::async_trait;
+use mixdog_agent::env::Clock;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_core_ports::ports::memory_source::ThreadMessages;
+use mixdog_core_ports::ports::route::RouteSession;
+use mixdog_core_ports::ports::threads::HeaderUpdate;
+use mixdog_core_ports::ports::threads::HeaderUpdates;
+use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_mcp::skill_deps::SkillToolDependencies;
+use mixdog_store::schema::record::Header;
+use mixdog_tools::orch::skill::ArmNotice;
+use mixdog_tools::orch::util::PortError;
+use mixdog_tools::policy::ConnectorPermissions;
+use serde_json::Map;
+use serde_json::Value;
+use mixdog_core::run_host::tool_surface::SurfaceHost;
 
 fn golden() -> Value {
     mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/skill-session/golden.json")).expect("fixture")

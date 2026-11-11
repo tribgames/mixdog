@@ -22,27 +22,33 @@ use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
 use serde_json::Value;
 
-use super::worktree_maintenance::LiveSessions;
-use super::worktree_maintenance::WorktreeMaintenance;
-use super::worktree_maintenance::cleanup_summary;
-use super::worktree_maintenance::startup_summary;
-use super::worktree_setup::WorktreeSetup;
-use super::worktree_setup_note::PreparationReport;
-use super::worktree_setup_note::worktree_preparation_note;
-use super::worktree_setup_run::OutputWindow;
-use super::worktree_setup_run::RunOptions;
-use super::worktree_setup_run::SetupEvent;
-use super::worktree_setup_run::SetupReport;
-use super::worktree_setup_run::SetupRunner;
-use super::worktree_setup_run::SetupStatus;
-use super::worktree_setup_run::SetupStep;
-use super::worktree_setup_run::output_tail;
-use super::worktree_tests::enter;
-use super::worktree_tests::rig;
-use super::worktree_tests::run;
-use super::*;
+use mixdog_core_session::session::worktree::worktree_maintenance::LiveSessions;
+use mixdog_core_session::session::worktree::worktree_maintenance::WorktreeMaintenance;
+use mixdog_core_session::session::worktree::worktree_maintenance::cleanup_summary;
+use mixdog_core_session::session::worktree::worktree_maintenance::startup_summary;
+use mixdog_core_session::session::worktree::worktree_setup::WorktreeSetup;
+use mixdog_core_session::session::worktree::PreparationReport;
+use mixdog_core_session::session::worktree::worktree_preparation_note;
+use mixdog_core_session::replay_access::OutputWindow;
+use mixdog_core_session::session::worktree::RunOptions;
+use mixdog_core_session::session::worktree::SetupEvent;
+use mixdog_core_session::session::worktree::SetupReport;
+use mixdog_core_session::session::worktree::SetupRunner;
+use mixdog_core_session::session::worktree::SetupStatus;
+use mixdog_core_session::session::worktree::SetupStep;
+use mixdog_core_session::replay_access::output_tail;
+use mixdog_core_session::session::worktree::worktree_tests::enter;
+use mixdog_core_session::session::worktree::worktree_tests::rig;
+use mixdog_core_session::session::worktree::worktree_tests::run;
+use mixdog_core_session::session::worktree::*;
+use mixdog_rt::CancellationToken;
+use mixdog_scm::error::ScmFailure;
+use mixdog_scm::worktree::errors;
+use mixdog_scm::worktree::registry::WorktreeRecord;
+use mixdog_tools::git::SessionOp;
+use serde_json::json;
 
-const GOLDENS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/session/worktree_goldens/setup_goldens.json");
+const GOLDENS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-core-session/src/session/worktree_goldens/setup_goldens.json");
 
 fn goldens() -> Value {
     serde_json::from_str(&GOLDENS).unwrap()
@@ -282,8 +288,8 @@ fn link_dir(link: &Path, target: &Path) {
 async fn a_link_an_install_could_reach_through_blocks_the_installs_until_it_is_recorded_as_asked_for() {
     let rig = rig();
     std::fs::write(rig.repo.join("package.json"), "{}\n").unwrap();
-    super::worktree_tests::git(&rig.repo, &["add", "."]);
-    super::worktree_tests::git(&rig.repo, &["commit", "-q", "-m", "manifest"]);
+    mixdog_core_session::session::worktree::worktree_tests::git(&rig.repo, &["add", "."]);
+    mixdog_core_session::session::worktree::worktree_tests::git(&rig.repo, &["commit", "-q", "-m", "manifest"]);
     let entered = run(&rig, enter("feat", "c1")).await.unwrap();
     let worktree_id = entered["workspace"]["worktreeId"].as_str().unwrap().to_owned();
     let cwd = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
@@ -341,7 +347,7 @@ impl SessionSource for Sessions {
     }
 }
 
-fn maintenance(rig: &super::worktree_tests::Rig, sessions: Arc<Sessions>, live: &[&str], cancelled: Arc<Mutex<Vec<Option<String>>>>) -> WorktreeMaintenance {
+fn maintenance(rig: &mixdog_core_session::session::worktree::worktree_tests::Rig, sessions: Arc<Sessions>, live: &[&str], cancelled: Arc<Mutex<Vec<Option<String>>>>) -> WorktreeMaintenance {
     let live_ids: HashSet<String> = live.iter().map(|s| (*s).to_owned()).collect();
     let live: LiveSessions = Arc::new(move || live_ids.clone());
     WorktreeMaintenance::new(rig.worktrees.clone(), sessions, live, Arc::new(move |id| cancelled.lock().unwrap().push(id.map(str::to_owned))))
@@ -373,7 +379,7 @@ async fn the_startup_reconcile_keeps_what_a_session_keeps_and_a_deleted_session_
     assert!(maintenance.cleanup_deleted_session("lead", &cancel).await.unwrap().is_none());
 }
 
-fn open_maintenance(rig: &super::worktree_tests::Rig, cancelled: Arc<Mutex<Vec<Option<String>>>>) -> WorktreeMaintenance {
+fn open_maintenance(rig: &mixdog_core_session::session::worktree::worktree_tests::Rig, cancelled: Arc<Mutex<Vec<Option<String>>>>) -> WorktreeMaintenance {
     maintenance(rig, Arc::new(Sessions::default()), &[], cancelled)
 }
 
@@ -381,7 +387,7 @@ fn open_maintenance(rig: &super::worktree_tests::Rig, cancelled: Arc<Mutex<Vec<O
 async fn a_deleted_sessions_snapshots_go_with_it_whatever_it_owns() {
     let rig = rig();
     let cancel = CancellationToken::new();
-    let head = super::worktree_tests::git(&rig.repo, &["rev-parse", "HEAD"]).trim().to_owned();
+    let head = mixdog_core_session::session::worktree::worktree_tests::git(&rig.repo, &["rev-parse", "HEAD"]).trim().to_owned();
     let snapshot = rig.worktrees.snapshot(&rig.repo, "holder", &head, "tx1", false, &cancel).await.unwrap();
     assert!(Path::new(&snapshot.path).exists());
     let cancelled = Arc::new(Mutex::new(Vec::new()));
@@ -443,7 +449,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     use mixdog_core_api::mock::MockFeed;
     use mixdog_core_api::mock::MockLimits;
 
-    use crate::session::delete::DeleteSeams;
+    use mixdog_core_session::session::delete::DeleteSeams;
 
     let board = JobBoard::new(Arc::new(BoardClock), None, None);
     let stopped: Arc<Mutex<Vec<String>>> = Arc::default();
@@ -464,7 +470,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &conn).unwrap();
     mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
     struct Epoch;
-    impl crate::session::Clock for Epoch {
+    impl mixdog_core_session::session::Clock for Epoch {
         fn now_ms(&self) -> i64 {
             0
         }
@@ -482,7 +488,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     }
     #[derive(Default)]
     struct Shells(Mutex<Vec<String>>);
-    impl crate::session::shell_jobs::OwnedShells for Shells {
+    impl mixdog_core_session::session::shell_jobs::OwnedShells for Shells {
         fn cancel_owned(&self, owner: &mixdog_core_api::ids::ThreadId) {
             self.0.lock().unwrap().push(owner.as_str().to_owned());
         }
@@ -491,19 +497,19 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     let rig = rig();
     let cancelled = Arc::new(Mutex::new(Vec::new()));
     let data = tempfile::tempdir().unwrap();
-    let routes_file = data.path().join(crate::session::gateway_routes::STORE_FILE);
+    let routes_file = data.path().join(mixdog_core_session::session::gateway_routes::STORE_FILE);
     let route = json!({ "mode": "claude-current", "defaultProvider": "openai", "defaultModel": "gpt", "updatedAt": 1 });
     let stored = json!({ "version": 2, "updatedAt": 1, "sessions": { "sess_gone": route, "sess_kept": route }, "sessionHosts": {} });
     std::fs::write(&routes_file, stored.to_string()).unwrap();
     let maintenance = mixdog_rt::testing::tokens().maintenance_io;
-    let deletion = crate::session::purge::SessionDeletion {
-        deleted: crate::session::thread_edges::ThreadDeletions::new(Arc::new(mixdog_core_base::state::SectionFeedState::new(feed))),
+    let deletion = mixdog_core_session::session::purge::SessionDeletion {
+        deleted: mixdog_core_session::session::thread_edges::ThreadDeletions::new(Arc::new(mixdog_core_base::state::SectionFeedState::new(feed))),
         search: None,
         worktrees: Arc::new(open_maintenance(&rig, cancelled.clone())),
         board: board.clone(),
-        gateway_routes: crate::session::gateway_routes::GatewaySessionRoutes::new(data.path(), maintenance),
+        gateway_routes: mixdog_core_session::session::gateway_routes::GatewaySessionRoutes::new(data.path(), maintenance),
         shells: shells.clone(),
-        tool_events: Arc::new(crate::session::tool_events::ToolEventsLog::new(data.path(), maintenance, Arc::new(Epoch))),
+        tool_events: Arc::new(mixdog_core_session::session::tool_events::ToolEventsLog::new(data.path(), maintenance, Arc::new(Epoch))),
         mcp_scopes: Arc::new(NoScopes),
     };
 
@@ -525,8 +531,8 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
 /// leaves the store untouched (Node's mutator answers `undefined`), so no file appears.
 #[tokio::test]
 async fn a_gateway_route_clear_keeps_what_node_keeps() {
-    use crate::session::gateway_routes::clear_session_route;
-    use crate::session::gateway_routes::normalize_session_id;
+    use mixdog_core_session::session::gateway_routes::clear_session_route;
+    use mixdog_core_session::session::gateway_routes::normalize_session_id;
     use mixdog_rt::LaneToken;
     assert_eq!(normalize_session_id("  sess_abc1  "), Some("sess_abc1"));
     assert_eq!(normalize_session_id("short"), None);
@@ -563,7 +569,7 @@ async fn the_daemon_jobs_reconcile_at_start_and_clean_up_on_the_hour() {
         announce.notify_one();
     }), CancellationToken::new());
     // The sink's notification keeps its permit, so a line logged before this wait still wakes it.
-    crate::session::testing::awaiting(|| "the startup reconcile to log what it did".to_owned(), logged.notified()).await;
+    mixdog_core_session::session::testing::awaiting(|| "the startup reconcile to log what it did".to_owned(), logged.notified()).await;
     assert_eq!(*lines.lock().unwrap(), ["worktree reconcile: removed 1, recovered 0, pruned 0, incomplete 0, errors 0"]);
     let (due, hour) = (1_000 + 3 * 60_000, 60 * 60_000);
     assert!(schedule.run_tasks(false, due - 1).await.ran.is_empty());

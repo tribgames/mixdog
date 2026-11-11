@@ -6,5 +6,8 @@ pub mod session;
 /// refuses in a release build.
 #[cfg(feature = "test-support")]
 pub mod replay_access {
+    pub use crate::session::transcript::transcript_rows::{Restored, restore};
     pub use crate::session::worktree::worktree_reroot::{PromptReroot, PromptView, presented_workspace};
+    pub use crate::session::worktree::worktree_setup_run::{OutputWindow, output_tail};
+    pub use crate::session::worktree::worktree_state::plain;
 }

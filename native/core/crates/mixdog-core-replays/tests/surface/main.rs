@@ -4,4 +4,6 @@ mod config_hosts;
 mod mcp_fold;
 mod prompt_session;
 mod rearm;
+mod roster_rows;
+mod skill_session;
 mod turn_reminders;

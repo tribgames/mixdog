@@ -139,7 +139,7 @@ pub struct EffortDecisionLog {
     plugin_data: PathBuf,
     lane: DurabilityIo,
     /// The appends still running, for the tests to await.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     appends: Mutex<Vec<futures::future::BoxFuture<'static, ()>>>,
 }
 
@@ -150,13 +150,14 @@ impl EffortDecisionLog {
             env,
             plugin_data,
             lane,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             appends: Mutex::default(),
         }
     }
 
     /// Returns once every append recorded so far has landed.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     async fn appended(&self) {
         let appends = std::mem::take(&mut *self.appends.lock().unwrap());
         mixdog_core_session::session::testing::awaiting(|| "every effort-decision append to land".to_owned(), futures::future::join_all(appends)).await;
@@ -181,13 +182,13 @@ impl EffortDiagnostics for EffortDecisionLog {
             let _ = mixdog_statefile::append_file(lane, &path, line.as_bytes());
         };
         let submitted = self.lane.submit(&CancellationToken::new(), job);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Ok(append) = submitted {
             self.appends.lock().unwrap().push(Box::pin(async move {
                 let _ = append.await;
             }));
         }
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         drop(submitted);
     }
 

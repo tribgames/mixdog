@@ -14,9 +14,9 @@ use mixdog_store::schema::record::Header;
 use serde_json::Value;
 use serde_json::json;
 
-use super::sub_agent_retention::*;
+use mixdog_core_session::session::sub_agent_retention::*;
 
-const GOLDEN: &str = include_str!("golden/sub_agent_retention.json");
+const GOLDEN: &str = include_str!("../../../mixdog-core-session/src/session/golden/sub_agent_retention.json");
 const DAY: f64 = 86_400_000.0;
 
 fn golden() -> Value {

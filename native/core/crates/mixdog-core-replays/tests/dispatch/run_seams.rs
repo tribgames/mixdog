@@ -7,7 +7,11 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockStatePublisher;
 use serde_json::{Value, json};
 
-use crate::run_host::run_seams::*;
+use mixdog_core::run_host::run_seams::*;
+use mixdog_core::run_host::host_seams::ConfigSeams as _;
+use mixdog_core_agents::agents::AgentDefinitions;
+use mixdog_core_config::config::Config;
+use mixdog_store::schema::record::Header;
 use mixdog_core_agents::agents::AgentEvidence;
 use mixdog_core_config::config::AgentRoutes;
 use mixdog_core_config::config::ConfigLanes;
@@ -31,7 +35,7 @@ async fn seams(stored: Option<Value>, env: HashMap<String, String>) -> (tempfile
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mixdog-config.json");
     if let Some(stored) = stored {
-        crate::run_host::fixture_fs::write_unsynced(&path, serde_json::to_vec(&stored).unwrap());
+        mixdog_core::run_host::fixture_fs::write_unsynced(&path, serde_json::to_vec(&stored).unwrap());
     }
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };

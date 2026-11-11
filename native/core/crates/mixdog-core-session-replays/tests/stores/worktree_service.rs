@@ -22,9 +22,12 @@ use mixdog_core_review::turn_review::testing::test_review;
 use serde_json::Value;
 use serde_json::json;
 
-use super::worktree_tests::git;
-use super::worktree_tests::rig;
-use super::*;
+use mixdog_core_session::session::worktree::worktree_tests::git;
+use mixdog_core_session::session::worktree::worktree_tests::rig;
+use mixdog_core_session::session::worktree::*;
+use std::path::PathBuf;
+use std::sync::Arc;
+use mixdog_core_session::replay_access::plain;
 
 const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/thread-scm/golden.json");
 
@@ -96,7 +99,7 @@ fn outcome(result: Result<Reply, CoreError>) -> Value {
     }
 }
 
-fn service(rig: &super::worktree_tests::Rig, review: Arc<dyn TurnReviewApi>, ops: OpScopes) -> ThreadScmService {
+fn service(rig: &mixdog_core_session::session::worktree::worktree_tests::Rig, review: Arc<dyn TurnReviewApi>, ops: OpScopes) -> ThreadScmService {
     ThreadScmService::new(rig.ws.clone(), review, ops)
 }
 

@@ -253,16 +253,19 @@ pub(crate) enum Inbox {
     /// The step must not call the same session's actor.
     UpdateHeaderAwaiting { update: AwaitingHeaderUpdate, tx: Waiter },
     /// A test's injected unwind of the actor.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     Unwind(UnwindAt),
 }
 
 /// Where a test's injected unwind of the actor happens.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) enum UnwindAt {
     /// As the actor takes the message.
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     Now,
     /// As the actor takes the next `Ctl::Delete`, before it answers it.
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     Delete,
 }
 
@@ -570,7 +573,7 @@ pub(crate) struct SessionActor {
     /// A created thread whose `session` record has not settled yet: its failure ends the thread.
     uncreated: bool,
     /// A test's injected unwind waits for the next `Ctl::Delete` (`UnwindAt::Delete`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     unwind_at_delete: bool,
     deps: Arc<SessionDeps>,
     cell: Arc<ControlCell>,
@@ -913,7 +916,7 @@ impl SessionActor {
             slot: None,
             seed: None,
             uncreated: false,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             unwind_at_delete: false,
             id,
             cell,
@@ -1091,7 +1094,7 @@ impl SessionActor {
         mark: oneshot::Receiver<serde_json::Map<String, Value>>,
         marked: oneshot::Sender<Result<(), RunError>>,
     ) {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if self.unwind_at_delete {
             panic!("the test's injected unwind at a delete");
         }
@@ -3938,9 +3941,9 @@ impl SessionActor {
             Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
             // Awaited by the run loop, which handles it before this match.
             Inbox::UpdateHeaderAwaiting { .. } => unreachable!("the run loop awaits it"),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
