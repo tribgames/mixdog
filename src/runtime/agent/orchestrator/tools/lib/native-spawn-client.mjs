@@ -425,8 +425,11 @@ export function setNativeSpawnRequestIdle(child, idle = true) {
 function _teardown(error, { kill = true } = {}) {
   const server = _server;
   _server = null;
-  _lastFailureAt = Date.now();
   if (!server) return;
+  // Only a server that never became ready failed to start: the backoff keeps a broken binary from being relaunched
+  // on every call. A server that was serving and then ended starts again on the next request; holding every shell
+  // call off for the backoff after such an exit made them fail with "could not be started" without a single try.
+  _lastFailureAt = server.ready ? 0 : Date.now();
   for (const pending of server.pending.values()) {
     try {
       pending.fail(error || new Error('native spawn server exited'));
@@ -567,9 +570,10 @@ function _ensureServer() {
     settleReady(false);
     if (_server === server) _teardown(error);
   });
-  child.on('exit', () => {
+  child.on('exit', (code, signal) => {
     settleReady(false);
-    if (_server === server) _teardown();
+    // The exit status is the only trace of why the server ended (its stderr is not kept).
+    if (_server === server) _teardown(new Error(`native spawn server exited (code ${code}, signal ${signal})`));
   });
   child.stdin.on('error', (error) => {
     if (_server === server) _teardown(error);
@@ -1010,6 +1014,10 @@ export function _resetNativeSpawnClientForTest() {
   _stopRetentionSweep();
   _taskOverrides.clear();
   _taskEvents.removeAllListeners();
+}
+
+export function _nativeSpawnServerChildForTest() {
+  return _server?.child ?? null;
 }
 
 export function _setNativeSpawnBinaryForTest(binaryPath) {
