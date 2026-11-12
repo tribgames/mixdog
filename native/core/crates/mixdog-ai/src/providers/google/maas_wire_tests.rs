@@ -33,21 +33,25 @@ use crate::retry::StandardRetryDecider;
 #[tokio::test]
 async fn an_open_model_is_sent_refreshed_and_retried_as_node_does() {
     let names = scenarios("vertex-maas");
-    assert_eq!(names, ["refresh-after-401", "retry-429", "retry-529"]);
+    assert_eq!(names, ["gpt-oss-effort", "other-family-no-effort", "refresh-after-401", "retry-429", "retry-529"]);
     for name in names {
         let recorded = load("vertex-maas", &name);
         // The recorder's script: the first Chat Completions send gets the scenario's status, with `retry-after-ms: 1`
-        // on a 429 or 529.
+        // on a 429 or 529; the two reasoning scenarios are answered at once.
         let status = match name.as_str() {
             "refresh-after-401" => 401,
             "retry-429" => 429,
-            _ => 529,
+            "retry-529" => 529,
+            _ => 0,
         };
         let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
         if status != 401 {
             headers.push(("retry-after-ms".to_owned(), "1".to_owned()));
         }
-        let hub = Hub::new(&recorded).refuse_first("/chat/completions", status, headers);
+        let hub = match status {
+            0 => Hub::new(&recorded),
+            _ => Hub::new(&recorded).refuse_first("/chat/completions", status, headers),
+        };
         let (adapter, _dir) = built(&recorded, hub.clone(), Inputs::default()).await;
         let request = Arc::new(request_of(&recorded));
         let model = request.model.clone();
