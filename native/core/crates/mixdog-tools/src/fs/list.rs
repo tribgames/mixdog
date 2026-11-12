@@ -277,7 +277,8 @@ impl Tool for ListTool {
         let hidden = arg_bool(&args, "hidden");
         let meta = arg_bool(&args, "meta");
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
-        let limit = match arg_u64(&args, "limit") {
+        // arg-guard.mjs `normalizeCompactSurfaceArgs`: `limit` is the short spelling of `head_limit`, which wins when both come.
+        let limit = match arg_u64(&args, if args.get("head_limit").is_some() { "head_limit" } else { "limit" }) {
             Some(0) => 0,
             Some(n) => n.min(DEFAULT_PAGE) as usize,
             None => DEFAULT_PAGE as usize,
