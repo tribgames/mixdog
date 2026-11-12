@@ -22,7 +22,10 @@ export const DEFAULT_WORKFLOW_ID = 'default';
 
 // Loaded AGENT.md definitions, keyed `${dir}\n${agentId}`.
 export const agentDefinitionCache = new Map();
-const AGENT_DEFINITION_CACHE_LIMIT = 64;
+// Above the number of agents one user has: a cap below it makes the cache
+// evict in a loop (every prompt then re-reads and re-parses every definition
+// from disk, synchronously). The store keeps at most a few hundred agents.
+const AGENT_DEFINITION_CACHE_LIMIT = 1024;
 export function setAgentDefinitionCache(key, value) {
   if (!agentDefinitionCache.has(key) && agentDefinitionCache.size >= AGENT_DEFINITION_CACHE_LIMIT) {
     const oldestKey = agentDefinitionCache.keys().next().value;
