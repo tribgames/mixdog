@@ -269,8 +269,8 @@ fn transport_collector_joins_chunks_and_caps_the_wire_body() {
         c.push(&chunk).unwrap();
     }
     let reply = c.push(&[b'b']).unwrap_err();
-    assert_eq!(reply.status, 413);
-    assert_eq!(reply.body, json!({"error":"payload too large","limit":MAX_BODY_BYTES}));
+    assert_eq!(reply.0.status, 413);
+    assert_eq!(reply.0.body, json!({"error":"payload too large","limit":MAX_BODY_BYTES}));
     c.push(&chunk).unwrap(); // discarded, no second reply
     assert_eq!(c.finish(), None);
 }
@@ -291,7 +291,8 @@ async fn oversized_body_is_413_and_listener_counts_as_work() {
 /// Node's request parsing, recorded by `record-webhook-endpoint-name.mjs` (`fixtures/webhook-endpoint-name`): the
 /// raw and decoded endpoint name of every recorded path, the strict name gate's answer for the paths it refuses
 /// (`handle_post` with no store entry), and the body reader fed the recorded chunks: where the 413 comes, what it says,
-/// and the bytes (length and sha256) it hands over. The transport's `destroy` of the request is not observable here.
+/// and the bytes (length and sha256) it hands over; every recorded answer is compared whole (status, headers, body and
+/// whether the request was destroyed), and the bodies cut short by an abort or a socket error get no answer at all.
 #[tokio::test]
 async fn request_parsing_answers_as_node_answers_it() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-endpoint-name/golden.json")).unwrap();
@@ -302,9 +303,9 @@ async fn request_parsing_answers_as_node_answers_it() {
         assert_eq!(handler::raw_endpoint_name(url), case["parsed"]["rawName"].as_str().unwrap(), "rawName of {url}");
         assert_eq!(handler::parse_endpoint_name(url), case["parsed"]["name"].as_str().unwrap(), "name of {url}");
         if let Some(gate) = case.get("gate") {
-            let reply = f.svc.handle_post(url, &headers(&[]), b"{}").await;
-            let recorded: Value = serde_json::from_str(gate["body"].as_str().unwrap()).unwrap();
-            assert_eq!((u64::from(reply.status), reply.body), (gate["status"].as_u64().unwrap(), recorded), "gate of {url}");
+            let Err(Rejection(refusal)) = f.svc.precheck(url).await else { panic!("gate of {url}: not refused") };
+            assert_eq!(f.svc.handle_post(url, &headers(&[]), b"{}").await, refusal, "gate of {url}: handle_post");
+            assert_answer(&format!("gate of {url}"), gate, Some((&refusal, true)));
         }
     }
     for case in golden["bodies"].as_array().unwrap() {
@@ -316,7 +317,7 @@ async fn request_parsing_answers_as_node_answers_it() {
                 Some(hex) => (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect(),
                 None => vec![chunk["fill"].as_u64().unwrap() as u8; chunk["length"].as_u64().unwrap() as usize],
             };
-            if let Err(refusal) = collector.push(&bytes) {
+            if let Err(Rejection(refusal)) = collector.push(&bytes) {
                 reply = Some(refusal);
             }
             assert_eq!(reply.is_some(), case["answeredAfter"][index].as_bool().unwrap(), "{name}: answered after chunk {index}");
@@ -330,13 +331,43 @@ async fn request_parsing_answers_as_node_answers_it() {
             }
             (got, recorded) => panic!("{name}: got {:?} bytes, recorded {recorded:?}", got.map(|b| b.len())),
         }
-        match (reply, case["status"].as_u64().unwrap()) {
-            (None, 0) => {}
-            (Some(reply), status) => {
-                let recorded: Value = serde_json::from_str(case["body"].as_str().unwrap()).unwrap();
-                assert_eq!((u64::from(reply.status), reply.body), (status, recorded), "{name}");
+        assert_answer(name, case, reply.as_ref().map(|r| (r, true)));
+    }
+    for case in golden["cutBodies"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let mut collector = BodyCollector::default();
+        let mut reply = None;
+        for (index, chunk) in case["chunks"].as_array().unwrap().iter().enumerate() {
+            let bytes = vec![chunk["fill"].as_u64().unwrap_or(0) as u8; chunk["length"].as_u64().unwrap_or(0) as usize];
+            let bytes = chunk["hex"].as_str().map_or(bytes, |hex| (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect());
+            if let Err(Rejection(refusal)) = collector.push(&bytes) {
+                reply = Some(refusal);
             }
-            (None, status) => panic!("{name}: recorded status {status}, none answered"),
+            assert_eq!(reply.is_some(), case["answeredAfter"][index].as_bool().unwrap(), "{name}: answered after chunk {index}");
+        }
+        // The cut ends the read; a collector that had not overflowed settles nothing (Node's promise stays pending).
+        let settled = reply.is_some();
+        let cut = collector.cut_short();
+        assert_eq!(settled, case["settled"].as_bool().unwrap(), "{name}: settled");
+        assert_eq!(cut, None, "{name}: the cut itself answers nothing");
+        assert_answer(name, case, reply.as_ref().map(|r| (r, true)));
+    }
+}
+
+/// One recorded answer of Node's handler (`status`, `headers`, `body`, `destroyed`) against ours: `answer` is
+/// the reply written and whether the request was dropped after it; None when nothing was written.
+fn assert_answer(label: &str, recorded: &Value, answer: Option<(&HttpReply, bool)>) {
+    let status = recorded["status"].as_u64().unwrap();
+    match answer {
+        None => {
+            assert_eq!((status, &recorded["headers"], recorded["body"].as_str().unwrap(), recorded["destroyed"].as_bool().unwrap()), (0, &Value::Null, "", false), "{label}: recorded an answer, none written");
+        }
+        Some((reply, destroyed)) => {
+            let body: Value = serde_json::from_str(recorded["body"].as_str().unwrap()).unwrap();
+            assert_eq!(u64::from(reply.status), status, "{label}: status");
+            assert_eq!(recorded["headers"], json!({ "Content-Type": HttpReply::CONTENT_TYPE }), "{label}: headers");
+            assert_eq!(reply.body, body, "{label}: body");
+            assert_eq!(destroyed, recorded["destroyed"].as_bool().unwrap(), "{label}: destroyed");
         }
     }
 }

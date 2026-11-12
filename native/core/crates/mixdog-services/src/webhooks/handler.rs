@@ -25,10 +25,18 @@ pub struct HttpReply {
 }
 
 impl HttpReply {
+    /// Every answer the webhook endpoint writes carries this one header (`Content-Type`).
+    pub const CONTENT_TYPE: &'static str = "application/json";
+
     fn error(status: u16, message: &str) -> Self {
         Self { status, body: json!({ "error": message }) }
     }
 }
+
+/// An answer the transport writes and then drops the request after (Node's `rejectRequest`
+/// and the 413: `req.destroy()`), so the connection closes behind it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rejection(pub HttpReply);
 
 /// The transport's body reader (`collectRawBody`): feed it each wire chunk as it arrives.
 /// The first chunk that takes the total past the cap yields the 413 reply, once; the
@@ -41,17 +49,24 @@ pub struct BodyCollector {
 }
 
 impl BodyCollector {
-    pub fn push(&mut self, chunk: &[u8]) -> Result<(), HttpReply> {
+    pub fn push(&mut self, chunk: &[u8]) -> Result<(), Rejection> {
         if self.too_large {
             return Ok(());
         }
         if self.bytes.len() + chunk.len() > MAX_BODY_BYTES {
             self.too_large = true;
             self.bytes = Vec::new();
-            return Err(WebhookService::body_too_large(MAX_BODY_BYTES + 1).expect("over the cap"));
+            return Err(Rejection(WebhookService::body_too_large(MAX_BODY_BYTES + 1).expect("over the cap")));
         }
         self.bytes.extend_from_slice(chunk);
         Ok(())
+    }
+
+    /// The request was aborted or its socket failed mid-body. Node's collector has no handler
+    /// for either, so nothing more happens: no answer, no `destroy`, no processing of the
+    /// partial body. A 413 already sent stays the one answer.
+    pub fn cut_short(self) -> Option<Rejection> {
+        None
     }
 
     /// The whole body at the end of the stream; None when it overflowed.
@@ -207,23 +222,23 @@ impl WebhookService {
     }
 
     /// Gate before the body is read: name shape, registration, enabled.
-    pub async fn precheck(&self, path: &str) -> Result<String, HttpReply> {
+    pub async fn precheck(&self, path: &str) -> Result<String, Rejection> {
         let name = parse_endpoint_name(path);
         if !valid_endpoint_name(&name) {
             mixdog_rt::node_stderr!("mixdog webhook: rejected: invalid endpoint name \"{}\"", raw_endpoint_name(path));
-            return Err(HttpReply::error(404, "invalid endpoint name"));
+            return Err(Rejection(HttpReply::error(404, "invalid endpoint name")));
         }
         let endpoint = match self.store.load_endpoint(&name).await {
             Ok(db) => db.or_else(|| self.config_endpoint(&name)),
             Err(err) => {
                 mixdog_rt::node_stderr!("mixdog webhook: {name}: endpoint lookup failed — {err}");
-                return Err(HttpReply::error(500, "internal error"));
+                return Err(Rejection(HttpReply::error(500, "internal error")));
             }
         };
         match endpoint {
-            Some(e) if e.enabled == Some(false) => Err(HttpReply::error(404, "disabled endpoint")),
+            Some(e) if e.enabled == Some(false) => Err(Rejection(HttpReply::error(404, "disabled endpoint"))),
             Some(_) => Ok(name),
-            None => Err(HttpReply::error(404, "unknown endpoint")),
+            None => Err(Rejection(HttpReply::error(404, "unknown endpoint"))),
         }
     }
 
@@ -236,7 +251,7 @@ impl WebhookService {
         let _busy = self.work.begin();
         let name = match self.precheck(path).await {
             Ok(name) => name,
-            Err(reply) => return reply,
+            Err(Rejection(reply)) => return reply,
         };
         if let Some(reply) = Self::body_too_large(raw_body.len()) {
             return reply;
