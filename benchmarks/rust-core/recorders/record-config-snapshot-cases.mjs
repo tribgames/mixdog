@@ -248,8 +248,21 @@ await record('a credential file that cannot be stat’ed is not read as unchange
     if (String(path).endsWith('openai-oauth.json')) throw Object.assign(new Error('EACCES: permission denied, stat'), { code: 'EACCES' });
     return stat(path, ...rest);
   });
-  step('removeCredential', {}, () => rmSync(credentials()));
+  // The cache's log of the failed stat (watched-file-cache.mjs:273), as written to stderr while the stat is denied.
+  const logged = [];
+  const write = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => {
+    logged.push(String(chunk));
+    return write.call(process.stderr, chunk, ...rest);
+  };
+  const removal = step('removeCredential', {}, () => {
+    rmSync(credentials());
+    return steps[steps.length - 1];
+  });
   await until(() => read().providers['openai-oauth'].enabled === false);
+  await until(() => logged.some((line) => line.startsWith('[watch] re-read of ')));
+  process.stderr.write = write;
+  removal.logged = logged.filter((line) => line.startsWith('[watch] re-read of ')).map((line) => line.replace(/^(\[watch\] re-read of ).*[\\/]([^\\/]+) failed:/, '$1<data>/$2 failed:'));
   observe();
   denied.mock.restore();
   writeCredential(SIGNED_IN);
@@ -341,12 +354,15 @@ const excluded = {
     'not observable: the test changes no secret value (config-snapshot.test.mjs:178-189 calls invalidateSecretCache on an unset key) and asserts ' +
     "only the input epoch moving and the snapshot's object identity changing (`assert.notEqual(full(), before)`), which no reader can see; " +
     'the rebuilt config equals the one before',
-  'a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the logged EACCES':
-    "Rust absence: the failed stat and its log line are Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80, " +
-    'logged by watched-file-cache.mjs); the core keeps no stamp and never stats a credential file to compare it, so it has no stat failure ' +
-    'to log, and a denied read of the file is not injectable at its seam. The config after the removal and after the rewrite is replayed',};
-
-const finalDir = join(FIXTURES_ROOT, 'config-snapshot-cases');
+  'a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the state while the stat is denied':
+    "Rust absence of the stat: the denied stat is Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80); the core keeps no " +
+    'stamp and never stats a credential file, so its denial is a denied read of the file, which it reads as unreadable, never as a logout ' +
+    '(accounts/mod.rs has_credential): the provider stays enabled where Node, whose read still works, reads the removed file as absent. The ' +
+    'observation taken while the denial lasts is not compared; the logged line is (logged of the removal step: "[watch] re-read of <path> failed:"), ' +
+    "with the error text after it left out (the operating system's own: Node's mocked EACCES: permission denied, stat), and a streak " +
+    'of equal lines compared once (Node logs once per failed stat, the core once per read), the path as <data>/<file> in both (the core keeps the file in its accounts folder). ' +
+    'The state before and after the denial is replayed.',
+};const finalDir = join(FIXTURES_ROOT, 'config-snapshot-cases');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { note: `Node's config snapshot at ${NODE_COMMIT}, per case of ${RECORDER}`, test: TEST, now: NOW, base, cases });
 writeSetManifest(stage, {

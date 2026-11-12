@@ -2,16 +2,16 @@
   "command": "node benchmarks/rust-core/recorders/record-config-snapshot-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "after each step, the whole config a read returns (loadConfig with secrets, `loaded`), once the snapshot took the step in, compared as its change from the read over an empty data dir (`stored`: createConfigPatch(base, loaded); the core's create_config_patch from its own loaded config over an empty data dir on its side): the core's loaded config lays no defaults on, Node's carries them. Also the config listener's first read (`listener`, test :197), whether each clock tick told the config inputs' listeners (`epochMoved`, test :380-402) and that a torn file moves nothing (`quiet`, test :263-267). A listener's notification count is not compared: the core's change cell coalesces ticks (`Config::changes`), where Node tells once per file event. The replay holds each observation until the rebuild that takes the step in has produced the recorded state, under one deadline whose failure names the step and shows the last read; it does not judge the states in between (the core reads the file by path, and a foreign replace, a temp file renamed over it as `foreignWrite` does, can be read while the path is empty on Windows). A torn in-place write makes no `Config::changes` notification (the reload fails, the last good document stays); its pass is awaited through the file watch pass counter (`Config::watch_passes`), the core signal added for it. The write landing during a build (`writeDuringBuild`) lands after the first load and before the sync starts, and the sync takes it in as its own first rebuild.",
   "excluded": {
-    "a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the logged EACCES": "Rust absence: the failed stat and its log line are Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80, logged by watched-file-cache.mjs); the core keeps no stamp and never stats a credential file to compare it, so it has no stat failure to log, and a denied read of the file is not injectable at its seam. The config after the removal and after the rewrite is replayed",
+    "a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the state while the stat is denied": "Rust absence of the stat: the denied stat is Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80); the core keeps no stamp and never stats a credential file, so its denial is a denied read of the file, which it reads as unreadable, never as a logout (accounts/mod.rs has_credential): the provider stays enabled where Node, whose read still works, reads the removed file as absent. The observation taken while the denial lasts is not compared; the logged line is (logged of the removal step: \"[watch] re-read of <path> failed:\"), with the error text after it left out (the operating system's own: Node's mocked EACCES: permission denied, stat), and a streak of equal lines compared once (Node logs once per failed stat, the core once per read), the path as <data>/<file> in both (the core keeps the file in its accounts folder). The state before and after the denial is replayed.",
     "a secret change moves the config inputs, so the next read rebuilds": "not observable: the test changes no secret value (config-snapshot.test.mjs:178-189 calls invalidateSecretCache on an unset key) and asserts only the input epoch moving and the snapshot's object identity changing (`assert.notEqual(full(), before)`), which no reader can see; the rebuilt config equals the one before",
     "a warm snapshot read does no synchronous file system work: the spied fs calls, the object identity and freezing": "not observable: a warm read hands back the cached frozen object with no I/O (src/runtime/agent/orchestrator/config-snapshot.mjs:173-177); a reader gets the same config either way, and that config is the replayed part"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 180715,
+      "bytes": 180850,
       "path": "golden.json",
-      "sha256": "57094697cae2cee4fda88c5a387a32355c65d322cc57d9371a0949df4526d1a5"
+      "sha256": "75d6a341ee29f1eef6250f1dbbde10c374919e7e8689eb7569e38116910fb54b"
     }
   ],
   "inputs": [
@@ -44,7 +44,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-config-snapshot-cases.mjs",
-  "recorderSha256": "eabe4766777723dee1cf912fca88f4dd7ba398d58f6cb5331b46b32aa7ad85aa",
+  "recorderSha256": "de88eebdb2a9fecadd5ea35f40bc57c90f8412f59b721444cc5af5d997803458",
   "set": "config-snapshot-cases",
-  "totalBytes": 180715
+  "totalBytes": 180850
 }
