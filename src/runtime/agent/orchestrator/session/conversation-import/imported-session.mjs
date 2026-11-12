@@ -10,6 +10,8 @@ import { deleteSession, evictLiveSession, saveSessionAsync } from '../store.mjs'
 import { newTranscriptMessageId } from '../../../../shared/transcript-metadata.mjs';
 import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { IMPORTED_MESSAGE_SOURCE } from '../imported-message.mjs';
+import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
+import { prewarmGitStartupProbes } from '../../tools/builtin/runtime-capabilities.mjs';
 import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
 
 const IMPORT_ORIGIN_VERSION = 1;
@@ -110,7 +112,11 @@ export async function createImportedSession({
   ingestFn = ingestSessionTurn,
   evictTimeoutMs = 5_000,
 }) {
-  const session = createSessionFn(importedSessionOptions(leadOptions, { cwd, desktopSession }));
+  const options = importedSessionOptions(leadOptions, { cwd, desktopSession });
+  // createSession composes the git startup lines synchronously: answer their
+  // probes off-thread first so it never spawns git on the event loop.
+  await prewarmGitStartupProbes([options.cwd || captureOriginalUserCwd()]);
+  const session = createSessionFn(options);
   try {
     // Append after the system layer createSession seeded; never replace it.
     session.messages.push(...importedTranscriptMessages(conversation.turns, origin.importedAt));

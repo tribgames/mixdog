@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -41,6 +42,44 @@ test('every released session stays released, however many there are', async (t) 
     ids.every((id) => reopened.isReleased(id)),
     'released for a store reading the file'
   );
+});
+
+test('a burst of reads stats the file once, not once per read', async (t) => {
+  const { file } = tempFile(t);
+  const writer = createReleasedStore(file);
+  writer.mark(['sess_1']);
+  await writer.flush();
+  const store = createReleasedStore(file);
+  const real = fs.statSync;
+  let stats = 0;
+  fs.statSync = (path, ...rest) => {
+    if (String(path) === file) stats += 1;
+    return real(path, ...rest);
+  };
+  syncBuiltinESMExports();
+  try {
+    for (let n = 0; n < 100; n += 1) assert.equal(store.isReleased('sess_1'), true);
+  } finally {
+    fs.statSync = real;
+    syncBuiltinESMExports();
+  }
+  assert.equal(stats, 1);
+});
+
+test('a release written by another process is seen by the next run, and clear() removes it', async (t) => {
+  const { file } = tempFile(t);
+  const at = new Date().toISOString();
+  writeFileSync(file, JSON.stringify({ version: 1, released: { sess_0: at } }));
+  const store = createReleasedStore(file);
+  assert.equal(store.isReleased('sess_1'), false);
+  await new Promise((resolve) => setImmediate(resolve));
+  // A foreign release, then the worker is resumed here.
+  writeFileSync(file, JSON.stringify({ version: 1, released: { sess_0: at, sess_1: at } }));
+  store.clear('sess_1');
+  await store.flush();
+  assert.equal(store.isReleased('sess_1'), false);
+  assert.equal(createReleasedStore(file).isReleased('sess_1'), false);
+  assert.equal(createReleasedStore(file).isReleased('sess_0'), true);
 });
 
 test('a missing file is an empty store', (t) => {

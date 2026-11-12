@@ -91,6 +91,7 @@ function _cacheMiss(account) {
 
 function _cacheInvalidate(account) {
   _secretCache.delete(`${SERVICE}\0${account}`);
+  _dpapiExists.delete(account);
   _cacheGenerations.set(account, (_cacheGenerations.get(account) || 0) + 1);
   _noteSecretsChanged();
 }
@@ -1049,8 +1050,15 @@ const PS_UNPROTECT = [
 
 function win32Get(account) {
   const file = dpApiFile(account);
-  if (!fs.existsSync(file)) return null;
-  const b64 = fs.readFileSync(file, 'utf8').trim();
+  let b64;
+  try {
+    b64 = fs.readFileSync(file, 'utf8').trim();
+  } catch (error) {
+    // One call, not an existence check and then a read: each is a main-thread
+    // disk access.
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
   if (!b64) throw new Error(`[keychain] DPAPI ciphertext file is empty: ${file}`);
   const r = powershell(`& { ${PS_UNPROTECT} } '${b64}'`);
   if (r.status !== 0) throw new Error(`[keychain] DPAPI decrypt failed (exit ${r.status}): ${r.stderr || r.stdout}`);
@@ -1184,7 +1192,27 @@ async function retryKeychain({ interactive = false } = {}) {
   }
   return _keychainStatus.state === 'ok';
 }
+// A burst of presence checks in one synchronous run (every provider asked at
+// session start) costs one stat per account, not one each, on the main thread.
+// No event from another process can be observed before the run ends, so the
+// answer is never older than anything the caller could know of; it is dropped
+// at the run's end by a microtask (never by a clock) and by this module's own
+// writes.
+const _dpapiExists = new Map();
+function _dpapiNote(account, exists) {
+  if (_dpapiExists.size === 0) queueMicrotask(() => _dpapiExists.clear());
+  _dpapiExists.set(account, exists);
+}
+function dpApiFileExists(account) {
+  const known = _dpapiExists.get(account);
+  if (known !== undefined) return known;
+  const exists = fs.existsSync(dpApiFile(account));
+  _dpapiNote(account, exists);
+  return exists;
+}
+
 function win32Set(account, value) {
+  _dpapiExists.clear();
   const dir = secretsDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // The secret travels via stdin (base64 of UTF-8) so it never appears in the
@@ -1197,6 +1225,7 @@ function win32Set(account, value) {
 }
 
 function win32Delete(account) {
+  _dpapiExists.clear();
   try {
     fs.unlinkSync(dpApiFile(account));
   } catch (error) {
@@ -1427,6 +1456,9 @@ function _cachedSecret(account, cached) {
 function getSecret(account) {
   const cached = _cacheGet(account);
   if (cached !== undefined) return _cachedSecret(account, cached);
+  // Windows, already found to hold no DPAPI file in this synchronous run: the
+  // run's memo answers, without another disk access.
+  if (platform() === 'win32' && _dpapiExists.get(account) === false) return fallbackGet(account);
   let value;
   try {
     value = backend().get(account);
@@ -1443,13 +1475,19 @@ function getSecret(account) {
     return stored;
   }
   _cacheSet(account, value);
+  // A Windows read that found no DPAPI file is remembered for the rest of
+  // this synchronous run only (the memo dpApiFileExists keeps): every provider
+  // check of one config load asks again, and each ask is a main-thread disk
+  // access. It is not kept beyond the run: a file another program writes
+  // without the secrets marker would otherwise stay invisible for good.
+  if (value == null && platform() === 'win32') _dpapiNote(account, false);
   return value ?? fallbackGet(account);
 }
 
 function hasSecret(account) {
   const cached = _cacheGet(account);
   if (cached !== undefined) return cached != null || hasFallbackSecret(account);
-  if (platform() === 'win32') return fs.existsSync(dpApiFile(account));
+  if (platform() === 'win32') return dpApiFileExists(account);
   try {
     return getSecret(account) != null;
   } catch {

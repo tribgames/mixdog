@@ -37,6 +37,8 @@ import {
 import { armTurnTimeout } from '../session/manager/turn-reap.mjs';
 import { resolveAgentWatchdogPolicy } from './agent-progress-watchdog.mjs';
 import { resourceAdmission } from '../../../shared/resource-admission.mjs';
+import { captureOriginalUserCwd } from '../../../shared/user-cwd.mjs';
+import { prewarmGitStartupProbes } from '../tools/builtin/runtime-capabilities.mjs';
 import { composeAgentDispatchAbortSignal } from './agent-dispatch/abort-link.mjs';
 import { resolveDispatchPreset } from './agent-dispatch/preset.mjs';
 import { prepareDispatchSession } from './agent-dispatch/session-prep.mjs';
@@ -134,6 +136,9 @@ async function dispatchAdmitted(agent, opts, callArgs, { prepare, ask, updateSta
     agent,
     config,
   });
+  // Session creation composes the git startup lines synchronously: answer
+  // their probes off-thread first so it never spawns git on the event loop.
+  await prewarmGitStartupProbes([callCwd || opts.cwd || captureOriginalUserCwd()]);
   const { session, cwd } = prepareDispatchSession({
     agent,
     opts,

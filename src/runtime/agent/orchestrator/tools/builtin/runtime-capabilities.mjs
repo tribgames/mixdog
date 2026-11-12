@@ -284,11 +284,12 @@ async function _probeRepositoryChangeState(root) {
 }
 
 // root → { value, pending }. `git status` costs a process spawn, which blocks
-// the event loop (~0.5s on Windows at session start). The first use per root
-// in this process probes synchronously exactly as before and caches the
-// answer; later uses serve the cached answer and start one off-thread refresh
-// (at most one in flight per root), so a session sees at worst the previous
-// observation.
+// the event loop (~0.5s on Windows at session start), so the callers that can
+// wait take a prewarm's off-thread answer (prewarmGitStartupProbes). A use
+// that finds no answer probes synchronously: what the model is told is never
+// less than the probe says. Later uses serve the cached answer and start one
+// off-thread refresh (at most one in flight per root), so a session sees at
+// worst the previous observation.
 const _repositoryChangeStates = new Map();
 
 // Entries are { value, ready, generation, pending }. A prewarm (see
@@ -317,6 +318,7 @@ function _repositoryChangeState(root) {
   if (!entry?.ready) {
     const value = _probeRepositoryChangeStateSync(root);
     if (entry) {
+      // An off-thread probe still on its way is older than this answer.
       entry.generation += 1;
       entry.value = value;
       entry.ready = true;
@@ -410,12 +412,13 @@ async function _probeGitIgnoredEntries(directory, names) {
 }
 
 // directory → { observation: { names, ignored }, generation, pending }. Same
-// rule as the git status line: with no cached answer for this directory in
-// this process, `git check-ignore` runs synchronously exactly as before and
-// is cached. An answer only covers the names it was asked about, so a changed
-// entry set also takes the synchronous probe. Otherwise the cached answer is
-// served and one off-thread refresh starts; a refresh started before a newer
-// synchronous probe (older generation) is discarded.
+// rule as the git status line: a prewarm's off-thread answer is taken when
+// there is one. An answer only covers the names it was asked about, so with
+// none covering the directory's entries `git check-ignore` runs synchronously:
+// the listing never shows an ignored entry the probe would have dropped.
+// Otherwise the cached answer is served and one off-thread refresh starts; a
+// refresh started before a newer synchronous probe (older generation) is
+// discarded.
 const _gitIgnoreObservations = new Map();
 
 function _coversNames(observation, names) {
@@ -457,12 +460,12 @@ function _gitIgnoredEntries(directory, names) {
  * Boot-time prewarm: start the off-thread `git status` and `git check-ignore`
  * probes for directories a session is likely to open, so the first session's
  * prompt composition finds finished answers instead of spawning git on the
- * event loop. Never throws; a directory whose prewarm has not answered yet
- * when a session composes its prompt takes the synchronous probe exactly as
- * without prewarm. The returned promise (never rejects) settles once the
- * probes of these directories that were not yet answered have: an async
- * session-creation path awaits it before the synchronous composition, so that
- * composition never has to take the blocking probe.
+ * event loop. Never throws. Each probe is bounded by the 1500 ms the former
+ * synchronous probe had and falls back the same way (no change state, no
+ * ignored entries). The returned promise (never rejects) settles once the
+ * probes of these directories that were not yet answered have: every path that
+ * composes a session prompt awaits it first, so the composition states what the
+ * synchronous probes stated and spawns nothing.
  */
 export function prewarmGitStartupProbes(directories) {
   // The shell-tools line is composed beside the git lines (it needs no git).
@@ -482,13 +485,20 @@ export function prewarmGitStartupProbes(directories) {
       _repositoryChangeStates.set(found.root, entry);
       _startChangeStateProbe(found.root, entry, { prewarm: true });
     }
-    if (!_gitIgnoreObservations.has(directory)) {
-      const entry = { observation: null, generation: 0, pending: null };
+    let entry = _gitIgnoreObservations.get(directory);
+    if (!entry) {
+      entry = { observation: null, generation: 0, pending: null };
       _gitIgnoreObservations.set(directory, entry);
-      entry.pending = readdirAsync(directory)
+    }
+    // An entry set the cached answer does not cover (a directory that changed
+    // since) is probed again here, as the synchronous composition did, so the
+    // composition that follows serves an answer for exactly these names.
+    const settled = entry.pending ?? Promise.resolve();
+    const answered = settled.then(() =>
+      readdirAsync(directory)
         .then((names) => {
           const probed = names.filter((name) => name !== '.git');
-          if (!probed.length) return;
+          if (!probed.length || (entry.observation && _coversNames(entry.observation, probed))) return;
           const generation = entry.generation;
           return _probeGitIgnoredEntries(directory, probed).then((ignored) => {
             if (entry.generation !== generation) return;
@@ -497,14 +507,13 @@ export function prewarmGitStartupProbes(directories) {
           });
         })
         .catch(() => {})
-        .finally(() => {
-          entry.pending = null;
-        });
-    }
+    );
+    entry.pending = answered.finally(() => {
+      entry.pending = null;
+    });
+    unanswered.push(entry.pending);
     const changeState = _repositoryChangeStates.get(found.root);
     if (!changeState.ready) unanswered.push(changeState.pending);
-    const ignored = _gitIgnoreObservations.get(directory);
-    if (!ignored.observation) unanswered.push(ignored.pending);
   }
   return Promise.all(unanswered).then(() => {});
 }

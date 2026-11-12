@@ -39,6 +39,19 @@ function rewriteReleased(cur, mutator) {
 export function createReleasedStore(file) {
   let cache = null; // { mtimeMs, size, doc, at }
   let dirty = true;
+  // The file was validated during the current synchronous run. Nothing from
+  // another process (a message, a timer, an I/O completion) can be observed
+  // before the run ends, so every read in it may share one validation without
+  // ever answering older than a write the caller could know of. Dropped at the
+  // run's end (microtask checkpoint), never by a clock.
+  let validatedThisRun = false;
+  const markValidated = () => {
+    if (validatedThisRun) return;
+    validatedThisRun = true;
+    queueMicrotask(() => {
+      validatedThisRun = false;
+    });
+  };
   // Unpersisted writes are read from the queue's projection.
   let projected = null; // { version, at }
 
@@ -65,6 +78,9 @@ export function createReleasedStore(file) {
       return projected.at;
     }
     if (!file) return new Map();
+    // Every turn start and every row asks: a burst of them in one run (a
+    // restart resuming every agent) is one stat, not one each, on the main thread.
+    if (!dirty && cache && validatedThisRun) return cache.at;
     // Only a missing file is an empty store; any other read error propagates
     // (queue.write reports it and queues nothing; a reader sees it thrown).
     let st;
@@ -75,7 +91,10 @@ export function createReleasedStore(file) {
       cache = null;
       return new Map();
     }
-    if (!dirty && cache && cache.mtimeMs === st.mtimeMs && cache.size === st.size) return cache.at;
+    if (!dirty && cache && cache.mtimeMs === st.mtimeMs && cache.size === st.size) {
+      markValidated();
+      return cache.at;
+    }
     let parsed = null;
     let text = null;
     try {
@@ -95,6 +114,7 @@ export function createReleasedStore(file) {
     }
     cache = { mtimeMs: st.mtimeMs, size: st.size, doc: parsed, at: parseReleased(parsed) };
     dirty = false;
+    markValidated();
     return cache.at;
   }
 

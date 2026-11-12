@@ -66,15 +66,30 @@ function sameFile(a, b) {
 }
 
 function heldLock(lockPath, identity, close) {
-  const namesLockedFile = () => sameFile(statSync(lockPath, { bigint: true, throwIfNoEntry: false }), identity);
+  let intactThisRun = false;
+  const namesLockedFile = () =>sameFile(statSync(lockPath, { bigint: true, throwIfNoEntry: false }), identity);
   return {
     held: true,
     path: lockPath,
     /** False once the lock file was deleted or replaced at its path: a process
      *  acquiring now would lock (or name) a different one. */
     intact() {
+      // Asked per session on every turn start and row, a burst of asks in one
+      // synchronous run (a restart resuming every agent) is one stat. No event
+      // from another process (a delete, a replacement) can be observed before
+      // the run ends, so the verdict is never older than anything the caller
+      // could know of; a microtask, not a clock, ends it. A `false` is final
+      // and never kept.
+      if (intactThisRun) return true;
       try {
-        return namesLockedFile();
+        const intact = namesLockedFile();
+        if (intact) {
+          intactThisRun = true;
+          queueMicrotask(() => {
+            intactThisRun = false;
+          });
+        }
+        return intact;
       } catch {
         // Unreadable metadata (an antivirus scan) is not a replacement.
         return true;
