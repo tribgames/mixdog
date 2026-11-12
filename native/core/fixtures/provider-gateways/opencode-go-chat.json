@@ -32,6 +32,9 @@
       "model": "glm-5",
       "tools": [],
       "history": [],
+      "opts": {
+        "sessionId": "sess-go"
+      },
       "sessionId": "sess-go",
       "requests": [
         {

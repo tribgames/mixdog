@@ -78,6 +78,9 @@ pub struct CompatAdapter {
     pub(super) rows: crate::catalog::RowStore,
     /// The first-byte ceiling a profile's window is held to (`PROVIDER_MAX_BEFORE_WARN_MS`), from the environment as Node reads it.
     first_byte: crate::providers::first_byte::FirstByteSettings,
+    /// The provider config's `reasoningEffort`: the effort of a send whose turn names none (`opts.effort ??
+    /// config.reasoningEffort`, on the Chat and Responses wires).
+    configured_effort: Option<String>,
 }
 
 /// What the router is told about a model that the profile cannot know: the
@@ -123,12 +126,19 @@ impl CompatAdapter {
             roster_wires: ArcSwap::from_pointee(HashMap::new()),
             rows: crate::catalog::RowStore::default(),
             first_byte: crate::providers::first_byte::FirstByteSettings::process(),
+            configured_effort: None,
         }
     }
 
     /// The first-byte settings of this adapter, when they are not the process environment's.
     pub fn with_first_byte(mut self, settings: crate::providers::first_byte::FirstByteSettings) -> Self {
         self.first_byte = settings;
+        self
+    }
+
+    /// The provider config's `reasoningEffort`, kept for the sends whose turn names no effort.
+    pub fn with_configured_effort(mut self, effort: Option<String>) -> Self {
+        self.configured_effort = effort;
         self
     }
 
@@ -219,6 +229,14 @@ impl CompatAdapter {
     /// One attempt of this provider's key and transport on another of its wires (`codec`): the gateway's
     /// Responses wire rides the same account as its Chat wire.
     pub async fn attempt_with(&self, codec: &dyn WireCodec, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let request = match &self.configured_effort {
+            Some(effort) if request.options.effort.is_none() => {
+                let mut owned = (*request).clone();
+                owned.options.effort = Some(effort.clone());
+                Arc::new(owned)
+            }
+            _ => request,
+        };
         let wire = codec.encode(&request)?;
         let mut key = match &self.key {
             Some(source) => Some(source.key().await?),
@@ -298,6 +316,13 @@ pub(super) async fn fetch_json(
     extra_headers: &[(String, String)],
     key: Option<&str>,
 ) -> Result<serde_json::Value, ProviderError> {
+    if profile.listing.plain_fetch {
+        // `fetchCompatModelItems`: the bearer, then the client's default headers; the fetch adds its own `accept`.
+        let mut headers: Vec<(String, String)> = key.map(|key| ("authorization".to_owned(), format!("Bearer {key}"))).into_iter().collect();
+        headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+        headers.extend(extra_headers.iter().cloned());
+        return fetch_listing(http, profile, url, headers, key).await;
+    }
     // `Accept` first, then the gateway's own headers (`fetchRoster`, `opencode-go-oauth-tokens.mjs` `request`).
     let accept = profile.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("accept")).map_or("application/json", |(_, v)| *v);
     let mut headers: Vec<(String, String)> = vec![("accept".into(), accept.into())];
@@ -306,6 +331,16 @@ pub(super) async fn fetch_json(
     if let Some(key) = key {
         headers.push(("authorization".into(), format!("Bearer {key}")));
     }
+    fetch_listing(http, profile, url, headers, key).await
+}
+
+async fn fetch_listing(
+    http: &dyn HttpSend,
+    profile: &CompatProfile,
+    url: String,
+    headers: Vec<(String, String)>,
+    key: Option<&str>,
+) -> Result<serde_json::Value, ProviderError> {
     let response = http
         .send(
             WireRequest {

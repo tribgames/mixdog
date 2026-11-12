@@ -5,6 +5,8 @@
 mod decode;
 mod encode;
 mod options;
+pub use options::openrouter_provider;
+pub use options::openrouter_reasoning;
 pub(crate) mod reasoning;
 
 use std::sync::Arc;

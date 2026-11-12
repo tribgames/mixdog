@@ -90,6 +90,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/providers/anthropic/threads.rs", "MIXDOG_QUIET_PROVIDER_LOG", "the switch that silences the provider's stderr line"),
     ("mixdog-ai/src/registry/builder.rs", "Arc::new(move |name| context.var(name))", "the wire settings reader over the process's request context (WireContext::var), the same switches"),
     ("mixdog-ai/src/admission/settings.rs", "MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE", "a queue bound"),
+    ("mixdog-ai/src/providers/first_byte.rs", "Self::once(&AT_START, |name| std::env::var(name).ok())", "the first-response budgets (stall, first-byte and Antigravity retry variables): durations and counts"),
     ("mixdog-ai/src/catalog/sources.rs", "let env = |name: &str| std::env::var(name).ok()", "the model floor's variables: model names"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_DISABLE_LIVE_CLI_VERSIONS", "a feature flag"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_ANTIGRAVITY_VERSION", "a client version"),

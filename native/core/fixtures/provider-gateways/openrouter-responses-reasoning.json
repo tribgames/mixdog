@@ -1,0 +1,341 @@
+{
+  "id": "openrouter-responses-reasoning",
+  "provider": "openrouter",
+  "config": {
+    "enabled": true,
+    "preconnect": false,
+    "apiKey": "or-fixture"
+  },
+  "sends": [
+    {
+      "model": "openai/gpt-5",
+      "tools": [
+        "lookup"
+      ],
+      "history": [],
+      "opts": {
+        "effort": "low",
+        "openRouterReasoningEffort": "high"
+      },
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/responses",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "524"
+          },
+          "body": "{\"model\":\"openai/gpt-5\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"reasoning\":{\"enabled\":true,\"effort\":\"high\"}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"cost\":0.0001}}}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "ok"
+        }
+      ],
+      "result": {
+        "content": "ok",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": null,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "costUsd": 0.0001
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    },
+    {
+      "model": "~openai/gpt-sol-latest",
+      "tools": [
+        "lookup"
+      ],
+      "history": [],
+      "opts": {
+        "openRouterReasoningEffort": "none"
+      },
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/responses",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "519"
+          },
+          "body": "{\"model\":\"~openai/gpt-sol-latest\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true,\"reasoning\":{\"enabled\":false}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"cost\":0.0001}}}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "ok"
+        }
+      ],
+      "result": {
+        "content": "ok",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": null,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "costUsd": 0.0001
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    },
+    {
+      "model": "openai/gpt-5",
+      "tools": [
+        "lookup"
+      ],
+      "history": [],
+      "opts": {},
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/responses",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "479"
+          },
+          "body": "{\"model\":\"openai/gpt-5\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]},\"strict\":false}],\"parallel_tool_calls\":true}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"cost\":0.0001}}}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "ok"
+        }
+      ],
+      "result": {
+        "content": "ok",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": null,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "costUsd": 0.0001
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    },
+    {
+      "model": "openrouter/auto",
+      "tools": [
+        "lookup"
+      ],
+      "history": [],
+      "opts": {
+        "effort": "medium"
+      },
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/chat/completions",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "425"
+          },
+          "body": "{\"model\":\"openrouter/auto\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"reasoning\":{\"enabled\":true,\"effort\":\"medium\"},\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    }
+  ]
+}

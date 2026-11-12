@@ -156,6 +156,7 @@ pub async fn antigravity(
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
     now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
+    function_calling_mode: Option<&str>,
 ) -> Result<GoogleAdapter, ProviderError> {
     let auth = Arc::new(AntigravityAuth::new(http.clone(), store, now_ms));
     let tokens = auth.current().await?;
@@ -165,7 +166,8 @@ pub async fn antigravity(
             tokens.project_id.clone(),
             client_version,
             traits,
-        ),
+        )
+        .with_function_calling_mode(function_calling_mode),
         policy::antigravity(),
         http,
         auth,
