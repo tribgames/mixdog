@@ -180,6 +180,10 @@ impl Protocol {
     }
 
     async fn get_json(&self, url: &Url) -> Option<Value> {
+        // A built-in Google connector's address is answered in this process, never on the network.
+        if let Some(metadata) = crate::google_mcp::protected_resource(url) {
+            return Some(metadata);
+        }
         let response = self
             .client
             .get(url.clone())

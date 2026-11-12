@@ -152,6 +152,25 @@ export const REPLAY_TARGETS = {
   'store-summary-workspace-cases': {
     rust: [r('mixdog-store/src/summary.rs', 107, 'workspace_summary')],
   },
+  'computer-error-recovery': {
+    rust: [r('mixdog-tools/src/desktop/computer_recovery.rs', 139, 'tool_error_recovery'), r('mixdog-tools/src/desktop/computer_recovery.rs', 144, 'format_tool_error'), r('mixdog-tools/src/desktop/computer.rs', 59, 'ComputerTool', 'the call: a failure of the host is worded by format_tool_error')],
+    missing: ['computerResultRecovery (a reply body with a structured code): the Rust backend answers its replies as text parts'],
+  },
+  'google-mcp': {
+    rust: [r('mixdog-mcp/src/google_mcp.rs', 639, 'answer'), r('mixdog-mcp/src/google_mcp.rs', 83, 'service'), r('mixdog-mcp/src/http.rs', 93, 'HttpTransport::with_google_fetch')],
+    notPublic: ['the sign-in flow (PKCE, loopback redirect) is replayed by the mcp-oauth sets; here the connector end is'],
+  },
+  'session-tool-output': {
+    rust: [r('mixdog-core/src/run_host/tool_pool/session_output.rs', 101, 'session_list_output'), r('mixdog-core/src/run_host/tool_pool/session_output.rs', 254, 'session_read_output'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 217, 'DirectorySessionPort::read', 'action read of control')],
+    missing: ['session action=list, send, create and bots are not served by the session port (control answers "not available in this runtime" for them): the list shape is replayed through session_list_output only'],
+  },
+  'session-control-cases': {
+    rust: [r('mixdog-core/src/run_host/tool_pool/session_port.rs', 1, 'DirectorySessionPort::control')],
+  },
+  'session-compact-cases': {
+    rust: [r('mixdog-tools/src/orch/session.rs', 204, 'SessionTool', 'the session tool: actions compact and fork'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 377, 'DirectorySessionPort::schedule_compact'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 381, 'DirectorySessionPort::fork'), r('mixdog-core-session/src/session/directory.rs', 459, 'SessionDirectory::schedule_compact_after_turn', 'the actor runs the scheduled compaction when the thread\'s turn settles')],
+    notPublic: ['the settle itself (mixdog-core-session/src/session/actor.rs run_ended) is private: a replay reaches it by running a turn on a SessionDirectory'],
+  },
   'system-proxy-cases': {
     rust: [r('mixdog-app-server-daemon/src/system_proxy_claim.rs', 28, 'new'), r('mixdog-ai/src/netproxy/system.rs', 601, 'attach_resolver'), r('mixdog-ai/src/netproxy/system.rs', 354, 'route_from_chromium')],
     missing: ['the desktop answer envelopes of attach and release (the lease the desktop holds and its release answer): system_proxy_claim.rs and netproxy/system.rs hold the resolver attach and the Chromium route only; no release answer function in either'],

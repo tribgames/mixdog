@@ -4,6 +4,7 @@
 pub mod browser;
 pub mod computer;
 pub mod computer_backend;
+pub mod computer_recovery;
 mod computer_screen;
 pub mod host;
 pub mod pending;

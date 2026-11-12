@@ -125,6 +125,10 @@ pub(crate) struct RoutineStart {
     pub bot_chain: Vec<String>,
     /// 	ranscriptMeta.roomRow: the room's newest user row the prompt shows (a member's turn).
     pub room_row: Option<String>,
+    /// `transcriptMeta.sender`: who sent the message (`lead` for the `session` tool's send).
+    pub sender: Option<&'static str>,
+    /// `transcriptMeta.fromAgent`: the bot that wrote into another bot's chat.
+    pub from_agent: Option<String>,
     /// The trusted text the turn's skills are selected from.
     pub skill_selection: Option<String>,
     /// `onCommitted`: runs the moment the turn starts, before any tool can.
@@ -227,6 +231,9 @@ pub(crate) struct ControlCell {
     /// the actor last stepped: what the desktop host counts as the session working.
     pub ui_busy: std::sync::atomic::AtomicBool,
     pub compacting: std::sync::atomic::AtomicBool,
+    /// A compaction the model scheduled (`session action=compact`: Node's `pendingCompactSessionIds`): the actor
+    /// runs it, once, when the next turn of this thread settles.
+    pub pending_compact: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
@@ -238,6 +245,10 @@ pub(crate) struct ControlCell {
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
     pub busy: std::sync::atomic::AtomicBool,
+    /// The actor's `retry_blocked()` after its last step: what a quota resume's fire answers `Busy` for (the turn state, the
+    /// quota settlement, a compaction, a completion wake or queued input).
+    #[cfg(any(test, feature = "test-support"))]
+    pub retry_blocked: std::sync::atomic::AtomicBool,
     /// A test's mark of a turn in flight with no run (Node's `markSessionAskStart`, until `markSessionDone`): the
     /// session is not idle (`ui_busy`); `Inbox::AskEnded` clears it and runs what the turn's end runs for a prune.
     #[cfg(test)]
