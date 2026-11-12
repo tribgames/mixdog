@@ -1,0 +1,1498 @@
+{
+  "name": "grep-fanout-partial",
+  "standin": true,
+  "files": {
+    "multi/a.txt": "alpha one\n",
+    "multi/b.txt": "alpha two\n",
+    "multi/c.txt": "alpha three\n",
+    "one/sample.txt": "x\nalpha\n",
+    "empty/none.txt": "nothing here\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "alpha",
+        "path": [
+          "multi",
+          "one",
+          "empty"
+        ],
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep multi\nmulti/a.txt\n  1: alpha one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep one\none/sample.txt\n  2: alpha\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep empty\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [
+              "one\\sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 1,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [
+              "one\\sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 1,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 5,
+            "inventoryChecked": true,
+            "lines": [
+              "<ROOT>/multi/a.txt:1:alpha one",
+              "<ROOT>/multi/b.txt:1:alpha two",
+              "<ROOT>/multi/c.txt:1:alpha three",
+              "<ROOT>/one/sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 4,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 5,
+            "inventoryChecked": true,
+            "lines": [
+              "<ROOT>/multi/a.txt:1:alpha one",
+              "<ROOT>/multi/b.txt:1:alpha two",
+              "<ROOT>/multi/c.txt:1:alpha three",
+              "<ROOT>/one/sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 4,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 4,
+        "answered": 4,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "alpha",
+        "path": [
+          "multi",
+          "one",
+          "empty"
+        ]
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep multi\n# multi/a.txt:1 [lines 1-1]\nalpha one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep one\n# one/sample.txt:2 [lines 1-2]\nx\nalpha\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep empty\n(no matches in partial results)\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [
+              "one\\sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 1,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [
+              "one\\sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 1,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 5,
+            "inventoryChecked": true,
+            "lines": [
+              "<ROOT>/multi/a.txt:1:alpha one",
+              "<ROOT>/multi/b.txt:1:alpha two",
+              "<ROOT>/multi/c.txt:1:alpha three",
+              "<ROOT>/one/sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 4,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 5,
+            "inventoryChecked": true,
+            "lines": [
+              "<ROOT>/multi/a.txt:1:alpha one",
+              "<ROOT>/multi/b.txt:1:alpha two",
+              "<ROOT>/multi/c.txt:1:alpha three",
+              "<ROOT>/one/sample.txt:2:alpha"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 4,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 4,
+        "answered": 4,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "absent1",
+          "absent2"
+        ],
+        "path": "multi",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep pattern:\"alpha\"\nmulti/a.txt:1:alpha one\n[1 shown, more exist; offset:1 for the rest]\n\n(no matches in partial results) patterns=[\"absent1\",\"absent2\"]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "absent1",
+          "absent2"
+        ],
+        "path": "multi"
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep pattern:\"alpha\"\n# multi/a.txt:1 [lines 1-1]\nalpha one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent1\"\n(no matches in partial results)\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent2\"\n(no matches in partial results)\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt",
+              "multi\\b.txt",
+              "multi\\c.txt"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt",
+              "multi\\b.txt",
+              "multi\\c.txt"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 4,
+        "answered": 4,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "absent1"
+        ],
+        "path": [
+          "multi",
+          "empty"
+        ],
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep multi\n# grep pattern:\"alpha\"\nmulti/a.txt:1:alpha one\n[1 shown, more exist; offset:1 for the rest]\n\n(no matches in partial results) patterns=[\"absent1\"]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep empty\n# grep pattern:\"alpha\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent1\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 5,
+        "answered": 5,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "absent1"
+        ],
+        "path": [
+          "multi",
+          "empty"
+        ]
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep multi\n# grep pattern:\"alpha\"\n# multi/a.txt:1 [lines 1-1]\nalpha one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent1\"\n(no matches in partial results)\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep empty\n# grep pattern:\"alpha\"\n(no matches in partial results)\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent1\"\n(no matches in partial results)\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt",
+              "multi\\b.txt",
+              "multi\\c.txt"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt",
+              "multi\\b.txt",
+              "multi\\c.txt"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 6,
+        "answered": 6,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "absent1",
+          "absent2"
+        ],
+        "path": "multi",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep pattern:\"absent1\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent2\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 4,
+        "answered": 4,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "absent1",
+          "absent2"
+        ],
+        "path": [
+          "multi",
+          "empty"
+        ],
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 0
+      },
+      "text": "# grep multi\n# grep pattern:\"absent1\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent2\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep empty\n# grep pattern:\"absent1\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent2\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 8,
+        "answered": 8,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "alpha",
+          "absent1"
+        ],
+        "path": [
+          "multi",
+          "empty"
+        ],
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1000000
+      },
+      "text": "# grep multi\n# grep pattern:\"alpha\"\nmulti/a.txt:1:alpha one\nmulti/b.txt:1:alpha two\nmulti/c.txt:1:alpha three\n[3 shown, more exist; offset:3 for the rest]\n\n(no matches in partial results) patterns=[\"absent1\"]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep empty\n# grep pattern:\"alpha\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"absent1\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "compare": [
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "bulk",
+            "complete": true,
+            "filesScanned": 3,
+            "inventoryChecked": true,
+            "lines": [
+              "multi\\a.txt:1:alpha one",
+              "multi\\b.txt:1:alpha two",
+              "multi\\c.txt:1:alpha three"
+            ],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 3,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        },
+        {
+          "real": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          },
+          "standin": {
+            "cacheSafe": true,
+            "class": "interactive",
+            "complete": true,
+            "filesScanned": 1,
+            "inventoryChecked": true,
+            "lines": [],
+            "partial": false,
+            "scanErrors": 0,
+            "timeout": false,
+            "totalSeen": 0,
+            "walkErrorDetails": []
+          }
+        }
+      ],
+      "searchServer": {
+        "requests": 5,
+        "answered": 5,
+        "cancelled": 0,
+        "killed": false
+      }
+    }
+  ]
+}
