@@ -1,7 +1,7 @@
 //! Measures one session driven through a long life with the store's save path: stored bytes against the live
 //! session's bytes, and the time and peak heap of open, load (head + tail) and a transcript page read.
 //!
-//! `growth <data_dir> <messages> <patches_per_message> <compact_every>`
+//! `growth <messages> <patches_per_message> <compact_every>`; the session is written in a temp directory the run allocates.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "measurement binary")]
 
 use std::alloc::GlobalAlloc;
@@ -95,8 +95,10 @@ fn measure<R>(what: &str, f: impl FnOnce() -> R) -> R {
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let a: Vec<String> = std::env::args().collect();
-    let data: PathBuf = a[1].clone().into();
-    let (messages, patches, every): (u64, u64, u64) = (a[2].parse().unwrap(), a[3].parse().unwrap(), a[4].parse().unwrap());
+    // Everything is written inside a temp directory this run allocates, removed when `main` ends.
+    let scratch = tempfile::tempdir().expect("temp dir");
+    let data: PathBuf = scratch.path().to_owned();
+    let (messages, patches, every): (u64, u64, u64) = (a[1].parse().unwrap(), a[2].parse().unwrap(), a[3].parse().unwrap());
     let dir = data.join("sessions").join("growth");
     let session = rec(json!({"k":"session","v":2,"id":"growth","log_id":"0123456789abcdef01234567","header":{"inline":{"title":"growth","cwd":"c:/x"}}}));
     let d = deps(&data);
