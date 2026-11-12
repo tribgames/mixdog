@@ -678,7 +678,7 @@ impl NodeClient {
         let ttl = hint.map_or(KEEP_ALIVE, |h| h.saturating_sub(KEEP_ALIVE_THRESHOLD).min(KEEP_ALIVE_MAX));
         let decoder = decoding(&headers, &request.method, status, surface)?;
         let reuse = (!close && !server_closes && written).then(|| Reuse { pool: self.pool.clone(), key: key.to_owned(), ttl });
-        Ok(HttpResponse { status, headers, body: Box::new(H1Body::new(incoming, conn, decoder, reuse)) })
+        Ok(HttpResponse { status, headers, body: super::link::replay_counted(url, Box::new(H1Body::new(incoming, conn, decoder, reuse))) })
     }
 
     #[allow(clippy::too_many_arguments, reason = "one exchange's connection, request and surface")]
@@ -737,7 +737,7 @@ impl NodeClient {
             .map(|(k, v)| (k.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
             .collect();
         let decoder = decoding(&list, &request.method, status, surface)?;
-        Ok(HttpResponse { status, headers: list, body: Box::new(H2Body { stream: response.into_body(), decoder, ended: false, _guard: guard }) })
+        Ok(HttpResponse { status, headers: list, body: super::link::replay_counted(url, Box::new(H2Body { stream: response.into_body(), decoder, ended: false, _guard: guard })) })
     }
 }
 

@@ -546,6 +546,15 @@ enum RowOutcome {
     Completed { attempts: u32 },
 }
 
+/// `Date.now()`; a replay's frozen clock once one is set (mixdog_rt::virtual_clock), so the row's times follow the replay.
+pub(crate) fn wall_ms() -> i64 {
+    #[cfg(feature = "virtual-clock")]
+    if let Some(now) = mixdog_rt::virtual_clock::now_ms() {
+        return now;
+    }
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+}
+
 impl SendAccounting {
     /// `sink` is `None` while no ledger is open: nothing is recorded.
     pub fn new(identity: SendIdentity, pricing: Arc<dyn UsagePricing>, sink: Option<Arc<dyn UsageSink>>) -> Self {
@@ -553,11 +562,7 @@ impl SendAccounting {
             identity,
             pricing,
             sink,
-            now: Arc::new(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as i64)
-            }),
+            now: Arc::new(wall_ms),
             new_id: Arc::new(random_uuid),
             account: None,
             abandoned: Vec::new(),

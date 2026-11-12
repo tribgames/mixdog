@@ -490,6 +490,8 @@ pub struct ThreadSettingsParts {
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
     /// The core's one archive stamp counter, shared with the rooms' archive (`DirectorySessions`).
     pub archive_stamps: Arc<ArchiveStamps>,
+    /// When a changed session row is on the app feed: a favorite change answers after it.
+    pub rows: Arc<dyn super::thread_edges::RowsPublished>,
 }
 
 /// Where an archive or a restore hands its sessions (Node's `setArchivedSessionWorktrees` hand-off of
@@ -597,19 +599,26 @@ impl ThreadSettings {
     }
 
     /// `setSessionFavorite(id, favorite)`.
+    /// A change is answered once the session's row is on the app feed, as Node republishes the catalog inside the call
+    /// (`session-host-lifecycle.ts:308-315`: `setFavorite`, then `await republishSessionCatalog()`); no change publishes nothing.
     async fn set_favorite(&self, thread: &ThreadId, favorite: bool) -> Result<(), CoreError> {
         let now = self.now();
-        self.update_header(thread, &["favoriteAt"], |header| {
-            let patch = (favorite != sidebar_flag(header, "favoriteAt")).then(|| {
-                if favorite {
-                    (Map::from_iter([("favoriteAt".to_owned(), json!(now))]), Vec::new())
-                } else {
-                    (Map::new(), vec!["favoriteAt".to_owned()])
-                }
-            });
-            ((), patch)
-        })
-        .await
+        let changed = self
+            .update_header(thread, &["favoriteAt"], |header| {
+                let patch = (favorite != sidebar_flag(header, "favoriteAt")).then(|| {
+                    if favorite {
+                        (Map::from_iter([("favoriteAt".to_owned(), json!(now))]), Vec::new())
+                    } else {
+                        (Map::new(), vec!["favoriteAt".to_owned()])
+                    }
+                });
+                (patch.is_some(), patch)
+            })
+            .await?;
+        if changed {
+            self.parts.rows.published().await;
+        }
+        Ok(())
     }
 
     /// `setSessionProject(id, projectPath)`: a registered Project's folder, or '' for the task

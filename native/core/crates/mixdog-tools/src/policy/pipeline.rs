@@ -50,7 +50,7 @@ use super::surface::SessionSurface;
 
 /// `ask_user` and `handoff_user` are themselves the user prompt; they never
 /// go through the ordinary approval gate.
-const USER_PROMPT_TOOLS: [&str; 2] = ["ask_user", "handoff_user"];
+pub const USER_PROMPT_TOOLS: [&str; 2] = ["ask_user", "handoff_user"];
 
 pub const CONNECTOR_APPROVAL_REASON: &str =
     "This connector tool is set to ask before it runs for this agent.";

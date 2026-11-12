@@ -75,6 +75,7 @@ async fn the_overlay_carries_the_hosted_threads_live_facts() {
             awaiting_approval: Some(true),
             awaiting_question: Some(true),
             handed_by: Some(vec!["bot1".into()]),
+            ..RowOverlay::default()
         }
     );
     assert_eq!(overlay.of(&worker.id), RowOverlay { working: Some(true), ..RowOverlay::default() });

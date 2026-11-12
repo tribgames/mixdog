@@ -286,6 +286,49 @@ impl ThreadEdgePublisher {
     }
 }
 
+/// A hosted thread's live facts the roster lays over its row ([`super::thread_list::RowOverlay`]) moved: its turn began or ended,
+/// or the approval it shows came or went. Node's catalog refresh read them when it published (`withRuntimeActivity`,
+/// `withApprovalWaits` over `listSessions`, `session-host-catalog.ts:170-247` at b6f10295a), so its roster showed a turn's end and
+/// an approval's wait although no stored field changed; here the row is read as `thread/list` shows it now, after every row write
+/// made before it is on the app feed, and announced when it differs from the row last announced.
+pub struct LiveRows {
+    list: Arc<ThreadListService>,
+    app: Arc<SectionFeedState>,
+    edges: Arc<ThreadEdges>,
+    /// Republications started and not yet done (a replay's settled signal waits for them).
+    in_flight: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl LiveRows {
+    pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, edges: Arc<ThreadEdges>) -> Arc<Self> {
+        let in_flight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        #[cfg(feature = "replay-settled")]
+        {
+            let in_flight = in_flight.clone();
+            super::replay_settled::watch(move || (in_flight.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("a live roster row not yet on the app feed"));
+        }
+        Arc::new(Self { list, app, edges, in_flight })
+    }
+
+    /// `thread`'s live facts moved; its row goes out off the caller.
+    pub fn changed(&self, thread: &ThreadId) {
+        let (list, app, edges, in_flight, id) = (self.list.clone(), self.app.clone(), self.edges.clone(), self.in_flight.clone(), thread.clone());
+        in_flight.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        drop(mixdog_rt::spawn("live-roster-row", mixdog_rt::TaskClass::Work, async move {
+            // The writes before this change publish first: a row's `thread/started` precedes any update of it.
+            edges.settled().await;
+            match list.summary(&id).await {
+                Ok(Some(row)) => list.announce(&app, row, false),
+                Ok(None) => {}
+                Err(error) => tracing::warn!(?error, thread = id.as_str(), "the live row of a session could not be read"),
+            }
+            in_flight.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            #[cfg(feature = "replay-settled")]
+            super::replay_settled::changed();
+        }));
+    }
+}
+
 /// What the index writer hands the edge task, in write order.
 enum Written {
     Edge(RowEdge),
@@ -310,6 +353,14 @@ impl ThreadEdges {
         let (queue, mut edges) = tokio::sync::mpsc::unbounded_channel();
         let counts = Arc::new((std::sync::atomic::AtomicU64::new(0), tokio::sync::watch::Sender::new(0)));
         let published = counts.clone();
+        #[cfg(feature = "replay-settled")]
+        {
+            let counts = std::sync::Arc::downgrade(&counts);
+            super::replay_settled::watch(move || {
+                let counts = counts.upgrade()?;
+                (counts.0.load(std::sync::atomic::Ordering::SeqCst) > *counts.1.borrow()).then_some("a catalog row edge not yet on the app feed")
+            });
+        }
         drop(mixdog_rt::spawn("thread-edges", mixdog_rt::TaskClass::Work, async move {
             while let Some(written) = edges.recv().await {
                 let count = match written {
@@ -320,6 +371,8 @@ impl ThreadEdges {
                     Written::Dropped(count) => count,
                 };
                 published.1.send_modify(|done| *done += count);
+                #[cfg(feature = "replay-settled")]
+                super::replay_settled::changed();
             }
         }));
         Arc::new(Self {
@@ -364,5 +417,31 @@ impl RowSink for ThreadEdges {
 
     fn written(&self, edge: RowEdge) {
         let _ = self.queue.send(Written::Edge(edge));
+    }
+}
+
+/// When a write's catalog row is on the app feed: what a call that publishes its session's row before answering waits for.
+pub trait RowsPublished: Send + Sync {
+    /// Resolves once the rows of every write made before this call are on the app feed.
+    fn published(&self) -> futures::future::BoxFuture<'static, ()>;
+}
+
+/// The index takes a write behind its projection ([`super::thread_list::ListFence`]), and the edge the index reports goes out
+/// from [`ThreadEdges`]' task: both are waited for.
+pub struct IndexRowsPublished {
+    pub fence: Arc<dyn super::thread_list::ListFence>,
+    pub edges: Arc<ThreadEdges>,
+}
+
+impl RowsPublished for IndexRowsPublished {
+    fn published(&self) -> futures::future::BoxFuture<'static, ()> {
+        let projected = self.fence.pending();
+        let edges = self.edges.clone();
+        Box::pin(async move {
+            if let Some(projected) = projected {
+                projected.await;
+            }
+            edges.settled().await;
+        })
     }
 }

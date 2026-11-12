@@ -169,8 +169,11 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
     await settle();
 
     const got = sessionStateOf(client, 'lead') as O;
-    // Fields the engine starts with (initial-state.mjs, context-state.mjs `baseRouteState`, the route's `runtime.sessionProvider ?? null`) that the scripted daemon's snapshot omits
-    // while they hold their initial value; `transcriptSpilled` comes with the first row (transcript-store.mjs).
+    // Fields the engine starts with (initial-state.mjs, context-state.mjs `baseRouteState`, the route's `runtime.sessionProvider ?? null`) that
+    // the scripted daemon's snapshot omits while they hold their initial value; `transcriptSpilled` comes with the first row
+    // (transcript-store.mjs). `streamingPartial` is not among them: the first draft has none (initial-state.mjs); a frame holds it once a
+    // partial line was shown. The host's always-present fields read null (or empty) while they hold nothing
+    // (session-host-publication.ts:281-288, session-host.ts:485-495).
     const expected: O = {
       streamingTail: null,
       sessionProvider: null,
@@ -181,6 +184,9 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
       quotaResume: null,
       todo: null,
       agentScope: null,
+      remoteEnabled: false,
+      shellJobs: { count: 0, elapsedLabel: '', jobs: [], finished: [] },
+      hostShellJobs: { count: 0, elapsedLabel: '', jobs: [], finished: [] },
       toolApproval: null,
       toolApprovalsWaiting: 0,
       promptHistoryList: [],
@@ -195,7 +201,8 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
       themeEpoch: 0,
       ...d,
     };
-    delete expected.remoteSessionId;
+    // The host's remote session id is the host's (session-host-publication.ts:286), not a thread feed field: the fold holds none.
+    expected.remoteSessionId = null;
     // `structureRevision` counts the fold's own row changes; a recorded frame states none.
     assert.equal(Number.isInteger(got.structureRevision), true, `step ${frame.step}: structureRevision`);
     delete got.structureRevision;

@@ -378,6 +378,18 @@ async fn rotate_log_if_needed(lane: DurabilityIo, log: &Path) {
     .await;
 }
 
+/// A replay's core (feature `assigned-pg-port`, never in an ordinary build): the port the replay chose outside the scanned range
+/// (`MIXDOG_ASSIGNED_PG_PORT`), so no core beside it, scanning from [`DEFAULT_PORT`], can take it between the probe and the bind.
+#[cfg(feature = "assigned-pg-port")]
+fn assigned_port() -> Option<u16> {
+    std::env::var("MIXDOG_ASSIGNED_PG_PORT").ok()?.parse().ok()
+}
+
+#[cfg(not(feature = "assigned-pg-port"))]
+fn assigned_port() -> Option<u16> {
+    None
+}
+
 async fn free_port(preferred: u16) -> Result<u16> {
     let last = preferred.saturating_add(PORT_SPAN);
     for port in preferred..=last {
@@ -625,7 +637,11 @@ impl PgCluster {
         // cluster starting on this machine): the start then fails with a bind error in the log and goes on from the next port.
         let mut from = preferred_port;
         'attempt: loop {
-        let port = free_port(from).await?;
+        let assigned = assigned_port();
+        let port = match assigned {
+            Some(port) => port,
+            None => free_port(from).await?,
+        };
         let logged_before = fsio::read_to_string(lane, &log).await.map_or(0, |text| text.len());
         // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began (a cancelled start begins no
         // postmaster: nothing would own it). An admitted start the stop gives up on at 6 s goes on as Node's does.
@@ -673,7 +689,9 @@ impl PgCluster {
                     return Ok(Self { runtime, data_dir, port: winner, lane, processes });
                 }
                 let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-                if log_text.get(logged_before..).is_some_and(|new| new.contains("could not create any TCP/IP sockets"))
+                // A port the replay assigned is the only one it may take: its bind failure is the start's.
+                if assigned.is_none()
+                    && log_text.get(logged_before..).is_some_and(|new| new.contains("could not create any TCP/IP sockets"))
                     && port < preferred_port.saturating_add(PORT_SPAN)
                 {
                     from = port + 1;

@@ -4,6 +4,7 @@
 //! scenario's result or error, and the dependency calls made, in order, must equal Node's.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -291,11 +292,25 @@ async fn a_catalog_read_during_a_save_does_not_greet_the_saved_agent() {
     greetings
         .saving(
             async move {
-                // The single-threaded runtime gives the spawned read its whole turn at each yield, so it reaches the queue (or, without
-                // the hold, finishes) before the save returns.
-                *started.lock().unwrap() = Some(tokio::spawn(async move { read.reconcile(&catalog).await }));
-                tokio::task::yield_now().await;
-                tokio::task::yield_now().await;
+                // The signal is the read's first poll having returned: `reconcile` takes its place in the queue synchronously in
+                // that poll, so with the hold it is now waiting behind the save, and without the hold it has already run.
+                let (polled, first_poll) = tokio::sync::oneshot::channel();
+                *started.lock().unwrap() = Some(tokio::spawn(async move {
+                    let mut polled = Some(polled);
+                    let mut read = Box::pin(read.reconcile(&catalog));
+                    std::future::poll_fn(|cx| {
+                        let state = read.as_mut().poll(cx);
+                        if let Some(polled) = polled.take() {
+                            let _ = polled.send(());
+                        }
+                        state
+                    })
+                    .await
+                }));
+                tokio::time::timeout(std::time::Duration::from_secs(10), first_poll)
+                    .await
+                    .expect("the catalog read never made its first poll while the save was in flight")
+                    .expect("the catalog read was dropped before its first poll");
                 Ok::<_, CoreError>(json!({ "id": "new-bot" }))
             },
             |saved| saved["id"].as_str().map(str::to_owned),

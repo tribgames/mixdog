@@ -33,6 +33,8 @@ pub mod close;
 mod completions;
 mod control;
 mod stop;
+mod live_call;
+mod spinner;
 #[cfg(test)]
 mod resumed_tools_tests;
 #[cfg(test)]
@@ -66,6 +68,9 @@ pub mod thread_switches;
 mod live_rows;
 mod durability;
 mod frames;
+mod phone_frame;
+#[cfg(feature = "replay-settled")]
+mod replay_settled;
 mod handle;
 mod message_reactions;
 mod model_switch;
@@ -226,6 +231,8 @@ mod assembly_tests;
 mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
+#[cfg(test)]
+mod stop_race_tests;
 #[cfg(test)]
 mod session_reentry_tests;
 #[cfg(test)]

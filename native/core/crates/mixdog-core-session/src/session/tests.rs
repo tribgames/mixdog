@@ -329,6 +329,131 @@ async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     );
 }
 
+/// A kickoff pushes no user row in Node (drain.mjs `renderBatchItems` skips `suppressDisplay`), so it never reaches the prompt
+/// history, neither the session's list nor the cwd's file (recorded: `running-runtime-turn`'s states keep `promptHistoryList` empty).
+#[tokio::test(start_paused = true)]
+async fn a_kickoff_stays_out_of_the_prompt_history() {
+    let rig = Rig::new();
+    let file = rig.prompts.file("/ws").expect("history file");
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    handle
+        .request(request(
+            "turn/start",
+            json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "greet the user", "options": { "clientSubmissionId": "sub-k", "kickoff": true } } }),
+            "op-1",
+        ))
+        .await
+        .expect("started");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    turn(&handle, "typed", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && prompt_list(&handle) == ["typed"]).then_some(())).await;
+    tokio::time::advance(Duration::from_millis(super::prompt_history::WRITE_BEHIND_MS)).await;
+    let want = json!({ "version": 1, "entries": ["typed"] });
+    let saved = eventually_on!(&[&*rig.prompts_wrote], || {
+        let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
+        serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
+    })
+    .await;
+    assert_eq!(saved, want);
+    let added: Vec<Value> = rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptHistory/updated").map(|(_, _, params)| params["value"].clone()).collect();
+    assert_eq!(added, vec![json!({ "kind": "added", "prompt": "typed" })]);
+}
+
+/// The spinner follows a tool batch as Node's turn sets it: `tool-use` as the batch opens (`openToolCalls`,
+/// `closeThinkingForToolBatch`), `tool-approval` while a call waits for the person (`approveToolRequest`), `requesting` once the
+/// batch is over (`onToolPhaseCompleted`; recorded: `running-approval-pending`'s states show `tool-approval`, then `tool-use`).
+#[tokio::test(start_paused = true)]
+async fn the_spinner_follows_a_tool_batch() {
+    use super::run::CallMark;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            for mark in [CallMark::Streaming, CallMark::ToolCall, CallMark::ToolApproval, CallMark::ToolPhaseCompleted] {
+                run.port.call_mark(mark).await.expect("shown");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "use a tool", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let mut modes: Vec<String> = Vec::new();
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        if method != "thread/runtime/updated" {
+            continue;
+        }
+        if let Some(mode) = params["value"]["spinner"]["mode"].as_str()
+            && modes.last().map(String::as_str) != Some(mode)
+        {
+            modes.push(mode.to_owned());
+        }
+    }
+    assert_eq!(modes, ["requesting", "responding", "tool-use", "tool-approval", "requesting"]);
+}
+
+/// A tool step's approval is published in its own frame before the step's usage and `tool-use`, which follow it (recorded:
+/// `running-approval-pending` states 5 and 6: `toolApproval` with `tool-approval` and no tokens, then the tokens and `tool-use`).
+#[tokio::test(start_paused = true)]
+async fn a_tool_steps_approval_goes_out_before_the_step() {
+    use super::run::CallMark;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port.call_mark(CallMark::Streaming).await.expect("shown");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, ..Default::default() };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "m".into(),
+                    requested_model: "m".into(),
+                    delta_tool_calls: 1,
+                    request_ms: 0,
+                    delta_prompt: 10,
+                    send_tools: Vec::new(),
+                    reasoning_tokens: None,
+                    reasoning_tokens_complete: false,
+                    outgoing: Vec::new(),
+                    sent_at_ms: 0,
+                })
+                .await
+                .expect("usage");
+            run.port.call_mark(CallMark::ToolCall).await.expect("shown");
+            run.port.call_mark(CallMark::ToolApproval).await.expect("shown");
+            let _ = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some("shell".into()),
+                    action_kind: None,
+                    reason: Some("shell needs a look".into()),
+                    payload: json!({ "name": "shell" }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "use a tool", "op-1").await;
+    let shown = |frames: &[(u64, String, Value)]| frames.iter().any(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["spinner"]["mode"] == "tool-approval");
+    eventually_on!(&[&handle.cell.stepped], || shown(&rig.feeds.frames(handle.id.as_str())).then_some(())).await;
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let at = frames.iter().position(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["spinner"]["mode"] == "tool-approval").expect("the approval's mode");
+    assert_eq!(frames[at].2["value"]["spinner"]["inputTokens"], json!(0), "the approval's frame shows none of the step's usage");
+    assert_eq!(frames[at + 1].1, "thread/frame", "the approval is published in its own frame");
+    let after: Vec<&Value> = frames[at + 1..].iter().filter(|(_, method, _)| method == "thread/runtime/updated").map(|(_, _, params)| &params["value"]["spinner"]).collect();
+    let last = after.last().expect("the step's changes follow the approval");
+    assert_eq!((&last["mode"], &last["inputTokens"]), (&json!("tool-use"), &json!(10)), "the step's tool-use and tokens stand after it");
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_implicit_approval_session_asks_nobody() {
     let rig = Rig::new();
@@ -453,7 +578,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
         .expect("result");
     assert_eq!(
         serde_json::to_value(result).unwrap(),
-        json!({ "id": published.id.as_str(), "approved": true, "device": "desktop-8", "at": 1000 })
+        json!({ "id": crate::session::room_approval::card_id(published.id.as_str()), "approved": true, "device": "desktop-8", "at": 1000 })
     );
 }
 
@@ -500,8 +625,8 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     })
     .await;
     assert_eq!(completed.2["turn"]["status"], "interrupted");
-    // The user's stop carries `abortRuntime`'s text.
-    let expected = format!("Session \"{}\" closed: runtime abort (reason=cli-abort)", handle.id.as_str());
+    // The user's stop carries `abortRuntime`'s text with the Stop's reason (`abort.mjs:118`).
+    let expected = format!("Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
     assert_eq!(reason.lock().unwrap().as_deref(), Some(expected.as_str()));
 }
 
@@ -536,7 +661,7 @@ async fn interrupt_cancels_the_run_while_the_control_lane_is_full() {
     assert_eq!(filled, 32, "the control lane holds 32");
     handle.interrupt(&turn_id, None).expect("interrupt");
 
-    let expected = format!("Session \"{}\" closed: runtime abort (reason=cli-abort)", handle.id.as_str());
+    let expected = format!("Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
     assert_eq!(seen_rx.await.expect("the script observed the cancel"), expected);
 }
 
@@ -4952,6 +5077,65 @@ async fn a_tool_result_completes_its_call_in_place() {
         .collect();
     assert_eq!(completed.len(), 2);
     assert_eq!(completed[1], "a.txt");
+}
+
+/// A live card starts when its call is recorded and completes when its result lands (Node stamps `completedAt: Date.now()` as the
+/// result is applied, `tool-card-results/aggregate-result.mjs:30-46`): the result's time, not the call's again.
+#[tokio::test(start_paused = true)]
+async fn a_live_tool_card_completes_at_its_result() {
+    use std::sync::atomic::Ordering;
+    let rig = Rig::new();
+    let clock = rig.clock.clone();
+    rig.set_script(Arc::new(move |run| {
+        let clock = clock.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            clock.0.store(2_000, Ordering::SeqCst);
+            let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "listing", "toolCalls": [call] }),
+                    prompt: None,
+                })
+                .await
+                .expect("call");
+            clock.0.store(2_015, Ordering::SeqCst);
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("t-{}", run.turn)),
+                    role: Some("tool".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "toolCallId": "c1", "text": "a.txt" }),
+                    prompt: None,
+                })
+                .await
+                .expect("result");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "ls", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let view = handle.cell.view.load_full();
+    let call = view.items.iter().find(|item| item.id().as_str() == "call:c1").expect("call item");
+    let ThreadItem::ToolCall { run, .. } = call.as_ref() else {
+        panic!("tool call");
+    };
+    assert_eq!(run.completed_at, Some(2_015), "completed at the result");
+    let completed: Vec<Value> = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["id"] == "call:c1")
+        .map(|(_, _, params)| params["item"]["run"]["completedAt"].clone())
+        .collect();
+    assert_eq!(completed, vec![Value::Null, json!(2_015)], "the call's frame is open, the result's carries the card's completion");
 }
 
 #[tokio::test(start_paused = true)]

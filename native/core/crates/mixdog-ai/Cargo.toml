@@ -13,6 +13,10 @@ test-support = ["dep:rcgen"]
 # Counters of the credential reads, provider constructions and provider-map loads (mixdog_ai::work): for the dev-dependency of
 # the crate whose tests count them, never a normal build.
 count-work = ["dep:mixdog-secrets", "mixdog-secrets/count-work"]
+# A replay's barrier on the model's bytes (transport/replay_bytes.rs, MIXDOG_REPLAY_BYTES): development builds only.
+replay-bytes = []
+# A replay's clock (mixdog-rt virtual_clock.rs): the usage row's send times read it once frozen. Development builds only.
+virtual-clock = ["mixdog-rt/virtual-clock"]
 
 [dependencies]
 rcgen = { workspace = true, optional = true }
@@ -67,7 +71,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 # The pinned test clients and the loopback server (`transport::loopback`) exist behind this feature only.
-mixdog-ai = { path = ".", features = ["count-work", "test-support"] }
+mixdog-ai = { path = ".", features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
 mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }

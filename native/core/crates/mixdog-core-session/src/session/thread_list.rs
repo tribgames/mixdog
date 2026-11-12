@@ -63,10 +63,14 @@ pub struct RowOverlay {
     pub awaiting_approval: Option<bool>,
     pub awaiting_question: Option<bool>,
     pub handed_by: Option<Vec<String>>,
+    /// Context rows the running turn committed that Node's catalog row counts only once the turn settles
+    /// (`ActiveRun::unsaved_messages`).
+    pub unsaved_messages: u64,
 }
 
 impl RowOverlay {
     fn lay_over(self, row: &mut ThreadSummary) {
+        row.message_count = (row.message_count - self.unsaved_messages as i64).max(0);
         // The roster's projection (`desktop-state.ts`): `leadWorking` is the session's own turn, `working` that or an agent's.
         row.lead_working = self.working.or(row.lead_working);
         row.working = (self.working.or(self.agent_working)).or(row.working);
@@ -181,8 +185,9 @@ impl ListOverlay for LiveListOverlay {
     fn of(&self, thread: &ThreadId) -> RowOverlay {
         let mut overlay = RowOverlay::default();
         if let Some(handle) = self.directory.handle(thread) {
-            if handle.cell.run.load().is_some() {
+            if let Some(run) = handle.cell.run.load().as_ref() {
                 overlay.working = Some(true);
+                overlay.unsaved_messages = run.unsaved_messages.load(std::sync::atomic::Ordering::SeqCst);
             }
             if let Some(shown) = handle.cell.shown_approval.load().as_ref() {
                 overlay.awaiting_approval = Some(true);

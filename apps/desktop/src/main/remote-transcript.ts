@@ -2,7 +2,7 @@ import { patchSectionDigests } from '../renderer/renderer-logic.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { normalizeToolName } from '../../../../src/runtime/shared/tool-primitives.mjs';
 import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-output-facts.mjs';
-import { REMOTE_TRANSCRIPT_TAIL_BYTES } from './desktop-support';
+import { REMOTE_TRANSCRIPT_TAIL_BYTES } from '../shared/desktop-transcript-limits';
 
 // Provider replay material, not display data: `thinkingBlocks` are Anthropic's
 // thinking/redacted_thinking blocks, kept so a later request can hand the model
@@ -188,7 +188,8 @@ function cappedToolItem(item: Record<string, unknown>, history: boolean): Record
  *  page (remote-transcript-window.ts). A message row is sent whole, over it or not. */
 export const REMOTE_TRANSCRIPT_ROW_MAX_BYTES = REMOTE_TRANSCRIPT_TAIL_BYTES;
 
-const serializedBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value ?? null) ?? 'null', 'utf8');
+const utf8 = new TextEncoder();
+const serializedBytes = (value: unknown): number => utf8.encode(JSON.stringify(value ?? null) ?? 'null').length;
 
 /** `record` with each output field (REMOTE_TOOL_OUTPUT_FIELDS) longer than `cap`
  *  cut to its first `cap` characters (never splitting a surrogate pair), an

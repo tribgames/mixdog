@@ -426,8 +426,18 @@ fn response_of(response: reqwest::Response) -> HttpResponse {
     HttpResponse {
         status: response.status().as_u16(),
         headers,
-        body: Box::new(ReqwestBody(response)),
+        body: replay_counted(&response.url().clone(), Box::new(ReqwestBody(response))),
     }
+}
+
+/// A response body as the transport hands it on: counted, under the origin of `url`, for a replay's barrier on the model's bytes
+/// (feature `replay-bytes`), unchanged otherwise.
+#[cfg_attr(not(feature = "replay-bytes"), allow(unused_variables))]
+pub(crate) fn replay_counted(url: &url::Url, body: Box<dyn BodyStream>) -> Box<dyn BodyStream> {
+    #[cfg(feature = "replay-bytes")]
+    return super::replay_bytes::counted(url, body);
+    #[cfg(not(feature = "replay-bytes"))]
+    body
 }
 
 /// The deadline passed: a transient transport fact (Node: undici
@@ -568,7 +578,11 @@ impl HttpSend for Bare<'_, ReqwestLink> {
         request: WireRequest,
         exchange: Exchange,
     ) -> Result<HttpResponse, ProviderError> {
-        settle(exchange, self.0.hops(request, exchange)).await
+        let answered = settle(exchange, self.0.hops(request, exchange));
+        // A turn waiting on the model's answer waits on a replay's input (feature `replay-bytes`).
+        #[cfg(feature = "replay-bytes")]
+        let answered = super::replay_bytes::parked(answered);
+        answered.await
     }
 }
 
