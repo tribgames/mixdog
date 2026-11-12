@@ -86,9 +86,11 @@ slow-timeout = { period = "300s", terminate-after = 12 }
 default-filter = 'package(mixdog-exthost) & test(=g8::office_throughput)'
 slow-timeout = { period = "120s", terminate-after = 5 }
 
-# The 50 MiB PowerShell command (was `#[ignore]`d as a measurement) takes 53 s alone, 414 MiB of working set on top of its warm-up call.
-[[profile.default.overrides]]
-filter = 'package(mixdog-app-server-daemon) & test(=exec::tests::pwsh_50_mib_command)'
+# pwsh-50-mib: the 50 MiB PowerShell command, run as `nextest run --profile pwsh-50-mib --run-ignored only -p mixdog-app-server-daemon`.
+# It takes 53 s alone and 414 MiB of working set on top of its warm-up call, so the default profile runs the same assertion just over the
+# helper's 1 MiB input queue (`a_command_just_over_the_input_queue_answers_its_length`) instead.
+[profile.pwsh-50-mib]
+default-filter = 'package(mixdog-app-server-daemon) & test(=exec::tests::pwsh_50_mib_command)'
 slow-timeout = { period = "120s", terminate-after = 3 }
 
 # Each of the two migration crash matrices spreads its fault points over eight work dirs of its own;
