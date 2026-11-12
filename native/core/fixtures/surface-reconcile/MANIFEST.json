@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 173516,
+      "bytes": 173410,
       "path": "golden.json",
-      "sha256": "3ae2ef8bf50b09dc04a8ed8a2e31075af8b4f26edb264602f7f6ecd337e54e78"
+      "sha256": "e19c7e05b91ab14e9a1d8dadc03a55ac070ae3c10df05bd32ef0388d99434d15"
     }
   ],
   "inputs": [
@@ -23,6 +23,9 @@
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": [
+    "the working directory of the recording: its path is named as the integration recordings name theirs (WORKSPACE_RECORDED); its entries are the recorded list, created empty"
+  ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -39,7 +42,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
     },
     "patches": [
       {
@@ -51,7 +54,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
       }
     ],
     "refComparison": {
@@ -60,13 +63,13 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "cec629a2f6a0695e1310d5262b254be09b57f991d37f65fd6024b6fab087dca2",
+    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-surface-reconcile.mjs",
-  "recorderSha256": "16cbf48c4e209f27ec8bc3b3e2283e609cbd77c73403b599e3b0ffdf01d4c9f6",
+  "recorderSha256": "126b0214b5d9b0f38b230206220249a2048eed99c14795c0edc8f7b77e9599d3",
   "set": "surface-reconcile",
-  "totalBytes": 173516
+  "totalBytes": 173410
 }

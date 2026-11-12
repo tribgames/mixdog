@@ -271,7 +271,11 @@ writeSetManifest(stage, {
   recorder,
   command: `node ${recorder} --tree <tree>${args.get('patch') ? ` --patch ${args.get('patch')}` : ''}`,
   identity: nodeTreeIdentity(args, tree, 'b6f10295a2f698afc85332467192de28500bd146'),
-  extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/tool-definitions.mjs']),
+  extra: {
+    ...recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/tool-definitions.mjs']),
+    // `harness-request.json` is `record-harness-request-tools.mjs`'s: the real-turn harness run on the Node tree it names.
+    harnessRequest: JSON.parse(readFileSync(join(finalDir, 'harness-request.json'), 'utf8')).node,
+  },
 });
 // Only this recorder's two files are swapped in: `commitStage` replaces every file of the folder with the staged copy,
 // `harness-request.json` included, which would undo a change made to it meanwhile and leave it missing if this run were cut

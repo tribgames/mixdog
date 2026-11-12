@@ -8,11 +8,26 @@
       "sha256": "334c92c7e3eddd6fc699c6dae26fda8a90b3edc1afca0c12d9e910f958531cb9"
     },
     {
-      "bytes": 34833,
+      "bytes": 35679,
       "path": "harness-request.json",
-      "sha256": "06bcc89f23fd8c0f84ab9c4803cab41f622b2f585f66998814dd8b83310eaf70"
+      "sha256": "68bfaee279d6384473dae441252e0b2634412629fe65aa53225a3e7369131659"
     }
   ],
+  "harnessRequest": {
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
+      "paths": [
+        "src/session-runtime/services/agent-tool/model-select.mjs",
+        "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+        "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+        "src/session-runtime/services/agent-tool/tool-def.mjs",
+        "src/tui/app/model-picker/route-selection/effort.mjs"
+      ],
+      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+    }
+  },
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -40,7 +55,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
     },
     "patches": [
       {
@@ -52,7 +67,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "d6480df9aa194e4ef6d067dbdc8368449cd473667db41f53ad55920bc24c96ee"
+        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
       }
     ],
     "refComparison": {
@@ -61,13 +76,13 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "cec629a2f6a0695e1310d5262b254be09b57f991d37f65fd6024b6fab087dca2",
+    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
-  "recorderSha256": "5f5bf5d4738e838b78f6d9fb7116e4b9d2283e87b53d97fad599030f57553e58",
+  "recorderSha256": "6ed147265097db17ce55d7e00b0373169cf0f444b1e619c13a27c7405306ccdb",
   "set": "tool-resolution",
-  "totalBytes": 202594
+  "totalBytes": 203440
 }

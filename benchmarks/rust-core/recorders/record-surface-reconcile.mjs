@@ -8,11 +8,27 @@
 //   node benchmarks/rust-core/recorders/record-surface-reconcile.mjs --tree <dir with node_modules>
 //
 // Output: native/core/fixtures/surface-reconcile/golden.json.
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
 const sandbox = mkdtempSync(join(tmpdir(), 'surface-reconcile-'));
+// The prompt's environment facts name the working directory and list its entries. The recording works in a folder of its
+// own that holds exactly the entries the integration recordings list (a checkout of the product), so the recording does not
+// depend on the directory it is started from; the folder's path is then named as the integration recordings name theirs.
+const WORKSPACE_RECORDED = 'D:\\mixdog-build\\tmp\\tool-resolution\\w2';
+const WORKSPACE_ENTRIES = {
+  dirs: ['.github', 'apps', 'benchmarks', 'changelog', 'design', 'docs', 'LICENSES', 'native', 'packages', 'scripts', 'src'],
+  files: ['.gitattributes', '.gitignore', '.npmignore', 'biome.json', 'CHANGELOG.md', 'CODE_OF_CONDUCT.md', 'CONTRIBUTING.md', 'LICENSE', 'NOTICE.md', 'package-lock.json', 'package.json', 'README.md', 'SECURITY.md', 'snapshot.rs', 'tree5.tar'],
+};
+const workspace = join(sandbox, 'workspace');
+mkdirSync(workspace);
+for (const dir of WORKSPACE_ENTRIES.dirs) mkdirSync(join(workspace, dir));
+for (const file of WORKSPACE_ENTRIES.files) writeFileSync(join(workspace, file), '');
+const started = process.cwd();
+process.chdir(workspace);
+// The session's directory the prompt names comes first from this variable (a shell that runs under a session inherits it).
+process.env.MIXDOG_SESSION_CWD = workspace;
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
@@ -135,12 +151,18 @@ for (const [name, spec] of SCENARIOS) {
     route: { provider: spec.provider ?? 'anthropic', model: 'claude-opus-4-6' },
   });
 }
-await writeJsonCompact(tree, join(stage, 'golden.json'), { standalone: STANDALONE, cases });
+process.chdir(started);
+const escaped = (path) => JSON.stringify(path).slice(1, -1);
+const golden = JSON.parse(JSON.stringify({ standalone: STANDALONE, cases }).replaceAll(escaped(realpathSync(workspace)), escaped(WORKSPACE_RECORDED)));
+await writeJsonCompact(tree, join(stage, 'golden.json'), golden);
 writeSetManifest(stage, {
   set: 'surface-reconcile',
   recorder,
   command: 'node ' + recorder + ' --tree <tree>' + (patched ? ' --patch ' + patched : ''),
   ...(patched ? { identity: nodeTreeIdentity(args, tree, 'b6f10295a2f698afc85332467192de28500bd146') } : { identityTree: tree }),
-  extra: recorderProvenance(import.meta.url),
+  extra: {
+    ...recorderProvenance(import.meta.url),
+    normalised: ['the working directory of the recording: its path is named as the integration recordings name theirs (WORKSPACE_RECORDED); its entries are the recorded list, created empty'],
+  },
 });
 commitStage(stage, finalDir);
