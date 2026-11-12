@@ -17,15 +17,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2635,
+      "bytes": 2691,
       "path": "cases.json",
-      "sha256": "29311f54cc46dd438199f737d526999d7e466dc4070445759944578feb0abe1e"
+      "sha256": "c20927b211c7cef4fcf8a8e3f419ada2eda4e6a567547ced39e77fffc10da821"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
@@ -78,9 +78,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-custom-provider-route.mjs",
-  "recorderSha256": "c69c012c15732c67298022de94e88aa3b79e110af440f7f9c7f1eb09de4266ba",
+  "recorderSha256": "349136d5b0f66ff945490d8060f63496932833880ecbbdebeb383adaae94a3da",
   "replay": "Rust entry (pub, on o1): mixdog_ai::service::admin_route::resolve_route (service/admin_route.rs:311).",
   "set": "provider-custom-provider-route",
-  "totalBytes": 2635,
+  "totalBytes": 2691,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

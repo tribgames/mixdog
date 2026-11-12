@@ -57,8 +57,7 @@ fn the_default_provider_validator_is_given_the_saved_config_as_node_gives_it() {
         };
         let node = &case["result"];
         let default_provider = resolve_default_provider(&config, &known);
-        // The recording's request is the one whose route it kept: `{ model: 'm2' }`.
-        let request: Obj = json!({"model": node["route"]["model"]}).as_object().unwrap().clone();
+        let request: Obj = case["input"]["request"].as_object().unwrap().clone();
         let route = Value::Object(resolve_route(&config, &request, &known).unwrap());
         assert_eq!(json!(default_provider), node["defaultProvider"], "{id}: the default provider");
         assert_eq!(route, without_undefined(&node["route"]), "{id}: the route");

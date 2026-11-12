@@ -15,12 +15,13 @@ const rec = await startRecording({
 const { makeResolveDefaultProvider, makeResolveRoute } = await rec.P('agent/orchestrator/runtime-core/config-helpers.mjs');
 const SRC = 'src/runtime/agent/orchestrator/runtime-core/custom-provider-route.test.mjs';
 const config = { default: 'main', presets: [{ id: 'main', provider: 'custom-test', model: 'm1' }], providers: { 'custom-test': { type: 'custom', enabled: true } } };
-await rec.run('default-provider-validation-gets-saved-config', `${SRC}:5`, { config }, () => {
+const request = { model: 'm2' };
+await rec.run('default-provider-validation-gets-saved-config', `${SRC}:5`, { config, request }, () => {
   const validatorCalls = [];
   const resolve = makeResolveDefaultProvider((id, current) => {
     validatorCalls.push({ id, config: current, sameConfigObject: current === config });
     return current.providers[id]?.type === 'custom';
   });
-  return { defaultProvider: resolve(config), route: makeResolveRoute(resolve)(config, { model: 'm2' }), validatorCalls };
+  return { defaultProvider: resolve(config), route: makeResolveRoute(resolve)(config, request), validatorCalls };
 });
 await rec.finish();

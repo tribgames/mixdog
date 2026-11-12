@@ -22,6 +22,8 @@
               "enabled": true
             }
           }
+        },
+        "request": {"model": "m2"
         }
       },
       "result": {
