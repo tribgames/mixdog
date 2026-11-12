@@ -28,7 +28,7 @@ export const AGENT_TOOL = {
     agentHidden: false,
   },
   description:
-    'Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.',
+    'Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Idle agents with delivered results are parked after 7 min (runtime released, a send resumes them); close or cleanup closes them.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -36,7 +36,7 @@ export const AGENT_TOOL = {
         type: 'string',
         enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'],
         description:
-          'Required action. New spawn requires agent and one of prompt/message/file; send requires tag and one of prompt/message/file; read/status/close/cancel require task_id or tag; list/cleanup require no target. list shows active agents and running tasks in full; idle/closed agents and finished tasks are counts plus a short latest tail (list with tag=<text> shows matching ones: case-insensitive substring, at most 25 per section).',
+          'Required action. New spawn requires agent and one of prompt/message/file; send requires tag and one of prompt/message/file; read/status/close/cancel require task_id or tag; list/cleanup require no target; cleanup closes idle agents whose result was delivered. list shows active agents and running tasks in full; idle/closed agents and finished tasks are counts plus a short latest tail (list with tag=<text> shows matching ones: case-insensitive substring, at most 25 per section).',
       },
       task_id: { type: 'string', description: 'Task ID returned by spawn/send.' },
       agent: {

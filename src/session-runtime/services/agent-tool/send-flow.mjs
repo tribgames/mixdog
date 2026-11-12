@@ -35,6 +35,8 @@ import { takeStoppedShellJobs } from '../../../runtime/agent/orchestrator/sessio
 import { turnReportText } from '../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
 import { carrySensitiveValues, redactSensitiveText } from '../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
 
+import { revealSession } from './close-flow/hide-sessions.mjs';
+
 function workerResultIdentity({ session, tag, sessionId }) {
   return { tag, sessionId, agent: session.agent || null, provider: session.provider, model: session.model };
 }
@@ -277,6 +279,8 @@ export function createSendFlow({
   }
 
   async function dispatchToExistingSession(requested, notifyContext, extras = {}) {
+    // A closed agent's session is hidden from lists; used again it is listed again.
+    await revealSession(requested.sessionId);
     let followed = requested.route ? null : await agentRouteToFollow(requested);
     if (followed && !canUseSessionSurface(requested.session)) {
       // An in-process session takes the followed route in place, between

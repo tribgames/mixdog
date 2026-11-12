@@ -13,6 +13,7 @@ import { assertBotChainTarget, botChainOf } from '../runtime/shared/bot-hops.mjs
 import { agentIdOfHomeSession } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import { rebindDelegation } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import { readSessionSidebarState } from '../runtime/shared/session-sidebar-host.mjs';
+import { daemonHiddenSessions, forgetHidden } from '../runtime/shared/session-hidden.mjs';
 import { roomIdOfSession } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 import { escapeHarnessTags } from '../runtime/shared/shell-output-summary.mjs';
 import { truncateToolText } from '../runtime/shared/tool-primitives.mjs';
@@ -92,7 +93,7 @@ async function listSessions({ service, liveWork, readRow }, args, context, limit
   // desktop's flag) only on request; the scan pages past the rows left
   // out, so a page is never short while more rows match.
   const own = scopedBot(context.callerScope);
-  const archived = (await readSessionSidebarState())?.archived ?? {};
+  const archived = { ...(await readSessionSidebarState())?.archived, ...daemonHiddenSessions() };
   const keep = listRowFilter(args, archived);
   // Live work is overlaid on every row: a catalog row keeps the status and
   // recency of its last settled turn, so a long-running agent read `idle`
@@ -273,6 +274,8 @@ export function createSessionControl({
         { sessionId, action: 'deleteSession', args: [sessionId] },
         { revision: 1 }
       );
+      // Left in the hidden set on a failed write, it goes with the next agent cleanup.
+      if (result.value === true) await forgetHidden([sessionId]).catch(() => {});
       return { sessionId, deleted: result.value === true };
     }
     if (action === 'read') {

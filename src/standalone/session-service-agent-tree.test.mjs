@@ -1124,3 +1124,61 @@ test('load-on-demand binds the loaded id as the durable address and a failed dur
   assert.equal(JSON.stringify(records.get(session.id).messages), transcript, 'transcript untouched by the close');
   assert.equal(records.size, 1);
 });
+
+test('a parked agent releases its runtime, stays open and listed, and a send resumes its whole conversation', async (t) => {
+  const events = [];
+  const records = new Map();
+  const seen = [];
+  const base = durableRuntimeFactory(events, records);
+  const createSessionRuntime = async (options = {}) => {
+    const runtime = await base(options);
+    return {
+      ...runtime,
+      async submitAndWait(prompt, turnOptions) {
+        seen.push(runtime.readModelMessages(0).messages.map((message) => message.content));
+        return runtime.submitAndWait(prompt, turnOptions);
+      },
+    };
+  };
+  const service = createSessionService({
+    createSessionRuntime,
+    sessionExists: async (sessionId) => records.has(sessionId),
+    readStoredSession: async (sessionId) => {
+      const stored = records.get(sessionId);
+      return stored ? { sessionId, provider: stored.provider, model: stored.model, cwd: stored.cwd, items: [] } : null;
+    },
+    listSessions: async () => [],
+  });
+  t.after(() => service.stop('test complete'));
+  const { session } = await service.agentSurface.createChild({
+    tag: 'parked-worker',
+    spec: {
+      parentSessionId: 'sess_park_root',
+      ownerSessionId: 'sess_park_root',
+      agent: 'worker',
+      agentTag: 'parked-worker',
+      cwd: 'C:\\Project\\tree',
+      preset: { provider: 'test-provider', model: 'test-model' },
+    },
+  });
+  await service.agentSurface.runTurn({ session, prompt: 'first brief' });
+
+  assert.equal(await service.agentManager.parkSession(session.id), true);
+  assert.deepEqual(
+    events.filter(([kind]) => kind === 'dispose').map(([, id]) => id),
+    [session.id],
+    'the runtime was released'
+  );
+  assert.equal(events.some(([kind]) => kind === 'close'), false, 'the agent was not closed');
+  const parkedRow = service.agentManager.getSession(session.id);
+  assert.notEqual(parkedRow.closed, true);
+  assert.equal(parkedRow.status, 'idle');
+  assert.equal(parkedRow.stage, 'parked');
+
+  const result = await service.agentSurface.runTurn({ session, prompt: 'second message' });
+  assert.equal(result.content, 'handoff:second message');
+  assert.deepEqual(seen.at(-1), ['first brief', 'handoff:first brief'], 'the turn saw the earlier conversation');
+  assert.equal(events.filter(([kind]) => kind === 'resume').length, 1, 'resumed from disk');
+  assert.equal(events.filter(([kind]) => kind === 'reserve').length, 1, 'never respawned fresh');
+  assert.equal(service.agentManager.getSession(session.id).stage, 'idle');
+});

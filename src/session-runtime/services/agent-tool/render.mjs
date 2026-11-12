@@ -191,6 +191,9 @@ function renderClosed(value) {
     value.sessionId ? `sessionId: ${value.sessionId}` : null,
     value.task_id ? `task_id: ${value.task_id}` : null,
     value.forgotten ? 'forgotten: true' : null,
+    value.reason ? `reason: ${value.reason}` : null,
+    value.note ? `note: ${value.note}` : null,
+    ...(value.hideFailed || []).map((f) => `not hidden: ${f.sessionId} (${f.reason})`),
   ]
     .filter(Boolean)
     .join('\n');

@@ -41,6 +41,7 @@ export { sanitizeForWire } from './session-wire-values.mjs';
 export function createSessionService({
   createSessionRuntime = null,
   sessionExists = null,
+  sessionAbsent = null,
   readStoredSession = null,
   readStoredReview = null,
   statStoredSession = null,
@@ -222,6 +223,8 @@ export function createSessionService({
     stateBusy: retention.stateBusy,
     entryForSession: entries.entryForSession,
     retainUnwatched: retention.retainUnwatched,
+    releaseEntry: (entry, reason, options) => entries.release(entry, reason, options),
+    sessionAbsent,
     createSession: calls.createSession,
   });
   // A sub-agent's approval shows in its top-level chat; one not loaded is

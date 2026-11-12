@@ -138,8 +138,10 @@ export const FINISHED_TASK_TTL_MS = TASK_TTL_MS;
 const evictionListeners = new Set();
 
 /** `listener(tasks)` hears each prune's removed tasks as
- *  `{ taskId, surface, sessionId }` (`sessionId`: the owning session, '' when
- *  unattributed); returns the unsubscribe. */
+ *  `{ taskId, surface, sessionId, agentSessionId, tag, delivered }` (`sessionId`:
+ *  the owning session, '' when unattributed; `agentSessionId`/`tag`: the
+ *  session and tag the task ran, `delivered`: its result reached the owner or
+ *  was cancelled); returns the unsubscribe. */
 export function onBackgroundTasksEvicted(listener) {
   if (typeof listener !== 'function') return () => {};
   evictionListeners.add(listener);
@@ -155,7 +157,15 @@ function pruneTasks(options = {}) {
   const evict = (task) => {
     tasks.delete(task.taskId);
     if (evictionListeners.size > 0) {
-      evicted.push({ taskId: task.taskId, surface: task.surface, sessionId: taskSessionIdOf(task) || '' });
+      evicted.push({
+        taskId: task.taskId,
+        surface: task.surface,
+        sessionId: taskSessionIdOf(task) || '',
+        agentSessionId: task.meta?.sessionId || '',
+        tag: task.meta?.tag || '',
+        delivered:
+          task.status === 'cancelled' || task.notifiedWithBody === true || task.completionAcknowledged === true,
+      });
     }
   };
   // Deleting the entry being visited is safe during Map iteration.
