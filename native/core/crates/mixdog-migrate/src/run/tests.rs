@@ -756,6 +756,7 @@ fn gate(scenario: &str, data_rel: &str, expected_retained: u64) {
         blobs: &blobs,
         states: &states,
     };
+    let prefixes = system_prefixes(data_rel, &roots, &complete);
     let sessions = manifest["scenarios"][scenario]["sessions"].as_array().unwrap();
     assert_eq!(sessions.len() as u64, manifest["scenarios"][scenario]["sessionCount"].as_u64().unwrap());
     for s in sessions {
@@ -763,13 +764,18 @@ fn gate(scenario: &str, data_rel: &str, expected_retained: u64) {
         let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id))
             .unwrap_or_else(|e| panic!("{scenario}/{id}: {e}"));
         folded.observable(&cx).unwrap();
-        // Every model message row, the hidden ones (skill/hook, internal text) included: the
-        // corpus digests cover the whole 1.4.5 transcript.
-        let messages: Vec<Value> = folded
-            .rows
+        // The system prefix (now the header's prompt blocks) and every model message row, the hidden ones
+        // (skill/hook, internal text) included: the corpus digests cover the whole 1.4.5 transcript.
+        let messages: Vec<Value> = prefixes[id]
             .iter()
-            .filter(|r| r.form == mixdog_store::schema::record::Form::Message && r.model)
-            .map(|r| r.body.clone())
+            .cloned()
+            .chain(
+                folded
+                    .rows
+                    .iter()
+                    .filter(|r| r.form == mixdog_store::schema::record::Form::Message && r.model)
+                    .map(|r| r.body.clone()),
+            )
             .collect();
         let (count, transcript, header_digest) = corpus_digests(&folded.header, &messages);
         let want = &s["expected"];
@@ -777,6 +783,32 @@ fn gate(scenario: &str, data_rel: &str, expected_retained: u64) {
         assert_eq!(transcript, want["transcriptDigest"].as_str().unwrap(), "{scenario}/{id} transcript");
         assert_eq!(header_digest, want["headerDigest"].as_str().unwrap(), "{scenario}/{id} header");
     }
+}
+
+/// The system prefix of every session of the corpus data dir `data_rel` migrated into `roots`, by id (see
+/// `source::system_prefix`). The migration disposes of its sources, so they are read from the corpus itself.
+pub(crate) fn system_prefixes(data_rel: &str, roots: &MigrationRoots, complete: &Complete) -> BTreeMap<String, Vec<Value>> {
+    let disk: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let pristine = MigrationRoots { data: corpus().join(data_rel), home: corpus().join("home"), profile: None };
+    let cx = ItemContext {
+        roots: &pristine,
+        manifest: &disk,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    disk.items
+        .iter()
+        .filter(|i| i.kind == ItemKind::Session)
+        .map(|item| {
+            let id = item.key.as_str().strip_prefix("session/").unwrap();
+            let prefix = crate::session::source::system_prefix(&cx, item, id).unwrap_or_else(|_| panic!("{id}: its source does not read"));
+            (id.to_owned(), prefix)
+        })
+        .collect()
 }
 
 #[test]
@@ -841,9 +873,14 @@ fn v145_worker_markers_move_into_the_worker_map() {
             }
         }
     }
-    // The corpus holds 3 tombstoned and 9 released sessions with a session file, and
-    // `rows` sessions with a worker row.
-    assert_eq!((tombstoned, marked), (3, 9));
+    // Every tombstone and release marker of the corpus's index files names a migrated session (a worker row
+    // whose session record is gone is one too), and the loop above saw each of them.
+    let migrated: std::collections::BTreeSet<&str> =
+        disk.items.iter().filter(|i| i.kind == ItemKind::Session).filter_map(|i| i.key.as_str().strip_prefix("session/")).collect();
+    let tombstones = index["tombstones"].as_object().unwrap().values().filter(|t| migrated.contains(t["sessionId"].as_str().unwrap())).count();
+    let markers = released["released"].as_object().unwrap().keys().filter(|id| migrated.contains(id.as_str())).count();
+    assert_eq!((tombstoned, marked), (tombstones, markers));
+    assert!(tombstoned > 0 && marked > 0);
     assert!(rows > 0);
     for gone in ["agent-workers.json", "agent-workers-released.json"] {
         assert!(!roots.data.join(gone).exists(), "{gone}");
