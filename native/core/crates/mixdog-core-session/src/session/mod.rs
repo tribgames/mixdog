@@ -51,7 +51,7 @@ pub mod thread_context;
 pub mod tool_events;
 pub mod workspace_sight;
 pub mod gateway_routes;
-pub mod effort_prewarm;
+pub mod auto_effort_mode;
 mod directory;
 pub mod goal_lane;
 pub mod goal_reminder;
@@ -254,7 +254,6 @@ pub use self::user_cwd::UserCwd;
 pub use self::store::MemoryCloseIngest;
 pub use self::seams::CommitRecord;
 pub use self::seams::EncodedRecord;
-pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
 pub use self::seams::EmptyToolSurface;
 pub use self::seams::DraftSettings;
@@ -324,9 +323,6 @@ pub struct SessionDeps {
     /// Released on user input or a deliverable notification, ending a passive `task wait` or
     /// shell hold of the thread as today.
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
-    /// Called on create and open, where today's `session-lifecycle.mjs` calls
-    /// `prewarmSessionAutoEffort`.
-    pub effort: Arc<dyn EffortPrewarm>,
     /// The session-search copy, written once per completed turn.
     pub search: Arc<dyn TurnIngest>,
     /// The memory ingest when a thread unloads or the core shuts down.

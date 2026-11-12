@@ -731,14 +731,6 @@ pub trait ResumedTools: Send + Sync + 'static {
     async fn refreshed(&self, thread: &ThreadId, header: &Header) -> Option<mixdog_store::schema::record::HeaderChange>;
 }
 
-/// Today's `prewarmSessionAutoEffort(session, provider)`: starts the effort judge's model load
-/// when a session is created or opened, so its first judged turn does not wait for it.
-/// Fire-and-forget and infallible; the judge applies its own skip rules (Auto effort off, the
-/// session's `autoEffort: false`, a route it cannot judge) to the header.
-pub trait EffortPrewarm: Send + Sync + 'static {
-    fn prewarm(&self, thread: &ThreadId, header: &Header);
-}
-
 /// What a worker's turn carries into its run (`TurnRequest` of the agent tool's flow): set only
 /// for a turn a job owns or a follow-up it sends. The session itself calls
 /// `hooks.on_terminal_result` with the run's final result (before the turn settles); the run

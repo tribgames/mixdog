@@ -11,7 +11,7 @@
 //! read lane; only installs and their hash checks use the CPU bulk lane, which Node
 //! also runs off its worker. The model lives in a host process of its own ([`host`](crate::effort_judge::host)):
 //! a native fault in inference ends that process, not the core, and the next request starts a fresh one.
-//! It loads at a prewarm or the first judgment and is unloaded after [`KEEP_WARM`] without a judgment
+//! It loads at the first judgment of a turn (nothing loads it at a daemon start or a session open) and is unloaded after [`KEEP_WARM`] without a judgment
 //! (never under a request, a load or a turn's lease: [`EffortJudgeModel::hold_warm`]); the first turn after
 //! such an unload waits for the reload ([`RELOAD_WAIT`]). A failed load is remembered until the model
 //! is installed or repaired, so a broken model cannot add a load to every step.
@@ -19,8 +19,7 @@
 //! Install triggers, as Node has them: the first judged step of the instance
 //! refreshes a model that is not the current release (in the background, the
 //! step does not wait); a load failure verifies the files against the manifest
-//! once and fetches only the damaged ones; `prewarm` loads the model ahead of
-//! the first judged step.
+//! once and fetches only the damaged ones.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -230,8 +229,12 @@ fn skip_reason(error: &JudgeError) -> String {
 }
 
 /// What the host chooses about a judge model.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct JudgeOptions {
+    /// How long the model stays loaded without a judgment, and how long a turn's lease holds it:
+    /// the one setting of the idle unload, [`KEEP_WARM`] unless a host chooses otherwise. It runs on
+    /// the judge's clock.
+    pub keep_warm: Duration,
     /// Bumped whenever `status()` changes.
     pub tick: StateTick,
     /// The release to install; the bundled manifest when absent.
@@ -243,6 +246,20 @@ pub struct JudgeOptions {
     /// The host process the model loads in, for tests that start a real one.
     #[cfg(test)]
     pub(crate) host: Option<HostLaunch>,
+}
+
+impl Default for JudgeOptions {
+    fn default() -> Self {
+        Self {
+            keep_warm: KEEP_WARM,
+            tick: StateTick::default(),
+            manifest: None,
+            progress: None,
+            timing: JudgeTiming::default(),
+            #[cfg(test)]
+            host: None,
+        }
+    }
 }
 
 /// The resident model and its serialised access. Shared by every run.
@@ -277,6 +294,8 @@ pub struct EffortJudgeModel {
     /// Ends installs this instance started in the background.
     cancel: CancellationToken,
     idle: Idle,
+    /// [`JudgeOptions::keep_warm`].
+    keep_warm: Duration,
     #[cfg(test)]
     script: Option<Script>,
     #[cfg(test)]
@@ -318,7 +337,13 @@ impl EffortJudgeModel {
     /// [`Self::hosted`] with every wait on `alarm`.
     #[cfg(test)]
     pub(crate) fn hosted_on(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch, alarm: Arc<dyn Alarm>) -> Arc<Self> {
-        let options = JudgeOptions { host: Some(launch), ..JudgeOptions::default() };
+        Self::hosted_for(config, lanes, launch, alarm, KEEP_WARM)
+    }
+
+    /// [`Self::hosted_on`] with the idle period `keep_warm`.
+    #[cfg(test)]
+    pub(crate) fn hosted_for(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch, alarm: Arc<dyn Alarm>, keep_warm: Duration) -> Arc<Self> {
+        let options = JudgeOptions { host: Some(launch), keep_warm, ..JudgeOptions::default() };
         Arc::new(Self::create(config, lanes, options, alarm).expect("the bundled manifest"))
     }
 
@@ -364,6 +389,7 @@ impl EffortJudgeModel {
             steps: std::sync::OnceLock::new(),
             cancel: CancellationToken::new(),
             idle: Idle::default(),
+            keep_warm: options.keep_warm,
             #[cfg(test)]
             script: None,
             #[cfg(test)]
@@ -482,7 +508,7 @@ impl EffortJudgeModel {
         self.idle.leases.fetch_add(1, Ordering::AcqRel);
         let this = Arc::downgrade(self);
         self.alarm.after(
-            KEEP_WARM,
+            self.keep_warm,
             Box::new(move || {
                 if let Some(this) = this.upgrade() {
                     this.idle.leases.fetch_sub(1, Ordering::AcqRel);
@@ -501,7 +527,7 @@ impl EffortJudgeModel {
         let epoch = self.idle.epoch.fetch_add(1, Ordering::AcqRel) + 1;
         let this = Arc::downgrade(self);
         self.alarm.after(
-            KEEP_WARM,
+            self.keep_warm,
             Box::new(move || {
                 if let Some(this) = this.upgrade() {
                     this.idle_rang(epoch);
@@ -816,44 +842,6 @@ impl EffortJudgeModel {
                 Err(error) => tracing::warn!(%error, "effort judge: model repair failed"),
             }
         });
-    }
-
-    /// Starts loading the model ahead of the first judged step. True when it is
-    /// loaded or loading; false when it cannot be: unsupported platform, an
-    /// install in progress, not installed, or a remembered load failure.
-    pub async fn prewarm(self: &Arc<Self>) -> bool {
-        if !self.config.runtime_supported() || self.is_installing() {
-            return false;
-        }
-        if !available_on(self.lanes.read, &self.config).await.unwrap_or(false) {
-            // A lane that could not read it answers "not now"; the next prewarm asks again.
-            return false;
-        }
-        self.touch_idle();
-        // A judgment or a load holds the gate: it is loaded or loading.
-        if self.turn.is_busy() {
-            return true;
-        }
-        let resident = self.loaded().as_ref().map(Result::is_ok);
-        match resident {
-            Some(ok) => ok,
-            None => {
-                let this = self.clone();
-                mixdog_rt::spawn("services.effort-judge.prewarm", TaskClass::Work, async move {
-                    // A cancelled gate means the instance's background work was ended: no model is
-                    // wanted, and nothing awaits this task's result.
-                    let _ = this
-                        .turn
-                        .run(&this.cancel, async {
-                            if !this.is_installing() {
-                                let _ = this.ensure_loaded().await;
-                            }
-                        })
-                        .await;
-                });
-                true
-            }
-        }
     }
 
     /// `shutdownEffortJudge()`: unloads the model; the next judgment loads it again.
