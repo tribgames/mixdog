@@ -302,16 +302,14 @@ impl SessionSurface {
     }
 
     /// `prepareDeferredToolCallThrough`, which runs after the hooks and the approval and before the
-    /// tool: on any session, a connector tool outside the last MCP snapshot (taken for the session's
-    /// cwd as it is now) is unavailable; on a bridge session, a deferred catalog tool that is not
-    /// read-only selectable never runs without a tool mode or in a read-only one. `annotations` are the
-    /// called tool's own.
+    /// tool: a connector tool outside the last MCP snapshot (taken for the session's cwd as it is now) is
+    /// unavailable, and a deferred catalog tool that is not read-only selectable never runs without a tool
+    /// mode or in a read-only one (on a bridge session, a read-only deferred surface counts). The remedy a
+    /// native session is told is `load_tool`; a bridge session is told no call was sent. `annotations` are
+    /// the called tool's own.
     pub fn deferred_call_refusal(&self, name: &str, annotations: &ToolAnnotations) -> Option<String> {
         if name.starts_with("mcp__") && self.mcp_names.as_ref().is_some_and(|names| !names.iter().any(|known| known == name)) {
             return Some(format!("Error: MCP tool \"{name}\" is unavailable in the current session catalog; no call was sent."));
-        }
-        if !self.bridge {
-            return None;
         }
         if !listed(&self.catalog_tools, name) || listed(&self.active_tools, name) || INACTIVE_INFRA.contains(&name) {
             return None;

@@ -109,10 +109,21 @@ struct SkillRun {
     workspace: std::path::PathBuf,
     catalog: Arc<SkillCatalog>,
     skill: Arc<Loads>,
+    /// The directory the chips of what loaded are stamped on (`recordAppliedSkills`).
+    directory: Arc<std::sync::OnceLock<std::sync::Weak<SessionDirectory>>>,
 }
 
 #[async_trait]
 impl RunParts for SkillRun {
+    async fn record_applied_skills(&self, thread: &ThreadId, item: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), TurnError> {
+        let Some(directory) = self.directory.get().and_then(std::sync::Weak::upgrade) else {
+            return Err(TurnError { message: "the session directory is closed".into(), data: json!({}), provider_error: None });
+        };
+        mixdog_core_session::session::thread_switches::record_applied_skills(&directory, thread, item, names)
+            .await
+            .map_err(|error| TurnError { message: error.to_string(), data: json!({}), provider_error: None })
+    }
+
     async fn reconcile_turn(&self, _: &ThreadId, header: mixdog_store::schema::record::Header, _: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
         Ok(header)
     }
@@ -193,12 +204,14 @@ impl World {
         let provider = Arc::new(Ok_ { id: ProviderId::from("skill-sources-test"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, codec: MockCodec });
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
+        let stamps = Arc::new(std::sync::OnceLock::new());
         deps.runs = Arc::new(RunHostFactory::new(
             mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
             mixdog_tools::web::NativeSearchUsageSinks::new(),
-            Arc::new(SkillRun { provider, workspace: dir.path().to_path_buf(), catalog, skill: skill.clone() }),
+            Arc::new(SkillRun { provider, workspace: dir.path().to_path_buf(), catalog, skill: skill.clone(), directory: stamps.clone() }),
         ));
         let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+        let _ = stamps.set(Arc::downgrade(&directory));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));

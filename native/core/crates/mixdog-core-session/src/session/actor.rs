@@ -1381,7 +1381,7 @@ impl SessionActor {
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
             self.cell.compacting.store(self.compactions > 0, SeqCst);
-            self.cell.gated.store(self.starts_gated(), SeqCst);
+            self.cell.gated.store(self.compaction_held(), SeqCst);
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
@@ -4103,7 +4103,7 @@ impl SessionActor {
     /// (`afterCompaction`, `compaction-gate.mjs`, wraps every ask; its end drains the queue). A held start waits and
     /// [`Self::pump`] resumes it.
     fn starts_gated(&self) -> bool {
-        self.turn_unsettled() || self.after_compaction.is_some()
+        self.turn_unsettled() || self.compaction_held()
     }
 
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.
@@ -5533,8 +5533,9 @@ impl SessionActor {
             self.archive_goal_on_user_input();
         }
         // A turn starting or still settling, or the scheduled compaction's gate, holds the next one
-        // back: it is queued and starts after.
-        if !self.turn_busy() && !self.starts_gated() {
+        // back: it is queued and starts after. A previous turn that is not saved yet holds it too, but as a
+        // start that waits for the save ([`Self::start_run_with`]), not as a queued prompt.
+        if !self.turn_busy() && !self.compaction_held() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
@@ -6401,6 +6402,11 @@ impl SessionActor {
     /// (through its `turnCoverage`) have not all landed, or the crashed runs are still being finalized.
     fn turn_unsettled(&self) -> bool {
         self.outbox.has_unsaved() || self.recovering || self.coverage.is_some_and(|id| self.outbox.contains(id))
+    }
+
+    /// The scheduled compaction runs (`afterCompaction`): what holds an ask back as a queued prompt.
+    fn compaction_held(&self) -> bool {
+        self.after_compaction.is_some()
     }
 
     /// Whether a completion may wake this idle thread: the session did not turn

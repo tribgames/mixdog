@@ -382,8 +382,27 @@ impl ThreadRequests for Requests {
         Ok(self.transcript.iter().map(|item| serde_json::from_value(item.clone()).expect("a protocol item")).collect())
     }
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        // A page of the stored transcript, newest first, as `thread/items/list` answers it.
+        if method == "thread/items/list" {
+            let items: Vec<mixdog_protocol::ThreadItem> = self.transcript.iter().map(|item| serde_json::from_value(item.clone()).expect("a protocol item")).collect();
+            let end = match params.get("cursor").and_then(Value::as_str) {
+                Some(cursor) => items.iter().position(|item| item.id().as_str() == cursor).expect("cursor row"),
+                None => items.len(),
+            };
+            let start = end.saturating_sub(params["limit"].as_u64().expect("limit") as usize);
+            let data = items[start..end].to_vec();
+            let has_older = start > 0;
+            let next_cursor = has_older.then(|| data[0].id().as_str().to_owned());
+            return Ok(serde_json::to_value(mixdog_app_protocol::v2::thread::ThreadItemsListResponse { data, has_older, has_newer: end < items.len(), next_cursor, backwards_cursor: None }).expect("page"));
+        }
+        // A fork carries the conversation compacted when asked, and answers that it did.
+        let compacted = (method == "thread/fork").then(|| params.get("compact").cloned().unwrap_or(Value::Bool(false)));
         self.calls.lock().expect("calls").push((thread.as_str().to_owned(), method.to_owned(), params));
-        Ok(self.reply.lock().expect("reply").clone())
+        let mut reply = self.reply.lock().expect("reply").clone();
+        if let Some(compacted) = compacted {
+            reply["compacted"] = compacted;
+        }
+        Ok(reply)
     }
     async fn set_caller_cwd(&self, _: &ThreadId, path: &str) -> Result<String, CoreError> {
         Ok(path.to_owned())
@@ -674,7 +693,7 @@ async fn compact_and_fork_answer_as_the_node_session_tool_does() {
     let case = |name: &str| g["cases"].as_array().expect("cases").iter().find(|c| c["case"] == name).unwrap_or_else(|| panic!("{name}"))["observed"].clone();
     let want_text = |recorded: &Value, from: &str, to: &str| recorded.as_str().expect("text").replace(from, to);
     let heirs = || Requests { reply: Mutex::new(json!({ "thread": { "id": "new-1" } })), ..Requests::default() };
-    let compacts = |p: &Port| -> Vec<String> { p.requests.calls.lock().expect("calls").iter().filter(|c| c.1 == "compact-after-turn").map(|c| c.0.clone()).collect() };
+    let compacts = |p: &Port| -> Vec<String> { p.requests.calls.lock().expect("calls").iter().filter(|c| c.1 == "thread/compact/schedule").map(|c| c.0.clone()).collect() };
 
     // compact: Node's one-shot set holds the caller once however often it asks.
     let recorded = case("compact schedules one compaction and asking again changes nothing");
