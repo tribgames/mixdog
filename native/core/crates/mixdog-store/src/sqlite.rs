@@ -2212,6 +2212,39 @@ impl SqliteStore {
         }
     }
 
+    /// The page [`Self::context_page_on_lane`] would return for the rows from the `skip`th on (`skip` counted as in
+    /// [`Self::context_len_on_lane`]), as one page: the index is scanned for every row, but only those rows' frames are read.
+    /// A history that changes under the scan starts it again.
+    pub fn context_page_from_on_lane(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        sessions: &Path,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        skip: usize,
+    ) -> Result<crate::context::ContextPage, crate::context::ContextError> {
+        const PAGE_ROWS: usize = 4096;
+        let rows = 'restart: loop {
+            let (mut cursor, mut seen, mut kept) = (None, 0usize, Vec::new());
+            loop {
+                match self.shared.gate.with(|c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
+                    Ok((rows, next)) => {
+                        let before = seen;
+                        seen += rows.len();
+                        kept.extend(rows.into_iter().skip(skip.saturating_sub(before)));
+                        match next {
+                            Some(next) => cursor = Some(next),
+                            None => break 'restart kept,
+                        }
+                    }
+                    Err(DbError::CursorStale) => continue 'restart,
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        };
+        crate::context::read_frames(lane, sessions, rows, None)
+    }
+
     /// `history_page` inside a job already on the read lane (the open's J2 window read).
     pub fn history_page_on_lane(
         &self,

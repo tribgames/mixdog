@@ -887,6 +887,8 @@ struct ContextState {
     at: ContextAt,
     /// The read gate's generation its first job read under.
     generation: u64,
+    /// The context's first rows the read leaves out (a restart leaves out as many).
+    skip: usize,
 }
 
 enum ContextAt {
@@ -909,20 +911,24 @@ impl StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
         generation: u64,
+        skip: usize,
     ) -> Result<ContextState, CoreError> {
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         let cut = opened.fold.base_cut;
-        let page = self
-            .index
-            .context_page_on_lane(lane, &self.sessions, &lineage, cut, None, CONTEXT_PAGE_ROWS)
-            .map_err(|e| internal("context", &e))?;
+        let page = if skip == 0 {
+            self.index.context_page_on_lane(lane, &self.sessions, &lineage, cut, None, CONTEXT_PAGE_ROWS)
+        } else {
+            self.index.context_page_from_on_lane(lane, &self.sessions, &lineage, cut, skip)
+        }
+        .map_err(|e| internal("context", &e))?;
         Ok(ContextState {
             lineage,
             cut,
             out: Vec::new(),
             at: ContextAt::Page(page),
             generation,
+            skip,
         })
     }
 
@@ -1471,6 +1477,46 @@ impl ThreadStore for StoreThreads {
         }
     }
 
+    /// The newest `records` rows of the history: pages newest first stop once the window is full, so the older frames stay unread.
+    fn history_window(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        records: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
+        'read: loop {
+            let opened = self.open(lane, id)?;
+            let lineage = self.lineage(lane, &opened.fold)?;
+            let (mut rows, mut cursor, mut older) = (Vec::new(), None, false);
+            'pages: loop {
+                let (page, next) = match self.index.history_page_on_lane(lane, &lineage, opened.fold.base_cut, cursor, WINDOW_ROWS.min(records.max(1))) {
+                    Ok(page) => page,
+                    Err(DbError::CursorStale) => continue 'read,
+                    Err(e) => return Err(internal("history", &e)),
+                };
+                for row in &page {
+                    if rows.len() == records {
+                        older = true;
+                        break 'pages;
+                    }
+                    rows.push(self.history_item(lane, id, row)?);
+                }
+                match next {
+                    Some(_) if rows.len() == records => {
+                        older = true;
+                        break;
+                    }
+                    Some(next) => cursor = Some(next),
+                    None => break,
+                }
+            }
+            rows.reverse();
+            return Ok((opened.fold.history_rev, rows, older));
+        }
+    }
+
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate();
@@ -1609,13 +1655,13 @@ impl ThreadStore for StoreThreads {
             // The read must see every row acked so far.
             self.wait(lane, self.projector.caught_up())?;
             let gate = self.read_gate();
-            return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate)?)));
+            return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, 0)?)));
         };
         let gate = self.read_gate();
         let mut state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
         // A log rewritten since the read's earlier jobs: their positions and blobs are of the old log, so it starts again.
         if state.generation != *gate {
-            return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate)?)));
+            return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, state.skip)?)));
         }
         state.at = match state.at {
             ContextAt::Next(cursor) => match self.index.context_page_on_lane(
@@ -1628,7 +1674,7 @@ impl ThreadStore for StoreThreads {
             ) {
                 Ok(page) => ContextAt::Page(page),
                 Err(ContextError::Db(DbError::CursorStale)) => {
-                    return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate)?)));
+                    return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, state.skip)?)));
                 }
                 Err(e) => return Err(internal("context", &e)),
             },
@@ -1650,8 +1696,8 @@ impl ThreadStore for StoreThreads {
         read: ContextRead,
     ) -> Result<ContextStep, CoreError> {
         let state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
-        let ContextState { lineage, cut, out, at, generation } = state;
-        let rest = |at| ContextState { lineage, cut, out, at, generation };
+        let ContextState { lineage, cut, out, at, generation, skip } = state;
+        let rest = |at| ContextState { lineage, cut, out, at, generation, skip };
         match at {
             ContextAt::Page(page) => {
                 let decoded = decode_context(lane, page).map_err(|e| internal("context", &e))?;
@@ -1678,6 +1724,12 @@ impl ThreadStore for StoreThreads {
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         self.index.context_len_on_lane(lane, &lineage, opened.fold.base_cut).map_err(|e| internal("context", &e))
+    }
+
+    fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let gate = self.read_gate();
+        Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, skip)?)))
     }
 
     /// RL §9.2 rule 1: the session is marked dirty before the activation's first append.

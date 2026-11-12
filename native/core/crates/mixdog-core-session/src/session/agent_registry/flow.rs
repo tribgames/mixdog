@@ -335,10 +335,11 @@ impl SessionTurns {
         self
     }
 
-    /// `session.messages`: the model rows since the thread's last compaction.
-    async fn messages(&self, session_id: &str) -> Vec<Value> {
+    /// `session.messages` without its first `start`: the model rows since the thread's last compaction, from the `start`th;
+    /// the store does not read the frames before it.
+    async fn messages_from(&self, session_id: &str, start: usize) -> Vec<Value> {
         let thread = ThreadId::from(clean_str(session_id).as_str());
-        match self.directory.model_context(&thread).read().await {
+        match self.directory.model_context(&thread).read_from(start).await {
             Ok(rows) => rows.into_iter().map(|(_, body)| body).collect(),
             Err(error) => {
                 tracing::warn!("[agent-turn] the model context of {session_id} is unreadable: {error:?}");
@@ -371,10 +372,9 @@ impl TurnSessions for SessionTurns {
     /// the session.
     async fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText> {
         let (marks, worker) = (self.directory.deps().sensitive.clone(), ThreadId::from(clean_str(session_id).as_str()));
-        self.messages(session_id)
+        self.messages_from(session_id, start)
             .await
             .into_iter()
-            .skip(start)
             .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
             .map(|message| AssistantText {
                 content: marks.redact_text(&worker, &assistant_message_text(message.get("content"))),
@@ -605,6 +605,72 @@ mod tests {
         assert!(!calls.iter().any(|call| call.starts_with("context_io") || call.starts_with("context_cpu")), "no row was read: {calls:?}");
         assert_eq!(count, directory.model_context(&handle.id).read().await.expect("the context").len(), "the length of what a read returns");
         assert!(count >= ROWS);
+    }
+
+    /// What a stopped turn's handoff and a worker's result read of a long conversation: the rows after the turn's start, and the
+    /// newest assistant message. Each equals what the whole context gives and is asked of the store without the rows before it
+    /// (`context_from_io`): the whole read (`context_io`) is never made.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_long_conversation_is_read_from_the_rows_a_caller_returns() {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::bounded::Id;
+        use mixdog_store::schema::bounded::Name;
+        use mixdog_store::schema::record::Form;
+        use mixdog_store::schema::record::ItemRecord;
+        use mixdog_store::schema::record::Record;
+
+        let rig = crate::session::testing::Rig::new();
+        let store = crate::session::testing::CallCounted::new(rig.store.clone());
+        let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+        let handle = crate::session::tests::start_thread(&directory).await;
+        let message = |n: usize, role: &str, content: Value| {
+            Record::Item(ItemRecord {
+                iid: Id::try_from(format!("m{n}").as_str()).expect("item id"),
+                turn: None,
+                role: Name::try_from(role).ok(),
+                form: Form::Message,
+                model: true,
+                visible: true,
+                archive: None,
+                op: None,
+                prompt: None,
+                refs: Vec::new().try_into().expect("empty list fits"),
+                body: Slot::Inline(json!({ "role": role, "content": content })),
+            })
+        };
+        // An answer 100 rows from the end, then rows with no content to answer with.
+        let rows: Vec<Record> = (0..400)
+            .map(|n| match n {
+                10 => message(n, "assistant", json!("early")),
+                300 => message(n, "assistant", json!("late")),
+                n if n > 300 && n % 2 == 0 => message(n, "assistant", json!("  ")),
+                n => message(n, "user", json!(format!("q{n}"))),
+            })
+            .collect();
+        rig.store.seed(&handle.id, rows);
+        let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())));
+        let whole: Vec<Value> = directory.model_context(&handle.id).read().await.expect("the context").into_iter().map(|(_, body)| body).collect();
+        let before = store.calls().len();
+        let texts = turns.assistant_texts(handle.id.as_str(), 250).await;
+        let contents: Vec<String> = texts.into_iter().map(|text| text.content).collect();
+        let want: Vec<String> = whole[250..]
+            .iter()
+            .filter(|m| m["role"] == "assistant")
+            .map(|m| m["content"].as_str().expect("text").to_owned())
+            .collect();
+        assert_eq!(contents, want);
+        assert!(contents.iter().any(|c| c == "late"));
+        let newest = |m: &Value| m["role"] == "assistant" && !m["content"].as_str().is_some_and(|t| t.trim().is_empty());
+        let tail = directory.model_context(&handle.id).read_tail_until(newest).await.expect("the tail");
+        let last = |rows: &[Value]| rows.iter().rev().find(|m| newest(m)).cloned();
+        assert_eq!(last(&tail), last(&whole), "the newest answer");
+        assert!(tail.len() < whole.len(), "only the tail was read: {} of {}", tail.len(), whole.len());
+        let calls = store.calls()[before..].to_vec();
+        assert!(!calls.iter().any(|call| call.starts_with("context_io")), "the whole context was read: {calls:?}");
+        assert!(calls.iter().any(|call| call.starts_with("context_from_io")), "{calls:?}");
+        // A conversation with no answer is read to its first row, and the answer of a short one is found.
+        let none = directory.model_context(&handle.id).read_tail_until(|_| false).await.expect("whole");
+        assert_eq!(none, whole);
     }
 
     struct Released(Mutex<Vec<String>>);
