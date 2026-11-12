@@ -701,13 +701,15 @@ impl EffortJudgeModel {
         // Sent, the judgment holds the queue until its thread answers or is let go, whether or not
         // its caller still waits: Node sends the next request only then (`queueTail`, `:360`).
         mixdog_rt::spawn("services.effort-judge.judgment", TaskClass::Work, async move {
-            let _turn = turn;
             let answer = this.worker.judge(target, job).await.and_then(|probs| probs);
             // A host that died under the request is gone: the next request starts a fresh one, now,
             // not when its exit is noticed.
             if matches!(answer, Err(JudgeError::Worker(_))) {
                 this.let_go_thread(target);
             }
+            // The queue is free before the caller has its answer: whoever sees the answer sees a judge
+            // with nothing in flight (the idle period reads the queue).
+            drop(turn);
             drop(result_tx.send(answer));
         });
         let answer = tokio::select! {
