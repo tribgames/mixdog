@@ -1,0 +1,58 @@
+{
+  "cases": 5,
+  "command": "node benchmarks/rust-core/recorders/record-job-views.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "job card fields beyond the core's task view": "recorded whole; a replay compares the fields of the core's TaskView (mixdog-tools orch/agent.rs): preset, clientHostPid and lastStreamDeltaAt of Node's card have no TaskView field, and the watchdog label is not compared: it states the registered progress watchdog of a worker's running turn, which a replay that runs no turn has none of (the derivation is compared by the progress recording, tests/it/jobs.rs). A null member is left out of both sides (an absent Option is Node's null)",
+    "job row fields beyond the core's job row": "recorded whole; a replay compares task_id, type, status, tag, error, whether the job is finished and its stamp (finishedAt, else startedAt): JobRow has no worker route or progress field (those are the status rows')",
+    "the order of the worker rows": "recorded in the stub's entry order; the production registry lists in its index order and the roster sorts what it is given, so a replay compares the worker rows by tag",
+    "the row of a session the stub lists as closed": "recorded; a replay leaves it out of the world and of the expected list: the core drops a worker's row when it closes the worker (dispatch close_resolved, agent_tool/dispatch.rs), and the production registry's scan does not list a closed session (agent_registry/mod.rs list_sessions), so it has no row to list",
+    "the tag-refresh calls": "recorded; the core's registry is the production one, which refreshes itself from the stored sessions, so the call is not a seam a replay can observe: its effect (the tag bound to the session) is what the cards compare",
+    "worker row fields beyond the roster's": "recorded whole; a replay compares the fields the core's roster row (WorkerRow, mixdog-tools orch/agent.rs) has: tag, status, stage, last_progress, whether the row is active, the tool-silence label and the hung diagnostic. The row's sort stamp (updatedAt, else lastUsedAt) is not compared: the production registry the replay runs stamps a row it scans in with its own clock, where Node's entries are the stub's sessions as given. The other fields of Node's row (sessionId, agent, route, usage, window, permission, message and tool counts, staleSeconds, turnStartedAt, ...) belong to the status rows (status_rows.rs worker_status_row), compared by the agent-status recording"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 45475,
+      "path": "golden.json",
+      "sha256": "704b4c650dc639d1eca7775865cae3c3b29387d1a69ddb2b415cc5f324e9c77a"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per scenario: its sessions, entries, tags, tasks and operations, and every row, card, job and error each operation answered, with the tag-refresh calls it made",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-job-views.mjs",
+  "recorderSha256": "1c4bb63eeea0787533bc46386cd859a521cb6345f2a2aaaa108dc04cd0cf88da",
+  "set": "job-views",
+  "syntheticInputs": [
+    "the session manager: answers getSession, getSessionRuntime, getSessionProgressSnapshot and getSessionPendingMessageDepth from the scenario's session records, as job-views.test.mjs's fake manager does",
+    "the session entries and the tag map: the scenario's, as the test's agentSessionEntries stub and tags Map are",
+    "the clock: Date.now is fixed"
+  ],
+  "totalBytes": 45475
+}
