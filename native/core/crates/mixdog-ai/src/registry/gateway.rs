@@ -465,11 +465,18 @@ pub struct GatewayHttp {
     /// The SDK the Node engine of this route posts through, with the lower-case names of its client's
     /// `defaultHeaders`.
     sdk: Option<(Sdk, Vec<String>)>,
+    /// `originBoundFetch`: a model request never follows a redirect, any 3xx is the send's connection error, so the
+    /// gateway's credential can only reach the gateway.
+    refuse_redirects: bool,
 }
 
 impl GatewayHttp {
     pub fn new(inner: Arc<dyn HttpSend>) -> Self {
-        Self { inner, mirror_key_as_bearer: false, path: None, headers: Vec::new(), plain_system_instruction: false, sdk: None }
+        Self { inner, mirror_key_as_bearer: false, path: None, headers: Vec::new(), plain_system_instruction: false, sdk: None, refuse_redirects: false }
+    }
+    pub fn refusing_redirects(mut self) -> Self {
+        self.refuse_redirects = true;
+        self
     }
     pub fn through_sdk(mut self, sdk: Sdk, defaults: &[(String, String)]) -> Self {
         self.sdk = Some((sdk, defaults.iter().map(|(name, _)| name.to_ascii_lowercase()).collect()));
@@ -522,7 +529,15 @@ impl HttpSend for GatewayHttp {
         {
             request.headers = sdk_order(*sdk, defaults, std::mem::take(&mut request.headers));
         }
+        let guarded = self.refuse_redirects && request.method == "POST";
+        let exchange = if guarded { Exchange { redirect: crate::transport::Redirect::Manual, ..exchange } } else { exchange };
         let mut response = self.inner.send(request, exchange).await?;
+        if guarded && (300..400).contains(&response.status) {
+            // The SDK reports the refused hop as a connection error caused by the guard.
+            let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous);
+            error.message = "Connection error.".into();
+            return Err(error);
+        }
         let Ok(slot) = REFUSAL.try_with(Clone::clone) else { return Ok(response) };
         if response.is_success() {
             return Ok(response);

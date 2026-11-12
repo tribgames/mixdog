@@ -160,6 +160,9 @@ pub(crate) struct BodyConfig<'a> {
     pub beta_headers: bool,
     /// The process-wide fast-mode state: a request is built at fast speed only while it allows.
     pub fast_mode: &'a super::fast_mode::FastMode,
+    /// A gateway's own reasoning control (`messagesEffort`): replaces the turn's effort, and `none` sends no
+    /// thinking at all.
+    pub gateway_effort: Option<&'a str>,
 }
 
 /// Model families (after `model_key`, with the major version) that take the
@@ -770,7 +773,10 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         Some(projection) => Some(projection.initial_effort.as_str()),
         None => request.options.effort.as_deref(),
     };
-    let reasoning = reasoning(cfg, request, turn_effort, max_tokens)?;
+    let reasoning = match cfg.gateway_effort {
+        Some("none") => Reasoning::default(),
+        gateway => reasoning(cfg, request, gateway.or(turn_effort), max_tokens)?,
+    };
     let disable_parallel = parameters
         .and_then(|p| p.get("disableParallelToolUse"))
         .and_then(Value::as_bool)
