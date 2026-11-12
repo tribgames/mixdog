@@ -1,0 +1,80 @@
+{
+  "name": "read-ipynb",
+  "files": {
+    "nb.ipynb": "{\n \"cells\": [\n  {\n   \"cell_type\": \"markdown\",\n   \"metadata\": {},\n   \"source\": [\n    \"# Title\\n\",\n    \"Some *text*.\"\n   ]\n  },\n  {\n   \"cell_type\": \"code\",\n   \"execution_count\": 1,\n   \"metadata\": {},\n   \"source\": [\n    \"print(1)\"\n   ],\n   \"outputs\": [\n    {\n     \"output_type\": \"stream\",\n     \"name\": \"stdout\",\n     \"text\": [\n      \"1\\n\"\n     ]\n    }\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "empty.ipynb": "{\n \"cells\": [],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "UPPER.IPYNB": "{\n \"cells\": [\n  {\n   \"cell_type\": \"markdown\",\n   \"metadata\": {},\n   \"source\": [\n    \"upper\"\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}",
+    "a.txt": "alpha\n"
+  },
+  "calls": [
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb"
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb"
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "empty.ipynb"
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "UPPER.IPYNB"
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb",
+        "offset": 2
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nb.ipynb",
+        "full": true
+      },
+      "text": "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access",
+      "isError": true
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": [
+          "nb.ipynb",
+          "a.txt"
+        ]
+      },
+      "text": "read 2 (1 failed)\n\nnb.ipynb [error]\nError: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access\n\na.txt [ok]\n[lines 1-1]\nalpha",
+      "isError": false
+    },
+    {
+      "tool": "read",
+      "input": {
+        "file_path": "nope.ipynb"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat 'nope.ipynb' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>)",
+      "isError": false
+    }
+  ]
+}

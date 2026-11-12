@@ -13,7 +13,8 @@ use mixdog_core_config::config::ConfigLanes;
 type EnvCell = Arc<Mutex<HashMap<String, String>>>;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/desktop/settings/turn-auto-effort-twin.json")).unwrap()
+    let text = mixdog_testkit::fixture!("../../fixtures/desktop/settings/turn-auto-effort-twin.json");
+    serde_json::from_str(&text).unwrap()
 }
 
 /// A config over one file the test rewrites per case, and an environment it sets per case.
@@ -252,7 +253,7 @@ async fn turns_chunk(chunk: usize) {
     let doubles = Doubles::default();
     let auto = Arc::new(ConfigAutoEffort::new(rig.config.clone(), rig.env_reader()));
     let diagnostics = Arc::new(Diagnostics {
-        log: EffortDecisionLog::new(rig.env_reader(), rig.path.parent().unwrap().join("unused-plugin-data"), rig.durability),
+        log: EffortDecisionLog::new(rig.env_reader(), rig.path.parent().unwrap().join("unused-plugin-data"), rig.durability, mixdog_rt::testing::tokens().maintenance_io),
         warnings: Mutex::default(),
     });
     let clock_cell = Arc::new(Mutex::new(0_i64));
@@ -413,7 +414,7 @@ fn every_recorded_turn_has_its_chunk_test() {
 #[tokio::test]
 async fn the_destination_is_read_at_each_append_as_node_reads_it() {
     let rig = Rig::new().await;
-    let log = EffortDecisionLog::new(rig.env_reader(), rig.path.parent().unwrap().join("unused-plugin-data"), rig.durability);
+    let log = EffortDecisionLog::new(rig.env_reader(), rig.path.parent().unwrap().join("unused-plugin-data"), rig.durability, mixdog_rt::testing::tokens().maintenance_io);
     for (index, case) in twin()["appends"].as_array().unwrap().iter().enumerate() {
         let root = tempfile::tempdir().unwrap();
         let mut want = std::collections::BTreeMap::<String, String>::new();
@@ -435,5 +436,40 @@ async fn the_destination_is_read_at_each_append_as_node_reads_it() {
             let got = fixture_fs::read_to_string(root.path().join(rel)).ok();
             assert_eq!(got.as_deref(), bytes.as_str(), "{rel} of append sequence {index}");
         }
+    }
+}
+
+/// The decision log against Node's `decision-log.mjs` (`fixtures/effort-decision-log`): per scenario the
+/// files the log found, the entries recorded one by one with a small segment (each record's rotation
+/// finished before the next), and every file under the directory afterwards, byte for byte. The data
+/// directory's log keeps two segments and counts older lines into the summary; a log redirected by
+/// `MIXDOG_EFFORT_DECISIONS_LOG` stays one plain file past the segment.
+#[tokio::test]
+async fn the_decision_log_keeps_two_segments_and_counts_older_lines_as_node_does() {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let golden: Value = serde_json::from_str(&mixdog_testkit::fixture!("../../fixtures/effort-decision-log/golden.json")).unwrap();
+    let rig = Rig::new().await;
+    let scenarios = golden["scenarios"].as_array().unwrap();
+    assert!(!scenarios.is_empty());
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        for (rel, bytes) in scenario["before"].as_object().unwrap() {
+            fixture_fs::write_unsynced(root.path().join(rel), b64.decode(bytes.as_str().unwrap()).unwrap());
+        }
+        *rig.env.lock().unwrap() = log_env(scenario["log"].as_str().unwrap(), root.path()).into_iter().map(|(k, v)| (k, v.as_str().unwrap().to_owned())).collect();
+        let log = EffortDecisionLog::new(rig.env_reader(), root.path().join("unused-plugin-data"), rig.durability, mixdog_rt::testing::tokens().maintenance_io)
+            .with_segment_bytes(scenario["segmentBytes"].as_u64().unwrap());
+        for line in scenario["entries"].as_array().unwrap() {
+            log.record(serde_json::from_str(line.as_str().unwrap()).unwrap());
+            log.appended().await;
+        }
+        let want: std::collections::BTreeMap<String, Vec<u8>> =
+            scenario["after"].as_object().unwrap().iter().map(|(rel, bytes)| (rel.clone(), b64.decode(bytes.as_str().unwrap()).unwrap())).collect();
+        let got = fixture_fs::files_under(root.path());
+        let text = |files: &std::collections::BTreeMap<String, Vec<u8>>| files.iter().map(|(rel, bytes)| (rel.clone(), String::from_utf8_lossy(bytes).into_owned())).collect::<Vec<_>>();
+        assert_eq!(text(&got), text(&want), "files of scenario {name}");
+        assert_eq!(got, want, "bytes of scenario {name}");
     }
 }

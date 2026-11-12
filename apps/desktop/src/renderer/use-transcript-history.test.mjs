@@ -83,6 +83,28 @@ test('tail windows page older history from transcriptHasOlder, one page per publ
   }
 });
 
+test('a window grown for rows held at an earlier request asks for those rows plus a page, not for the rows held now', async () => {
+  const env = installHistoryDom();
+  const { requests } = env;
+  const root = createRoot(document.getElementById('root'));
+  let grow;
+  const Reader = ({ count }) => {
+    grow = useTranscriptHistory('a', count, true);
+    return React.createElement('button', { type: 'button', onClick: grow }, 'Earlier');
+  };
+  try {
+    // The rows moved to 31 while a page asked at 32 was on its way: the window read again is the 32 plus a page.
+    await act(async () => root.render(React.createElement(Reader, { count: 31 })));
+    await act(async () => grow(32));
+    assert.deepEqual(
+      requests.map(({ limit }) => limit),
+      [96]
+    );
+  } finally {
+    await restoreHistoryDom(env, root);
+  }
+});
+
 test('a window the host restarted from a shorter tail pages again, with no item ceiling', async () => {
   const env = installHistoryDom();
   const { requests } = env;

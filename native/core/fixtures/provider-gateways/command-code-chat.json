@@ -1,0 +1,108 @@
+{
+  "id": "command-code-chat",
+  "provider": "command-code-oauth",
+  "config": {
+    "enabled": true,
+    "preconnect": false
+  },
+  "listing": [
+    {
+      "method": "GET",
+      "origin": "https://api.commandcode.ai",
+      "path": "/provider/v1/models",
+      "headers": {
+        "host": "api.commandcode.ai",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "authorization": "Bearer cc-fixture",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate"
+      },
+      "body": "",
+      "answer": {
+        "status": 200,
+        "body": "{\"data\":[{\"id\":\"claude-sonnet-4-6\",\"supported_endpoints\":[\"/v1/messages\"]},{\"id\":\"gpt-5.5\",\"supported_endpoints\":[\"/v1/chat/completions\",\"/v1/responses\"]},{\"id\":\"deepseek/deepseek-v4-flash\"}]}"
+      }
+    }
+  ],
+  "sends": [
+    {
+      "model": "deepseek/deepseek-v4-flash",
+      "tools": [],
+      "history": [],
+      "opts": {},
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.commandcode.ai",
+          "path": "/provider/v1/chat/completions",
+          "headers": {
+            "host": "api.commandcode.ai",
+            "connection": "keep-alive",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer cc-fixture",
+            "accept": "application/json",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "212"
+          },
+          "body": "{\"model\":\"deepseek/deepseek-v4-flash\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    }
+  ]
+}

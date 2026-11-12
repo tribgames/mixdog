@@ -1,0 +1,310 @@
+{
+  "scenario": "loaded-reset-refresh-in-io-read-after-answer",
+  "listFirst": true,
+  "calls": [
+    "create",
+    "update",
+    "reset",
+    "forget-member",
+    "remove"
+  ],
+  "resetRead": "after-answer",
+  "resetRefresh": "in-io",
+  "taskWorkspace": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
+  "room": {
+    "sessionId": "sess_room_mq3i4vkg00000004",
+    "roomId": "mq3i4vkg00000004"
+  },
+  "steps": [
+    {
+      "step": "list",
+      "listingFails": false,
+      "loadedAfter": true,
+      "sessions": [],
+      "events": []
+    },
+    {
+      "step": "create",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "room-rename",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000004",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
+              "messageCount": 0,
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg00000004",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mq3i4vkg00000004",
+            "roomId": "mq3i4vkg00000004"
+          }
+        }
+      ]
+    },
+    {
+      "step": "update",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "room-rename",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000004",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
+              "messageCount": 0,
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg00000004",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mq3i4vkg00000004",
+            "name": "Room Renamed",
+            "members": [
+              "alpha",
+              "beta",
+              "gamma"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta",
+              "gamma": "Gamma"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "step": "reset",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000004",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1780819752000,
+              "activityAt": 1780819752000,
+              "messageCount": 0,
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg00000004",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "archivedSessionId": null
+          }
+        },
+        {
+          "kind": "published",
+          "origin": "listing",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000004",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1780819752000,
+              "activityAt": 1780819752000,
+              "messageCount": 0,
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "incomingTail": [],
+              "compactCount": 0,
+              "agentRoom": {
+                "id": "mq3i4vkg00000004",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": "forget-member",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000004",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1780819752000,
+              "activityAt": 1780819752000,
+              "messageCount": 0,
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "incomingTail": [],
+              "compactCount": 0,
+              "agentRoom": {
+                "id": "mq3i4vkg00000004",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": null
+        }
+      ]
+    },
+    {
+      "step": "remove",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "listing",
+          "sessions": []
+        },
+        {
+          "kind": "answered",
+          "value": null
+        }
+      ]
+    }
+  ]
+}

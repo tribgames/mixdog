@@ -286,6 +286,15 @@ impl Phone {
         }
     }
 
+    /// The next application text frame the PC sent, opened, with its relay envelope's `droppable` (`Value::Null` when it has none).
+    pub async fn recv_with_droppable(&mut self) -> (String, Value) {
+        let id = self.peer.id.clone();
+        let frame = self.peer.inbox.lock().await.take(move |f| matches!(f["type"].as_str(), Some("frame" | "close-client")) && f["clientId"] == id.as_str()).await;
+        assert_eq!(frame["type"], "frame", "the PC closed the phone: {frame}");
+        let text = String::from_utf8(self.channel.open(Wire::Text(frame["data"].as_str().unwrap())).unwrap()).unwrap();
+        (text, frame["droppable"].clone())
+    }
+
     /// The reason the PC closed this phone, after any application frames it still had for it.
     pub async fn closed(&mut self) -> String {
         loop {

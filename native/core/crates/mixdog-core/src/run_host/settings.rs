@@ -191,6 +191,7 @@ mod tests {
     }
     #[async_trait::async_trait]
     impl ProviderAdapter for NullProvider {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &mixdog_protocol::ProviderId {
             &self.id
         }

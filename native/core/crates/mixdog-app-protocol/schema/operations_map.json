@@ -1760,8 +1760,11 @@
       "list": "services",
       "name": "submitToSession",
       "target": {
-        "kind": "method",
-        "target": "turn/start"
+        "kind": "methods",
+        "target": [
+          "turn/start",
+          "room/send"
+        ]
       }
     },
     {
@@ -2226,8 +2229,11 @@
       "list": "remote",
       "name": "submitToSession",
       "target": {
-        "kind": "method",
-        "target": "turn/start"
+        "kind": "methods",
+        "target": [
+          "turn/start",
+          "room/send"
+        ]
       }
     },
     {
@@ -2913,8 +2919,12 @@
       "list": "remote",
       "name": "readLocalFile",
       "target": {
-        "kind": "method",
-        "target": "projectFs/readLocal"
+        "kind": "methods",
+        "target": [
+          "projectFs/readLocal",
+          "transfer/readRange",
+          "transfer/endRead"
+        ]
       }
     },
     {

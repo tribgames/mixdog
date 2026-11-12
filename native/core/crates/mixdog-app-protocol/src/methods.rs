@@ -1183,6 +1183,16 @@ crate::client_request_definitions! {
         mutation: op(Room),
         origins: [Local, Ssh, Relay],
     },
+    /// Today's `submitToSession` on a room log (`session-host.ts:1089-1091` → `agentRooms.send`): a user's message posted
+    /// into the room and routed to its members; the reply is `true`.
+    RoomSend => "room/send" {
+        params: RoomSendParams,
+        result: JsonValue,
+        scope: global("room"),
+        class: C2,
+        mutation: op(Room),
+        origins: [Local, Ssh, Relay],
+    },
     /// Today's `agentRoomAction('reset', …)`: the room's log starts over, its members' sessions are emptied.
     RoomReset => "room/reset" {
         params: RoomResetParams,

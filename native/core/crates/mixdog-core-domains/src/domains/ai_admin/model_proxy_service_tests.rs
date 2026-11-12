@@ -127,6 +127,55 @@ async fn a_run_streams_its_events_to_the_asking_connection_and_answers() {
     }
 }
 
+const TRUST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-host-trust-cases/golden.json");
+
+fn recorded_payloads() -> serde_json::Map<String, Value> {
+    let golden: Value = serde_json::from_str(&TRUST).unwrap();
+    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == "the size of a payload is the length of the string the server claimed").expect("the payload sizes are recorded");
+    case["observed"]["payloads"].as_object().unwrap().clone()
+}
+
+/// Node sizes the claimed string as `payload.length` (`admitPayload`); the service sizes the claimed call as that string would
+/// be: for every recorded payload (plain text, escapes, non-BMP characters, number forms down to 5e-324 and up to 1.8e308) the
+/// length Node measured is the one counted from the value the text reads as.
+#[test]
+fn a_claimed_call_is_as_long_as_the_string_node_measured() {
+    let payloads = recorded_payloads();
+    assert!(payloads.len() >= 5);
+    for (name, payload) in &payloads {
+        let claimed: Value = serde_json::from_str(payload["text"].as_str().unwrap()).unwrap();
+        assert_eq!(claimed_chars(&claimed), payload["length"].as_u64().unwrap() as usize, "{name}: Node wrote {}", payload["text"]);
+    }
+}
+
+/// The bound falls where Node's does, and the refusal is Node's: a call is served at its own length and refused as too large one
+/// below (the recorded `refusedOneBelow`), by the length of the call as claimed.
+#[tokio::test]
+async fn a_call_is_served_at_its_claimed_length_and_refused_one_below() {
+    let node = recorded_payloads()["ascii"]["refusedOneBelow"]["resolveArgs"][3].as_str().map(|text| serde_json::from_str::<Value>(text).unwrap()).unwrap();
+    let request = run("mock", 7);
+    let length = claimed_chars(&request.params["call"]);
+    let (served, _) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let Reply::Value(answer) = served.with_request_bound(length).call(request.clone()).await.unwrap() else { panic!("not a value") };
+    assert_eq!(answer["result"]["result"], json!("sent"));
+    let (refused, _) = service(Vec::new()).await;
+    let Reply::Value(answer) = refused.with_request_bound(length - 1).call(request).await.unwrap() else { panic!("not a value") };
+    let failure = &answer["result"]["failure"];
+    assert_eq!((answer["result"]["result"].as_str(), failure["code"].as_str(), failure["status"].as_u64(), failure["message"].as_str()), (Some("failed"), node["props"]["code"].as_str(), node["props"]["status"].as_u64(), node["message"].as_str()));
+}
+
+/// The size is the claimed call's, not that of the typed call it decodes to: a field the type does not read still counts.
+#[tokio::test]
+async fn what_the_type_does_not_read_still_counts_toward_the_bound() {
+    let (service, _) = service(Vec::new()).await;
+    let service = service.with_request_bound(100);
+    let mut call = CoreRequest { method: Method(RUN), params: json!({ "runId": "r1", "call": { "method": "providerConfig" }, "allowedProviders": null }), op: None, ctx: mixdog_core_api::CallContext::connection(ConnectionId(7), Origin::Local, CancellationToken::new()) };
+    assert_eq!(claimed_chars(&call.params["call"]), 27, "the typed call alone would be admitted");
+    call.params["call"]["unread"] = json!("x".repeat(200));
+    let Reply::Value(answer) = service.call(call).await.unwrap() else { panic!("not a value") };
+    assert_eq!(answer["result"]["failure"]["code"], json!("MODEL_PROXY_REQUEST_TOO_LARGE"));
+}
+
 #[tokio::test]
 async fn a_failed_run_is_a_result_and_a_run_needs_a_connection() {
     let (service, _) = service(Vec::new()).await;

@@ -1,0 +1,96 @@
+{
+  "cases": 1,
+  "command": "node benchmarks/rust-core/recorders/record-message-attachments-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "runs": "attachments/store.mjs materializePromptSubmission and attachmentsForIntake; shared/transcript-metadata.mjs persistedUserTranscriptMetadata and normalizeMessageAttachments; transcript-restore/restore.mjs restoreTranscriptItems"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7827,
+      "path": "golden.json",
+      "sha256": "95f8395e5a823d659074fda9c8a908e9f72615842ec0013fbe476053d41a7b72"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "5eec3d45f5ed1676b4ca430e0a0b1ee2060cc7d8fb5140664e27057b07eb7589"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-message-attachments-cases.mjs",
+  "recorderSha256": "b21d2276f94346e49f095a85684977bb93e09de5f5ae08baa01b0cdd566f2046",
+  "replay": {
+    "compare": "normalize_attachments over the recorded list with the malformed entries, and the stored-message restore of a user row with and without meta.transcript.attachments; compare the attachment list and its presence",
+    "entry": "Drive these public items on o1: mixdog-core-session/src/session/transcript_rows.rs:117 normalize_attachments; mixdog-core-session/src/session/transcript_rows.rs:925 restore.",
+    "existsButNotPublicOnO1": [
+      "the persisted metadata writer and the submission intake (store.mjs) are not part of this replay: the recording gives the attachment list the intake produced, the replay starts from it"
+    ],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 117,
+        "name": "normalize_attachments",
+        "path": "native/core/crates/mixdog-core-session/src/session/transcript_rows.rs"
+      },
+      {
+        "line": 925,
+        "name": "restore",
+        "path": "native/core/crates/mixdog-core-session/src/session/transcript_rows.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "message-attachments-cases",
+  "totalBytes": 7827,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

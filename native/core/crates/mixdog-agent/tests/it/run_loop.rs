@@ -77,6 +77,13 @@ enum Step {
     Event(StreamEvent),
     Fail(ProviderError),
     Hang,
+    /// The stream goes on once the count reaches the number: a response still streaming while the calls it handed over run.
+    Until(tokio::sync::watch::Receiver<usize>, usize, &'static str),
+    /// The response is still waiting for the wire until the future ends.
+    Wire(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>, &'static str),
+    /// The wire's terminal event is in (`ModelStream::on_wire_left`) and the stream works on the ledger's write until the
+    /// future ends.
+    Ledger(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>, &'static str),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -85,21 +92,43 @@ enum Attempt {
     Reject(ProviderError),
 }
 
-struct ScriptedStream(VecDeque<Step>);
+struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>);
 
 #[async_trait]
 impl ModelStream for ScriptedStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        match self.0.pop_front() {
-            None => None,
-            Some(Step::Event(event)) => Some(Ok(event)),
-            Some(Step::Fail(error)) => Some(Err(error)),
-            Some(Step::Hang) => std::future::pending().await,
+        loop {
+            return match self.0.pop_front() {
+                None => None,
+                Some(Step::Event(event)) => Some(Ok(event)),
+                Some(Step::Fail(error)) => Some(Err(error)),
+                Some(Step::Hang) => std::future::pending().await,
+                Some(Step::Until(mut count, at, what)) => {
+                    let reached = tokio::time::timeout(Duration::from_secs(30), count.wait_for(|n| *n >= at)).await;
+                    assert!(reached.is_ok(), "the stream waited 30 s for {what}");
+                    continue;
+                }
+                Some(Step::Wire(wait, what)) => {
+                    assert!(tokio::time::timeout(Duration::from_secs(30), wait).await.is_ok(), "the stream waited 30 s for {what}");
+                    continue;
+                }
+                Some(Step::Ledger(wait, what)) => {
+                    if let Some(left) = &self.1 {
+                        left();
+                    }
+                    assert!(tokio::time::timeout(Duration::from_secs(30), wait).await.is_ok(), "the ledger waited 30 s for {what}");
+                    continue;
+                }
+            };
         }
     }
 
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
+    }
+
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        self.1 = Some(left);
     }
 }
 
@@ -112,7 +141,18 @@ struct Scripted {
     requests: Mutex<Vec<Arc<ModelRequest>>>,
     /// Every `settle_send` the loop made, in order.
     settled: Mutex<Vec<(String, mixdog_core_api::domain::provider::SendEnd)>>,
+    /// The log each request is appended to as it arrives, where the sends of other senders (a summary route) are too.
+    order: Option<Arc<SendLog>>,
+    /// Every `release_send` the loop made (what its guard lets go with no runtime).
+    released: Mutex<Vec<String>>,
 }
+
+/// One send as it was received: whether it is a summary request, and its messages as (role, text).
+type Sent = (bool, Vec<(String, String)>);
+
+/// Every send of a scenario in the order it arrived, whoever sent it.
+#[derive(Default)]
+struct SendLog(Mutex<Vec<Sent>>);
 
 impl Scripted {
     fn new(script: Vec<Attempt>) -> Arc<Self> {
@@ -128,6 +168,8 @@ impl Scripted {
             script: Mutex::new(script.into()),
             requests: Mutex::new(Vec::new()),
             settled: Mutex::new(Vec::new()),
+            order: None,
+            released: Mutex::new(Vec::new()),
         })
     }
 
@@ -162,15 +204,22 @@ impl ProviderAdapter for Scripted {
         &self,
         request: Arc<ModelRequest>,
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if let Some(log) = &self.order {
+            let messages = request.messages.iter().map(|m| (wire_role(&AgentMessage::new(m.clone())).to_owned(), AgentMessage::new(m.clone()).text())).collect();
+            log.0.lock().unwrap().push((false, messages));
+        }
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
-            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into()))),
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None))),
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("provider script exhausted"),
         }
     }
     async fn settle_send(&self, group: &str, end: mixdog_core_api::domain::provider::SendEnd) {
         self.settled.lock().unwrap().push((group.to_owned(), end));
+    }
+    fn release_send(&self, group: &str) {
+        self.released.lock().unwrap().push(group.to_owned());
     }
 }
 
@@ -213,13 +262,25 @@ impl JitterSource for HalfJitter {
     }
 }
 
+/// Records each wait; with a hold, a wait ends only when the test lets it ([`HeldTimer`]).
 #[derive(Default)]
-struct RecordedWait(Mutex<Vec<Duration>>);
+struct RecordedWait(Mutex<Vec<Duration>>, Option<Arc<HeldTimer>>);
 #[async_trait]
 impl RetryWait for RecordedWait {
     async fn wait(&self, delay: Duration) {
         self.0.lock().unwrap().push(delay);
+        if let Some(held) = &self.1 {
+            held.waiting.notify_one();
+            held.elapse.notified().await;
+        }
     }
+}
+
+/// The host's timer under the test's hand: a wait announces itself and its time passes when the test says so.
+#[derive(Default)]
+struct HeldTimer {
+    waiting: tokio::sync::Notify,
+    elapse: tokio::sync::Notify,
 }
 
 #[derive(Default)]
@@ -254,12 +315,15 @@ impl SteerSource for Steer {
 struct Observer {
     events: Mutex<Vec<RunEvent>>,
     retract: Retracted,
+    /// Holds a permit once an early notice has arrived since the last wait.
+    early_arrived: tokio::sync::Notify,
 }
 impl Observer {
     fn new(retract: Retracted) -> Arc<Self> {
         Arc::new(Self {
             events: Mutex::new(Vec::new()),
             retract,
+            early_arrived: tokio::sync::Notify::new(),
         })
     }
     fn events(&self) -> Vec<RunEvent> {
@@ -268,7 +332,11 @@ impl Observer {
 }
 impl RunObserver for Observer {
     fn event(&self, event: RunEvent) {
+        let early = matches!(event, RunEvent::EarlyResult(_));
         self.events.lock().unwrap().push(event);
+        if early {
+            self.early_arrived.notify_one();
+        }
     }
     fn can_retract(&self) -> bool {
         true
@@ -444,6 +512,213 @@ async fn a_partial_result_is_never_admitted_to_the_cache() {
     }
 }
 
+/// `edit` of one file kept in memory, answering as the str-replace adapter does: a unique anchor is replaced, one found more than
+/// once is refused as ambiguous unless the call says how many remain (`editOccurrence`), when the first is taken. It counts the
+/// runs that ended.
+struct AnchoredFile {
+    spec: ToolSpec,
+    text: Mutex<String>,
+    runs: Mutex<Vec<(String, Option<u32>)>>,
+    ended: tokio::sync::watch::Sender<usize>,
+}
+
+impl AnchoredFile {
+    fn new(text: &str) -> Arc<Self> {
+        let spec = ToolSpec {
+            name: "edit".into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: "edit".into(),
+            input_schema: json!({"type": "object"}),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        Arc::new(Self { spec, text: Mutex::new(text.into()), runs: Mutex::default(), ended: tokio::sync::watch::Sender::new(0) })
+    }
+}
+
+#[async_trait]
+impl Tool for AnchoredFile {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let (old, new) = (args["old_string"].as_str().unwrap(), args["new_string"].as_str().unwrap());
+        let expected = ctx.options.edit_occurrence.map(|o| o.expected);
+        self.runs.lock().unwrap().push((ctx.call_id.as_str().to_owned(), expected));
+        let outcome = {
+            let mut text = self.text.lock().unwrap();
+            let found = text.matches(old).count() as u32;
+            if found == 1 || (found >= 2 && expected == Some(found)) {
+                *text = text.replacen(old, new, 1);
+                Ok(ToolOutput { parts: vec![ToolPart::Text("Updated a.txt (1 replacement)".into())], ..ToolOutput::default() })
+            } else if found == 0 {
+                Err(ToolError::new(ToolErrorCode::NotFound { target: old.into() }, "Error: old_string not found"))
+            } else {
+                Err(ToolError::new(ToolErrorCode::Conflict { matches: found }, format!("Error: edit failed (old_string found {found} times)")))
+            }
+        };
+        self.ended.send_modify(|n| *n += 1);
+        outcome
+    }
+}
+
+/// `createEagerBarriers` (`eager-dispatch/barriers.mjs:81,96`) lets a same-file edit go when the edit before it settles, an
+/// ambiguous one included; its batch-group retry (`retryAmbiguousEdit`) comes when the batch reaches it, here after the response
+/// ended, so the edit behind it has already run against the file as the first run left it.
+#[tokio::test]
+async fn an_edit_behind_an_ambiguous_streamed_edit_runs_before_the_group_retry() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "a.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(file.ended.subscribe(), 2, "both streamed edits to end"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// Releases the held edits, then ends once `id` reached the settle gate.
+fn release_until_at_gate(hold: &Arc<mixdog_agent::test_hooks::EditHold>, id: &'static str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    let (hold, mut at) = (Arc::clone(hold), hold.at_gate());
+    Box::pin(async move {
+        hold.release();
+        let _ = at.wait_for(|seen| seen.iter().any(|(seen, _)| seen == id)).await;
+    })
+}
+
+/// One `next` waits on the wire, then the response's end arrives and the same `next` goes on to the ledger's write of the
+/// completed row (`agent-trace-run` scenario 2): an ambiguous streamed edit settling during the write finds the gate the
+/// wire wait opened closed, so it is acted on once the batch is at it and its group retry runs before the edit behind it.
+#[tokio::test]
+async fn an_ambiguous_edit_settling_in_the_ledger_write_after_a_wait_on_the_wire_finds_the_batch_at_it() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let hold = Arc::new(mixdog_agent::test_hooks::hold_edits("ledger-phase.txt", &["x1"]));
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "ledger-phase.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(hold.parked(), 1, "x1 parked before its run"),
+            Step::Ledger(release_until_at_gate(&hold, "x1"), "x1 at the settle gate"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(hold.at_gate().borrow().first().cloned(), Some(("x1".to_owned(), false)));
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// The same `next`, with the settlement while it still waits on the wire: the gate is open, the edit behind goes first and
+/// the group retry runs after it, as in Node.
+#[tokio::test]
+async fn an_ambiguous_edit_settling_in_the_wire_wait_before_the_ledger_write_lets_the_edit_behind_it_go() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let hold = Arc::new(mixdog_agent::test_hooks::hold_edits("wire-phase.txt", &["x1"]));
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "wire-phase.txt", "old_string": "same", "new_string": new }));
+    let ended = file.ended.subscribe();
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(hold.parked(), 1, "x1 parked before its run"),
+            Step::Wire(release_until_at_gate(&hold, "x1"), "x1 at the settle gate"),
+            Step::Until(ended, 2, "x2's run to end"),
+            Step::Ledger(Box::pin(async {}), "nothing"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(hold.at_gate().borrow().first().cloned(), Some(("x1".to_owned(), true)));
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// Releases the held edits once the group retry either queued behind a place still held or ran (`ended` runs ended): the
+/// retry that a free file lets through first runs before the held edits, the one queued behind them after.
+async fn release_after_the_retry(hold: &mixdog_agent::test_hooks::EditHold, file: &AnchoredFile, ended: usize) {
+    let (mut waiting, mut runs) = (hold.retries_waiting(), file.ended.subscribe());
+    tokio::select! {
+        _ = waiting.wait_for(|ids| !ids.is_empty()) => {}
+        _ = runs.wait_for(|n| *n >= ended) => {}
+    }
+    hold.release();
+}
+
+/// Runs `run` while `release` frees the held edits; one deadline for both.
+async fn finish_with(run: Run, release: impl std::future::Future<Output = ()>) {
+    let both = async { tokio::join!(finish(run), release) };
+    assert!(tokio::time::timeout(Duration::from_secs(30), both).await.is_ok(), "the run did not end within 30 s");
+}
+
+/// The edit an ambiguous streamed edit's settlement lets go holds its place at the file from that settlement on (Node's
+/// single thread runs it before anything else reaches the file): parked before its first poll while the response completes
+/// and the batch reaches the group retry, it still runs before the retry.
+#[tokio::test]
+async fn an_edit_let_go_by_a_settlement_runs_before_a_retry_the_batch_reaches_while_it_is_parked() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let hold = mixdog_agent::test_hooks::hold_edits("gate-one.txt", &["x2"]);
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "gate-one.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![edit("x1", "one"), edit("x2", "two"), Step::Until(hold.parked(), 1, "x2 parked before its run"), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish_with(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")]), release_after_the_retry(&hold, &file, 2)).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// Two edits behind an ambiguous one: the second is let go by the first's settlement, the third by the second's, so a retry
+/// the batch reaches between the two settlements queues behind the second and ahead of the third, as in Node.
+#[tokio::test]
+async fn a_retry_reached_between_two_settlements_runs_between_the_edits_they_let_go() {
+    let file = AnchoredFile::new("same\nsame\nsame\n");
+    let hold = mixdog_agent::test_hooks::hold_edits("gate-two.txt", &["x2"]);
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "gate-two.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            edit("x3", "three"),
+            Step::Until(hold.parked(), 1, "x2 parked before its run"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish_with(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")]), release_after_the_retry(&hold, &file, 2)).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![
+        ("x1".into(), None),
+        ("x2".into(), None),
+        ("x1".into(), Some(3)),
+        ("x3".into(), None),
+        ("x2".into(), Some(2)),
+        ("x3".into(), None),
+    ];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\nthree\n");
+}
+
 /// `echo` whose result carries the given `meta`, as `apply_patch` carries `uiDiff`.
 struct WithMeta(JsonValue);
 #[async_trait]
@@ -542,7 +817,7 @@ impl Tool for Loader {
 /// both (`fixtures/native-tool-search/golden.json`, the recorded Node results).
 #[tokio::test]
 async fn a_loading_tools_native_search_payload_rides_its_message_to_the_next_request() {
-    let golden: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/native-tool-search/golden.json")).unwrap();
+    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/native-tool-search/golden.json")).unwrap();
     let mut ran = 0;
     for case in golden["parse"].as_array().unwrap().iter().filter(|case| case["toolName"] != "read") {
         let mut spec = Echo::tool().spec().clone();
@@ -615,6 +890,8 @@ struct Harness {
     approvals: Arc<MockApprovalGate>,
     gate: Arc<dyn ToolGate>,
     compactor: Option<Arc<Compactor100>>,
+    /// The product's own compactor, where a test compacts for real instead of through `Compactor100`.
+    real_compactor: Option<Arc<dyn Compactor>>,
     tail: Option<Arc<dyn TailReminder>>,
     side: Option<Arc<dyn mixdog_agent::env::SendTap>>,
     reuse: Option<Arc<dyn ResultReuse>>,
@@ -624,6 +901,10 @@ struct Harness {
     artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
+    /// A working directory and the file service holding it, where a test runs a real file tool over files.
+    sandbox: Option<(mixdog_core_api::domain::common::AbsPath, Arc<MockFileService>)>,
+    /// A real adapter and the decider that judges its failures, in place of the scripted provider.
+    real: Option<(Arc<dyn ProviderAdapter>, Arc<dyn mixdog_core_api::domain::retry::RetryDecider>)>,
 }
 
 /// The calls the loop reported to the host's failure log.
@@ -651,6 +932,7 @@ impl Harness {
             approvals: Arc::new(MockApprovalGate::default()),
             gate: Arc::new(AllowAll),
             compactor: None,
+            real_compactor: None,
             tail: None,
             side: None,
             reuse: None,
@@ -660,7 +942,13 @@ impl Harness {
             artifacts: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
+            sandbox: None,
+            real: None,
         }
+    }
+
+    fn with_adapter(provider: Arc<dyn ProviderAdapter>) -> Self {
+        Self { real: Some((provider, Arc::new(mixdog_ai::retry::StandardRetryDecider))), ..Self::new(Vec::new()) }
     }
 
     fn with_policy(script: Vec<Attempt>, policy: RetryPolicy) -> Self {
@@ -682,13 +970,13 @@ impl Harness {
             clock: self.clock.clone(),
             jitter: Arc::new(HalfJitter),
             waiter: self.waiter.clone(),
-            decider: Arc::new(MockRetryDecider),
+            decider: self.real.as_ref().map_or_else(|| Arc::new(MockRetryDecider) as Arc<dyn mixdog_core_api::domain::retry::RetryDecider>, |(_, decider)| decider.clone()),
             steer: self.steer.clone(),
             observer: self.observer.clone(),
             sink: self.sink.clone(),
             gate: Arc::clone(&self.gate),
             guards: Arc::new(NoGuards),
-            compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>),
+            compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>).or_else(|| self.real_compactor.clone()),
             route: self.route.clone(),
             skills: None,
             hooks: None,
@@ -709,7 +997,7 @@ impl Harness {
         ToolEnv {
             thread_id: ThreadId::from("t"),
             turn_id: TurnId::from("r"),
-            cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(),
+            cwd: self.sandbox.as_ref().map_or_else(|| mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(), |(cwd, _)| cwd.clone()),
             surface: SurfaceKind::Lead,
             io: ToolIo {
                 interactive: tokens.interactive_io,
@@ -717,7 +1005,7 @@ impl Harness {
                 maintenance: tokens.maintenance_io,
             },
             approvals: self.approvals.clone(),
-            files: Arc::new(MockFileService::default()),
+            files: self.sandbox.as_ref().map_or_else(|| Arc::new(MockFileService::default()), |(_, files)| files.clone()),
             processes: Arc::new(MockProcessManager::default()),
             progress: Arc::new(MockProgress::default()),
             deadline_of: None,
@@ -738,7 +1026,7 @@ impl Harness {
         Run::new(
             env,
             self.cancel.clone(),
-            self.provider.clone(),
+            self.real.as_ref().map_or_else(|| self.provider.clone() as Arc<dyn ProviderAdapter>, |(provider, _)| provider.clone()),
             ToolSet::with_builtins(tools, builtins),
             tool_env,
             config,
@@ -903,25 +1191,22 @@ async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
                 turn(steps)
             }
         }]);
-        let begun = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut config = config();
-        let counter = begun.clone();
-        config.request_begin = Some(Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }));
-        let ended = h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
-        // `onProviderSendStarted` is the request hook, which runs before the request's first event.
-        let mut stream: Vec<JsonValue> = (0..begun.load(Ordering::SeqCst)).map(|_| json!(["onProviderSendStarted"])).collect();
+        let ended = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
+        let mut stream: Vec<JsonValue> = Vec::new();
         for event in h.observer.events() {
             stream.extend(callbacks_of(event));
         }
-        // Two events of the loop's own have no Node callback: `Stage(Streaming)` when the stream opens and the send's
-        // `Usage` when it ends (Node's loop keeps its usage in the result and makes no `onUsage` call; the recording
-        // shows neither). They are part of the compared stream at their place, so any other event, or either one
-        // anywhere else, is a difference.
+        // Events of the loop's own with no callback in this recording: the two `Stage(Requesting)` of the send (Node's
+        // admission scheduler and provider adapter raise them, and the recording's scripted `send` is neither),
+        // `Stage(Streaming)` when the stream opens, and the send's `Usage` when it ends (Node's loop keeps its usage in the
+        // result and makes no `onUsage` call). They are part of the compared stream at their place, so any other event,
+        // or one of them anywhere else, is a difference.
         let mut node: Vec<JsonValue> = scenario["observed"].as_array().expect("observed").clone();
+        for _ in 0..2 {
+            node.insert(1, json!(["no Node callback", "Stage(Requesting)"]));
+        }
         if scenario["outcome"]["content"].is_string() {
-            node.insert(1, json!(["no Node callback", "Stage(Streaming)"]));
+            node.insert(3, json!(["no Node callback", "Stage(Streaming)"]));
             node.push(json!(["no Node callback", "Usage"]));
         }
         if JsonValue::Array(stream.clone()) != JsonValue::Array(node.clone()) {
@@ -941,6 +1226,7 @@ fn callbacks_of(event: RunEvent) -> Vec<JsonValue> {
         RunEvent::TextDelta(text) => vec![json!(["onStreamDelta", "text"]), json!(["onTextDelta", text])],
         RunEvent::Stage(Stage::Notice { message, tone }) => vec![json!(["onStageChange", "notice", { "tone": tone.as_str(), "message": message }])],
         RunEvent::Usage { .. } => vec![json!(["no Node callback", "Usage"])],
+        RunEvent::ProviderSendStarted => vec![json!(["onProviderSendStarted"])],
         other => vec![json!(["no Node callback", format!("{other:?}")])],
     }
 }
@@ -1174,6 +1460,142 @@ async fn repeated_cuts_after_the_headers_spend_one_provider_ladder_and_are_not_r
     let (stages, replays) = replay_connect_case("cutRole", true).await;
     assert_eq!((stages.len(), replays), (0, 0));
 }
+/// The handshake headers the WebSocket client library adds below the dial; every other header is the product's.
+const LIBRARY_HEADERS: [&str; 6] = ["sec-websocket-version", "sec-websocket-key", "sec-websocket-extensions", "connection", "upgrade", "host"];
+
+/// An upgrade request as the comparison reads it: header names lower-cased, the library's headers left out, the
+/// per-request random id (the recording holds the marker `<random:hex32>`) required to be 32 hex digits.
+fn upgrade(method: &str, target: &str, headers: Vec<(String, String)>) -> JsonValue {
+    let headers: Vec<JsonValue> = headers
+        .into_iter()
+        .map(|(name, value)| (name.to_lowercase(), value))
+        .filter(|(name, _)| !LIBRARY_HEADERS.contains(&name.as_str()))
+        .map(|(name, value)| {
+            if name == "x-client-request-id" && value != "<random:hex32>" {
+                assert!(value.len() == 32 && value.bytes().all(|b| b.is_ascii_hexdigit()), "the request id is 32 hex digits");
+                return json!([name, "<random:hex32>"]);
+            }
+            json!([name, value])
+        })
+        .collect();
+    json!({"upgrade": {"method": method, "target": target, "headers": headers}})
+}
+
+fn wire_of(wire: &[mixdog_ai::providers::openai::scripted::Wire]) -> Vec<JsonValue> {
+    use mixdog_ai::providers::openai::scripted::Wire;
+    wire.iter()
+        .map(|w| match w {
+            Wire::Upgrade { method, target, headers } => upgrade(method, target, headers.clone()),
+            Wire::Frame(text) => json!({"frame": text}),
+        })
+        .collect()
+}
+
+/// What Node's server saw from the client: the upgrade requests and the request frames, in the order recorded.
+/// The other events (the server's answers, which the script feeds, and the socket and telemetry events) are the ones the
+/// manifest declares as not compared.
+fn node_wire(events: &[JsonValue]) -> Vec<JsonValue> {
+    let mut seen = Vec::new();
+    for e in events {
+        match (e["event"].as_str().unwrap(), e["dir"].as_str()) {
+            ("upgrade-request", _) => seen.push(upgrade(
+                e["method"].as_str().unwrap(),
+                e["target"].as_str().unwrap(),
+                e["headers"].as_array().unwrap().iter().map(|h| (h[0].as_str().unwrap().to_owned(), h[1].as_str().unwrap().to_owned())).collect(),
+            )),
+            ("frame", Some("client->server")) => seen.push(json!({"frame": e["text"]})),
+            _ => {}
+        }
+    }
+    seen
+}
+
+/// Node's recordings of a WebSocket outage (`provider-openai-ws-send-attempts`, the `outage` cases: handshake resets,
+/// stuck upgrades, refusals and stream drops in every order, each sent by the public OpenAI provider): the real OpenAI
+/// adapter over a scripted dial, driven by the real agent loop and retry decider, puts on the wire what Node's send did
+/// (every upgrade request and every request frame, whole and in the recorded order) and surfaces the error Node's send
+/// surfaced, worded as the user reads it. The server side of each recording is the script; the manifest declares what a
+/// replay leaves out.
+#[tokio::test(start_paused = true)]
+async fn an_outage_surfaces_the_error_nodes_websocket_send_surfaced() {
+    const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/provider-openai-ws-send-attempts/cases.json");
+    let recording: JsonValue = serde_json::from_str(&RECORDING).unwrap();
+    let mut replayed = 0;
+    for case in recording["cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let Some(attempts) = case["input"]["attempts"].as_array() else { continue };
+        let mut script = Vec::new();
+        for attempt in attempts {
+            match &attempt["upgrade"] {
+                JsonValue::String(kind) if kind == "reset" => script.push(mixdog_ai::providers::openai::scripted::Dialed::Reset),
+                JsonValue::String(_) => script.extend((0..5).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck)),
+                JsonValue::Object(refusal) => script.push(mixdog_ai::providers::openai::scripted::Dialed::Rejected {
+                    status: refusal["status"].as_u64().unwrap() as u16,
+                    body: refusal["body"].as_str().unwrap().to_owned(),
+                }),
+                _ => {
+                    let close = &attempt["close"];
+                    let (code, reason) = match close[0].as_u64() {
+                        Some(code) => (code as u16, close[1].as_str().unwrap().to_owned()),
+                        None => (1006, String::new()),
+                    };
+                    let frames = attempt["frames"].as_array().unwrap().iter().map(|frame| frame.to_string()).collect();
+                    script.push(mixdog_ai::providers::openai::scripted::Dialed::Socket { frames, close: (code, reason) });
+                }
+            }
+        }
+        // Past the recorded attempts every upgrade is left unanswered, as in the recording.
+        script.extend((0..40).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck));
+        let dial = mixdog_ai::providers::openai::scripted::ScriptedDial::with(script);
+        let h = Harness::with_adapter(mixdog_ai::providers::openai::scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, mixdog_ai::providers::openai::switch::TransportMode::WsDelta));
+        let request = &case["input"]["request"];
+        let model = request["model"].as_str().unwrap();
+        let message = request["messages"][0]["content"].as_str().unwrap();
+        let mut run_config = RunConfig::new(ThreadId::from("t"), TurnId::from("r"), model);
+        run_config.options.session_id = Some(case["input"]["sessionId"].as_str().unwrap().into());
+        let failure = h
+            .run(run_config, vec![], vec![AgentMessage::user(message)])
+            .run()
+            .await
+            .expect_err("the outage ends in a failure");
+        let AgentError::Provider(error) = failure.error else { panic!("{id}: a provider error") };
+
+        let node = &case["result"]["error"];
+        let events = case["result"]["events"].as_array().unwrap();
+        let node_message = node["message"].as_str().unwrap();
+        if node_message.starts_with("OpenAI OAuth WS closed before response.completed") {
+            assert_eq!(error.message, node_message, "{id}: the error that surfaced");
+        } else if node["code"] == "EWSACQUIRETIMEOUT" {
+            assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"), "{id}: the error that surfaced");
+        } else if node["code"] == "ECONNRESET" {
+            assert_eq!(error.transport, Some(TransportFault::Reset), "{id}: the error that surfaced");
+        } else {
+            assert_eq!(error.status.map(u64::from), node["props"]["httpStatus"].as_u64(), "{id}: the error that surfaced");
+        }
+        // The requests and frames in recorded order, compared whole.
+        let (sent, seen) = (wire_of(&dial.wire()), node_wire(events));
+        if sent != seen {
+            let at = sent.iter().zip(&seen).position(|(a, b)| a != b).unwrap_or(sent.len().min(seen.len()));
+            panic!(
+                "{id}: what reached the server differs at event {at} (the replay sent {}, Node's server saw {}):\n  replay: {:?}\n  node:   {:?}",
+                sent.len(),
+                seen.len(),
+                sent.get(at),
+                seen.get(at)
+            );
+        }
+        // What the user reads. Node's text is the same with the first failure's cause dropped, so the cause is no part of it.
+        let text = mixdog_ai::service::error_text::present_error_text(
+            &mixdog_ai::service::error_text::ErrorView::from(&*error),
+            &mixdog_ai::service::error_text::PresentOptions::default(),
+        );
+        assert_eq!(case["result"]["presented"], case["result"]["presentedWithoutCause"], "{id}: the cause changes nothing the user reads");
+        assert_eq!(text, case["result"]["presented"].as_str().unwrap(), "{id}: the text the user reads");
+        replayed += 1;
+    }
+    assert_eq!(replayed, 11, "every recorded outage");
+}
+
 #[tokio::test]
 async fn a_deterministic_refusal_surfaces_without_a_wait() {
     let h = Harness::new(vec![Attempt::Reject(ProviderError::new(
@@ -1280,6 +1702,37 @@ async fn identical_read_only_calls_in_one_turn_run_once() {
     assert_eq!(dumped[2], "tool#c1(Normal):echo:{\"p\":\"x\"}");
     assert!(dumped[3].starts_with("tool#c2(Skipped):[intra-turn-dedup] identical read-only `echo` call"));
     assert!(dumped[3].contains("tool_use_id=c1"));
+}
+
+/// Counts the new read epochs the loop announces to the tool-result cache (`resetReadStateAfterCompaction`).
+#[derive(Default)]
+struct Epochs(std::sync::atomic::AtomicUsize);
+#[async_trait]
+impl ResultReuse for Epochs {
+    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+        None
+    }
+    async fn store(&self, _call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {}
+    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+    fn after_compaction(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn a_compaction_that_replaces_the_transcript_starts_a_new_read_epoch_and_one_that_does_not_keeps_it() {
+    for (skip, epochs) in [(false, 1), (true, 0)] {
+        let reuse = Arc::new(Epochs::default());
+        let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        h.compactor = Some(Arc::new(Compactor100 { skip, ..Default::default() }));
+        h.reuse = Some(reuse.clone());
+        let mut cfg = config();
+        cfg.compact = Some(compact_settings());
+        let mut messages: Vec<AgentMessage> = (0..10).map(|i| AgentMessage::user(format!("m{i}"))).collect();
+        messages.push(AgentMessage::user("latest"));
+        finish(h.run(cfg, vec![], messages)).await;
+        assert_eq!(reuse.0.load(std::sync::atomic::Ordering::SeqCst), epochs, "skip = {skip}");
+    }
 }
 
 #[tokio::test]
@@ -1608,7 +2061,7 @@ async fn a_detached_eager_run_ends_with_the_turns_cancellation() {
     assert!(!released.load(Ordering::SeqCst), "not cancelled: it is left to finish, as in Node");
     h.cancel.cancel();
     while !released.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
     }
 }
 
@@ -2017,6 +2470,619 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
     assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::Image(_))));
 }
 
+/// The `traceCacheBreak` records the loop hands its host.
+#[derive(Default)]
+struct CacheBreaks(Mutex<Vec<serde_json::Map<String, JsonValue>>>);
+
+impl ToolFailureLog for CacheBreaks {
+    fn failed(&self, _call: FailedCall) {}
+
+    fn stall_abort(&self, _ctx: serde_json::Map<String, JsonValue>) {
+        panic!("the agent loop never records a watchdog stop");
+    }
+
+    fn cache_break(&self, record: serde_json::Map<String, JsonValue>) {
+        self.0.lock().unwrap().push(record);
+    }
+}
+
+/// `fixtures/cache-break` (record-cache-break.mjs): Node's loop over a provider that refuses the turn's image once and
+/// answers the replay traces one intentional `image_strip_nonpersistent_rebaseline` cache break; the loop's record makes
+/// the same trace line and stderr line, after the same requests.
+#[tokio::test]
+async fn an_image_strip_replay_traces_the_cache_break_node_traces() {
+    use mixdog_core_api::domain::provider::ContentPart;
+    use mixdog_core_api::domain::provider::ImageSource;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cache-break/golden.json");
+    let golden: JsonValue = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let node = &golden["loop"];
+    let mut h = Harness::new(Vec::new());
+    h.provider = Arc::new(Scripted {
+        id: ProviderId::from(node["provider"].as_str().unwrap()),
+        policy: RetryPolicy::codex_default(),
+        keepalive: KeepaliveSchedule::SPEC,
+        codec: MockCodec,
+        script: Mutex::new(vec![rejection(ErrorKind::ImageRejected, None), turn(vec![text("ok"), done(StopReason::EndTurn)])].into()),
+        requests: Mutex::new(Vec::new()),
+        settled: Mutex::new(Vec::new()),
+        order: None,
+        released: Mutex::new(Vec::new()),
+    });
+    let breaks = Arc::new(CacheBreaks::default());
+    h.failures = Some(breaks.clone());
+    let config = RunConfig::new(ThreadId::from(node["session"].as_str().unwrap()), TurnId::from("r"), node["model"].as_str().unwrap());
+    let system = AgentMessage::new(mixdog_core_api::domain::provider::Message::new(
+        mixdog_core_api::domain::provider::Role::System,
+        Content::Text("Stable instructions.".into()),
+    ));
+    let prompt = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("look".into(), None), ContentPart::Image(ImageSource::Url("u".into()))]));
+    finish(h.run(config, vec![], vec![system, prompt])).await;
+
+    let images = |request: &ModelRequest| {
+        request.messages.iter().map(|m| match &m.content {
+            Content::Parts(parts) => parts.iter().filter(|p| matches!(p, ContentPart::Image(_))).count(),
+            _ => 0,
+        }).sum::<usize>()
+    };
+    let requests: Vec<JsonValue> = h.provider.requests().iter().map(|r| json!({ "messages": r.messages.len(), "images": images(&**r) })).collect();
+    assert_eq!(JsonValue::Array(requests), node["requests"], "the refused send and its replay");
+    let records = breaks.0.lock().unwrap().clone();
+    let now = golden["now"].as_i64().unwrap();
+    let rows: Vec<String> = records
+        .iter()
+        .map(|record| mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))
+        .collect();
+    assert_eq!(json!(rows), node["rows"], "the trace rows");
+    let lines: Vec<String> = records.iter().map(mixdog_trace::cache_break_line).collect();
+    assert_eq!(json!(lines), node["stderr"], "the stderr lines");
+}
+
+fn cache_break_golden() -> JsonValue {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cache-break/golden.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// Each distinct digest named by its order of appearance: the core digests its own wire values, not Node's JSON, so a break
+/// is compared by which requests its digests name, not by their bytes.
+#[derive(Default)]
+struct Digests(Vec<String>);
+
+impl Digests {
+    fn label(&mut self, digest: &str) -> String {
+        let at = self.0.iter().position(|d| d == digest).unwrap_or_else(|| {
+            self.0.push(digest.to_owned());
+            self.0.len() - 1
+        });
+        format!("<digest {at}>")
+    }
+
+    /// A trace row with its payload's digests labelled.
+    fn row(&mut self, row: &str) -> String {
+        let mut row: JsonValue = serde_json::from_str(row).unwrap();
+        if let Some(payload) = row.get_mut("payload").and_then(JsonValue::as_object_mut) {
+            for key in ["previous_hash", "next_hash", "previous_request_prefix_hash", "next_request_prefix_hash"] {
+                if let Some(JsonValue::String(digest)) = payload.get(key).cloned() {
+                    payload.insert(key.into(), json!(self.label(&digest)));
+                }
+            }
+        }
+        serde_json::to_string(&row).unwrap()
+    }
+
+    /// A stderr line with its `previousHash`/`nextHash` labelled.
+    fn line(&mut self, line: &str) -> String {
+        let mut out = String::new();
+        let mut rest = line;
+        while let Some(at) = ["previousHash=\"", "nextHash=\""].iter().filter_map(|key| rest.find(key).map(|i| (i, key.len()))).min() {
+            let (start, len) = at;
+            out.push_str(&rest[..start + len]);
+            rest = &rest[start + len..];
+            let end = rest.find('"').unwrap();
+            out.push_str(&self.label(&rest[..end]));
+            rest = &rest[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+}
+
+/// `fixtures/cache-break` `turns` (record-cache-break.mjs): one Anthropic session through six turns of the loop, each answered
+/// with the recorded usage, its record carrying between turns what the host saves of the run's carry (and the send time the
+/// usage change saves): the usage-detected `actual_cache_miss`, the `model_changed` and `tool_schema_changed` request breaks
+/// and the `manual_compaction` break a compaction between turns tags are the rows and stderr lines Node traced, turn by turn.
+#[tokio::test]
+async fn a_sessions_turns_trace_the_cache_breaks_node_traces() {
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::Usage;
+    let golden = cache_break_golden();
+    let node = &golden["turns"];
+    let now = golden["now"].as_i64().unwrap();
+    let thread = node["session"].as_str().unwrap();
+    let assistant = |text: &str| AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into())));
+    let mut header = serde_json::Map::new();
+    header.insert("providerCacheOpts".into(), json!({ "cacheStrategy": node["cacheStrategy"] }));
+    let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(node["system"].as_str().unwrap().into())))];
+    let mut guard = None;
+    let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+    for step in node["steps"].as_array().unwrap() {
+        let name = step["name"].as_str().unwrap();
+        if step["compact"] == true {
+            // What the manual compaction left: a rewritten transcript, and the intent the host's assembly takes from the record.
+            messages.truncate(1);
+            messages.push(AgentMessage::user("Summary of the earlier turns."));
+            messages.push(assistant("Noted."));
+        }
+        messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
+        let usage = &step["usage"];
+        let count = |key: &str| usage[key].as_u64().unwrap();
+        let reported = Usage { input_tokens: count("inputTokens"), output_tokens: count("outputTokens"), cache_read_tokens: count("cachedTokens"), cache_write_tokens: count("cacheWriteTokens"), ..Default::default() };
+        let answer = step["answer"].as_str().unwrap();
+        let mut h = Harness::new(Vec::new());
+        h.provider = Arc::new(Scripted {
+            id: ProviderId::from(node["provider"].as_str().unwrap()),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
+            requests: Mutex::new(Vec::new()),
+            settled: Mutex::new(Vec::new()),
+            order: None,
+            released: Mutex::new(Vec::new()),
+        });
+        let breaks = Arc::new(CacheBreaks::default());
+        h.failures = Some(breaks.clone());
+        let mut config = RunConfig::new(ThreadId::from(thread), TurnId::from("r"), step["model"].as_str().unwrap());
+        if step["compact"] == true {
+            config.cache_break_intent = Some("manual_compaction".into());
+        }
+        let tools: Vec<Arc<dyn Tool>> = if step["tools"].as_array().unwrap().is_empty() { Vec::new() } else { vec![Echo::tool()] };
+        let names = tools.iter().map(|t| t.spec().name.clone()).collect();
+        let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
+        let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(tools, names), h.tool_env(), config, messages.clone(), carry);
+        let output = finish(run).await;
+        // The host saves the run's carry with the record; the usage change saves the send's time (`lastProviderSendAt`).
+        header.extend(output.carry.to_saved());
+        header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
+        guard = output.carry.prefix_guard.clone();
+        messages.push(assistant(answer));
+
+        let records = breaks.0.lock().unwrap().clone();
+        let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+        let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+        assert_eq!(rows, want, "{name}: the trace rows");
+        let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+        let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+        assert_eq!(lines, want, "{name}: the stderr lines");
+        assert_eq!(header.get("lastProviderCachedPrefixTokens").cloned().unwrap_or(JsonValue::Null), step["record"]["lastProviderCachedPrefixTokens"], "{name}: the record's cache read plus write");
+    }
+}
+
+/// `fixtures/cache-break` `routes` (record-cache-break.mjs): Node's loop over sessions whose turns change what the guard
+/// compares: a history that shrank and a prefix that was rewritten (each an unexpected break Node traces and then refuses
+/// with `ProviderPrefixMutationError`, before anything is sent), a session routed to another provider (`provider_changed`)
+/// and a native tool added (`native_tool_schema_changed`). Each step is a real turn of the loop over the transcript the step
+/// names, the session's guard carried from the last send that settled, as the loop keeps it: the rows, the stderr lines, what
+/// reached the provider and the refusal are Node's. `deferred_body_compaction` and `request_properties_changed` have no
+/// product path, and the compactions are not recorded through a real compaction; the manifest's `exclusions` name each.
+#[tokio::test]
+async fn real_turns_trace_and_refuse_the_breaks_node_does() {
+    use mixdog_core_api::domain::provider::HostedTool;
+    use mixdog_core_api::domain::provider::HostedWebSearch;
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::Usage;
+    let golden = cache_break_golden();
+    let now = golden["now"].as_i64().unwrap();
+    let mut refused = 0;
+    for scenario in golden["routes"].as_array().unwrap() {
+        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+        let mut guard = None;
+        for step in scenario["steps"].as_array().unwrap() {
+            let name = format!("{}: {}", scenario["name"].as_str().unwrap(), step["name"].as_str().unwrap());
+            let messages: Vec<AgentMessage> = step["convo"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    let text = row[1].as_str().unwrap();
+                    match row[0].as_str().unwrap() {
+                        "system" => AgentMessage::new(Message::new(Role::System, Content::Text(text.into()))),
+                        "assistant" => AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into()))),
+                        _ => AgentMessage::user(text),
+                    }
+                })
+                .collect();
+            let reported = Usage { input_tokens: 10, output_tokens: 2, ..Default::default() };
+            let mut h = Harness::new(Vec::new());
+            h.provider = Arc::new(Scripted {
+                id: ProviderId::from(step["provider"].as_str().unwrap()),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text("answer"), done(StopReason::EndTurn)])].into()),
+                requests: Mutex::new(Vec::new()),
+                settled: Mutex::new(Vec::new()),
+                order: None,
+                released: Mutex::new(Vec::new()),
+            });
+            let breaks = Arc::new(CacheBreaks::default());
+            h.failures = Some(breaks.clone());
+            let mut config = RunConfig::new(ThreadId::from(scenario["session"].as_str().unwrap()), TurnId::from("r"), scenario["model"].as_str().unwrap());
+            config.options.hosted_tools = step["nativeTools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| HostedTool::WebSearch(HostedWebSearch { tool_type: tool["type"].as_str().unwrap().into(), allowed_domains: Vec::new(), user_location: None, max_uses: None, context_size: None, include_sources: false }))
+                .collect();
+            let carry = RunCarry { prefix_guard: guard.clone(), ..RunCarry::from_saved(&serde_json::Map::new()) };
+            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages, carry);
+            match (run.run().await, step["thrown"].is_null()) {
+                (Ok(output), true) => guard = output.carry.prefix_guard.clone(),
+                (Err(failure), false) => {
+                    let AgentError::PrefixMutation(message) = &failure.error else { panic!("{name}: refused as {:?}", failure.error) };
+                    assert_eq!(message, step["thrown"]["message"].as_str().unwrap(), "{name}: the refusal");
+                    refused += 1;
+                }
+                (Ok(_), false) => panic!("{name}: Node refused ({}), the core sent", step["thrown"]),
+                (Err(failure), true) => panic!("{name}: Node sent, the core failed: {}", failure.error),
+            }
+            assert_eq!(h.provider.requests().len() as u64, step["sent"].as_u64().unwrap(), "{name}: what reached the provider");
+            let records = breaks.0.lock().unwrap().clone();
+            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+            assert_eq!(rows, want, "{name}: the trace rows");
+            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+            assert_eq!(lines, want, "{name}: the stderr lines");
+        }
+    }
+    assert_eq!(refused, 2, "a shrunk history and a rewritten prefix");
+}
+
+/// What the compaction replays summarize with: one fixed text, the calls counted.
+struct FixedSummary {
+    text: String,
+    calls: std::sync::atomic::AtomicUsize,
+    /// Each request is appended here as it arrives: the instructions as the system message, the prompt as the user's.
+    log: Arc<SendLog>,
+}
+
+#[async_trait]
+impl mixdog_agent::compact::summary_run::SummarySender for FixedSummary {
+    async fn send(
+        &self,
+        system: &str,
+        prompt: &str,
+        _call: &mixdog_agent::compact::summary_run::SummaryCall,
+    ) -> Result<mixdog_agent::compact::summary_run::SummaryResponse, mixdog_agent::compact::summary_run::SummaryFailure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.log.0.lock().unwrap().push((true, vec![("system".to_owned(), system.to_owned()), ("user".to_owned(), prompt.to_owned())]));
+        Ok(mixdog_agent::compact::summary_run::SummaryResponse {
+            text: self.text.clone(),
+            tool_call: false,
+            usage: Some(mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() }),
+        })
+    }
+}
+
+/// The conversation's own model is the only summary route (`summaryMode: session`).
+struct OwnRoute {
+    sender: Arc<FixedSummary>,
+    model: String,
+    window: u64,
+    calibration: f64,
+}
+
+#[async_trait]
+impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
+    async fn resolve(
+        &self,
+        step: mixdog_agent::compact::summary_run::RouteStep,
+    ) -> Result<Option<mixdog_agent::compact::summary_run::SummaryRoute>, mixdog_agent::compact::summary_run::SummaryFailure> {
+        use mixdog_agent::compact::summary_run::RouteStep;
+        Ok((step == RouteStep::Session).then(|| mixdog_agent::compact::summary_run::SummaryRoute {
+            step,
+            provider_name: "anthropic".into(),
+            model: self.model.clone(),
+            context_window: self.window,
+            calibration: self.calibration,
+            fast: false,
+            effort: None,
+            sender: self.sender.clone(),
+        }))
+    }
+}
+
+/// A forked summary is never available: the pipeline sends the isolated request, as Node's does for a session that has no warm cache.
+struct NoFork;
+#[async_trait]
+impl mixdog_agent::compact::summary_run::ForkSource for NoFork {
+    fn warm(&self) -> bool {
+        false
+    }
+    fn request(&self) -> Option<mixdog_agent::compact::summary_run::ForkRequest> {
+        None
+    }
+    async fn send(
+        &self,
+        _route: &mixdog_agent::compact::summary_run::SummaryRoute,
+    ) -> Result<mixdog_agent::compact::summary_run::SummaryResponse, mixdog_agent::compact::summary_run::SummaryFailure> {
+        panic!("a session without a warm request forks nothing")
+    }
+}
+
+/// A transcript of plain text: a media part is a failure of the replay.
+struct PlainText;
+impl mixdog_agent::compact::estimate::MediaMeter for PlainText {
+    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+        panic!("media part in a text-only replay: {part:?}")
+    }
+}
+impl mixdog_agent::compact::pressure::ImageIdentities for PlainText {
+    fn images(&self, _: &AgentMessage) -> Vec<mixdog_agent::compact::pressure::ImageDescriptor> {
+        Vec::new()
+    }
+}
+impl mixdog_agent::compact::triggers::ToolMediaMeter for PlainText {
+    fn bytes(&self, _: &Content, _: bool) -> u64 {
+        0
+    }
+    fn count(&self, _: &Content, _: bool) -> u64 {
+        0
+    }
+}
+
+/// A user's session: no agent cache tail to expire.
+impl mixdog_agent::compact::triggers::CacheWarmLedger for PlainText {
+    fn last_use_at(&self) -> u64 {
+        0
+    }
+    fn route_use_at(&self) -> Option<u64> {
+        None
+    }
+}
+impl mixdog_agent::compact::triggers::CacheTail for PlainText {
+    fn agent_owner(&self) -> bool {
+        false
+    }
+    fn five_minute_tail(&self) -> bool {
+        false
+    }
+    fn last_provider_send_at(&self) -> u64 {
+        0
+    }
+    fn now_ms(&self) -> u64 {
+        0
+    }
+}
+
+fn wire_role(message: &AgentMessage) -> &'static str {
+    use mixdog_core_api::domain::provider::Role;
+    match message.role() {
+        Role::System => "system",
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        other => panic!("a role the recording has none of: {other:?}"),
+    }
+}
+
+/// `fixtures/cache-break` `compactions` (record-cache-break.mjs): a session whose transcript is compacted for real, then the
+/// send that follows it. The core's own compactor (`FreshCompactor`, over a summary route that answers one fixed text, the only
+/// replaced part) rewrites the transcript, and the loop's trace rows, stderr lines, sends and final transcript are Node's:
+/// - `manual`: three settled turns, a forced compaction (the budget the forced plan asks for) that parks the intent
+///   `manual_compaction`, then the next turn's first send tagged by it;
+/// - `automatic`: the turn whose transcript crosses the window is compacted by the loop's own pre-send pass, which tags the
+///   send itself (`automatic_compaction`); the summary requests it made are Node's count.
+/// `post_turn_compaction` has no product path (the manifest's exclusion names Node's lines).
+#[tokio::test]
+async fn real_compactions_trace_the_cache_breaks_node_traces() {
+    use mixdog_agent::compact::compactor::{FreshCompactor, FreshParts, SessionCompactor, TriggerSeams};
+    use mixdog_agent::compact::estimate::MessageMeter;
+    use mixdog_agent::compact::pressure::{Route, StatusInput, TranscriptSigner, forced_target_budget};
+    use mixdog_agent::compact::summary_run::SummaryMode;
+    use mixdog_agent::compact::tool_schema::RequestTools;
+    use mixdog_core_api::domain::provider::{Message, Role, Usage};
+
+    let golden = cache_break_golden();
+    let now = golden["now"].as_i64().unwrap();
+    let mut compared = 0;
+    for scenario in golden["compactions"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let session = scenario["header"].as_object().unwrap();
+        let (provider, model) = (session["provider"].as_str().unwrap(), session["model"].as_str().unwrap());
+        let window = session["contextWindow"].as_u64().unwrap();
+        let calibration = scenario["tokenCalibration"].as_f64().unwrap();
+        let auto = session["compaction"]["auto"] == true;
+        let settings = CompactSettings { auto: true, context_window: Some(window), token_calibration: calibration, ..CompactSettings::default() };
+        let log = Arc::new(SendLog::default());
+        let summary = Arc::new(FixedSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default(), log: log.clone() });
+        let plain = Arc::new(PlainText);
+        let compactor = FreshCompactor::for_session(SessionCompactor {
+            settings: settings.clone(),
+            parts: Arc::new(FreshParts {
+                media: plain.clone(),
+                replay_owner: crate::compact_support::replay_owner(),
+                rows: Arc::new(crate::compact_support::Rows),
+                archive: Arc::new(crate::compact_support::PreviewArchive { session: session["id"].as_str().unwrap().into() }),
+                attachments: Arc::new(crate::compact_support::NoAttachments),
+                redactor: Arc::new(crate::compact_support::NoRedaction),
+                blobs: Arc::new(crate::compact_support::NoBlobs),
+            }),
+            triggers: TriggerSeams { tool_media: plain.clone(), native_pdf: false, cache: plain.clone() },
+            fork: Arc::new(NoFork),
+            resolver: Arc::new(OwnRoute { sender: summary.clone(), model: model.into(), window, calibration }),
+            summary_mode: SummaryMode::Session,
+            conversation_threshold_tokens: session["compaction"]["conversationThresholdTokens"].as_u64(),
+        })
+        .expect("a compactor");
+
+        let mut header = serde_json::Map::new();
+        header.insert("providerCacheOpts".into(), session["providerCacheOpts"].clone());
+        let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(scenario["system"].as_str().unwrap().into())))];
+        let mut guard = None;
+        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+        for step in scenario["steps"].as_array().unwrap() {
+            let step_name = format!("{name}: {}", step["name"].as_str().unwrap());
+            let mut config = RunConfig::new(ThreadId::from(session["id"].as_str().unwrap()), TurnId::from("r"), model);
+            if let Some(compaction) = scenario["compaction"].as_object().filter(|_| step["name"] == "after") {
+                // The forced pass: the budget its plan asks for over the session as the recorder had it, then the compaction itself.
+                let owner = crate::compact_support::replay_owner();
+                let meter = MessageMeter { media: &*plain, replay_owner: &owner };
+                let rows = crate::compact_support::Rows;
+                let signer = TranscriptSigner { meter: &meter, images: &*plain, rows: &rows };
+                let status = StatusInput {
+                    session,
+                    route: Route { provider, model, context_window: JsonValue::Null },
+                    cwd: JsonValue::Null,
+                    mode: JsonValue::Null,
+                    messages: &messages,
+                    active: true,
+                    request_tools: RequestTools { native: &[], defined: &[] },
+                    session_tools: RequestTools { native: &[], defined: &[] },
+                    tool_breakdown: &JsonValue::Null,
+                    agent_mode: false,
+                    meter: &meter,
+                    signer: &signer,
+                };
+                let budget = forced_target_budget(&status).expect("a window") as u64;
+                let request = CompactRequest { messages: &messages[1..], budget_tokens: budget, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
+                let compacted = compactor.compact(request).await.expect("the compaction");
+                assert!(!compacted.skipped, "{step_name}: the pass changed the transcript");
+                messages.truncate(1);
+                messages.extend(compacted.messages);
+                assert_eq!(summary.calls.load(Ordering::SeqCst) as u64, compaction["summaryRequests"].as_u64().unwrap(), "{step_name}: the summary requests of the forced pass");
+                summary.calls.store(0, Ordering::SeqCst);
+                // The intent the core's own manual compaction parks is checked where that path runs (`mixdog-core`
+                // `manual_compaction`); the loop is handed it here, as the session header hands it on.
+                config.cache_break_intent = compaction["pending"].as_str().map(str::to_owned);
+            }
+            messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
+            let answer = step["answer"].as_str().unwrap();
+            let reported = Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() };
+            let mut h = Harness::new(Vec::new());
+            h.provider = Arc::new(Scripted {
+                id: ProviderId::from(provider),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
+                requests: Mutex::new(Vec::new()),
+                settled: Mutex::new(Vec::new()),
+                order: Some(log.clone()),
+                released: Mutex::new(Vec::new()),
+            });
+            let breaks = Arc::new(CacheBreaks::default());
+            h.failures = Some(breaks.clone());
+            if auto {
+                h.real_compactor = Some(compactor.clone());
+                config.compact = Some(settings.clone());
+            }
+            let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
+            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages.clone(), carry);
+            let output = finish(run).await;
+            header.extend(output.carry.to_saved());
+            header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
+            guard = output.carry.prefix_guard.clone();
+            messages = output.transcript;
+            if messages.last().is_none_or(|m| m.role() != Role::Assistant) {
+                messages.push(AgentMessage::assistant(answer, Vec::new()));
+            }
+
+            summary.calls.store(0, Ordering::SeqCst);
+            let records = breaks.0.lock().unwrap().clone();
+            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+            assert_eq!(rows, want, "{step_name}: the trace rows");
+            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+            assert_eq!(lines, want, "{step_name}: the stderr lines");
+        }
+        let transcript: Vec<(String, String)> = messages.iter().map(|m| (wire_role(m).to_owned(), m.text())).collect();
+        let want: Vec<(String, String)> = scenario["transcript"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect();
+        assert_eq!(transcript, want, "{name}: the transcript the compaction and the turns left");
+        // Every send of the scenario, summary requests and turns, whole and in the order the provider received them.
+        let want: Vec<Sent> = scenario["sends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|send| (send["summary"].as_bool().unwrap(), send["messages"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect()))
+            .collect();
+        assert_eq!(*log.0.lock().unwrap(), want, "{name}: the sends, in the order they arrived");
+        compared += 1;
+    }
+    assert_eq!(compared, 2, "a manual and an automatic compaction");
+}
+
+/// `fixtures/cache-break` `guard`: the comparison over Node's own request fingerprints tells each break Node told, with the
+/// same details. The comparison alone: the loop's use of it is `real_turns_trace_and_refuse_the_breaks_node_does`.
+#[test]
+fn the_prefix_guard_tells_every_break_node_tells() {
+    use mixdog_agent::prefix_guard::GuardOptions;
+    use mixdog_agent::prefix_guard::Snapshot;
+    let golden = cache_break_golden();
+    let snapshot = |value: &JsonValue| Snapshot {
+        message_hashes: value["messageHashes"].as_array().unwrap().iter().map(|h| h.as_str().unwrap().to_owned()).collect(),
+        request_prefix_hash: value["requestPrefixHash"].as_str().unwrap().into(),
+        provider: value["provider"].as_str().unwrap().into(),
+        model: value["model"].as_str().unwrap().into(),
+        tool_schema_hash: value["toolSchemaHash"].as_str().unwrap().into(),
+        native_tool_schema_hash: value["nativeToolSchemaHash"].as_str().unwrap().into(),
+    };
+    for case in golden["guard"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let options = &case["options"];
+        let told = mixdog_agent::prefix_guard::compare(
+            Some(&snapshot(&case["previous"])),
+            &snapshot(&case["next"]),
+            &GuardOptions { provider: options["provider"].as_str().unwrap(), model: options["model"].as_str().unwrap(), intent: options["cacheBreakIntent"].as_str(), mutation_source: options["mutationSource"].as_str() },
+        );
+        let want: Vec<JsonValue> = case["breaks"].as_array().unwrap().clone();
+        assert_eq!(told.map(JsonValue::Object).into_iter().collect::<Vec<_>>(), want, "{name}");
+        assert_eq!(case["thrown"].is_null(), want.first().is_none_or(|b| b["classification"] != "unexpected"), "{name}: Node refuses exactly the unexpected breaks");
+    }
+}
+
+/// `fixtures/cache-break` `guard` (the deferred-tool cases): an Anthropic request's fingerprint leaves a deferred tool out of
+/// its prefix, any other provider's keeps it; whether the prefix moved is what Node's comparison found.
+#[test]
+fn a_deferred_tool_moves_the_request_prefix_where_node_says() {
+    use mixdog_core_api::domain::provider::ToolDefinition;
+    let golden = cache_break_golden();
+    let tool = |name: &str, deferred: bool| ToolDefinition { name: name.into(), description: format!("{name}."), input_schema: json!({ "type": "object" }), defer_loading: deferred, freeform: None };
+    for name in ["a deferred tool on anthropic", "a deferred tool elsewhere"] {
+        let case = golden["guard"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
+        let provider = case["options"]["provider"].as_str().unwrap();
+        let before = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false)], &[], provider, "m1");
+        let after = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false), tool("d", true)], &[], provider, "m1");
+        assert_eq!(before.request_prefix_hash == after.request_prefix_hash, case["previous"]["requestPrefixHash"] == case["next"]["requestPrefixHash"], "{name}");
+    }
+}
+
+/// `fixtures/cache-break` `prefix`, `seeded`: the Anthropic request fingerprints the cache-miss row names its moved blocks from:
+/// the persisted fingerprint of every body, the changes from the body before, and a restarted process's seed.
+#[test]
+fn the_anthropic_prefix_fingerprints_are_nodes() {
+    use mixdog_ai::providers::anthropic::prefix_trace;
+    let golden = cache_break_golden();
+    // The recording's session ids, kept apart from any other test's by a suffix.
+    let ours = |session: &str| format!("{session}:run_loop");
+    for case in golden["prefix"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let session = ours(case["session"].as_str().unwrap());
+        prefix_trace::record(Some(&session), prefix_trace::fingerprint(case["body"].as_object().unwrap()));
+        assert_eq!(prefix_trace::latest_persistable(&session).unwrap_or(JsonValue::Null), case["persisted"], "{name}: the persisted fingerprint");
+        assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), case["changes"], "{name}: the changes");
+    }
+    let seeded = &golden["seeded"];
+    let session = ours("sess_prefix_seeded");
+    prefix_trace::seed(&session, Some(&seeded["from"]));
+    prefix_trace::seed(&session, Some(&golden["prefix"][3]["persisted"]));
+    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changesBefore"], "a seed alone");
+    prefix_trace::record(Some(&session), prefix_trace::fingerprint(seeded["body"].as_object().unwrap()));
+    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changes"], "the request after a seed");
+}
+
 #[tokio::test]
 async fn a_retried_send_keeps_one_group_and_settles_nothing_on_success() {
     let h = Harness::new(vec![overloaded(), overloaded(), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
@@ -2087,6 +3153,29 @@ async fn a_dropped_turn_settles_its_group_as_cancelled() {
     }
     let groups = h.provider.groups();
     assert_eq!(h.provider.settled(), [(groups[0].clone().unwrap(), SendEnd::Cancelled)]);
+}
+
+/// The turn's future is dropped where no Tokio runtime is entered: the group's hold on what other sends wait for is let go
+/// by the guard itself, which needs no runtime.
+#[test]
+fn a_turn_dropped_outside_a_runtime_lets_go_of_its_group() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let h = Harness::new(vec![turn(vec![text("a"), Step::Hang])]);
+    let mut run = Box::pin(h.run(config(), vec![], vec![AgentMessage::user("go")]).run());
+    runtime.block_on(async {
+        while h.provider.requests().is_empty() {
+            std::future::poll_fn(|cx| {
+                let _ = std::future::Future::poll(run.as_mut(), cx);
+                std::task::Poll::Ready(())
+            })
+            .await;
+            tokio::task::yield_now().await;
+        }
+    });
+    assert!(h.provider.released.lock().unwrap().is_empty(), "the send is still in flight");
+    drop(run);
+    let groups = h.provider.groups();
+    assert_eq!(*h.provider.released.lock().unwrap(), [groups[0].clone().unwrap()]);
 }
 
 #[tokio::test]
@@ -2217,10 +3306,12 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    let h = Harness::new(vec![
+    let mut h = Harness::new(vec![
         turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
+    let timer = Arc::new(HeldTimer::default());
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
     let seed = EffortSnapshot {
         provider: "openai".into(),
@@ -2246,16 +3337,12 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
     run.set_step_judge(judge.clone());
     let task = tokio::spawn(run.run());
-    while !judge.entered.load(Ordering::SeqCst) {
-        tokio::task::yield_now().await;
-    }
-    // The judge is held: the second request must not have been sent.
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
+    mixdog_rt::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    // The judge is held and the grace has not passed: the second request must not have been sent.
     assert_eq!(h.provider.requests().len(), 1);
+    // The judgment resolves inside the grace, whose time never passes.
     judge.gate.notify_one();
-    let output = task.await.unwrap().expect("run");
+    let output = mixdog_rt::time::timeout(Duration::from_secs(30), task).await.expect("the run ends once judged").unwrap().expect("run");
     assert_eq!(h.provider.requests().len(), 2);
     let seen = adapter.seen.lock().unwrap().clone();
     assert!(seen[0].as_ref().is_some_and(|p| p.updates.is_empty()), "the first request has nothing to update");
@@ -2263,15 +3350,70 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     assert_eq!(second.updates.iter().collect::<Vec<_>>(), [(&2, &"high".to_owned())]);
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
 }
+
+/// Never answers.
+struct SilentJudge;
+#[async_trait]
+impl mixdog_agent::step_effort::StepEffortJudge for SilentJudge {
+    async fn judge(&self, _input: mixdog_agent::step_effort::StepInput) -> Option<mixdog_agent::step_effort::StepResult> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_only() {
+    use mixdog_agent::effort::EffortMode;
+    use mixdog_agent::effort::EffortRoute;
+    use mixdog_agent::effort::EffortSnapshot;
+    use mixdog_agent::effort::EffortWiring;
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let timer = Arc::new(HeldTimer::default());
+    h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
+    let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
+    let seed = EffortSnapshot {
+        provider: "openai".into(),
+        model: "gpt-6-1".into(),
+        mode: EffortMode::Responses,
+        initial_effort: "low".into(),
+        effort: "low".into(),
+    };
+    let mut cfg = config();
+    cfg.effort = Some(EffortWiring {
+        route: EffortRoute {
+            provider: "openai".into(),
+            model: "gpt-6.1".into(),
+            mode: Some(EffortMode::Responses),
+            allowed: ["low", "high"].map(String::from).to_vec(),
+            seed: Some(seed),
+            wire: Arc::new(|e| Some(e.to_owned())),
+        },
+        adapter: adapter.clone(),
+    });
+    cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: "do it".into(), base: "low".into() });
+    let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
+    run.set_step_judge(Arc::new(SilentJudge));
+    let task = tokio::spawn(run.run());
+    mixdog_rt::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    assert_eq!(*h.waiter.0.lock().unwrap(), [mixdog_agent::step_effort::STEP_EFFORT_GRACE]);
+    assert_eq!(h.provider.requests().len(), 1, "held while the grace has not passed");
+    // The grace passes; the judge still has not answered.
+    timer.elapse.notify_one();
+    let output = mixdog_rt::time::timeout(Duration::from_secs(30), task).await.expect("the request goes out once the grace has passed").unwrap().expect("run");
+    assert_eq!(h.provider.requests().len(), 2);
+    assert!(output.transcript[2].effort.is_none(), "an unanswered step stays at the effort in force");
+}
 struct Artifacts(Mutex<Vec<String>>);
 #[async_trait]
 impl mixdog_agent::offload::ArtifactStore for Artifacts {
     async fn persist(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
         self.0.lock().unwrap().push(content.to_owned());
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
     }
     async fn preview(&self, _content: &str) -> Option<mixdog_agent::offload::Artifact> {
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/r.txt".into(), path: "/art/r.txt".into(), lines: 1, sha256: "cd".repeat(32) })
     }
 }
 
@@ -2745,7 +3887,8 @@ fn system_message(text: &str) -> AgentMessage {
     AgentMessage::new(Message::new(Role::System, Content::Text(text.to_owned())))
 }
 
-/// Migrates at the second boundary only (a tool call waited for its result at the first).
+/// Migrates at the first boundary only. A migration after a send settled would rewrite the prefix the loop's guard holds
+/// (`request-boundary.mjs:68-76` leaves the loop's `prefixGuardState` as it is), which the guard refuses outside a compaction.
 struct MigrateMcp(AtomicU64);
 
 #[async_trait::async_trait]
@@ -2755,7 +3898,7 @@ impl mixdog_agent::env::McpCatalog for MigrateMcp {
     async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
         let boundary = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         assert!(messages.iter().any(|m| m.role() == mixdog_core_api::domain::provider::Role::System), "the transcript the request is built from carries its system prompt");
-        Ok((boundary == 1).then(|| vec![system_message("migrated rules")]))
+        Ok((boundary == 0).then(|| vec![system_message("migrated rules")]))
     }
 }
 
@@ -2773,7 +3916,7 @@ async fn the_exposure_migration_runs_at_every_request_boundary() {
     assert_eq!(boundaries.0.load(std::sync::atomic::Ordering::SeqCst), 2);
     let sent = h.provider.requests();
     let first_system = |request: &mixdog_core_api::domain::provider::ModelRequest| request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content));
-    assert!(first_system(&sent[0]).unwrap().contains("old rules"));
+    assert!(first_system(&sent[0]).unwrap().contains("migrated rules"), "the first request is built from the migrated prompt");
     assert!(first_system(&sent[1]).unwrap().contains("migrated rules"));
 }
 
@@ -2799,30 +3942,51 @@ async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
 // (`fixtures/agent/leaked-toolcall/record.mjs`: the real agent loop over the route's real decoder)
 // ---------------------------------------------------------------------------
 
-/// `read` that records the call ids it ran for and answers with Node's body of `a.txt`.
+/// The core's real `read` tool, observed: which call ids it ran for and when each finished. The `failing` scenario's
+/// forced failure (the recorder's `beforeToolExecution` throwing `boom`) replaces the run.
 struct Reader {
-    spec: ToolSpec,
+    real: Arc<dyn Tool>,
     ran: Mutex<Vec<String>>,
     finished: tokio::sync::Semaphore,
-    /// The run fails with Node's recorded `Error: boom` (a thrown executor error).
     fail: bool,
 }
 #[async_trait]
 impl Tool for Reader {
     fn spec(&self) -> &ToolSpec {
-        &self.spec
+        self.real.spec()
     }
-    async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         self.ran.lock().unwrap().push(ctx.call_id.as_str().to_owned());
+        let outcome = if self.fail {
+            Err(ToolError::new(ToolErrorCode::Internal { incident_id: "boom".into() }, "Error: boom"))
+        } else {
+            self.real.call(ctx, args).await
+        };
         self.finished.add_permits(1);
-        if self.fail {
-            return Err(ToolError::new(ToolErrorCode::Internal { incident_id: "boom".into() }, "Error: boom"));
-        }
-        Ok(ToolOutput {
-            parts: vec![ToolPart::Text("[lines 1-1]\nhello probe\n[lines 1-1 of 1]".into())],
-            ..ToolOutput::default()
-        })
+        outcome
     }
+}
+
+/// The recorder's sandbox: a directory holding `a.txt` (`record.mjs` `loopCwd`), and where the recorder names its root
+/// in what it writes, `<ROOT>`.
+async fn leak_sandbox() -> (mixdog_core_api::domain::common::AbsPath, Arc<MockFileService>) {
+    use mixdog_core_api::domain::fs::{FileService, WritePrecondition, WriteRequest};
+    let root = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir().join("mixdog-leaked-toolcall").join("sandbox")).unwrap();
+    let files = Arc::new(MockFileService::default());
+    let tokens = mixdog_rt::testing::tokens();
+    files.create_dir(tokens.durability_io, root.clone(), true).await.unwrap();
+    let path = mixdog_core_api::domain::common::AbsPath::new(root.as_path().join("a.txt")).unwrap();
+    files
+        .write(tokens.durability_io, WriteRequest { path, content: b"hello probe\n".to_vec(), precondition: WritePrecondition::Unconditional })
+        .await
+        .unwrap();
+    (root, files)
+}
+
+/// `rooted` of the recorder: the sandbox root, in its native and forward-slash spellings, is written `<ROOT>`.
+fn rooted(text: &str, root: &mixdog_core_api::domain::common::AbsPath) -> String {
+    let native = root.as_path().to_string_lossy().into_owned();
+    text.replace(&native, "<ROOT>").replace(&native.replace('\\', "/"), "<ROOT>")
 }
 
 struct LeakCtx;
@@ -2839,7 +4003,7 @@ impl mixdog_ai::providers::openai::config::WireContext for LeakCtx {
 }
 
 /// The events Rust's decoder of `route` yields for the wire Node's decoder was fed, one unit per wire event.
-fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
+fn leaked_events(route: &str, scenario: &JsonValue) -> (Vec<StreamEvent>, Option<ProviderError>) {
     use mixdog_ai::providers::openai::decoder::{Framing, ResponsesDecoder};
     let known: std::collections::HashSet<String> =
         scenario["known"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
@@ -2864,7 +4028,8 @@ fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
             use mixdog_ai::providers::compat::chat::ChatDecoder;
             use mixdog_ai::providers::compat::profile::{CompatProfile, CredentialKind};
             let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
-            let mut decoder = ChatDecoder::new(profile, ProviderId::from("groq")).with_known_tools(known);
+            // The recorder's `providerName`.
+            let mut decoder = ChatDecoder::new(profile, ProviderId::from("custom")).with_known_tools(known);
             drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\n\n").into_bytes()).collect())
         }
         "gemini" => {
@@ -2940,13 +4105,24 @@ fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
     }
 }
 
-fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units: Vec<Vec<u8>>) -> Vec<StreamEvent> {
+/// The events the decoder yields, and the failure that ended the stream (a decoder that owes events to its failure hands
+/// them out first, as `DecodedStream` reads it).
+fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units: Vec<Vec<u8>>) -> (Vec<StreamEvent>, Option<ProviderError>) {
     let mut events = Vec::new();
     for unit in units {
-        events.extend(decoder.feed(&unit).expect("feed"));
+        match decoder.feed(&unit) {
+            Ok(more) => events.extend(more),
+            Err(error) => return (events, Some(error)),
+        }
     }
-    events.extend(decoder.finish().expect("finish"));
-    events
+    match decoder.finish() {
+        Ok(more) => {
+            let owes_failure = !more.is_empty() && !decoder.terminal_seen();
+            events.extend(more);
+            if owes_failure { (events, decoder.finish().err()) } else { (events, None) }
+        }
+        Err(error) => (events, Some(error)),
+    }
 }
 
 /// A minted id is recorded as `<prefix>_leaked_*`.
@@ -2968,23 +4144,28 @@ impl ToolGate for DenyAll {
 
 #[tokio::test]
 async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
-    let golden: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
+    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
     let mut compared = 0;
     for scenario in golden["scenarios"].as_array().unwrap() {
         let route = scenario["route"].as_str().unwrap();
         let Some(stored) = scenario.get("stored") else { continue };
         let label = format!("{route} / {}", scenario["name"]);
-        let events = leaked_events(route, scenario);
+        let (events, failure) = leaked_events(route, scenario);
+        let real_read = mixdog_tools::fs::ReadTool::new(None, None).with_state(Arc::new(mixdog_tools::fs::ReadState::new(None)));
         let reader = Arc::new(Reader {
-            spec: ToolSpec { name: "read".into(), ..Echo::tool().spec().clone() },
+            real: Arc::new(real_read),
             ran: Mutex::new(Vec::new()),
             finished: tokio::sync::Semaphore::new(0),
             fail: scenario["failing"] == true,
         });
-        let mut h = Harness::new(vec![
-            turn(events.into_iter().map(Step::Event).collect()),
-            turn(vec![text("final"), done(StopReason::EndTurn)]),
-        ]);
+        let mut steps: Vec<Step> = events.into_iter().map(Step::Event).collect();
+        // A turn Node's send rejected (`normalizeCompatChatResponse`) reaches the loop as the error the decoder fails with.
+        if let Some(error) = &failure {
+            steps.push(Step::Fail(error.clone()));
+        }
+        let mut h = Harness::new(vec![turn(steps), turn(vec![text("final"), done(StopReason::EndTurn)])]);
+        let (root, files) = leak_sandbox().await;
+        h.sandbox = Some((root.clone(), files));
         // A denying gate answers with the text Node's PreToolUse deny produced; the tool never runs.
         let denying = scenario["denying"] == true;
         // A tool the executor does not have is answered with text too, and never runs.
@@ -2994,6 +4175,17 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
             h.gate = Arc::new(DenyAll(recorded));
         }
         let tool: Arc<dyn Tool> = reader.clone();
+        if let Some(want_error) = stored.get("turnError") {
+            let failed = h.run(config(), vec![tool], vec![AgentMessage::user("go")]).run().await.expect_err(&label);
+            let AgentError::Provider(error) = &failed.error else { panic!("{label}: not a provider error: {:?}", failed.error) };
+            assert_eq!(error.message, want_error.as_str().unwrap(), "{label}: the error the turn ends with");
+            assert_eq!(h.provider.requests().len() as u64, stored["sends"].as_u64().unwrap(), "{label}: the send is not retried");
+            assert!(reader.ran.lock().unwrap().is_empty(), "{label}: no call ran");
+            let stored_assistants = failed.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Assistant).count();
+            assert_eq!(stored_assistants, stored["messages"].as_array().unwrap().len(), "{label}: nothing stored for the cut turn");
+            compared += 1;
+            continue;
+        }
         let output = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
         // A call no listed call consumed is left to finish, as in Node: wait for every run Node saw.
         let expected = if denying || unknown { 0 } else { stored["early"].as_array().unwrap().len() };
@@ -3032,11 +4224,15 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         let results: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Tool).collect();
         let want_results = stored["toolResults"].as_array().unwrap();
         assert_eq!(results.len(), want_results.len(), "{label}: tool results");
+        // Where several calls read `a.txt`, which one the real tool answers with the file's lines and which with its dedup stub
+        // (`[file unchanged`) follows the order the runs reached the file: Node ran the streamed call before the batch's, this
+        // loop starts a native call as its event arrives. Those bodies are not compared (manifest); every other body is.
+        let several_runs = stored["executed"].as_array().unwrap().len() > 1;
+        let body_comparable = |body: &str| !several_runs || !(body.starts_with("[file unchanged") || body.starts_with("[lines 1-1]"));
         for (message, want) in results.iter().zip(want_results) {
             assert_eq!(id_shape(message.tool_call_id().unwrap()), want["toolCallId"].as_str().unwrap(), "{label}: result id");
-            // The body of a repeated read is Node's read-dedup stub, a tool's answer, not the loop's.
-            if stored["executed"].as_array().unwrap().len() == 1 && want["content"].as_str().unwrap().starts_with("[lines 1-1]") {
-                assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: result body");
+            if body_comparable(want["content"].as_str().unwrap()) {
+                assert_eq!(rooted(&message.text(), &root), want["content"].as_str().unwrap(), "{label}: result body");
             }
         }
         // The UI's early notices (`__earlyNotify`): one per call that ran a tool, whichever path started it, whether or not
@@ -3048,14 +4244,15 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
                 .into_iter()
                 .filter_map(|event| match event {
                     RunEvent::EarlyResult(message) => {
-                        Some((id_shape(message.tool_call_id().unwrap_or_default()), message.text(), message.tool_kind == Some(ToolKind::Error)))
+                        Some((id_shape(message.tool_call_id().unwrap_or_default()), rooted(&message.text(), &root), message.tool_kind == Some(ToolKind::Error)))
                     }
                     _ => None,
                 })
                 .collect()
         };
         while early().len() < want_early.len() {
-            tokio::task::yield_now().await;
+            let arrived = tokio::time::timeout(Duration::from_secs(30), h.observer.early_arrived.notified()).await;
+            assert!(arrived.is_ok(), "{label}: waited 30 s for early notice {} of {}", early().len() + 1, want_early.len());
         }
         let mut got_early = early();
         got_early.sort();
@@ -3083,8 +4280,17 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
                 assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: stored denial text");
             }
         }
-        if want_early.len() == 1 && want_early[0]["content"].as_str().unwrap().starts_with("[lines 1-1]") {
-            assert_eq!(got_early[0].1, want_early[0]["content"].as_str().unwrap(), "{label}: early notice body");
+        // Minted ids share one shape, so the bodies are compared per id as sorted lists.
+        let mut early_ids: Vec<&str> = want_early.iter().map(|e| e["toolCallId"].as_str().unwrap()).collect();
+        early_ids.dedup();
+        for id in early_ids {
+            let mut want_bodies: Vec<&str> = want_early.iter().filter(|e| e["toolCallId"] == id).map(|e| e["content"].as_str().unwrap()).collect();
+            let mut got_bodies: Vec<&str> = got_early.iter().filter(|(got_id, _, _)| got_id == id).map(|(_, body, _)| body.as_str()).collect();
+            want_bodies.sort();
+            got_bodies.sort();
+            if want_bodies.iter().all(|body| body_comparable(body)) {
+                assert_eq!(got_bodies, want_bodies, "{label}: early notice bodies of {id}");
+            }
         }
         let mut ran: Vec<String> = reader.ran.lock().unwrap().iter().map(|id| id_shape(id)).collect();
         ran.sort();
@@ -3226,7 +4432,7 @@ impl mixdog_agent::offload::ArtifactStore for Persisting {
         self.preview(content).await
     }
     async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
     }
 }
 

@@ -108,7 +108,7 @@ fn remote_viewing_lists_the_visualize_panels_paired_devices_view() {
     registry.connect_relay(2, "peer-a");
     let panels = ["b".to_owned(), "a".to_owned()];
     let report = |panels| mixdog_remote::registry::ScreenReport {
-        sessions: ["screen".to_owned()].into_iter().collect(),
+        sessions: Some(["screen".to_owned()].into_iter().collect()),
         browser_id: None,
         visualize: Some(panels),
         foreground: None,
@@ -243,7 +243,7 @@ fn remote_session_keeps_the_id_only_as_node_applies_it() {
     let recorded: serde_json::Value = serde_json::from_str(include_str!("../../../../../fixtures/phone-chat-core/remote-session.json")).unwrap();
     for case in recorded["cases"].as_array().unwrap() {
         let state = &case["state"];
-        let value = remote_session_value(state["enabled"] == true, state["sessionId"].as_str());
+        let value = remote_session_value(state["enabled"] == true, state["sessionId"].as_str(), None);
         assert_eq!(value["sessionId"], case["remoteSessionId"], "{}", case["name"]);
     }
 }
@@ -251,7 +251,7 @@ fn remote_session_keeps_the_id_only_as_node_applies_it() {
 #[test]
 fn the_bridge_binding_is_published_as_host_state_remote_session() {
     let publisher = MockStatePublisher::default();
-    publish_remote_session(&publisher, true, Some("phone_1"));
+    publish_remote_session(&publisher, true, Some("phone_1"), None);
     let published = publisher.published();
     assert_eq!(published.len(), 1);
     assert_eq!((published[0].0, published[0].1.as_deref()), (SectionName::HostState, Some("remoteSession")));

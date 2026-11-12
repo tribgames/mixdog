@@ -1,0 +1,247 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-openai-compat-responses-boundaries.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::openai effort_retry.rs:22 and adapter.rs:756-761 (K1: tested for the OpenAI route, not the compat/custom Responses route), custom/reasoning.rs:149: feed each row's `input` (callbacks fired, flags, abort, replies) and compare `result` (attempts, received callbacks in order, thrown error identity flags, capability mode before/after) and `requests` in order.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "effort-configuration.mjs withEffortConfigurationFallback / effortConfigurationMode / prepareTurnEffortConfiguration, openai-compat-responses.mjs sendCompatResponses on a provider object (as the test builds it) with a scripted `client.responses.create` or the real `openai` SDK client (from the tree) whose fetch is the scripted endpoint; shared/stream-progress.mjs isVisibleStreamProgress.",
+  "exclusions": [
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 265443,
+      "path": "cases.json",
+      "sha256": "bea09d92e0f7d428319ec9b5d020debb06d64aee7fc3261e57b61b15d96b1df5"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "no-replay-after-onStreamDelta-reaches-caller",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "no-replay-after-onTextDelta-reaches-caller",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "no-replay-after-onToolCall-reaches-caller",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "pre-output-rejection-after-transport-progress-replays",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "pre-output-rejection-after-semantic-progress-replays",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "pre-output-rejection-after-ack-progress-replays",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "no-replay-after-visible-reasoning-progress",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "no-replay-after-visible-tool-progress",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "respects-liveTextEmitted-without-caller-callback",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "respects-emittedToolCall-without-caller-callback",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "respects-unsafeToRetry-without-caller-callback",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "no-retry-or-memory-after-cancellation",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "explicitly-disabled-update-not-retried-or-remembered",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "pre-output-rejection-retries-once-with-current-effort",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "failed-replay-never-replayed-third-time",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "provider-opt-out-with-old-update-history",
+      "level": "wire"
+    },
+    {
+      "id": "per-request-override-either-direction",
+      "level": "wire"
+    },
+    {
+      "id": "update-rejection-replays-once-through-stream:http-400-before-stream-opens",
+      "level": "wire"
+    },
+    {
+      "id": "update-rejection-replays-once-through-stream:response-failed-after-created-ack",
+      "level": "wire"
+    },
+    {
+      "id": "visible-output-then-rejection-not-replayed",
+      "level": "wire"
+    },
+    {
+      "id": "rejection-after-cancellation-not-replayed",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-caller-session-headers-survive:record",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-caller-session-headers-survive:Headers",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-caller-session-headers-survive:pairs",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-explicit-header-deletion:record",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-explicit-header-deletion:pairs",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-default-session-headers-not-shadowed-by-generated",
+      "level": "wire"
+    },
+    {
+      "id": "sessionless-requests-retain-original-header-input",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-undefined-identity-headers-do-not-suppress-generated:request-record",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-undefined-identity-headers-do-not-suppress-generated:request-pairs",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-undefined-identity-headers-do-not-suppress-generated:provider-defaults",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-undefined-identity-headers-do-not-suppress-generated:sdk-defaults",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-empty-and-undefined-only-header-arrays",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-session-override-and-deletion-keep-auth-headers:record",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-session-override-and-deletion-keep-auth-headers:pairs",
+      "level": "wire"
+    },
+    {
+      "id": "sdk-merge-session-override-and-deletion-keep-auth-headers:Headers",
+      "level": "wire"
+    },
+    {
+      "id": "session-header-merging-neither-synthesizes-nor-drops-authorization",
+      "level": "wire"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-openai-compat-responses-boundaries.mjs",
+  "recorderSha256": "8b8c0eeb777948fb7095857a8c3a2ccc62bdcda94cc5a6c2dbc92344f78bd396",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). The effort-update retry is mixdog_ai::providers::openai effort_retry (no pub item located for the compat route): work for the Rust side.",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
+  "set": "provider-compat-responses-boundaries",
+  "totalBytes": 265443,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

@@ -15,10 +15,14 @@ const sandbox = mkdtempSync(join(tmpdir(), 'surface-host-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
-const tree = resolveTree(parseArgs());
+// `--patch <file>`: the tree is the reference commit with that Node fix applied (a clear Node bug fixed on both sides).
+const args = parseArgs();
+const tree = resolveTree(args);
+const patched = args.get('patch');
+const { recorderProvenance } = await import('./lib/provenance.mjs');
 const finalDir = join(FIXTURES_ROOT, 'surface-host');
 const stage = stageSet(finalDir);
 const recorder = 'benchmarks/rust-core/recorders/record-surface-preview.mjs';
@@ -103,5 +107,11 @@ const cases = SCENARIOS.map(([name, mode, route, featureDenied]) => {
   };
 });
 await writeJsonCompact(tree, join(stage, 'golden.json'), { pool, standalone: names(standaloneTools), agentTools: [...agentToolNames], cases });
-writeSetManifest(stage, { set: 'surface-host', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeSetManifest(stage, {
+  set: 'surface-host',
+  recorder,
+  command: 'node ' + recorder + ' --tree <tree>' + (patched ? ' --patch ' + patched : ''),
+  ...(patched ? { identity: nodeTreeIdentity(args, tree, 'b6f10295a2f698afc85332467192de28500bd146') } : { identityTree: tree }),
+  extra: recorderProvenance(import.meta.url),
+});
 commitStage(stage, finalDir);

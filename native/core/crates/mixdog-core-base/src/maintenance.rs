@@ -158,7 +158,7 @@ impl MaintenanceSchedule {
             match shutdown {
                 Some(shutdown) => {
                     shutdown.cancelled().await;
-                    tokio::time::sleep(SHUTDOWN_GRACE).await;
+                    mixdog_rt::time::sleep(SHUTDOWN_GRACE).await;
                 }
                 None => std::future::pending().await,
             }
@@ -166,7 +166,7 @@ impl MaintenanceSchedule {
         tokio::select! {
             biased;
             done = work => Some(done),
-            () = tokio::time::sleep(TASK_DEADLINE) => None,
+            () = mixdog_rt::time::sleep(TASK_DEADLINE) => None,
             () = after_shutdown => None,
         }
     }
@@ -264,7 +264,7 @@ impl MaintenanceSchedule {
         }
         let weak = Arc::downgrade(self);
         Some(mixdog_rt::spawn("maintenance.schedule", mixdog_rt::TaskClass::Work, async move {
-            let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + tick, tick);
+            let mut timer = mixdog_rt::time::interval_at(tokio::time::Instant::now() + tick, tick);
             loop {
                 tokio::select! {
                     () = shutdown.cancelled() => break,
@@ -425,7 +425,7 @@ mod tests {
         let ended = schedule.start(Duration::from_millis(100), Arc::new(move || clock_now.load(Ordering::SeqCst)), down.clone());
         assert!(schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).is_none(), "already started");
         now.store(100, Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
         assert_eq!(runs.load(Ordering::SeqCst), 1);
         down.cancel();
         ended.expect("first start").await.expect("ended");
@@ -535,7 +535,7 @@ mod tests {
             let (signal, counter) = (signal.clone(), counter.clone());
             async move {
                 signal.notify_one();
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                mixdog_rt::time::sleep(Duration::from_secs(5)).await;
                 counter.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }

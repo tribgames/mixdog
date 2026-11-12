@@ -53,7 +53,7 @@ impl Upstream for CoreSocket {
 
 /// A report of the screen set alone: the optional visualize and foreground fields are not stated.
 fn screen_of(sessions: std::collections::HashSet<String>, browser_id: Option<&str>) -> ScreenReport<'_> {
-    ScreenReport { sessions, browser_id, visualize: None, foreground: None }
+    ScreenReport { sessions: Some(sessions), browser_id, visualize: None, foreground: None }
 }
 
 #[tokio::test(flavor = "multi_thread")]

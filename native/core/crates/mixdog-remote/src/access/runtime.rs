@@ -774,7 +774,7 @@ impl RemoteRuntime {
         tokio::spawn(async move {
             tokio::select! {
                 () = cancel.cancelled() => {}
-                () = tokio::time::sleep(delay) => {
+                () = mixdog_rt::time::sleep(delay) => {
                     lock(&runtime.inner.state).retry_cancel = None;
                     let _ = runtime.start(false).await;
                 }
@@ -1032,7 +1032,7 @@ impl RemoteRuntime {
                 return;
             }
             if self.inner.state().live.is_none() || self.list_clients().await.is_err() {
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(250)).await;
                 continue;
             }
             let queued = lock(&roster).pending();
@@ -1122,7 +1122,7 @@ impl RemoteRuntime {
         tokio::spawn(async move {
             tokio::select! {
                 () = cancel.cancelled() => {}
-                () = tokio::time::sleep(wait) => { let _ = runtime.resolve_claim(&claim_id, false).await; }
+                () = mixdog_rt::time::sleep(wait) => { let _ = runtime.resolve_claim(&claim_id, false).await; }
             }
         });
         self.inner.refresh();
@@ -1622,7 +1622,7 @@ impl RemoteRuntime {
             Received::Dropped => {}
             Received::Ready(frames) => {
                 for sealed in frames {
-                    self.inner.write_sealed(client_id, sealed).await;
+                    self.inner.write_sealed(client_id, sealed, false).await;
                 }
                 self.attach_peer(client_id).await;
                 self.inner.bridge.client_open(client_id);
@@ -1649,9 +1649,9 @@ impl RemoteRuntime {
                 let frame = if binary {
                     Frame::Binary(bytes)
                 } else {
-                    match String::from_utf8(bytes) {
-                        Ok(text) => Frame::Text(text),
-                        Err(_) => return self.close_client(client_id, "invalid encrypted relay frame"),
+                    match phone_text(bytes) {
+                        Some(text) => Frame::Text(text),
+                        None => return self.close_client(client_id, "invalid encrypted relay frame"),
                     }
                 };
                 self.inner.bridge.from_phone(client_id, frame).await;
@@ -1698,11 +1698,44 @@ fn is_credential_id(value: &str) -> bool {
     (8..=64).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase() || b == b'-')
 }
 
+/// The text of a decrypted phone frame as Node reads it (`decryptJson`, remote-e2ee.ts:692): a non-fatal `TextDecoder`
+/// (each invalid UTF-8 sequence U+FFFD, a leading BOM dropped), then `JSON.parse`. `None` when it is not JSON, which
+/// closes the client with 'invalid encrypted relay frame' (remote-relay-client-lifecycle.ts:95-98) before the core sees it.
+fn phone_text(bytes: Vec<u8>) -> Option<String> {
+    let mut text = String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    if text.starts_with('\u{feff}') {
+        text.drain(..'\u{feff}'.len_utf8());
+    }
+    serde_json::from_str::<serde::de::IgnoredAny>(&mixdog_js::json_well_formed_str(&text)).ok()?;
+    Some(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::phone_text;
+
+    /// The decode of the recorded cases (native/core/fixtures/inbound-lone-surrogate: alias-invalid-byte,
+    /// alias-truncated-sequence, alias-bom-frame, refused-*): invalid bytes read as U+FFFD, a leading BOM dropped, a
+    /// lone surrogate escape kept for the core's decoder, and what is not JSON refused.
+    #[test]
+    fn a_phone_frame_is_read_as_nodes_text_decoder_and_json_parse_read_it() {
+        assert_eq!(phone_text(b"{\"a\":\"ab\xffcd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
+        assert_eq!(phone_text(b"{\"a\":\"ab\xe2\x82cd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
+        assert_eq!(phone_text(b"\xef\xbb\xbf{\"a\":1}".to_vec()).as_deref(), Some("{\"a\":1}"));
+        assert_eq!(phone_text(br#"{"a":"\ud800"}"#.to_vec()).as_deref(), Some(r#"{"a":"\ud800"}"#));
+        let refused: [&[u8]; 4] = [b"{\"a\":", b"{\"a\":\"\\ud800", b"\xff{\"a\":1}", b""];
+        for refused in refused {
+            assert_eq!(phone_text(refused.to_vec()), None);
+        }
+    }
+}
+
 impl Inner {
     /// Seals one frame for a phone and writes it to the leg: binary relay frames when the relay
-    /// takes them, otherwise JSON text frames.
-    async fn write_sealed(&self, client_id: &str, sealed: Sealed) {
-        let out = self.outgoing(client_id, sealed);
+    /// takes them, otherwise JSON text frames. A `droppable` frame is one the relay may skip for a
+    /// phone that cannot take it.
+    async fn write_sealed(&self, client_id: &str, sealed: Sealed, droppable: bool) {
+        let out = self.outgoing(client_id, sealed, droppable);
         self.cfg.link.send_wait(out).await;
     }
 
@@ -1714,22 +1747,29 @@ impl Inner {
         self.cfg.registry.write_view(client_id, &mut || {
             let sealed = self.state().table.seal(client_id, bytes, binary);
             if let (Ok(sealed), Some(permit)) = (sealed, permit.take()) {
-                permit.send(self.outgoing(client_id, sealed));
+                permit.send(self.outgoing(client_id, sealed, false));
             }
         });
     }
 
-    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames.
-    fn outgoing(&self, client_id: &str, sealed: Sealed) -> Outgoing {
+    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames, which carry
+    /// `droppable: true` only when it is (Node's `...(droppable ? { droppable: true } : {})`, remote-relay-delivery.ts).
+    fn outgoing(&self, client_id: &str, sealed: Sealed, droppable: bool) -> Outgoing {
         let binary_frames = self.state().caps.binary_frames();
+        let text_frame = |mut frame: Value| {
+            if droppable {
+                frame["droppable"] = json!(true);
+            }
+            Outgoing::Text(frame.to_string())
+        };
         match sealed {
-            Sealed::Text(text) => Outgoing::Text(json_frame(client_id, &text).to_string()),
-            Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, false, false)).flatten() {
+            Sealed::Text(text) => text_frame(json_frame(client_id, &text)),
+            Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, droppable, false)).flatten() {
                 Some(frame) => Outgoing::Binary(frame),
                 None => {
                     use base64::Engine;
                     let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    Outgoing::Text(json!({ "type": "frame", "clientId": client_id, "data": data }).to_string())
+                    text_frame(json!({ "type": "frame", "clientId": client_id, "data": data }))
                 }
             },
         }
@@ -1746,6 +1786,29 @@ impl Inner {
 /// connection-scoped notification, which the core serializes with `method` first (`JsonRpcNotification`).
 fn live_view_write(frame: &[u8]) -> bool {
     [&br#"{"method":"browser/frame","#[..], &br#"{"method":"browser/webrtcSignal","#[..]].iter().any(|head| frame.starts_with(head))
+}
+
+/// The terminal lane's feed (mixdog-spawn `service::feeds::TERMINAL_LANE_FEED`): every terminal tab's output as Node's relay lane sent it.
+const TERMINAL_LANE_FEED: &str = "process:relay";
+
+/// Whether a frame from the core is terminal output on the terminal lane: a `process/outputDelta` of [`TERMINAL_LANE_FEED`]. Node sent
+/// every tab's output to a phone as `termData` marked droppable (remote-relay-push-lanes.ts:85), and nothing else on this path: the relay
+/// may skip such a frame for a phone that cannot take it, with a resync hint, where a frame that is not droppable cuts the phone's leg
+/// (apps/relay/lib/relay-legs.mjs deliverToPhone, relay-transport.mjs admitFrame). The phone's client takes a skipped frame as a gap in
+/// the feed and attaches again.
+fn terminal_lane_output(frame: &[u8]) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Head<'a> {
+        #[serde(borrow)]
+        feed: Option<Stamp<'a>>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Stamp<'a> {
+        #[serde(borrow)]
+        id: std::borrow::Cow<'a, str>,
+    }
+    frame.starts_with(br#"{"method":"process/outputDelta","#)
+        && serde_json::from_slice::<Head>(frame).is_ok_and(|head| head.feed.is_some_and(|feed| feed.id == TERMINAL_LANE_FEED))
 }
 
 struct WeakSink {
@@ -1768,10 +1831,12 @@ impl PhoneSink for RuntimeSink {
             ToPhone::Frame { peer_id, frame } => {
                 // The live view's writes are asked about again where they enter the phone's stream: the core queued them before a
                 // revocation that may have come since.
-                let gated = match &frame {
-                    Frame::Text(text) => live_view_write(text.as_bytes()),
-                    Frame::Binary(bytes) => live_view_write(bytes),
+                let bytes = match &frame {
+                    Frame::Text(text) => text.as_bytes(),
+                    Frame::Binary(bytes) => bytes.as_slice(),
                 };
+                let gated = live_view_write(bytes);
+                let droppable = terminal_lane_output(bytes);
                 let session = self.inner.state().table.transport(&peer_id);
                 if let Some(session) = session {
                     let text = match frame {
@@ -1779,7 +1844,7 @@ impl PhoneSink for RuntimeSink {
                         Frame::Binary(bytes) => String::from_utf8(bytes).ok(),
                     };
                     if let Some(text) = text {
-                        let _ = session.send_gated(&text, false, gated.then(|| self.inner.view_gate(&peer_id))).await;
+                        let _ = session.send_gated(&text, droppable, gated.then(|| self.inner.view_gate(&peer_id))).await;
                     }
                     return;
                 }
@@ -1793,7 +1858,7 @@ impl PhoneSink for RuntimeSink {
                 }
                 let sealed = self.inner.state().table.seal(&peer_id, &bytes, binary);
                 if let Ok(sealed) = sealed {
-                    self.inner.write_sealed(&peer_id, sealed).await;
+                    self.inner.write_sealed(&peer_id, sealed, droppable).await;
                 }
             }
             ToPhone::Close { peer_id, code: _, reason } => {

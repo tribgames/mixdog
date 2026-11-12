@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-crash-capture.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7283,
+      "path": "golden.json",
+      "sha256": "ce0673c7e86aaf5314d3c3ae9a3a4044a341b3a4174d71cc922ff1a4929f2f6d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per case: the sidecar as launched and as ended (ids, times, uptime, memory and the stem as placeholders; a JS error as its message) and whether the next boot settled it",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-crash-capture.mjs",
+  "recorderSha256": "086a175336ad3eb2d4b6c5eea9979332d2501b08a40f37c8a32e11d03027d0f3",
+  "set": "crash-capture",
+  "syntheticInputs": [
+    "the daemon side is daemon.mjs's exit-recorder install, uncaughtException handler, onFatalError, shutdown and settleExit quoted without the teardown they wrap",
+    "uncaught: an Error thrown after the go file; fatal-boot: main().catch's shutdown('fatal boot error', 2); exit-code: process.exit(3); killed: process.kill by the recorder; oom: --max-old-space-size=16 and arrays kept until V8 aborts"
+  ],
+  "totalBytes": 7283
+}

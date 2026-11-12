@@ -1,0 +1,162 @@
+{
+  "frozenNow": 1700000000000,
+  "cases": [
+    {
+      "name": "a pinned session that exists",
+      "sessionId": "sess_live",
+      "record": "live",
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_live",
+            "transcriptPath": "/work/sess_live.jsonl",
+            "restore": true
+          },
+          "answer": {
+            "content": [
+              {
+                "type": "text",
+                "text": "channel bridge activated"
+              }
+            ]
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restored session=sess_live"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_live",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_live\",\"transcriptPath\":\"/work/sess_live.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_live",
+          "remoteSession": "sess_live",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_live\",\"transcriptPath\":\"/work/sess_live.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ],
+      "list": {
+        "sessions": [
+          "sess_live"
+        ],
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "sess_live",
+          "cwd": "/work"
+        }
+      }
+    },
+    {
+      "name": "a pinned session that was deleted",
+      "sessionId": "sess_deleted",
+      "record": "deleted",
+      "restored": false,
+      "calls": [],
+      "logs": [
+        "remote intent restore skipped session=sess_deleted: the session no longer exists",
+        "remote intent cleared (pinned session deleted)"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_deleted",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_deleted\",\"transcriptPath\":\"/work/sess_deleted.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": null,
+          "remoteSession": null,
+          "file": {
+            "kind": "absent"
+          }
+        }
+      ],
+      "list": {
+        "sessions": [
+          "sess_live"
+        ],
+        "remoteSession": {
+          "enabled": false,
+          "sessionId": null,
+          "cwd": null
+        }
+      }
+    },
+    {
+      "name": "a pinned session whose record cannot be read",
+      "sessionId": "sess_unreadable",
+      "record": "unreadable",
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_unreadable",
+            "transcriptPath": "/work/sess_unreadable.jsonl",
+            "restore": true
+          },
+          "answer": {
+            "content": [
+              {
+                "type": "text",
+                "text": "channel bridge activated"
+              }
+            ]
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restore kept session=sess_unreadable: the session record could not be read",
+        "remote intent restored session=sess_unreadable"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_unreadable",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_unreadable\",\"transcriptPath\":\"/work/sess_unreadable.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_unreadable",
+          "remoteSession": "sess_unreadable",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_unreadable\",\"transcriptPath\":\"/work/sess_unreadable.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ],
+      "list": {
+        "sessions": [
+          "sess_live"
+        ],
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "sess_unreadable",
+          "cwd": "/work"
+        }
+      }
+    }
+  ]
+}

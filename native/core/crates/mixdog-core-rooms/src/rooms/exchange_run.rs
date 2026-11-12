@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use super::calls::{CallRunner, Request, Run, Settled};
 use super::config::room_message_budget;
 use super::exchange::{Answer, CapLimit, DecideInput, Decision, ExchangeHost, ExchangeParams, Outcome, Turn, TurnResult, run_room_exchange};
-use super::member_turn::{MemberHost, speak_in_room, typed_rows};
+use super::member_turn::{MemberHost, speak_in_room};
 use super::supervisor::{SupervisorMember, supervisor_rows};
 use super::turn_host::{MemberLabel, RoomRecord, TurnState};
 use super::turn_post::post_failures;
@@ -25,7 +25,7 @@ mod tests;
 pub struct SupervisorStep {
     pub room_name: String,
     pub members: Vec<SupervisorMember>,
-    pub rows: Vec<super::rows::RoomRow>,
+    pub rows: Vec<Value>,
     pub decide: DecideInput,
 }
 
@@ -267,8 +267,7 @@ impl ExchangeHost for Session {
                 SupervisorMember { id: id.clone(), name: label.map_or_else(|| id.clone(), |label| label.name.clone()), description: label.map_or_else(String::new, |label| label.description.clone()) }
             })
             .collect();
-        let typed = typed_rows(&rows);
-        let step = SupervisorStep { room_name: in_room.name, members, rows: supervisor_rows(&typed).into_iter().cloned().collect(), decide: input.clone() };
+        let step = SupervisorStep { room_name: in_room.name, members, rows: supervisor_rows(&rows), decide: input.clone() };
         match host.decide_turn(&step).await {
             Ok(Some(decision)) => Some(decision),
             Ok(None) => {

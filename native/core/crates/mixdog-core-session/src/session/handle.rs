@@ -103,7 +103,6 @@ impl SessionHandle {
     pub fn stepped(&self) -> &tokio::sync::Notify {
         &self.cell.stepped
     }
-
     /// The actor's `turn_busy()` after its last step: a next turn is queued while it holds.
     #[cfg(any(test, feature = "test-support"))]
     pub fn turn_busy(&self) -> bool {
@@ -221,7 +220,11 @@ impl SessionHandle {
     }
 
     async fn to_actor(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        self.enqueue(req).await?.await.map_err(|_| self.closing())?
+        let method = req.method;
+        self.enqueue(req).await?.await.map_err(|_| {
+            tracing::warn!(thread = %self.id, %method, "the session actor dropped the request's reply without answering it");
+            self.closing()
+        })?
     }
 
     /// `to_actor` for a caller that holds a gate: the request's cancel ends the wait on a full
@@ -254,7 +257,8 @@ impl SessionHandle {
         if !named.is_empty() {
             let originals = self.deps.staged_originals.clone();
             // A claim that cannot run claims nothing, as a throw inside `claimStagedOriginals` does.
-            let claimed = on_lane(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
+            // A full lane is waited out (the claim keeps the user's originals); only a lane that cannot run it claims nothing.
+            let claimed = mixdog_core_base::support::on_lane_wait(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
         }
         // A full inbox must not hold the gate past the caller's cancel.
@@ -262,7 +266,10 @@ impl SessionHandle {
         let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");
         let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?.map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
         drop(in_order);
-        answer.await.map_err(|_| closed())?
+        answer.await.map_err(|_| {
+            tracing::warn!(thread = %self.id, method = "turn/start", "the session actor dropped the request's reply without answering it");
+            closed()
+        })?
     }
 
     fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -292,20 +299,18 @@ impl SessionHandle {
     /// `thread/read`: the acked view, encoded on cpu-interactive (it can be a 2 MiB window).
     async fn read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let view = self.cell.view.load_full();
-        let job = self
-            .deps
-            .lanes
-            .cpu
-            .submit(&req.ctx.cancel, move |_lane| {
-                serde_json::to_value(SnapshotParams {
-                    thread: &view.summary,
-                    state: &view.state,
-                    items: view.items.iter().map(|item| item.as_ref()).collect(),
-                    has_older: view.has_older,
-                })
-                .expect("protocol types serialize")
-            })?;
-        job.await.map(Reply::Value).map_err(|_| CoreError::ConnectionClosed)
+        // A read waits for room on a full lane, bounded by the caller's cancel (never `QueueFull`).
+        mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, move |_lane| {
+            serde_json::to_value(SnapshotParams {
+                thread: &view.summary,
+                state: &view.state,
+                items: view.items.iter().map(|item| item.as_ref()).collect(),
+                has_older: view.has_older,
+            })
+            .expect("protocol types serialize")
+        })
+        .await
+        .map(Reply::Value)
     }
 
     /// `thread/reactions/set {agentId, emoji, messagesBack?, othersKeep?}`: a bot's reaction
@@ -330,6 +335,7 @@ impl SessionHandle {
         let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -352,27 +358,69 @@ impl SessionHandle {
         let Some(message) = done.message else {
             return Ok(Reply::Value(reply));
         };
-        let iid = ids[done.index].as_str().to_owned();
+        self.amend_shown(&ids[done.index], message, req.ctx).await?;
+        reply["changed"] = Value::Bool(true);
+        Ok(Reply::Value(reply))
+    }
+
+    /// `thread/appliedSkills/set {iid, names}` (`recordAppliedSkills`): the skills a prompt's turn loaded, stamped on
+    /// its row (`meta.transcript.appliedSkills`) and shown on its line at once. Internal callers only.
+    async fn applied_skills_set(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let invalid = |path: &str, expected: &str| CoreError::InvalidParams { path: path.into(), expected: expected.into() };
+        let iid = req.params.get("iid").and_then(Value::as_str).filter(|iid| !iid.is_empty()).ok_or_else(|| invalid("iid", "the prompt's row"))?;
+        let names: Vec<String> = serde_json::from_value(req.params.get("names").cloned().unwrap_or(Value::Null)).map_err(|_| invalid("names", "skill names"))?;
+        if names.is_empty() {
+            return Ok(Reply::Value(json!({ "changed": false })));
+        }
+        let iid = mixdog_core_api::ids::ItemId::from(iid.to_owned());
+        // The message as the conversation holds it (`session.messages`), its stored body read in.
+        let context = super::run::ModelContext {
+            store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let Some((_, mut message)) = context.read().await?.into_iter().find(|(id, _)| *id == iid) else {
+            return Err(CoreError::ItemNotFound { thread_id: self.id.clone(), item_id: iid });
+        };
+        let Some(body) = message.as_object_mut() else { return Ok(Reply::Value(json!({ "changed": false }))) };
+        let meta = body.entry("meta").or_insert_with(|| json!({}));
+        if !meta.is_object() {
+            *meta = json!({});
+        }
+        let transcript = meta.as_object_mut().expect("meta is an object").entry("transcript").or_insert_with(|| json!({}));
+        if !transcript.is_object() {
+            *transcript = json!({});
+        }
+        transcript.as_object_mut().expect("transcript is an object").insert("appliedSkills".into(), json!(names));
+        self.amend_shown(&iid, message, req.ctx).await?;
+        Ok(Reply::Value(json!({ "changed": true })))
+    }
+
+    /// The row `iid`'s body becomes `message`, and its user lines are shown again with it.
+    async fn amend_shown(&self, item: &mixdog_core_api::ids::ItemId, message: Value, ctx: mixdog_core_api::call::CallContext) -> Result<(), CoreError> {
+        let iid = item.as_str().to_owned();
+        self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), self.id.clone());
-        let found = self.deps.lanes.io.submit(&req.ctx.cancel, {
+        // The reaction is a bot's data: a full lane is waited out, never refused.
+        let found = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &ctx.cancel, {
             let iid = iid.clone();
             move |lane| store.history_row(lane, &thread, &iid)
-        })?;
-        let dropped = || CoreError::Internal { incident_id: "session-reaction-job-dropped".into() };
-        let (_, mut row) = found.await.map_err(|_| dropped())??.ok_or_else(|| CoreError::ItemNotFound {
+        });
+        let (_, mut row) = found.await??.ok_or_else(|| CoreError::ItemNotFound {
             thread_id: self.id.clone(),
-            item_id: ids[done.index].clone(),
+            item_id: item.clone(),
         })?;
         row.body = mixdog_store::schema::blob::Slot::Inline(message.clone());
         let transcript = self.deps.transcript.clone();
-        let shown = self.deps.lanes.cpu.submit(&req.ctx.cancel, {
+        let shown = mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &ctx.cancel, {
             let row = row.clone();
             move |lane| transcript.items(lane, &row)
-        })?;
-        // Only the lines that carry reactions are re-shown; a row's other items are unchanged.
+        });
+        // Only the user lines (the ones that carry reactions and skill chips) are re-shown; a row's other items are unchanged.
         let items: Vec<mixdog_protocol::ThreadItem> = shown
-            .await
-            .map_err(|_| dropped())?
+            .await?
             .into_iter()
             .filter_map(|shown| match shown {
                 super::seams::Shown::Item(
@@ -388,9 +436,8 @@ impl SessionHandle {
             "turn": row.turn.as_ref().map(|turn| turn.as_str()),
             "items": items,
         });
-        self.to_actor_cancellable(CoreRequest { method: mixdog_core_api::ids::Method("thread/reactions/apply"), params: apply, op: None, ctx: req.ctx }).await?;
-        reply["changed"] = Value::Bool(true);
-        Ok(Reply::Value(reply))
+        self.to_actor_cancellable(CoreRequest { method: mixdog_core_api::ids::Method("thread/reactions/apply"), params: apply, op: None, ctx }).await?;
+        Ok(())
     }
 
     /// `thread/roomRows/append {messages}`: a room post (`agent-room-delivery.mjs` `commit`). A
@@ -405,6 +452,7 @@ impl SessionHandle {
         let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -426,9 +474,11 @@ impl SessionHandle {
                 .collect::<Vec<Value>>()
         })?;
         let rows = read.await.map_err(|_| CoreError::Internal { incident_id: "session-room-facts-dropped".into() })?;
+        let set = req.params.get("set").cloned().unwrap_or(Value::Null);
+        let unset = req.params.get("unset").cloned().unwrap_or(Value::Null);
         let append = CoreRequest {
             method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
-            params: json!({ "rows": rows }),
+            params: json!({ "rows": rows, "set": set, "unset": unset }),
             op: None,
             ctx: req.ctx,
         };
@@ -532,7 +582,15 @@ impl SessionHandle {
         // `inheritFrom` (`lifecycle/inheritance.mjs`): the heir is a created, empty session and the source's conversation is
         // carried into it with its inheritance boundary, as an `intoThreadId` heir's is.
         let heirs = super::SessionDirectory::over(directory.clone());
-        heirs.carry_into(&self.id, &created.id, params.compact == Some(true)).await
+        // `inheritToNewSession` carries before it persists the heir, so a refused carry leaves no heir: the one this fork
+        // created is removed when its carry fails.
+        match heirs.carry_into(&self.id, &created.id, params.compact == Some(true)).await {
+            Ok(reply) => Ok(reply),
+            Err(error) => {
+                let _ = super::delete::delete_session(&directory, created.id.as_str(), None).await;
+                Err(error)
+            }
+        }
     }
 
     /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and
@@ -580,9 +638,11 @@ impl SessionHandle {
 /// provenance, transcript identity and the source's own name and title are not carried (the carry gives the heir the source's title), and its compaction is the configuration alone, without the source's checks.
 fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
     const COMPACTION_CONFIG: [&str; 9] = ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
-    const NOT_CARRIED: [&str; 42] = [
+    const NOT_CARRIED: [&str; 46] = [
+        "offloadInheriting", "offloadInheritingBoot",
         "bp3Cursor", "closeProvenance", "lastCacheWriteTokens", "lastCachedReadTokens", "lastContextTokens", "lastContextTokensStaleAfterCompact",
         "lastContextTokensUpdatedAt", "lastInputTokens", "lastIterationIndex", "lastOutputTokens", "lastProviderSendAt", "lastTurnCompletedAt",
+        "lastProviderCachedPrefixTokens", "providerPrefixBaseline",
         "lastUncachedInputTokens", "reasoningUsage", "titleUpdatedAt", "todo", "todoCheck", "totalCacheWriteTokens", "totalCachedReadTokens",
         "totalUncachedInputTokens", "transcriptEpoch", "turnBotChain", "turnCoverage", "pendingGoalReminder",
         "goalReminderRevision", "goalStalledNotice", "contextUsageSnapshot", "turnHop", "usageMetricsTurnId", "usageReadout",
@@ -826,6 +886,7 @@ impl ThreadHandle for SessionHandle {
             "thread/revertTurnReview" => self.revert_turn_review(&req, false).await,
             "thread/revertTurnReviewFile" => self.revert_turn_review(&req, true).await,
             "thread/reactions/set" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.reactions_set(req).await,
+            "thread/appliedSkills/set" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.applied_skills_set(req).await,
             "thread/roomRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req, true).await,
             "thread/inheritedRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req, false).await,
             // The acked header, for the core's own ports; never a connection's read.
@@ -836,6 +897,7 @@ impl ThreadHandle for SessionHandle {
             "thread/messages/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
                 let context = super::run::ModelContext {
                     store: self.deps.store.clone(),
+                    sensitive: self.deps.sensitive.clone(),
                     lanes: self.deps.lanes,
                     thread: self.id.clone(),
                     input: mixdog_core_api::ids::ItemId::from(String::new()),

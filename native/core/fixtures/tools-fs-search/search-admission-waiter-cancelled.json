@@ -1,0 +1,91 @@
+{
+  "name": "search-admission-waiter-cancelled",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "admission": [
+    {
+      "start": "holder",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      "until": "server",
+      "requests": 1
+    },
+    {
+      "start": "waiter",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "a",
+          "path": "t"
+        }
+      },
+      "until": "queued",
+      "cancellable": true,
+      "requests": 1
+    },
+    {
+      "abort": "waiter"
+    },
+    {
+      "settle": "waiter",
+      "answer": {
+        "thrown": "This operation was aborted"
+      }
+    },
+    {
+      "tick": 5000
+    },
+    {
+      "start": "third",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "d",
+          "path": "u"
+        }
+      },
+      "until": "queued",
+      "requests": 1
+    },
+    {
+      "script": "observe"
+    },
+    {
+      "tick": 12500
+    },
+    {
+      "settle": "holder",
+      "answer": {
+        "text": "Error: rg failed for t: native file inventory search timed out after 17500ms.",
+        "isError": true
+      }
+    },
+    {
+      "settle": "third",
+      "requests": 2,
+      "answer": {
+        "text": "d.ts",
+        "isError": false
+      }
+    }
+  ]
+}

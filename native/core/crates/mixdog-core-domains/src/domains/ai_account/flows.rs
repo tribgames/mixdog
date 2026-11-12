@@ -233,7 +233,7 @@ impl OAuthFlows {
         let expiry_id = id.clone();
         let ttl = self.ttl;
         let timeout = tokio::spawn(async move {
-            tokio::time::sleep(ttl).await;
+            mixdog_rt::time::sleep(ttl).await;
             let mut reg = this.lock();
             if reg.finish(&expiry_id, State::Expired, Some("OAuth login expired.".into()), Ending::None) {
                 reg.flows[&expiry_id].session.cancel();

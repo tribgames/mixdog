@@ -52,6 +52,8 @@ pub trait LocalModels: Send + Sync {
     fn entry(&self, model: &str) -> Option<LocalEntry>;
     fn runtime_tools(&self, model: &str) -> Option<bool>;
     fn media(&self, updated: &Value) -> Arc<dyn MediaText>;
+    /// The runtime the registry's `mixdog-local` provider is registered over (`BuilderEnv::local`).
+    fn runtime(&self) -> Arc<dyn mixdog_ai::providers::local::LocalRuntime>;
 }
 
 /// The host the codex `User-Agent` describes, in codex's vocabulary: `Windows` / `Mac OS` /

@@ -1,0 +1,172 @@
+{
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://oauth2.googleapis.com",
+      "method": "POST",
+      "path": "/token",
+      "headers": {
+        "host": "oauth2.googleapis.com",
+        "connection": "keep-alive",
+        "content-type": "application/x-www-form-urlencoded",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "114"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "grant_type=refresh_token&client_id=fixture-client&client_secret=fixture-secret&refresh_token=fixture-refresh-token",
+      "served": "{\"access_token\":\"fixture-token-1\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+    },
+    {
+      "transport": "http",
+      "origin": "https://aiplatform.googleapis.com",
+      "method": "POST",
+      "path": "/v1/projects/fixture-project/locations/global/endpoints/openapi/chat/completions",
+      "headers": {
+        "host": "aiplatform.googleapis.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "OpenAI/JS 6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/json",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "128"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"zai-org/glm-5-maas\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "served": "[{\"error\":{\"code\":429,\"message\":\"Quota exceeded\",\"status\":\"RESOURCE_EXHAUSTED\"}}]"
+    },
+    {
+      "transport": "http",
+      "origin": "https://aiplatform.googleapis.com",
+      "method": "POST",
+      "path": "/v1/projects/fixture-project/locations/global/endpoints/openapi/chat/completions",
+      "headers": {
+        "host": "aiplatform.googleapis.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "OpenAI/JS 6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/json",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "128"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"zai-org/glm-5-maas\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+      "served": "data: {\"id\":\"r1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The answer is 42.\"}}]}\n\ndata: {\"id\":\"r1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1000,\"completion_tokens\":5,\"total_tokens\":1005,\"prompt_tokens_details\":{\"cached_tokens\":800}}}\n\ndata: [DONE]\n\n"
+    }
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "vertex-maas/retry-429",
+      "seed": 2862928181,
+      "samples": [
+        {
+          "n": 1,
+          "value": 0.7280690700281411,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry"
+        },
+        {
+          "n": 2,
+          "value": 0.09371649054810405,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry"
+        }
+      ]
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": []
+    },
+    "retrySleeps": [
+      {
+        "seq": 1,
+        "delayMs": 1,
+        "precedesAttempt": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ]
+      }
+    ],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
+}

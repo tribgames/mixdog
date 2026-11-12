@@ -21,6 +21,7 @@ use mixdog_core_config::workflow::ids::active_workflow_id;
 use mixdog_core_config::workflow::ids::configured_orchestration_mode;
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_core_session::session::session_options::header_profile_allowlist;
+use mixdog_core_session::session::session_options::header_tool_profile;
 use mixdog_core_session::session::session_options::model_tool_allowlist;
 use mixdog_core_session::session::thread_switches::SurfaceFailure;
 use mixdog_core_session::session::thread_switches::WorkflowSurface;
@@ -118,11 +119,14 @@ impl RunWorkflowSurface {
     }
 
     /// `getFeatureDisallowedTools()`: the gates over the config as the runtime holds it (builtins
-    /// stamped) and the machine as it is now.
-    pub async fn feature_denied(&self) -> Result<Vec<String>, SurfaceFailure> {
+    /// stamped) and the machine as it is now, under the profile of `session` when it was started under
+    /// a narrowed one (Node runs a headless or heartbeat session in a runtime of that profile; the
+    /// daemon's runtime is interactive).
+    pub async fn feature_denied(&self, session: Option<&Header>) -> Result<Vec<String>, SurfaceFailure> {
         let facts = self.probes.read().await?;
         let config = with_grandfathered_builtins(&self.config.agent());
-        Ok(feature_disallowed_tools(&config, &facts, &*self.env, self.tool_profile))
+        let profile = session.and_then(header_tool_profile).unwrap_or(self.tool_profile);
+        Ok(feature_disallowed_tools(&config, &facts, &*self.env, profile))
     }
 
     /// `modelStandaloneTools()` for `session` with `features` as the denied gates.
@@ -161,11 +165,11 @@ impl WorkflowSurface for RunWorkflowSurface {
     }
 
     async fn live_denied_tools(&self, session: &Header, summary: &Value) -> Result<Vec<String>, SurfaceFailure> {
-        live_denied_tools(session, summary, &self.feature_denied().await?)
+        live_denied_tools(session, summary, &self.feature_denied(Some(session)).await?)
     }
 
     async fn internal_tools(&self, session: &Header) -> Result<Vec<Value>, SurfaceFailure> {
-        let features = self.feature_denied().await?;
+        let features = self.feature_denied(Some(session)).await?;
         Ok(self.gated_tools(session, &features).await?.iter().map(|tool| tool.spec().definition()).collect())
     }
 
@@ -173,7 +177,3 @@ impl WorkflowSurface for RunWorkflowSurface {
         self.texts.orchestration_instructions(mode).await
     }
 }
-
-#[cfg(test)]
-#[path = "surface_tests.rs"]
-mod tests;

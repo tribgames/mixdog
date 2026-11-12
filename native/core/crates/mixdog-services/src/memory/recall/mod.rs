@@ -11,6 +11,7 @@ pub mod hybrid;
 pub mod period;
 pub mod plan;
 pub mod ranking;
+pub mod readiness;
 pub mod row;
 pub mod store;
 
@@ -22,6 +23,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::memory::core::access::MemoryCaller;
 use crate::memory::error::{MemoryError, Result};
@@ -48,10 +50,60 @@ pub const RECALL_OUTPUT_MAX_BYTES: usize = 20 * 1024;
 const FAN_OUT_QUERIES_CAP: usize = 5;
 const FAN_OUT_DEADLINE: Duration = Duration::from_secs(180);
 
-/// The vector of a recall query, when the embedding model can answer in time.
+/// The vector of a recall query, when the embedding model can answer in time; `cancel` is the request's signal and a cancelled
+/// request is refused with [`aborted`].
 #[async_trait]
 pub trait QueryEmbedder: Send + Sync {
-    async fn query_vector(&self, text: &str) -> Option<Vec<f32>>;
+    async fn query_vector(&self, text: &str, cancel: &CancellationToken) -> Result<Option<Vec<f32>>>;
+}
+
+/// `throwIfAborted(signal)` / `abortReason(signal)` of a request aborted with no reason: Node's default `AbortError`.
+pub fn aborted() -> MemoryError {
+    MemoryError::rejected("This operation was aborted")
+}
+
+/// `throwIfAborted(signal)`.
+fn throw_if_aborted(cancel: &CancellationToken) -> Result<()> {
+    if cancel.is_cancelled() { Err(aborted()) } else { Ok(()) }
+}
+
+/// One await of the recall path (`rpc.mjs:74-78`: a signal that fires while a request is in flight rejects the call): the request's
+/// cancel ends the wait at once, and a read that finished in the same instant, or while the cancel arrived, is not answered either.
+/// `point` names the await for the test hook.
+async fn read<T>(point: &'static str, cancel: &CancellationToken, work: impl std::future::Future<Output = T>) -> Result<T> {
+    let value = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Err(aborted()),
+        value = work => value,
+    };
+    settle(point, cancel, value)
+}
+
+/// The check after an await that ends on the request's cancel by itself (the query embedding: dropping it would drop its model load's wait).
+fn settle<T>(point: &'static str, cancel: &CancellationToken, value: T) -> Result<T> {
+    #[cfg(test)]
+    if let Some(hook) = AFTER_READ.with(|h| h.borrow().clone()) {
+        hook(point);
+    }
+    #[cfg(not(test))]
+    let _ = point;
+    throw_if_aborted(cancel)?;
+    Ok(value)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Called with the name of each await of the recall path on this thread once its read has finished.
+    pub(crate) static AFTER_READ: std::cell::RefCell<Option<std::rc::Rc<dyn Fn(&'static str)>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) type SearchSeam = std::rc::Rc<dyn Fn(&str, &SearchOptions) -> Vec<Row>>;
+
+#[cfg(test)]
+thread_local! {
+    /// A search a replay puts in place of the hybrid search for recalls on this thread.
+    pub(crate) static SEARCH_SEAM: std::cell::RefCell<Option<SearchSeam>> = const { std::cell::RefCell::new(None) };
 }
 
 /// A recall that hit a stored entry, for the trace store.
@@ -84,11 +136,13 @@ pub struct RecallOutcome {
     /// Present (possibly null) only for the `last` browse.
     pub next_cursor: Option<Option<String>>,
     pub is_error: bool,
+    /// The request's cancel ended the call before it answered: its caller gets the cancellation, not a reply (see `recall_cancellable`).
+    pub cancelled: bool,
 }
 
 impl RecallOutcome {
     fn ok(text: String) -> Self {
-        Self { text, next_cursor: None, is_error: false }
+        Self { text, next_cursor: None, is_error: false, cancelled: false }
     }
 
     /// The JSON text of the tool result.
@@ -236,28 +290,44 @@ impl Recall {
         (self.deps.clock)()
     }
 
-    /// The `recall` tool.
-    pub async fn recall(&self, args: &Value) -> RecallOutcome {
-        match self.handle_search(&recall_search_args(args)).await {
+    /// The memory runtime's `Date.now()`.
+    pub(crate) fn now_ms(&self) -> i64 {
+        self.clock().now_ms
+    }
+
+    /// The `recall` tool; `cancel` is the request's signal (the turn's stop). The tool's caller in Node is the memory proxy
+    /// (`memory-runtime-proxy/calls.mjs` `handleToolCall`): a signal that fires while the request is in flight destroys it with the
+    /// signal's reason and the call REJECTS with that error (`rpc.mjs:74-78` `onAbort`, `memoryAbortError`), so the caller receives no
+    /// reply text. The daemon's own `recall failed: …` answer (`tool-call-handler.mjs:78-80`) reaches nobody. A search that fails while
+    /// the request is cancelled is therefore `cancelled`, not an error reply; one that failed first, with the request still live, is the reply.
+    pub async fn recall_cancellable(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
+        match self.handle_search(&recall_search_args(args), cancel).await {
             Ok(mut outcome) => {
                 outcome.text = cap_recall_text(&outcome.text, RECALL_OUTPUT_MAX_BYTES);
                 outcome
             }
-            Err(error) => RecallOutcome { text: format!("recall failed: {}", error.message()), next_cursor: None, is_error: true },
+            Err(error) => RecallOutcome {
+                text: format!("recall failed: {}", error.message()),
+                next_cursor: None,
+                is_error: true,
+                cancelled: cancel.is_cancelled(),
+            },
         }
     }
 
     /// The internal `search_memories` tool.
-    pub async fn search_memories(&self, args: &Value) -> RecallOutcome {
-        match self.handle_search(args).await {
+    pub async fn search_memories(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
+        match self.handle_search(args, cancel).await {
             Ok(outcome) => outcome,
             Err(error) => {
-                RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true }
+                RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true, cancelled: false }
             }
         }
     }
 
-    pub async fn handle_search(&self, args: &Value) -> Result<RecallOutcome> {
+    /// `handleSearch(args, signal)` (`query-handlers.mjs:49`).
+    pub async fn handle_search(&self, args: &Value, cancel: &CancellationToken) -> Result<RecallOutcome> {
+        throw_if_aborted(cancel)?;
         let mut args = args.clone();
         if let Some(object) = args.as_object_mut()
             && !object.get("ids").is_some_and(Value::is_array)
@@ -266,12 +336,12 @@ impl Recall {
                 }
         let search = SearchArgs::new(args);
         if let Some(queries) = search.query_list() {
-            return self.fan_out(&search, queries).await;
+            return self.fan_out(&search, queries, cancel).await;
         }
-        self.dispatch(&search).await
+        self.dispatch(&search, cancel).await
     }
 
-    async fn fan_out(&self, args: &SearchArgs, queries: Vec<String>) -> Result<RecallOutcome> {
+    async fn fan_out(&self, args: &SearchArgs, queries: Vec<String>, cancel: &CancellationToken) -> Result<RecallOutcome> {
         let mut dedup: Vec<String> = Vec::new();
         for q in queries.iter().map(|q| js_trim(q).to_owned()).filter(|q| !q.is_empty()) {
             if !dedup.contains(&q) {
@@ -287,8 +357,8 @@ impl Recall {
         for (index, query) in selected.iter().enumerate() {
             let mut sub = args.raw.clone();
             sub["query"] = json!(query);
-            let this = self.clone();
-            set.spawn(async move { (index, this.dispatch(&SearchArgs::new(sub)).await) });
+            let (this, cancel) = (self.clone(), cancel.clone());
+            set.spawn(async move { (index, this.dispatch(&SearchArgs::new(sub), &cancel).await) });
         }
         let gather = async {
             let mut parts: Vec<Option<String>> = vec![None; selected.len()];
@@ -299,7 +369,7 @@ impl Recall {
             }
             Ok::<_, MemoryError>(parts.into_iter().flatten().collect::<Vec<_>>())
         };
-        let parts = tokio::time::timeout(FAN_OUT_DEADLINE, gather)
+        let parts = mixdog_rt::time::timeout(FAN_OUT_DEADLINE, gather)
             .await
             .map_err(|_| MemoryError::rejected("memory fan-out deadline exceeded (180s)"))??;
         let header = if dropped > 0 {
@@ -310,7 +380,7 @@ impl Recall {
         Ok(RecallOutcome::ok(format!("{header}{}", parts.join("\n\n"))))
     }
 
-    async fn dispatch(&self, args: &SearchArgs) -> Result<RecallOutcome> {
+    async fn dispatch(&self, args: &SearchArgs, cancel: &CancellationToken) -> Result<RecallOutcome> {
         let db = &self.deps.db;
         let clock = self.clock();
         if args.raw.get("currentSession") == Some(&Value::Bool(true))
@@ -318,25 +388,26 @@ impl Recall {
             || !args.text("session_id").is_empty()
         {
             let estimate = |text: &str| (self.deps.estimate_tokens)(text);
-            let text = recall_session_rows(db, &clock, args, &SessionOptions { estimate_tokens: &estimate }).await?;
+            let text = read("session_rows", cancel, recall_session_rows(db, &clock, args, &SessionOptions { estimate_tokens: &estimate })).await??;
             return Ok(RecallOutcome::ok(text));
         }
         let cwd = args.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty());
-        let resolved = resolve_project_scope(self.deps.lane, cwd, self.deps.session_cwd.as_deref()).await?;
+        let resolved =
+            read("project_scope", cancel, resolve_project_scope(self.deps.lane, cwd, self.deps.session_cwd.as_deref())).await??;
         if let Some(ids) = args.raw.get("ids").filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
             let ids = id_values(ids);
-            let text = search_by_ids(db, &clock, args, &ids, resolved.as_deref()).await?;
+            let text = read("ids", cancel, search_by_ids(db, &clock, args, &ids, resolved.as_deref())).await??;
             return Ok(RecallOutcome::ok(text));
         }
         let plan = resolve_search_plan(&clock, args, resolved.as_deref());
         if !plan.query.is_empty() && !plan.is_last() {
-            return Ok(RecallOutcome::ok(self.search_by_query(&clock, args, &plan).await?));
+            return Ok(RecallOutcome::ok(self.search_by_query(&clock, args, &plan, cancel).await?));
         }
         if plan.is_last() {
-            let (text, cursor) = browse_last_sessions(db, &clock, args, &plan).await?;
-            return Ok(RecallOutcome { text, next_cursor: Some(cursor), is_error: false });
+            let (text, cursor) = read("last", cancel, browse_last_sessions(db, &clock, args, &plan)).await??;
+            return Ok(RecallOutcome { text, next_cursor: Some(cursor), is_error: false, cancelled: false });
         }
-        Ok(RecallOutcome::ok(browse_entries(db, &clock, args, &plan).await?))
+        Ok(RecallOutcome::ok(read("browse", cancel, browse_entries(db, &clock, args, &plan)).await??))
     }
 
     // ---- query search ------------------------------------------------------------
@@ -357,36 +428,42 @@ impl Recall {
         }
     }
 
-    async fn search_by_query(&self, clock: &Clock, args: &SearchArgs, plan: &SearchPlan) -> Result<String> {
+    /// `searchByQuery` (`query-hybrid-search.mjs:276`): the request's signal is checked around the query's embedding, which it also ends.
+    async fn search_by_query(&self, clock: &Clock, args: &SearchArgs, plan: &SearchPlan, cancel: &CancellationToken) -> Result<String> {
         let db = &self.deps.db;
+        throw_if_aborted(cancel)?;
         let vector = match &self.deps.embedder {
-            Some(embedder) => embedder.query_vector(&plan.retrieval_query).await,
+            Some(embedder) => settle("embed", cancel, embedder.query_vector(&plan.retrieval_query, cancel).await)??,
             None => None,
         };
-        let candidates = self.retrieve_candidates(args, plan, vector).await?;
+        let candidates = self.retrieve_candidates(args, plan, vector, cancel).await?;
         let retrieval_limit = candidates.retrieval_limit;
         let mut filtered = order_candidates(candidates.results.clone(), plan, candidates.vague_latest_root_mode);
         if plan.include_raw {
-            filtered = self.merge_raw_window(clock, filtered, plan, retrieval_limit).await;
+            filtered = read("raw_window", cancel, self.merge_raw_window(clock, filtered, plan, retrieval_limit)).await?;
         }
         let window = plan.window();
         let core_rows = if plan.structured_time_mode {
             Vec::new()
         } else {
-            recall_core_rows(
-                db,
-                clock,
-                &plan.retrieval_query,
-                &CoreOptions {
-                    project_scope: Some(plan.project_scope.clone()),
-                    category: plan.category.clone(),
-                    limit: retrieval_limit,
-                    ts_from: window.and_then(|w| w.start_ms),
-                    ts_to: window.and_then(|w| w.end_ms),
-                    agent_id: MemoryCaller::from_value(args.get("memory_caller")).agent_id,
-                },
+            read(
+                "core_rows",
+                cancel,
+                recall_core_rows(
+                    db,
+                    clock,
+                    &plan.retrieval_query,
+                    &CoreOptions {
+                        project_scope: Some(plan.project_scope.clone()),
+                        category: plan.category.clone(),
+                        limit: retrieval_limit,
+                        ts_from: window.and_then(|w| w.start_ms),
+                        ts_to: window.and_then(|w| w.end_ms),
+                        agent_id: MemoryCaller::from_value(args.get("memory_caller")).agent_id,
+                    },
+                ),
             )
-            .await?
+            .await??
         };
         if !core_rows.is_empty() {
             filtered = interleave_raw_rows(filtered, core_rows);
@@ -398,7 +475,7 @@ impl Recall {
         if plan.sort == "date" {
             filtered.sort_by(compare_newest_first);
         }
-        let filtered = self.expand_and_bound(filtered, plan, &candidates, promote_latest_raw).await?;
+        let filtered = read("expand", cancel, self.expand_and_bound(filtered, plan, &candidates, promote_latest_raw)).await??;
         let sliced = page_rows(filtered.clone(), plan);
         if let (Some(sink), Some(top)) = (&self.deps.trace, filtered.first())
             && top.id > 0 {
@@ -425,7 +502,23 @@ impl Recall {
         Ok(format!("{}{latest_note}{semantic_note}{body}", plan.cap_prefix))
     }
 
-    async fn retrieve_candidates(&self, args: &SearchArgs, plan: &SearchPlan, vector: Option<Vec<f32>>) -> Result<Candidates> {
+    /// The hybrid search, or in test builds the search a replay put in its place (Node's recordings replace
+    /// `searchRelevantHybrid` at the module boundary).
+    async fn hybrid_search(&self, query: &str, options: &SearchOptions) -> Result<Vec<Row>> {
+        #[cfg(test)]
+        if let Some(seam) = SEARCH_SEAM.with(|s| s.borrow().clone()) {
+            return Ok(seam(query, options));
+        }
+        search_relevant_hybrid(&self.deps.db, query, options).await
+    }
+
+    async fn retrieve_candidates(
+        &self,
+        args: &SearchArgs,
+        plan: &SearchPlan,
+        vector: Option<Vec<f32>>,
+        cancel: &CancellationToken,
+    ) -> Result<Candidates> {
         let db = &self.deps.db;
         let window = plan.window();
         let retrieval_limit = (plan.limit + plan.offset).max(RECALL_LIMIT_CAP.min((plan.limit + plan.offset) * 3));
@@ -445,13 +538,12 @@ impl Recall {
             if vague_latest_root_mode {
                 retrieve_entries(db, &EntryFilters { limit: Some(retrieval_limit), ..window_filters.clone() }).await
             } else {
-                search_relevant_hybrid(db, &plan.retrieval_query, &options).await
+                self.hybrid_search(&plan.retrieval_query, &options).await
             }
         };
         let historical = async {
             if plan.bounded_historical {
-                search_relevant_hybrid(
-                    db,
+                self.hybrid_search(
                     &plan.retrieval_query,
                     &SearchOptions { include_members: false, root_only: true, ..options.clone() },
                 )
@@ -460,7 +552,7 @@ impl Recall {
                 Ok(Vec::new())
             }
         };
-        let (results, historical_rows) = tokio::try_join!(primary, historical)?;
+        let (results, historical_rows) = read("candidates", cancel, async { tokio::try_join!(primary, historical) }).await??;
         let primary_roots: Vec<Row> = if plan.deep_historical {
             results.iter().filter(|r| r.is_root == 1).cloned().map(|mut r| {
                 r.members = Some(Vec::new());
@@ -472,7 +564,8 @@ impl Recall {
         let mut historical_candidates = unique_rows_by_id(primary_roots.iter().cloned().chain(historical_rows.iter().cloned()));
         let low = if plan.deep_historical { results.len() <= 2 } else { results.len() <= 5 && historical_rows.len() <= 2 };
         if plan.bounded_historical && low {
-            let window_roots = retrieve_entries(db, &EntryFilters { limit: Some(50), ..window_filters }).await?;
+            let window_roots =
+                read("window_roots", cancel, retrieve_entries(db, &EntryFilters { limit: Some(50), ..window_filters })).await??;
             let terms = session_recall_terms(&plan.retrieval_query);
             historical_candidates = unique_rows_by_id(
                 primary_roots.into_iter().chain(window_roots).chain(historical_rows),

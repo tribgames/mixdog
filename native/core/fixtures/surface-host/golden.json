@@ -27,7 +27,7 @@
     },
     {
       "$tool": "read",
-      "hash": "6cac43e0095bf55a"
+      "hash": "85e1ee9a9396eb04"
     },
     {
       "$tool": "edit",
@@ -61,6 +61,10 @@
       "hash": "2c0a719b021b2096"
     },
     {
+      "$tool": "machine",
+      "hash": "bcff9e8a3d10e007"
+    },
+    {
       "$tool": "Skill",
       "variant": "internal",
       "hash": "6b52df78e9a7e474"
@@ -68,7 +72,7 @@
     {
       "$tool": "agent",
       "variant": "internal",
-      "hash": "edf17a67c3d7d675"
+      "hash": "ac4b8ff47222b0b9"
     },
     {
       "$tool": "ask_user",
@@ -260,7 +264,7 @@
           },
           {
             "name": "read",
-            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
             "agentHidden": false
           },
           {
@@ -306,6 +310,11 @@
           {
             "name": "recall",
             "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
+            "agentHidden": false
+          },
+          {
+            "name": "machine",
+            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
             "agentHidden": false
           },
           {
@@ -435,6 +444,7 @@
           "github",
           "web_fetch",
           "recall",
+          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -516,7 +526,7 @@
           },
           {
             "name": "read",
-            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
             "agentHidden": false
           },
           {
@@ -547,6 +557,11 @@
           {
             "name": "agent",
             "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
+            "agentHidden": false
+          },
+          {
+            "name": "machine",
+            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
             "agentHidden": false
           },
           {
@@ -667,6 +682,7 @@
           "load_tool",
           "todo",
           "github",
+          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -740,7 +756,7 @@
           },
           {
             "name": "read",
-            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
             "agentHidden": false
           },
           {
@@ -776,6 +792,11 @@
           {
             "name": "recall",
             "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
+            "agentHidden": false
+          },
+          {
+            "name": "machine",
+            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
             "agentHidden": false
           },
           {
@@ -900,6 +921,7 @@
           "todo",
           "web_fetch",
           "recall",
+          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -978,7 +1000,7 @@
           },
           {
             "name": "read",
-            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
             "agentHidden": false
           },
           {
@@ -1024,6 +1046,11 @@
           {
             "name": "recall",
             "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
+            "agentHidden": false
+          },
+          {
+            "name": "machine",
+            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
             "agentHidden": false
           },
           {
@@ -1170,6 +1197,7 @@
           "github",
           "web_fetch",
           "recall",
+          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -1239,7 +1267,7 @@
           },
           {
             "name": "read",
-            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
             "agentHidden": false
           },
           {
@@ -1452,7 +1480,7 @@
           },
           {
             "name": "read",
-            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
             "agentHidden": false
           },
           {
@@ -1630,7 +1658,7 @@
           },
           {
             "name": "read",
-            "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+            "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
             "agentHidden": false
           },
           {
@@ -1676,6 +1704,11 @@
           {
             "name": "recall",
             "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
+            "agentHidden": false
+          },
+          {
+            "name": "machine",
+            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
             "agentHidden": false
           },
           {
@@ -1805,6 +1838,7 @@
           "github",
           "web_fetch",
           "recall",
+          "machine",
           "browser",
           "browser_devtools",
           "computer",

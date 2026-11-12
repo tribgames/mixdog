@@ -290,6 +290,10 @@ pub struct CallOptions {
     /// `expected` remaining occurrences of `old_string` (Node
     /// `options.editOccurrence`); set only when two or more remain.
     pub edit_occurrence: Option<EditOccurrence>,
+    /// Which of `read`, `grep` and `list` the calling session offers (Node `isOnDeferredToolSurface`). `shell` refuses a
+    /// command those tools cover only when the tool that replaces it is among them; `None` is a caller with no session
+    /// information (a command is then only noted).
+    pub offered_tools: Option<Arc<Vec<String>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

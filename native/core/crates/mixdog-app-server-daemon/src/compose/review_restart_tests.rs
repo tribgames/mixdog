@@ -178,11 +178,51 @@ impl ReplayHost for Composed {
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn a_core_composed_again_tells_and_answers_as_node_does() {
+    // The windows' replay (`review-reread-replay.mjs`) runs in Node over this checkout's desktop sources: without its packages the test fails only after the
+    // cores were composed and replayed, with a module-resolution error. Said at the start, in the parent as in the child.
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+    if let Err(missing) = windows_replay_packages(&checkout) {
+        panic!("{missing}");
+    }
     let mut runtime = tokio::runtime::Builder::new_multi_thread();
     runtime.worker_threads(4);
     crate::compose_test_support::in_child(module_path!(), "a_core_composed_again_tells_and_answers_as_node_does", runtime, |dir| async move {
         replay_scenarios_with_restarts(&dir).await;
     });
+}
+
+/// The Node packages the windows' replay loads (`test-env.mjs`/`test-tsx.mjs`: react, react-dom, tsx; `review-reread-replay.mjs`: esbuild; `review-windows.mjs`:
+/// jsdom), each found where Node resolves it from `apps/desktop`: its own `node_modules`, then the checkout's. A pool checkout has them only when its
+/// `node_modules` (and `apps/desktop/node_modules`) were installed or linked from the integration checkout.
+#[allow(clippy::disallowed_methods, reason = "test setup: probes the checkout's installed packages")]
+fn windows_replay_packages(checkout: &Path) -> Result<(), String> {
+    let homes = [checkout.join("apps/desktop/node_modules"), checkout.join("node_modules")];
+    let missing: Vec<&str> = ["react", "react-dom", "tsx", "esbuild", "jsdom"].into_iter().filter(|package| !homes.iter().any(|home| home.join(package).is_dir())).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "this test replays the review windows in Node and needs the packages {missing:?} installed in the checkout {}: found in neither {} nor {}. Run `npm ci` at the checkout's root, or link its \
+         `node_modules` and `apps/desktop/node_modules` from a checkout that has them",
+        checkout.display(),
+        homes[0].display(),
+        homes[1].display()
+    ))
+}
+
+#[test]
+fn a_checkout_without_the_windows_replays_packages_is_told_which_and_where() {
+    let checkout = tempfile::tempdir().unwrap();
+    let message = windows_replay_packages(checkout.path()).unwrap_err();
+    for package in ["react", "react-dom", "tsx", "esbuild", "jsdom"] {
+        assert!(message.contains(package), "{message}");
+    }
+    assert!(message.contains("node_modules"), "{message}");
+    // Each package may be in either home.
+    for (home, package) in [("apps/desktop/node_modules", "react"), ("node_modules", "react-dom"), ("node_modules", "tsx"), ("apps/desktop/node_modules", "esbuild"), ("node_modules", "jsdom")] {
+        std::fs::create_dir_all(checkout.path().join(home).join(package)).unwrap();
+    }
+    assert_eq!(windows_replay_packages(checkout.path()), Ok(()));
 }
 
 async fn replay_scenarios_with_restarts(root: &Path) {

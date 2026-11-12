@@ -64,14 +64,16 @@ impl DomainService for ScreenSessions {
     fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
         if method.as_str() == CHANGED {
             if let Ok(params) = serde_json::from_value::<UiScreenSessionsChangedParams>(params) {
-                let ids: HashSet<String> = params.session_ids.into_iter().collect();
+                let ids: Option<HashSet<String>> = params.session_ids.map(|ids| ids.into_iter().collect());
                 let report = ScreenReport {
                     sessions: ids.clone(),
                     browser_id: params.browser_id.as_deref(),
                     visualize: params.visualize_session_ids.as_deref(),
                     foreground: params.foreground,
                 };
-                if !self.registry.report_screen(from.0, report) {
+                if !self.registry.report_screen(from.0, report)
+                    && let Some(ids) = ids
+                {
                     *self.latest() = Some((from, ids));
                 }
             }
@@ -114,7 +116,7 @@ mod tests {
         assert!(!screen.shows("a"));
     }
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/remote-viewing/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-viewing/golden.json");
 
     /// The sessions `hostState.remoteViewing` names, as the desktop reads them.
     fn viewed(registry: &DeviceRegistry) -> Vec<String> {
@@ -128,7 +130,7 @@ mod tests {
     /// and ignores them for this lane; the notification carries neither, and still agrees with every row.
     #[test]
     fn one_phone_counts_as_viewing_a_visualize_panel_exactly_when_node_counts_it() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let rows = golden["table"].as_array().unwrap();
         assert_eq!(rows.len(), 320);
         for row in rows {
@@ -152,7 +154,7 @@ mod tests {
     /// `viewsSessionLane` said are viewed are the sessions the core publishes as `remoteViewing`.
     #[test]
     fn remote_viewing_follows_the_phones_calls_as_nodes_relay_does() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let steps = golden["scenarios"].as_array().unwrap();
         assert_eq!(steps.len(), 19);
         let registry = Arc::new(DeviceRegistry::default());
@@ -225,5 +227,67 @@ mod tests {
         // A phone that left shows nothing, even before its connection record goes.
         registry.detach_peer("peer-a");
         assert!(!registry.credential_shows("cred-a", "t2") && !registry.any_device_shows("t2"));
+    }
+
+    const PLUMBING: &str = include_str!("../../../../../../apps/mobile/fixtures/phone-plumbing/golden.json");
+
+    /// JS `String(item || '')`, as remote-protocol-screen.ts reads each id the page gave.
+    fn page_ids(value: Option<&Value>) -> Value {
+        let Some(items) = value.and_then(Value::as_array) else { return json!([]) };
+        items
+            .iter()
+            .map(|item| match item {
+                Value::String(text) => text.clone(),
+                Value::Number(number) if number.as_f64() != Some(0.0) => number.to_string(),
+                Value::Bool(true) => "true".to_owned(),
+                _ => String::new(),
+            })
+            .collect()
+    }
+
+    /// The phone's relay plumbing calls (list 1 unit G, recorded from Node's relay dispatch: apps/mobile/fixtures/phone-plumbing,
+    /// benchmarks/rust-core/recorders/record-phone-plumbing.mjs), sent as remote-protocol-screen.ts sends them: after each, the
+    /// sessions a push is held back for (by credential and by browser id) and the visualize panels viewed are Node's. The push
+    /// columns are not readable over the protocol, so the mixdogd replay of the same recording compares the rest.
+    #[test]
+    fn the_phones_plumbing_calls_decide_what_nodes_relay_decided() {
+        let golden: Value = serde_json::from_str(PLUMBING).unwrap();
+        let credential = golden["credential"].as_str().unwrap();
+        let sessions: Vec<&str> = golden["sessions"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+        let browsers: Vec<&str> = golden["browsers"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+        let registry = Arc::new(DeviceRegistry::default());
+        let screen = ScreenSessions::new(registry.clone());
+        registry.connect_relay(1, "peer-a");
+        registry.attach_peer("peer-a", credential, "Pixel", "Chrome");
+        let steps = golden["steps"].as_array().unwrap();
+        assert_eq!(steps.len(), 21);
+        for step in steps {
+            let params = step["params"].as_array().unwrap();
+            let report = match step["call"].as_str().unwrap() {
+                "setForeground" => {
+                    let mut report = json!({ "foreground": params.first() != Some(&Value::Bool(false)) });
+                    if let Some(id) = params.get(1).and_then(Value::as_str) {
+                        report["browserId"] = json!(id);
+                    }
+                    Some(report)
+                }
+                "setScreenSessions" => Some(json!({ "sessionIds": page_ids(params.first()) })),
+                "setVisualizePanels" => Some(json!({ "visualizeSessionIds": page_ids(params.first()) })),
+                _ => None,
+            };
+            if let Some(report) = report {
+                screen.notify(Method(CHANGED), report, ConnectionId(1));
+            }
+            let shown = |which: &dyn Fn(&str) -> bool| json!(sessions.iter().copied().filter(|id| which(id)).collect::<Vec<_>>());
+            // The whole set Node counted as viewed, in no order: the core publishes it sorted and a reader asks membership.
+            let viewed: Vec<String> = registry.visualize_viewed_sessions().into_iter().collect();
+            let mut node: Vec<String> = serde_json::from_value(step["viewing"].clone()).unwrap();
+            node.sort();
+            assert_eq!(viewed, node, "viewing after {step}");
+            assert_eq!(shown(&|id| registry.credential_shows(credential, id)), step["credential"], "credential after {step}");
+            for browser in &browsers {
+                assert_eq!(shown(&|id| registry.browser_shows(browser, id)), step["browser"][*browser], "browser {browser} after {step}");
+            }
+        }
     }
 }

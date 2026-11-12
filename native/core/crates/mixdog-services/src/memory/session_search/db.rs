@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS session_search.backfill (
 );
 CREATE INDEX IF NOT EXISTS messages_session_idx ON session_search.messages (session_id, ordinal);
 CREATE INDEX IF NOT EXISTS messages_tsv_idx ON session_search.messages USING GIN (tsv);
+CREATE TABLE IF NOT EXISTS session_search.scrub (
+  id integer PRIMARY KEY CHECK (id = 1)
+);
 ";
 
 /// `to_tsvector` rejects a document over 1 MB; a single message never needs
@@ -122,6 +125,20 @@ pub struct SessionSearchDb {
     db: Db,
 }
 
+/// The steps of `SessionSearchDb::scrub` after the replacing transaction (log_rewrite.rs, M2-M4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ScrubStep {
+    /// None of them ran: the kill right after the replacing transaction.
+    #[cfg(test)]
+    Owed,
+    /// M2: the table, its TOAST and its indexes written anew.
+    Rewritten,
+    /// M3: the WAL segments of the old versions removed.
+    WalRemoved,
+    /// M4: the owed scrub cleared.
+    Cleared,
+}
+
 async fn insert_rows(client: &impl tokio_postgres::GenericClient, rows: &[SearchRow]) -> Result<u64> {
     if rows.is_empty() {
         return Ok(0);
@@ -143,9 +160,59 @@ async fn insert_rows(client: &impl tokio_postgres::GenericClient, rows: &[Search
 }
 
 impl SessionSearchDb {
+    /// Creates the schema, then finishes a scrub a killed process owed (`scrub`).
     pub async fn open(db: Db) -> Result<Self> {
         db.bootstrap_schema(DDL).await?;
-        Ok(Self { db })
+        let this = Self { db };
+        this.scrub().await?;
+        Ok(this)
+    }
+
+    /// The replaced row versions of a sensitive replacement (`replace`) leave the disk: the
+    /// table, its TOAST and its indexes are written anew from the live rows, then the WAL
+    /// segments that logged the old versions are removed (a segment switch and a checkpoint;
+    /// with `wal_recycle = off` a segment past the redo point is deleted, never renamed for
+    /// reuse). Runs only while `session_search.scrub` records it is owed, and clears that last,
+    /// so a kill at any step is finished by the next `open` (log_rewrite.rs, steps M2-M4).
+    pub async fn scrub(&self) -> Result<()> {
+        self.scrub_through(ScrubStep::Cleared).await
+    }
+
+    /// `scrub` up to and including `last` (a test stops there, as a kill would).
+    pub(crate) async fn scrub_through(&self, last: ScrubStep) -> Result<()> {
+        if self.db.query_opt("SELECT 1 FROM session_search.scrub", &[]).await?.is_none() {
+            return Ok(());
+        }
+        let recycle: String = self.db.query("SELECT current_setting('wal_recycle')", &[]).await?[0].get(0);
+        if recycle != "off" {
+            return Err(crate::memory::error::MemoryError::Runtime(
+                "[session-search] wal_recycle is on: a recycled WAL segment would keep the replaced rows".to_owned(),
+            ));
+        }
+        for (step, sql) in [
+            (ScrubStep::Rewritten, "VACUUM FULL session_search.messages"),
+            (ScrubStep::WalRemoved, "SELECT pg_switch_wal()"),
+            (ScrubStep::WalRemoved, "CHECKPOINT"),
+            (ScrubStep::Cleared, "DELETE FROM session_search.scrub"),
+        ] {
+            if step > last {
+                break;
+            }
+            self.db.batch(sql).await?;
+        }
+        Ok(())
+    }
+
+    /// One statement on `session_search.messages` that waits out a scrub's `VACUUM FULL` (an exclusive lock held for
+    /// seconds on a large table) instead of failing at the cluster's 5 s `lock_timeout`, as Node's session-search
+    /// connection, which sets no lock timeout, waits.
+    async fn waiting(&self, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
+        let mut client = self.db.client().await?;
+        let tx = client.transaction().await?;
+        tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+        let rows = tx.query(sql, params).await?;
+        tx.commit().await?;
+        Ok(rows)
     }
 
     /// Over a handle whose schema was created by whoever opened it (a deferred handle creates it when it opens).
@@ -160,8 +227,12 @@ impl SessionSearchDb {
         if rows.is_empty() {
             return Ok(0);
         }
-        let client = self.db.client().await?;
-        insert_rows(&**client, &rows).await
+        let mut client = self.db.client().await?;
+        let tx = client.transaction().await?;
+        tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+        let stored = insert_rows(&*tx, &rows).await?;
+        tx.commit().await?;
+        Ok(stored)
     }
 
     /// In one transaction: every stored row of `session_id` whose content
@@ -180,7 +251,22 @@ impl SessionSearchDb {
     /// `FOR UPDATE` locks only rows that exist: a write of the same session
     /// still in flight is not seen, so callers must not overlap it with this
     /// one (the ingest queue runs a session's writes one at a time).
+    ///
+    /// Returns once the replaced versions have left the disk too (`scrub`).
     pub async fn replace(
+        &self,
+        session_id: &str,
+        plain_messages: &[Value],
+        redacted_messages: &[Value],
+        redact: &(dyn Fn(&str) -> String + Sync),
+    ) -> Result<usize> {
+        let deleted = self.replace_rows(session_id, plain_messages, redacted_messages, redact).await?;
+        self.scrub().await?;
+        Ok(deleted)
+    }
+
+    /// `replace`'s transaction (log_rewrite.rs, M1): it records the scrub it makes owed.
+    pub(crate) async fn replace_rows(
         &self,
         session_id: &str,
         plain_messages: &[Value],
@@ -192,6 +278,10 @@ impl SessionSearchDb {
             search_rows(session_id, plain_messages).into_iter().map(|row| row.source_ref).collect();
         let mut client = self.db.client().await?;
         let tx = client.transaction().await?;
+        // The cluster commits asynchronously (`synchronous_commit = off`): a kill could lose this
+        // commit, and with it the record of the owed scrub, while the plain rows stay.
+        // Another mark's scrub may hold the table (`waiting`).
+        tx.batch_execute("SET LOCAL synchronous_commit = on; SET LOCAL lock_timeout = 0").await?;
         let stored = tx
             .query(
                 "SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
@@ -229,12 +319,15 @@ impl SessionSearchDb {
         }
         insert_rows(&*tx, &all).await?;
         let deleted = changed.len();
+        if deleted > 0 {
+            tx.execute("INSERT INTO session_search.scrub (id) VALUES (1) ON CONFLICT DO NOTHING", &[]).await?;
+        }
         tx.commit().await?;
         Ok(deleted)
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<()> {
-        self.db.execute("DELETE FROM session_search.messages WHERE session_id = $1", &[&session_id]).await?;
+        self.waiting("DELETE FROM session_search.messages WHERE session_id = $1", &[&session_id]).await?;
         self.db.execute("DELETE FROM session_search.backfill WHERE session_id = $1", &[&session_id]).await?;
         Ok(())
     }
@@ -242,8 +335,7 @@ impl SessionSearchDb {
     /// Every session id that still has search rows or a backfill stamp.
     pub async fn session_ids(&self) -> Result<BTreeSet<String>> {
         let rows = self
-            .db
-            .query(
+            .waiting(
                 "SELECT DISTINCT session_id FROM session_search.messages
                  UNION SELECT session_id FROM session_search.backfill",
                 &[],
@@ -276,8 +368,7 @@ impl SessionSearchDb {
             return Ok(Vec::new());
         };
         let rows = self
-            .db
-            .query(
+            .waiting(
                 &format!(
                     "WITH q AS (SELECT to_tsquery('simple', $1) AS query),
                      hits AS (

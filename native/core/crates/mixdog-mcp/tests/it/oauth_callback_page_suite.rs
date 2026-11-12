@@ -24,7 +24,7 @@ use mixdog_mcp::oauth::callback::HELD_PAGE_DELAYING;
 use mixdog_mcp::oauth::callback::HELD_PAGE_DELAY_MS;
 use mixdog_mcp::oauth::callback::LISTENERS_CLOSED;
 use mixdog_mcp::oauth::callback::LISTENER_CLOSED;
-use mixdog_mcp::oauth::callback::LOGIN_DEADLINE_MS;
+use mixdog_mcp::oauth::callback::seam;
 use mixdog_secrets::SecretError;
 use mixdog_mcp::result::OutputPolicy;
 use serde_json::Value;
@@ -32,7 +32,6 @@ use serde_json::json;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
-use tokio::net::TcpStream;
 use tokio::sync::Notify;
 
 use super::oauth_suite::form;
@@ -70,18 +69,21 @@ impl SecretStore for Spy {
 /// Returns once a listener was released after `before` listeners had been: the port now refuses, as Node's does the
 /// moment its abort handler ran.
 async fn closed_after(before: usize) {
-    loop {
-        let notified = LISTENER_CLOSED.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
-        if LISTENERS_CLOSED.load(Ordering::SeqCst) > before {
-            return;
+    let released = async {
+        loop {
+            let notified = LISTENER_CLOSED.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if LISTENERS_CLOSED.load(Ordering::SeqCst) > before {
+                return;
+            }
+            notified.await;
         }
-        notified.await;
-    }
+    };
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(30), released).await.expect("no listener was released");
 }
 
-const GOLDEN: &str = include_str!("../../../../fixtures/oauth-callback-mcp/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-callback-mcp/golden.json");
 
 /// The MCP server that is also its authorization server, as the recorder's: the token endpoint answers by `token`.
 struct Auth {
@@ -144,7 +146,7 @@ async fn serve(listener: TcpListener, auth: Arc<Auth>) {
 
 /// One raw request and everything the listener answers; `Err` when it does not accept.
 async fn exchange(port: u16, request: &str) -> Result<Vec<u8>, std::io::ErrorKind> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.map_err(|error| error.kind())?;
+    let mut stream = crate::connect_loopback(port).await.map_err(|error| error.kind())?;
     stream.write_all(request.as_bytes()).await.map_err(|error| error.kind())?;
     let mut answer = Vec::new();
     stream.read_to_end(&mut answer).await.map_err(|error| error.kind())?;
@@ -206,7 +208,9 @@ impl Callback {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_mcp_callback_answers_as_nodes() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let _seams = crate::oauth_seams().await;
+    mixdog_mcp::oauth::callback::seam::take_control();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let title = case["title"].as_str().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -221,11 +225,11 @@ async fn the_mcp_callback_answers_as_nodes() {
 
         let spy = Arc::new(Spy::default());
         spy.hold.store(case["cancel"] == "write", Ordering::SeqCst);
-        // Node's `timeoutMs` is long enough to reach its browser step; here the deadline is just short of that.
-        let timeout = case["timeoutMs"].as_u64().unwrap();
-        LOGIN_DEADLINE_MS.store(if timeout == 0 { 0 } else if case["afterHeld"] == true { 1500 } else { 400 }, Ordering::SeqCst);
+        // Node's `timeoutMs` is long enough to reach its browser step and passes at the point the case waits for; here the
+        // deadline is fired there.
+        let timed = case["timeoutMs"].as_u64().unwrap() > 0;
         let tokens = mixdog_rt::testing::tokens();
-        let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+        let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
         let dir = tempfile::tempdir().unwrap();
         let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
         hub.set_oauth_env(OAuthEnv { store: Arc::clone(&spy) as Arc<dyn SecretStore>, plugin_data: dir.path().to_path_buf(), io: io.durability });
@@ -295,6 +299,7 @@ async fn the_mcp_callback_answers_as_nodes() {
             for step in phase("flush") {
                 assert_answer(exchange(callback.port, &callback.request(step)).await, &step["answer"], &format!("{title}: flush {} {}", step["method"], step["target"]));
             }
+            seam::CLOCK.advance(flushing);
         }
         if phase("during").next().is_some() {
             auth.arrived.notified().await;
@@ -308,6 +313,9 @@ async fn the_mcp_callback_answers_as_nodes() {
             }
             // A timeout answers the held page when it fires: that answer says the listener is closed.
             if case["afterHeld"] == true {
+                let before = LISTENERS_CLOSED.load(Ordering::SeqCst);
+                seam::DEADLINE.fire();
+                closed_after(before).await;
                 for (step, answered) in std::mem::take(&mut held) {
                     assert_answer(answered.await.unwrap(), &step["answer"], &format!("{title}: held {} {}", step["method"], step["target"]));
                 }
@@ -317,6 +325,9 @@ async fn the_mcp_callback_answers_as_nodes() {
             }
             auth.gate.notify_one();
             spy.gate.notify_one();
+        }
+        if timed && case["afterHeld"] != true {
+            seam::DEADLINE.fire();
         }
         let end = loop {
             match session.next().await {
@@ -338,7 +349,6 @@ async fn the_mcp_callback_answers_as_nodes() {
         for step in phase("post") {
             assert_answer(exchange(callback.port, &callback.request(step)).await, &step["answer"], &format!("{title}: post {} {}", step["method"], step["target"]));
         }
-        LOGIN_DEADLINE_MS.store(0, Ordering::SeqCst);
         hub.close_all().await;
         server_task.abort();
     }

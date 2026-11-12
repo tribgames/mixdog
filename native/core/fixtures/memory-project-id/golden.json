@@ -1,0 +1,162 @@
+{
+  "domain": "memory-project-id",
+  "source": "src/runtime/memory/lib/project-id-resolver.test.mjs",
+  "cases": [
+    {
+      "name": "a NUL-filled project.id is no marker",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "cwd": ".",
+      "result": null
+    },
+    {
+      "name": "a real one still resolves",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "6d792d70726f6a6563740a"
+        }
+      ],
+      "cwd": ".",
+      "result": "my-project"
+    },
+    {
+      "name": "common is the common scope",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "636f6d6d6f6e0a"
+        }
+      ],
+      "cwd": ".",
+      "result": null
+    },
+    {
+      "name": "COMMON in any case",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "436f4d4d6f6e"
+        }
+      ],
+      "cwd": ".",
+      "result": null
+    },
+    {
+      "name": "blank marker",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "20200a0920"
+        }
+      ],
+      "cwd": ".",
+      "result": null
+    },
+    {
+      "name": "empty marker",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": ""
+        }
+      ],
+      "cwd": ".",
+      "result": null
+    },
+    {
+      "name": "CRLF line end",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "77696e2d70726f6a6563740d0a"
+        }
+      ],
+      "cwd": ".",
+      "result": "win-project"
+    },
+    {
+      "name": "NUL bytes with text are kept as read",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "616263000000"
+        }
+      ],
+      "cwd": ".",
+      "result": "abc\u0000\u0000\u0000"
+    },
+    {
+      "name": "a sub directory resolves through the ancestor marker",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "6f757465720a"
+        },
+        {
+          "dir": "a/b"
+        }
+      ],
+      "cwd": "a/b",
+      "result": "outer"
+    },
+    {
+      "name": "an inner .mixdog without project.id does not mask the outer marker",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "6f757465722d69640a"
+        },
+        {
+          "dir": "inner/.mixdog"
+        }
+      ],
+      "cwd": "inner",
+      "result": "outer-id"
+    },
+    {
+      "name": "no marker in any ancestor of the temp base",
+      "layout": [
+        {
+          "dir": "bare"
+        }
+      ],
+      "cwd": "bare",
+      "result": null
+    }
+  ]
+}

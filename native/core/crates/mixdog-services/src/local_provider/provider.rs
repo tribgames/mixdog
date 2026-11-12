@@ -102,6 +102,52 @@ pub struct LocalProvider {
     platform_key: String,
     signal: ChangeSignal,
     tool_settings: std::sync::OnceLock<std::sync::Weak<dyn ToolSettings>>,
+    /// The installed models as last read, for `getCachedModelInfo`, which Node answers synchronously from disk: every change
+    /// the signal announces reads them again ([`keep_installed`]), and an operation that changes them reads them again before
+    /// it completes ([`LocalProvider::refresh_installed`]).
+    installed: Arc<InstalledRows>,
+}
+
+/// The installed models as last published. Reads run concurrently (the change signal's, an operation's own); each takes a
+/// ticket when it starts and only a read newer than the last published one is published, so a slow older read never
+/// overwrites a newer one.
+struct InstalledRows {
+    rows: tokio::sync::watch::Sender<Option<Vec<Value>>>,
+    /// The reads started so far and the newest one published.
+    tickets: Mutex<(u64, u64)>,
+}
+
+impl InstalledRows {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { rows: tokio::sync::watch::channel(None).0, tickets: Mutex::new((0, 0)) })
+    }
+
+    /// Reads the installed models from the catalog now and publishes them unless a newer read already has.
+    async fn read(&self, catalog: &Arc<Catalog>) -> Result<Vec<Value>, String> {
+        let ticket = {
+            let mut tickets = self.tickets.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            tickets.0 += 1;
+            tickets.0
+        };
+        let rows = catalog.installed_models().await.map_err(|e| e.to_string())?;
+        let mut tickets = self.tickets.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if ticket > tickets.1 {
+            tickets.1 = ticket;
+            self.rows.send_replace(Some(rows.clone()));
+        }
+        Ok(rows)
+    }
+}
+
+/// Re-reads the installed models at start and after every tick of the change signal (installations, deletions, registrations,
+/// context settings), for as long as the provider lives.
+async fn keep_installed(catalog: Arc<Catalog>, mut ticks: tokio::sync::watch::Receiver<u64>, installed: Arc<InstalledRows>) {
+    loop {
+        let _ = installed.read(&catalog).await;
+        if ticks.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 /// `getToolModuleSettings()`: what Node's local-provider settings methods answer after a change.
@@ -140,6 +186,10 @@ impl LocalProvider {
         let server = Arc::new(ServerProcess::new(parts.launcher, parts.health, parts.timing, on_exit).with_signal(signal.clone()));
         let queue = RequestQueue::with_signal(Arc::new(ServerUnloader(server.clone())), parts.idle_ttl_seconds.unwrap_or(DEFAULT_LOCAL_IDLE_TTL_SECONDS), None, signal.clone());
         let hf = HuggingFaceCatalog::new(parts.hf_http, catalog.registry.clone());
+        let installed = InstalledRows::new();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(keep_installed(catalog.clone(), signal.subscribe(), installed.clone()));
+        }
         Arc::new(Self {
             catalog,
             installs: Arc::new(Installations::with_signal(signal.clone())),
@@ -153,7 +203,19 @@ impl LocalProvider {
             platform_key: parts.platform_key.unwrap_or_else(|| host_platform_key().to_owned()),
             signal,
             tool_settings: std::sync::OnceLock::new(),
+            installed,
         })
+    }
+
+    /// The installed models as of the last read (`None` before the first), and a handle to watch them change.
+    pub fn installed_rows(&self) -> tokio::sync::watch::Receiver<Option<Vec<Value>>> {
+        self.installed.rows.subscribe()
+    }
+
+    /// Reads the installed models now and publishes them for `getCachedModelInfo`: an operation that changed them calls this
+    /// before it completes, so a read after it sees the change.
+    pub(super) async fn refresh_installed(&self) -> Result<Vec<Value>, String> {
+        self.installed.read(&self.catalog).await
     }
 
     /// Attaches the owner of the tool-module settings (the first one stays).
@@ -178,6 +240,7 @@ impl LocalProvider {
     /// catalog change.
     pub async fn register_model(&self, preview_id: &str, license_accepted: bool) -> Result<Value, super::hugging_face::HfError> {
         let out = self.hf.register(preview_id, license_accepted).await?;
+        let _ = self.refresh_installed().await;
         self.signal.notify();
         Ok(out)
     }
@@ -308,12 +371,14 @@ impl LocalProvider {
                 let status = this.server.status();
                 let reload = status["activeModel"] == id.as_str() && (status["running"] == true || status["starting"] == true);
                 this.save_context(&entry, tokens).await?;
+                let _ = this.refresh_installed().await;
                 this.signal.notify();
                 if reload {
                     if let Err(e) = this.ensure_server(&id, Some(cancel)).await {
                         // `server.mjs:52-56`: the restoring save is bare in the `catch`, so its failure is thrown in
                         // place of the reload's error.
                         this.save_context(&entry, previous).await?;
+                        let _ = this.refresh_installed().await;
                         this.signal.notify();
                         return Err(e);
                     }
@@ -341,7 +406,10 @@ impl LocalProvider {
                     .ok_or_else(|| ProviderError::Invalid("modelId must identify a model in the Local Provider catalog.".into()))?;
                 let id = entry["id"].as_str().unwrap_or("").to_owned();
                 Ok(self.installs.track("model", Some(&id), move |progress: Progress, cancel| async move {
-                    install_model(&this.catalog, this.fetcher.as_ref(), this.durability, &entry, progress, cancel).await.map_err(|e| e.to_string())
+                    let installed = install_model(&this.catalog, this.fetcher.as_ref(), this.durability, &entry, progress, cancel).await.map_err(|e| e.to_string());
+                    // The job completes after the installed models are published, so a read after it sees the model.
+                    let _ = this.refresh_installed().await;
+                    installed
                 }))
             }
             _ => Err(ProviderError::Invalid("phase must be runtime or model.".into())),
@@ -458,6 +526,7 @@ impl LocalProvider {
             self.model_files(entry).await?;
             download_verified_asset(self.fetcher.as_ref(), entry, &path, DownloadOptions { on_progress: Some(publish), cancel, force: true, ..DownloadOptions::new(self.durability) }).await?;
             self.catalog.state.record_verification(id, json!({"valid": true, "sizeBytes": size, "sha256": entry["sha256"]}));
+            let _ = self.refresh_installed().await;
             return Ok(json!({"modelId": id, "valid": true}));
         }
         publish(serde_json::Map::from_iter([("stage".to_owned(), json!("verifying")), ("percent".into(), Value::Null)]));
@@ -514,6 +583,8 @@ impl LocalProvider {
                 this.hf.registry().forget(id).await.map_err(|e| ProviderError::Failed(e.to_string()))?;
                 this.installs.forget_model(id).map_err(|e| ProviderError::Failed(e.to_string()))?;
                 this.catalog.state.forget(id);
+                // The removal is complete when the models a read sees no longer include this one.
+                let _ = this.refresh_installed().await;
                 Ok(json!({"modelId": id, "deletedFiles": deleted, "recoverability": "Redownload required; no Recycle Bin copy."}))
             })
             .await?
@@ -641,7 +712,7 @@ pub(crate) mod tests {
             if p.installs.status().iter().all(|j| j["state"] != "running") {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         assert_eq!(p.installs.status()[0]["state"], "complete");
         assert_eq!(p.catalog.state.get(&id)["verification"]["valid"], true);
@@ -651,7 +722,7 @@ pub(crate) mod tests {
             if p.installs.status().iter().all(|j| j["state"] != "running") {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         let status = p.installs.status();
         assert_eq!(status[0]["state"], "failed");
@@ -699,7 +770,7 @@ pub(crate) mod tests {
             if p.installs.status().iter().all(|j| j["state"] != "running") {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         assert!(ticked(&mut rx));
         // Installations: a discard removes the finished row.

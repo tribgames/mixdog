@@ -43,7 +43,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
-const WIRE_ANTHROPIC: &str = include_str!("../../../../fixtures/wire-anthropic-gemini/anthropic.json");
+const WIRE_ANTHROPIC: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/wire-anthropic-gemini/anthropic.json");
 const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
 const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
 
@@ -116,6 +116,34 @@ impl LocalModels for Local {
     }
     fn media(&self, _: &Value) -> Arc<dyn MediaText> {
         Arc::new(NoMedia)
+    }
+    fn runtime(&self) -> Arc<dyn mixdog_ai::providers::local::LocalRuntime> {
+        Arc::new(NoRuntime)
+    }
+}
+
+/// A managed runtime with nothing installed that starts no server: these worlds only register `mixdog-local`.
+struct NoRuntime;
+
+#[async_trait::async_trait]
+impl mixdog_ai::providers::local::listing::InstalledModels for NoRuntime {
+    async fn installed(&self) -> Result<Vec<Value>, mixdog_core_api::domain::provider::ProviderError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait::async_trait]
+impl mixdog_ai::providers::local::LocalRuntime for NoRuntime {
+    async fn ensure_server(&self, _: &str) -> Result<mixdog_ai::providers::local::Endpoint, mixdog_core_api::domain::provider::ProviderError> {
+        let mut error = mixdog_core_api::domain::provider::ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+        error.message = "[local-provider] runtime is not installed".into();
+        Err(error)
+    }
+    async fn begin(&self, _: &str) -> Result<Box<dyn mixdog_ai::providers::local::Inference>, mixdog_core_api::domain::provider::ProviderError> {
+        unreachable!("these worlds never send to mixdog-local")
+    }
+    fn installed_now(&self) -> Option<Vec<Value>> {
+        Some(Vec::new())
     }
 }
 
@@ -360,6 +388,31 @@ async fn every_builder_input_comes_from_the_process_services() {
     }
 }
 
+/// A thread opened after a restart finds the process registry empty; its first request readies the header's provider as
+/// the route hop does (`RegistryHopHost::provider`: `initProviders(ensureProviderEnabled(agentConfig, id))`, then the
+/// registry) — for every kind of provider the agent config can name, not only a custom one.
+#[tokio::test]
+async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
+    let key = json!({"enabled": true, "apiKey": "k"});
+    let mut providers = Map::new();
+    for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter"] {
+        providers.insert(name.into(), key.clone());
+    }
+    providers.insert(
+        "custom-abc".into(),
+        json!({"enabled": true, "type": "custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
+    );
+    let names: Vec<String> = providers.keys().cloned().collect();
+    let w = world(&[], Value::Object(providers), Vec::new()).await;
+    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services));
+    for name in names {
+        let enabled = mixdog_ai::service::admin_route::ensure_provider_enabled(&w.services.config.agent(), &name);
+        registry.init_providers(&enabled).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        let adapter = registry.try_get(&name).await.unwrap().unwrap_or_else(|| panic!("{name}: not readied"));
+        assert_eq!(adapter.id().to_string(), name);
+    }
+}
+
 #[tokio::test]
 async fn a_remote_client_holds_no_model_credentials() {
     let w = world(&[("MIXDOG_MODEL_PROXY", "client"), ("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
@@ -412,7 +465,7 @@ async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() 
 /// `CatalogCaps` over such a catalog gives the same answers, so the adapter test's input is the product's.
 #[tokio::test]
 async fn the_anthropic_wire_models_get_nodes_catalog_answers() {
-    let recorded: Value = serde_json::from_str(WIRE_ANTHROPIC).unwrap();
+    let recorded: Value = serde_json::from_str(&WIRE_ANTHROPIC).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let caps = CatalogCaps::new(catalog_with(dir.path(), Vec::new()).await, &TestEnv(HashMap::new()));
     let models = recorded["capabilities"].as_object().unwrap();

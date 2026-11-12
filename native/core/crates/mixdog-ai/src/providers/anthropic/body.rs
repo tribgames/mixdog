@@ -160,6 +160,9 @@ pub(crate) struct BodyConfig<'a> {
     pub beta_headers: bool,
     /// The process-wide fast-mode state: a request is built at fast speed only while it allows.
     pub fast_mode: &'a super::fast_mode::FastMode,
+    /// A gateway's own reasoning control (`messagesEffort`): replaces the turn's effort, and `none` sends no
+    /// thinking at all.
+    pub gateway_effort: Option<&'a str>,
 }
 
 /// Model families (after `model_key`, with the major version) that take the
@@ -187,6 +190,8 @@ fn server_fallback(cfg: &BodyConfig<'_>, model: &str, parameters: Option<&Value>
 
 pub(crate) struct BuiltBody {
     pub bytes: Vec<u8>,
+    /// The body's diagnostic prefix fingerprint (`anthropicPrefixFingerprint(params)`).
+    pub prefix: super::prefix_trace::Fingerprint,
     pub betas: BetaFeatures,
 }
 
@@ -770,14 +775,19 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         Some(projection) => Some(projection.initial_effort.as_str()),
         None => request.options.effort.as_deref(),
     };
-    let reasoning = reasoning(cfg, request, turn_effort, max_tokens)?;
+    let reasoning = match cfg.gateway_effort {
+        Some("none") => Reasoning::default(),
+        gateway => reasoning(cfg, request, gateway.or(turn_effort), max_tokens)?,
+    };
     let disable_parallel = parameters
         .and_then(|p| p.get("disableParallelToolUse"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let tools = wire_tools(&request.tools, cfg.provider_name, cfg.first_party, &mut |excluded| {
+    // Hosted tools first, then the function tools (`requestAnthropicTools`, anthropic-request-utils.mjs:786-792).
+    let mut tools = crate::providers::hosted::anthropic_tools(&request.options);
+    tools.extend(wire_tools(&request.tools, cfg.provider_name, cfg.first_party, &mut |excluded| {
         report_exclusion(&request.options, excluded)
-    });
+    }));
     let choice = if tools.is_empty() {
         None
     } else {
@@ -837,10 +847,12 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     if cfg.flavor == Flavor::ApiKey {
         body.insert("stream".into(), Value::Bool(true));
     }
+    let prefix = super::prefix_trace::fingerprint(&body);
     let bytes = serde_json::to_vec(&Value::Object(body))
         .map_err(|e| local_error(format!("request body is not serialisable: {e}")))?;
     Ok(BuiltBody {
         bytes,
+        prefix,
         betas: BetaFeatures {
             fast_mode: fast,
             tool_search: request.tools.iter().any(|t| t.defer_loading),

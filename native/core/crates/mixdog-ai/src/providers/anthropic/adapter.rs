@@ -303,12 +303,9 @@ impl AnthropicAdapter {
         if !matches!(response.status, 400 | 415) {
             return Ok(response);
         }
-        // Drained best-effort before the plain resend (`resendIfEncodingRejected`), which goes out on the same turn of
-        // Node's event loop and so finds the refusal's socket still busy.
-        let held = response.read_all_held().await.ok();
-        let retry = self.http.send(request, MODEL_STREAM).await;
-        drop(held);
-        let retry = retry?;
+        // Drained best-effort before the plain resend (`resendIfEncodingRejected`).
+        drop(response.read_all().await);
+        let retry = self.http.send(request, MODEL_STREAM).await?;
         if retry.is_success() {
             GZIP_LATCHED.store(true, Ordering::SeqCst);
         }
@@ -478,6 +475,7 @@ impl ModelListing for AnthropicAdapter {
 
 #[async_trait]
 impl ProviderAdapter for AnthropicAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -513,6 +511,10 @@ impl ProviderAdapter for AnthropicAdapter {
         let mut floor_replays = Vec::new();
         // A threaded request the API refuses over its thread is planned again, as a create or unthreaded.
         'plan: loop {
+            // Diagnostic: per-block prefix hashes of exactly what is sent (`recordAnthropicPrefix(anthropicPrefixSessionId(opts), …)`).
+            let options = &request.options;
+            let session = options.usage_session_id.as_deref().filter(|s| !s.is_empty()).or(options.session_id.as_deref());
+            super::prefix_trace::record(session, plain.prefix.clone());
             let mut plan = self.plan(&request, &plain, &secret, directive);
             let mut wire = match &plan {
                 Some(plan) if plan.mode != Mode::None => threaded(&plain.wire, &plan.body, &plan.betas),
@@ -699,4 +701,7 @@ impl ModelStream for AnthropicStream {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+
+    /// A leaf: `next` awaits nothing after the wire's terminal event.
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
 }

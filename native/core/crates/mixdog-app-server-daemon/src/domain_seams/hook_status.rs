@@ -235,7 +235,7 @@ impl HookEventLog {
 
 impl HookObserver for HookEventLog {
     fn emit(&self, event: &str, payload: Value) {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let now = mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
         self.emit_at(event, &payload, now);
     }
 }

@@ -6,8 +6,8 @@ use super::error::EnsureError;
 use super::host::ServerCore;
 use crate::lifecycle::DiscoveryPhase;
 
-/// The core of an older version this run retired. A core is never signalled, so the exit is
-/// always the graceful one.
+/// The core of an older version this run retired. `graceful` is false when the core stayed silent on its stop and
+/// was signalled (Node's `stopDaemon`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Replaced {

@@ -105,11 +105,11 @@ pub trait SteerSource: Send + Sync {
     async fn drain(&self, request: DrainRequest) -> Vec<SteerEntry>;
 }
 
-/// Explicit skill selection for typed steering input, run before the next
-/// provider snapshot.
+/// Explicit skill selection (`prepareExplicitSkills`) for the turn's own prompt (`initial`) and for typed
+/// steering input, run before the next provider snapshot. Answers the skills that loaded, in selection order.
 #[async_trait]
 pub trait SkillSelector: Send + Sync {
-    async fn select(&self, content: &Content, transcript: &mut Vec<AgentMessage>);
+    async fn select(&self, content: &Content, initial: bool, transcript: &mut Vec<AgentMessage>) -> Vec<String>;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +137,8 @@ impl Tone {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Stage {
     Connecting,
+    /// `onStageChange('requesting')`: the send was admitted, and again as the provider makes its attempt.
+    Requesting,
     Streaming,
     /// A provider ping or comment: informational only.
     WaitingOnProvider,
@@ -154,6 +156,17 @@ pub enum Stage {
     Notice {
         message: String,
         tone: Tone,
+    },
+    /// The provider's account pool moves on to the next account (`onStageChange('reconnecting', { message })`).
+    AccountSwitching {
+        message: String,
+    },
+    /// A fallback account became the provider's selected one (`onStageChange('account-changed', { provider,
+    /// accountId, at })`).
+    AccountChanged {
+        provider: String,
+        account_id: String,
+        at: i64,
     },
     Compacting,
     ApprovalWait {
@@ -343,9 +356,26 @@ pub enum RunEvent {
     /// `loop/tool-phase.mjs:46` before `onToolCall`): what runs, so a bridged `call_tool` is recorded as its target. The host writes
     /// the `batch` trace row from it (`mixdog_trace::batch_record`) with a fresh batch id, and tags the batch's tool rows with it.
     ToolBatch(ToolBatch),
+    /// The execution view of the same batch's calls, right after its audit and before any of them is committed or runs
+    /// (`rememberSensitiveValues(sessionId, executionCalls)`, `loop/tool-phase.mjs:49`): the host marks the values a
+    /// sensitive fill carries, so the stored copies of the transcript hold a marker for them from the assistant turn on.
+    ExecutionCalls(Vec<ToolCall>),
     /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
     /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
     PartialToolRecovery(PartialToolRecovery),
+    /// `onProviderSendStarted` (`send-phase.mjs:183`): the loop sends the transcript, once per send whatever its retries.
+    ProviderSendStarted,
+    /// `onAssistantToolCallObserved` (`send-phase.mjs:140`): the provider streamed a complete tool call.
+    ToolCallObserved(ToolCall),
+    /// `onToolPhaseStarted` / `onToolPhaseCompleted` (`tool-phase.mjs:54`, `:95`): the batch's calls run once the
+    /// assistant message that carries them is committed, and are all settled.
+    ToolPhase(ToolPhase),
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum ToolPhase {
+    Started,
+    Completed { iteration: u32, calls: usize, elapsed_ms: u64 },
 }
 
 /// What `recoverPartialToolCalls` traces (`traceLoop(state, 'partial_tool_recovery', ...)`).
@@ -452,6 +482,11 @@ pub trait TranscriptSink: Send + Sync {
 
     /// Cancel-safe.
     async fn durable(&self, ticket: Ticket);
+
+    /// `recordAppliedSkills`: the skills a durable user message's turn loaded are stamped on its stored row
+    /// (`meta.transcript.appliedSkills`), where the live row, the persisted transcript and restore read them. A sink
+    /// with no stored rows has nothing to stamp.
+    async fn skills_applied(&self, _message: &AgentMessage, _names: &[String]) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +503,13 @@ pub struct CompactRequest<'a> {
     /// The provider refused the request as too long: the latest request's
     /// attachments now travel by reference.
     pub reference_latest_attachments: bool,
+    /// The pass runs inside a turn (`activeTurn: true` of the pre-send compaction): a turn in
+    /// progress gets the active-turn continuation. A manual or handoff pass between turns
+    /// (`runHandoffCompaction`) passes none.
+    pub active_turn: bool,
+    /// Node `goalReminderText` (`latestUserPrefix`): the session's Goal and open todo snapshot the
+    /// kept latest request carries; empty for none.
+    pub latest_user_prefix: &'a str,
 }
 
 pub struct CompactOutput {
@@ -497,6 +539,16 @@ pub enum CompactError {
     /// The pass was cancelled; the run ends as aborted, not as a failed compaction.
     Aborted,
     Failed(String),
+    /// The summary failed on a route the plan resolved (Node's `error.compactRoute`): the failure
+    /// names that route's provider and model, which need not be the conversation's.
+    RouteFailed(String, CompactRoute),
+}
+
+/// The provider and model of the summary route a compaction failed on.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CompactRoute {
+    pub provider: String,
+    pub model: String,
 }
 
 /// The compaction pipeline (rules and summary). The loop owns when it runs and
@@ -713,6 +765,9 @@ pub trait ResultReuse: Send + Sync {
     async fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &ToolOutput);
     /// A call ran: mutations and failures invalidate what they may have touched.
     async fn after_call(&self, call: &ToolCall, failed: bool);
+    /// Compaction replaced the transcript, so the tool results it held are no longer in context: a new read epoch
+    /// (`resetReadStateAfterCompaction`).
+    fn after_compaction(&self) {}
 }
 
 /// What a successful react call hit.
@@ -1065,13 +1120,53 @@ pub struct FailedCall {
     pub result_text: String,
 }
 
-/// The host's failure log (`tool-failures.jsonl`). Called once per failed executed call, in call
-/// order, before the call's result is cached or committed. Never blocks and never fails the run.
+/// One executed call as the fields of Node's `traceAgentTool` call site (`session/tool-batch/finalize.mjs:226`, `traceCompleted`):
+/// `result` is the result the transcript holds after the batch's offload and image compaction (a text as a string, a structured
+/// result as its parts, images left out), `result_kind` `"error"` or `"normal"`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TracedCall {
+    pub iteration: u32,
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub tool_kind: &'static str,
+    pub tool_ms: i64,
+    pub tool_args: serde_json::Value,
+    pub model: String,
+    pub result_kind: &'static str,
+    pub result: serde_json::Value,
+    /// The text a failure row is cut from (`toolTraceText(result)`).
+    pub result_text: String,
+    pub timing: Option<crate::message::ToolTiming>,
+    /// Every run of the call as (started, completed) epoch ms, in run order (`executionIntervals`).
+    pub execution_intervals: Vec<(i64, i64)>,
+    /// What the tool reported about its result (Node's `resultTelemetry`: a listing's `integrity`).
+    pub result_telemetry: Option<serde_json::Value>,
+    /// What the tool reported about its local search (Node's `localSearchTelemetry`).
+    pub local_search: Option<serde_json::Value>,
+}
+
+/// The host's tool log: the agent trace's `batch` and `tool` rows (`agent-trace.jsonl`) and the failure log
+/// (`tool-failures.jsonl`). Called in call order, before a call's result is cached or committed. Never blocks and never fails
+/// the run.
 pub trait ToolFailureLog: Send + Sync {
     fn failed(&self, call: FailedCall);
+    /// `recordToolBatch(sessionId, executionCalls, iteration)` (`loop/tool-phase.mjs:46`): the batch's row; the batch's calls are
+    /// traced with its id. A host without the trace writes nothing.
+    fn batch(&self, _batch: &ToolBatch) {}
+    /// `traceAgentTool(...)` of one executed call: its `tool` row (and `tool_slow` row) and, for an error call, its failure row.
+    /// A host without the trace logs only the failure.
+    fn tool(&self, call: TracedCall) {
+        if call.result_kind == "error" {
+            let TracedCall { iteration, tool_name, tool_kind, tool_ms, tool_args, model, result_text, .. } = call;
+            self.failed(FailedCall { iteration, tool_name, tool_kind, tool_ms, tool_args, model, result_text });
+        }
+    }
     /// `recordAgentWatchdogAbort(ctx)`: the progress watchdog stopped the run's turn (`mixdog_trace::watchdog_abort_records`
     /// has the fields of `ctx`); the `stall_abort` rows join the same log.
     fn stall_abort(&self, ctx: serde_json::Map<String, serde_json::Value>);
+    /// `traceCacheBreak(record)`: a send changed what the provider's prompt cache holds (`mixdog_trace::cache_break_payload`
+    /// has the fields of `record`); the `cache_break` row joins the trace and its line goes to stderr.
+    fn cache_break(&self, _record: serde_json::Map<String, serde_json::Value>) {}
 }
 
 /// Everything a run borrows from its host.

@@ -124,7 +124,8 @@ fn item_completed(params: &Value) -> Result<Option<Obs>, String> {
             let content = match (&run.result, &output) {
                 (Some(result), _) => Value::String(inline(result)?),
                 (None, Some(output)) => inline(output)?,
-                (None, None) => Value::Null,
+                // The card of a call whose result has not come in (the assistant message that carries it committed).
+                (None, None) => return Ok(None),
             };
             let failed = run.is_error == Some(true) || matches!(meta.status, Some(mixdog_protocol::ItemStatus::Failed));
             let skipped = matches!(meta.status, Some(mixdog_protocol::ItemStatus::Declined));
@@ -192,18 +193,25 @@ pub fn observe(notification: &RpcNotification) -> Vec<Obs> {
             Err(err) => fail(err),
         },
         "thread/tokenUsage/updated" => vec![usage_delta(&params)],
-        "thread/modelRequest/updated" => match params.get("status").and_then(Value::as_str) {
+        "thread/modelRequest/updated" => match params.get("phase").and_then(Value::as_str) {
             Some("started") => vec![Obs::ModelRequestStarted],
+            // The calls the response streamed, each observed before the usage that completes the request.
+            Some("completed") => params.get("toolCalls").and_then(Value::as_array).map_or_else(Vec::new, |calls| {
+                calls
+                    .iter()
+                    .map(|call| Obs::ToolObserved(ToolCall { id: text_of(call.get("id")), name: text_of(call.get("name")), arguments: call.get("arguments").cloned().unwrap_or(Value::Null) }))
+                    .collect()
+            }),
             _ => Vec::new(),
         },
-        "thread/toolBatch/updated" => match params.get("status").and_then(Value::as_str) {
+        "thread/toolBatch/updated" => match params.get("phase").and_then(Value::as_str) {
             Some("started") => vec![Obs::BatchStarted],
             Some("completed") => vec![Obs::BatchCompleted {
                 iteration: finite(params.get("iteration")),
                 calls: finite(params.get("calls")),
-                elapsed_ms: params.get("elapsedMs").map(|value| number(Some(value))).filter(|n| n.is_finite()),
+                elapsed_ms: params.get("durationMs").map(|value| number(Some(value))).filter(|n| n.is_finite()),
             }],
-            other => fail(format!("status {other:?}")),
+            other => fail(format!("phase {other:?}")),
         },
         "thread/stage/updated" => vec![Obs::Stage {
             stage: text_of(params.get("stage")),

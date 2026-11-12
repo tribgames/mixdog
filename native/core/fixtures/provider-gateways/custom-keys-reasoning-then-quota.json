@@ -1,0 +1,121 @@
+{
+  "id": "custom-keys-reasoning-then-quota",
+  "provider": "custom-keys-reasoning-then-quota",
+  "config": {
+    "type": "custom",
+    "name": "Keys",
+    "protocol": "openai-chat",
+    "baseURL": "https://keys.example.com/v1",
+    "enabled": true,
+    "apiKey": "sk-first",
+    "preconnect": false,
+    "schemaVersion": 2,
+    "modelOverrides": {
+      "m1": {
+        "manual": true
+      }
+    },
+    "headers": {
+      "X-Team": "blue"
+    }
+  },
+  "keys": [
+    "sk-first",
+    "sk-second"
+  ],
+  "keyIds": [
+    "default",
+    "a0ea2614-dd81-4ece-8e63-82e23cb26b69"
+  ],
+  "pool": {
+    "accounts": [
+      {
+        "id": "default",
+        "blockedUntil": 1794225900000,
+        "blockedModel": "m1",
+        "blockedQuota": true,
+        "label": "Account 1"
+      },
+      {
+        "id": "a0ea2614-dd81-4ece-8e63-82e23cb26b69",
+        "label": "Account 2"
+      }
+    ],
+    "selectedId": "default",
+    "auto": true,
+    "policy": "limit",
+    "useCredits": true
+  },
+  "sends": [
+    {
+      "model": "m1",
+      "tools": [],
+      "history": [],
+      "opts": {},
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "keys.example.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer sk-first",
+            "x-team": "blue",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "188"
+          },
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Thinking first.\"},\"finish_reason\":null}]}\n\ndata: {\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "streamDelta",
+          "kind": "reasoning"
+        }
+      ],
+      "error": {
+        "message": "You exceeded your current quota.",
+        "status": null,
+        "code": "insufficient_quota",
+        "quotaExhausted": null
+      }
+    }
+  ]
+}

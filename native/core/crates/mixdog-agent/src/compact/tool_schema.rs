@@ -35,7 +35,7 @@ impl RequestTools<'_> {
 }
 
 /// `isDeferredToolSchema` of a native object.
-fn native_deferred(tool: &Value) -> bool {
+pub(crate) fn native_deferred(tool: &Value) -> bool {
     tool.get("deferLoading") == Some(&Value::Bool(true)) || tool.get("defer_loading") == Some(&Value::Bool(true))
 }
 
@@ -80,7 +80,7 @@ pub struct ToolAnnotations {
 }
 
 impl ToolAnnotations {
-    fn of_native(tool: &Value) -> Self {
+    pub(crate) fn of_native(tool: &Value) -> Self {
         let annotations = tool.get("annotations");
         Self {
             mixdog_kind: annotations.and_then(|a| a.get("mixdogKind")).and_then(Value::as_str).map(str::to_owned),
@@ -109,7 +109,7 @@ fn tool_kind(name: &str, annotations: &ToolAnnotations) -> &'static str {
 }
 
 /// `toolSchemaBucket`.
-fn tool_schema_bucket(name: &str, annotations: &ToolAnnotations) -> &'static str {
+pub(crate) fn tool_schema_bucket(name: &str, annotations: &ToolAnnotations) -> &'static str {
     let kind = tool_kind(name, annotations);
     if kind == "mcp" {
         "mcp"

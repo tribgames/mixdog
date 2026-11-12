@@ -20,11 +20,14 @@ mod lowering;
 mod models;
 pub mod oauth;
 mod policy;
+pub mod prefix_trace;
 mod reminders;
 mod threads;
 
 #[cfg(test)]
 mod effort_tests;
+#[cfg(test)]
+mod fallback_wire_tests;
 #[cfg(test)]
 mod fast_mode_tests;
 #[cfg(test)]
@@ -56,6 +59,9 @@ pub use codec::AnthropicConfig;
 pub use codec::DEFAULT_BASE_URL;
 pub use codec::DEFAULT_CLI_VERSION;
 pub use codec::Flavor;
+pub(crate) use codec::vertex_body;
+pub(crate) use decoder::AnthropicDecoder;
+pub(crate) use policy::retry_policy;
 pub use models::AnthropicModel;
 pub use models::Tier;
 pub use oauth::AnthropicLogin;

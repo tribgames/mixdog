@@ -14,7 +14,7 @@ use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobMeta;
 use mixdog_agent::agent_tool::error_text::PlainErrorText;
-use mixdog_agent::agent_tool::{AgentParts, assemble};
+use mixdog_agent::agent_tool::{AgentParts, AgentRuntime, assemble};
 use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
 use mixdog_agent::agent_tool::flow::send::SendFlowImpl;
 use mixdog_agent::agent_tool::flow::seams::*;
@@ -29,6 +29,10 @@ use mixdog_agent::agent_tool::flow::world::SpawnAdmission;
 use mixdog_agent::agent_tool::flow::world::SpawnContext;
 use mixdog_agent::agent_tool::flow::world::SpawnWorld;
 use mixdog_agent::agent_tool::host::*;
+use mixdog_agent::agent_tool::model_select::ListOptions as ModelListOptions;
+use mixdog_agent::agent_tool::model_select::ModelCatalog;
+use mixdog_agent::agent_tool::model_select::ModelRow;
+use mixdog_agent::agent_tool::scope::Caller;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::scope::SessionFacts;
 use mixdog_agent::agent_tool::scope::TagRecord;
@@ -70,7 +74,7 @@ fn backend() {
 
 async fn settle() {
     for _ in 0..8 {
-        tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(15)).await;
     }
 }
 
@@ -588,6 +592,21 @@ struct Rig {
     shared: Arc<Shared>,
     spawn: Arc<SpawnFlowImpl>,
     send: Arc<SendFlowImpl>,
+    /// The assembled agent tool: its `handle` is the tool's own entry.
+    runtime: Arc<AgentRuntime>,
+}
+
+/// The catalog a scenario's `catalog` rows describe (the model picker's rows, as recorded).
+struct RecordedCatalog(Vec<Value>);
+#[async_trait]
+impl ModelCatalog for RecordedCatalog {
+    async fn list(&self, _: ModelListOptions) -> Result<Vec<ModelRow>, String> {
+        Ok(self
+            .0
+            .iter()
+            .map(|r| ModelRow { provider: s(r, "provider"), id: s(r, "id"), display: s(r, "display"), catalog_complete: r["catalogComplete"] == true, row: r.clone() })
+            .collect())
+    }
 }
 
 fn stopped_shells(host: Option<&Value>) -> Option<StoppedShellJobs> {
@@ -672,13 +691,14 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         send_world: Arc::new(SendHost { shared: shared.clone(), scenario: scenario.clone() }),
         terminal_trace: Arc::new(NoTrace),
         env: Arc::new(Env),
-        catalog: None,
+        catalog: scenario["catalog"].as_array().map(|rows| Arc::new(RecordedCatalog(rows.clone())) as Arc<dyn ModelCatalog>),
         scopes: Arc::new(NoScopes),
         errors: Arc::new(PlainErrorText),
         default_cwd: "/default".into(),
         mcp_scope_id: None,
     });
-    let (spawn, send) = (assembled.spawn, assembled.send);    Rig { shared, spawn, send }
+    let (spawn, send, runtime) = (assembled.spawn, assembled.send, assembled.runtime);
+    Rig { shared, spawn, send, runtime }
 }
 
 /// No terminal trace, no caller scope: the flows under test never reach them.
@@ -863,6 +883,99 @@ async fn a_spawn_equals_nodes() {
             assert_eq!(shell_tasks.as_ref().unwrap()[id.as_str().unwrap()], status, "{name}: {id}");
         }
         assert_eq!(shell_tasks.map_or(0, |tasks| tasks.as_object().unwrap().len()), jobs.len(), "{name}: shellTasks");
+    }
+}
+
+/// A spawn that pins a model, through the agent tool's own entry (`AgentRuntime::handle`): the model is
+/// resolved against the recorded catalog, the real spawn flow resolves the route, and the session spec
+/// handed to session creation carries Node's agent, preset name and preset. Every case is compared whole:
+/// the answer (status, type, notification or the error), the session as created and the job's error. The
+/// one thing normalised is the generated job id: the recorder's stand-in task is `job-1`, the board's own
+/// is generated, so the board's id in the answer is read as `job-1`.
+#[tokio::test(start_paused = true)]
+async fn a_pinned_model_spawn_equals_nodes() {
+    backend();
+    let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/spawn-model-settings/cases.json")).expect("golden json");
+    let cases = recorded["cases"].as_array().unwrap();
+    assert!(cases.len() >= 19);
+    for case in cases {
+        let name = s(case, "name");
+        let recorded_scenario = &case["scenario"];
+        let scenario = json!({
+            "config": recorded_scenario["config"],
+            "catalog": recorded_scenario["catalog"],
+            "nextTag": "worker-1",
+            "canonical": true,
+        });
+        let rig = rig(&scenario, Some(&case["host"]));
+        let caller = Caller { scope: Scope { caller_session_id: Some("lead".into()), host_pid: Some(4242) }, cwd: "/work".into() };
+        let reply = rig.runtime.handle(&recorded_scenario["args"], &caller).await;
+        settle().await;
+        let jobs = rig.shared.board.list_jobs(&Scope::default());
+        let mut answer = render(&reply, "");
+        for job in &jobs {
+            answer = answer.replace(&job.task_id, "job-1");
+        }
+        assert_eq!(answer, s(&case["result"], "answer"), "{name}: answer");
+        let started = !answer.starts_with("Error: ");
+        assert_eq!(jobs.len(), usize::from(started), "{name}: jobs");
+        let want_error = case["result"]["error"].as_str().map(str::to_owned);
+        for job in &jobs {
+            assert_eq!(job.error, want_error, "{name}: the job's error");
+        }
+        let created: Vec<Value> = lock(&rig.shared.log)
+            .iter()
+            .filter(|entry| entry[0] == "createChild")
+            .map(|entry| {
+                let made = &entry[1];
+                json!({ "agent": made["spec"]["agent"], "presetName": made["spec"]["presetName"], "preset": made["spec"]["preset"], "prompt": made["prompt"], "tag": made["tag"] })
+            })
+            .collect();
+        assert_eq!(Value::Array(created), case["result"]["created"], "{name}: the session spec");
+        // The configuration moved after the spawn, then a send (or a resume) to the worker it created.
+        if let Some(follow) = recorded_scenario.get("followUp") {
+            let want = &case["result"]["send"];
+            // The session the send goes to is the one this spawn created, not the recording's:
+            // a spawn that created another identity then sends as that identity.
+            let made = lock(&rig.shared.log)
+                .iter()
+                .find(|entry| entry[0] == "createChild")
+                .map(|entry| entry[1]["spec"].clone())
+                .unwrap_or_else(|| panic!("{name}: the spawn created no session"));
+            let session = json!({
+                "id": "sess_w1",
+                "agent": made["agent"],
+                "cwd": "/work",
+                "presetName": made["presetName"],
+                "provider": made["preset"]["provider"],
+                "model": made["preset"]["model"],
+                "effort": made["preset"]["effort"],
+                "fast": made["preset"]["fast"],
+            });
+            assert_eq!(session, want["session"], "{name}: the session the send goes to");
+            let moved = json!({
+                "config": follow["config"],
+                "session": session.clone(),
+                "surface": "canonical",
+                "busy": true,
+                "enqueueReturns": { "queueDepth": 1 },
+            });
+            let later = self::rig(&moved, None);
+            let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
+            let prepared = Prepared {
+                args: json!({ "tag": "scout", "prompt": "follow up" }),
+                session: SessionFacts { id: "sess_w1".into(), agent: s(&session, "agent"), cwd: s(&session, "cwd"), ..SessionFacts::default() },
+                session_id: "sess_w1".into(),
+                prompt: Some("follow up".into()),
+                route: None,
+            };
+            let options = DispatchOptions { reused: false, resumed: follow["resumed"] == true };
+            let reply = later.send.dispatch_to_existing_session(&prepared, &context, options).await.expect("send");
+            settle().await;
+            let (calls, _) = drain(&later, None);
+            assert_eq!(json!(render(&reply, "")), want["reply"], "{name}: the send's answer");
+            same(&name, "send calls", &calls, &want["calls"]);
+        }
     }
 }
 

@@ -362,7 +362,8 @@ mod tests {
     /// resolve, and the spec is the one Node stored (a `preset` of `{}` is truthy, so it is the spec).
     #[tokio::test]
     async fn malformed_values_resolve_as_nodes_do() {
-        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status-route/golden.json")).expect("fixture");
+        let text = mixdog_testkit::fixture!("../../fixtures/context-status-route/golden.json");
+        let recorded: Value = serde_json::from_str(&text).expect("fixture");
         let probes = recorded["inFlight"]["surfaceProbes"].as_array().expect("probes");
         assert_eq!(probes.len(), 6);
         for probe in probes {

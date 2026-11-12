@@ -1,0 +1,132 @@
+{
+  "cases": 6,
+  "command": "node benchmarks/rust-core/recorders/record-media-store-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "native rendition generation (the stub bytes cannot render; generate:false or the miss is what is recorded)",
+    "runs": "src/runtime/media/store.mjs (listMediaAssets, saveMediaAsset, resolveMediaFile, readMediaAsset, cacheMediaThumbnail, deleteMediaAsset(s), mediaOpenCommand, mediaStoreCacheStats, boards API) as a fresh module instance per case, over a temp data dir",
+    "scripted": {
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
+    }
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 20524,
+      "path": "golden.json",
+      "sha256": "5ac54c2de671ec16c273cad37872827bf83efa062985e41f16d994d5e9ad6f64"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.readVideo.path",
+      "$.cases[0].observed.readThumbDowngraded.path",
+      "$.cases[0].observed.cachedTarget.path",
+      "$.cases[0].observed.cachedRead.path",
+      "$.cases[1].observed.cacheMediaThumbnail.threw.message",
+      "$.cases[1].observed.cacheMediaThumbnail.threw.props.path",
+      "$.cases[1].observed.cacheMediaThumbnail.threw.props.dest"
+    ],
+    "reason": "the temp data dir is written <data>; the store's temp file names index.json.mixdog-tmp-<16 random hex> are written mixdog-tmp-<random>"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-media-store-cases.mjs",
+  "recorderSha256": "46932434f6cb9f7fa34226506b6110fdf87dd94d4745238e72d07615edee8a23",
+  "replay": {
+    "compare": "mixdog-store media: write the case's start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock",
+    "declared": {},
+    "entry": "The media/* protocol methods of mixdog-services/src/media/service.rs MediaService (listMediaAssets, resolveMediaFile, readMediaAsset, cacheMediaThumbnail, deleteMediaAsset, deleteMediaAssets, createMediaBoard, renameMediaBoard, setMediaAssetBoard, deleteMediaBoard, listMediaBoards) over a real data dir; a save through MediaStore::save_asset (the store a media job saves through); mediaOpenCommand through service.rs open_command; mediaStoreCacheStats through MediaStore::cache_stats (test builds only). Replayed by mixdog-services/src/media/replay_k1_tests.rs.",
+    "existsButNotPublicOnO1": [],
+    "inputs": {
+      "locale": "not read on these paths",
+      "timeZone": "UTC: the date folder of an asset is the local date of its createdAt and the legacy case's createdAt is new Date(2026, 6, 5, 12, 0, 0) in local time; a replay must run with this zone"
+    },
+    "missingOnO1": [],
+    "normalised": {
+      "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)",
+      "uuids": "generated ids are scripted (a counter, as the entry says), recorded as they came"
+    },
+    "protocolMethods": [
+      "media/listMediaAssets",
+      "media/resolveMediaFile",
+      "media/readMediaAsset",
+      "media/cacheMediaThumbnail",
+      "media/deleteMediaAsset",
+      "media/deleteMediaAssets",
+      "media/createMediaBoard",
+      "media/renameMediaBoard",
+      "media/setMediaAssetBoard",
+      "media/deleteMediaBoard",
+      "media/listMediaBoards"
+    ],
+    "rustTargets": [
+      {
+        "name": "MediaService",
+        "path": "native/core/crates/mixdog-services/src/media/service.rs"
+      },
+      {
+        "name": "open_command",
+        "path": "native/core/crates/mixdog-services/src/media/service.rs"
+      },
+      {
+        "name": "MediaStore::save_asset",
+        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "media-store-cases",
+  "totalBytes": 20524,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

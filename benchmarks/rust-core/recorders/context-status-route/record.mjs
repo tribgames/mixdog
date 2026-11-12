@@ -15,18 +15,27 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, parseArgs, resolveTree, stageSet, commitStage, writeJson, writeSetManifest } from '../lib/common.mjs';
+import { FIXTURES_ROOT, nodeTreeIdentity, parseArgs, resolveTree, stageSet, commitStage, writeJson, writeSetManifest } from '../lib/common.mjs';
+import { recorderProvenance } from '../lib/provenance.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const HERE = dirname(fileURLToPath(import.meta.url));
-const tree = resolveTree(parseArgs());
+const args = parseArgs();
+const tree = resolveTree(args);
 const head = execFileSync('git', ['--git-dir', join(tree, '.git'), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (head !== NODE_COMMIT) throw new Error(`the tree is at ${head}, the recording is of ${NODE_COMMIT}`);
 
 const PROVIDER = 'custom-harness';
 const MODEL = 'harness-model';
 const SEED_PROMPT = 'Seed the transcript. HARNESS-CAP-SEED';
-const root = mkdtempSync(join(tmpdir(), 'context-status-route-'));
+// `--work <dir>`: where the run's folder goes (default the OS temp dir). Its path is in the recorded prompts, whose token
+// counts Node priced at its real length, so the folder must be as long as the one the recording names (RECORDED_ROOT):
+// `--work C:\mixdog-build\tmp\control-materialize-tmp` gives it on the build PC.
+const RECORDED_ROOT = 'D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-vH0Vs0';
+const root = mkdtempSync(join(args.get('work') ?? tmpdir(), 'context-status-route-'));
+if (realpathSync(root).length !== RECORDED_ROOT.length) {
+  throw new Error(`the run folder ${realpathSync(root)} is not as long as ${RECORDED_ROOT}: pass --work <dir> of ${RECORDED_ROOT.length - 'context-status-route-vH0Vs0'.length - 1} characters`);
+}
 const home = join(root, 'home');
 const paths = {
   home,
@@ -129,10 +138,46 @@ let sequenceText = sequenceLine.slice(7);
 for (const [raw, token] of tokens.slice(0, 2)) sequenceText = sequenceText.replaceAll(JSON.stringify(raw).slice(1, -1), token);
 const inFlight = JSON.parse(sequenceText);
 
+// What a run makes up is replaced by a value of the same length and character class (so the token counts Node priced stay the
+// ones of the text recorded), in order of first appearance: uuids, `msg_`/`it_`/scratch-folder ids, epoch-millisecond times
+// (rebased on one origin, their distances kept), the MCP pid and the elapsed time; the run folder becomes RECORDED_ROOT.
+const stable = (value) => {
+  let text = JSON.stringify(value);
+  const numbered = (pattern, make) => {
+    const seen = new Map();
+    text = text.replace(pattern, (match) => {
+      if (!seen.has(match)) seen.set(match, make(seen.size + 1));
+      return seen.get(match);
+    });
+  };
+  const hex = (n, width) => n.toString(16).padStart(width, '0');
+  numbered(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (n) => `00000000-0000-4000-8000-${hex(n, 12)}`);
+  numbered(/msg_[0-9a-f]{32}/g, (n) => `msg_${hex(n, 32)}`);
+  numbered(/\bit_[0-9a-f]{8}_/g, (n) => `it_${hex(n, 8)}_`);
+  numbered(/\bs\.[0-9a-f]{16}\b/g, (n) => `s.${hex(n, 16)}`);
+  // A round value (1800000000000) is a clock the scenario set, not the run's own.
+  const ran = (m) => Number(m) % 1e6 !== 0;
+  const times = [...text.matchAll(/(?<![\d.])1[5-9]\d{11}(?![\d.])/g)].map((m) => m[0]).filter(ran).map(Number);
+  const origin = Math.min(...times);
+  text = text.replace(/(?<![\d.])1[5-9]\d{11}(?![\d.])/g, (m) => (ran(m) ? String(1794206055000 + Number(m) - origin) : m));
+  text = text.replace(/"(mcpPid|clientHostPid)":\d+/g, '"$1":40320').replace(/"elapsedMs":\d+/g, '"elapsedMs":15327');
+  const real = realpathSync(root);
+  const escaped = (path) => JSON.stringify(path).slice(1, -1);
+  text = text.replaceAll(escaped(real), escaped(RECORDED_ROOT)).replaceAll(real.replaceAll('\\', '/'), RECORDED_ROOT.replaceAll('\\', '/'));
+  return JSON.parse(text);
+};
+const NORMALISED = [
+  'uuids, `msg_`, `it_` and scratch-folder ids: numbered in order of first appearance, same length',
+  'epoch-millisecond times: rebased on one origin, distances kept',
+  '`mcpPid`, `clientHostPid` and `elapsedMs`: one constant each',
+  'the run folder of the recording: named as the integration recordings name it (RECORDED_ROOT), after checking it is as long',
+];
+
 const rel = 'benchmarks/rust-core/recorders/context-status-route/record.mjs';
+const patch = args.get('patch') ? nodeTreeIdentity(args, tree, NODE_COMMIT).patch.file : null;
 const finalOut = join(FIXTURES_ROOT, 'context-status-route');
 const out = stageSet(finalOut);
-writeJson(join(out, 'golden.json'), {
+writeJson(join(out, 'golden.json'), stable({
   domain: 'context-status-route',
   recorder: rel,
   nodeCommit: NODE_COMMIT,
@@ -143,13 +188,14 @@ writeJson(join(out, 'golden.json'), {
   afterRoute: { compaction: result.afterRoute.compaction },
   inFlight,
   steps,
-});
+}));
 writeSetManifest(out, {
   set: 'context-status-route',
   recorder: rel,
-  command: `node ${rel} --tree <git clone of the Node product at ${NODE_COMMIT}>`,
-  identityTree: tree,
-  identityRef: NODE_COMMIT,
+  command: `node ${rel} --tree <git clone of the Node product at ${NODE_COMMIT}${patch ? ` with ${patch} applied` : ''}>${patch ? ` --patch ${patch}` : ''}`,
+  // `--patch <file>`: the clone's working tree carries that Node fix (a clear Node bug fixed on both sides).
+  ...(patch ? { identity: nodeTreeIdentity(args, tree, NODE_COMMIT) } : { identityTree: tree, identityRef: NODE_COMMIT }),
+  extra: { ...recorderProvenance(import.meta.url), normalised: NORMALISED },
 });
 commitStage(out, finalOut);
 rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });

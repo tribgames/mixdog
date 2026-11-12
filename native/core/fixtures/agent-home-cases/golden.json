@@ -1,0 +1,198 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "the home key is a fixed, reversible session id per agent",
+      "observed": {
+        "mixyAgentId": "lead",
+        "sessionIdPattern": "^[A-Za-z0-9_-]+$",
+        "sessionIdPatternFlags": "",
+        "agents": [
+          {
+            "agentId": "github-watcher",
+            "sessionId": "sess_home_github-watcher",
+            "again": "sess_home_github-watcher",
+            "matchesPattern": true,
+            "agentIdOfHomeSession": "github-watcher",
+            "isHome": true
+          },
+          {
+            "agentId": "a.b",
+            "sessionId": "sess_home_a_b",
+            "again": "sess_home_a_b",
+            "matchesPattern": true,
+            "agentIdOfHomeSession": "a.b",
+            "isHome": true
+          },
+          {
+            "agentId": "reviewer2",
+            "sessionId": "sess_home_reviewer2",
+            "again": "sess_home_reviewer2",
+            "matchesPattern": true,
+            "agentIdOfHomeSession": "reviewer2",
+            "isHome": true
+          },
+          {
+            "agentId": "lead",
+            "sessionId": "sess_home_lead",
+            "again": "sess_home_lead",
+            "matchesPattern": true,
+            "agentIdOfHomeSession": "lead",
+            "isHome": true
+          }
+        ],
+        "distinct": {
+          "a.b": "sess_home_a_b",
+          "a-b": "sess_home_a-b"
+        },
+        "lead": "sess_home_lead"
+      }
+    },
+    {
+      "case": "non-agent ids and ordinary sessions are not home threads",
+      "observed": {
+        "agentIds": [
+          {
+            "agentId": "",
+            "sessionId": ""
+          },
+          {
+            "agentId": "Upper",
+            "sessionId": ""
+          },
+          {
+            "agentId": "-lead",
+            "sessionId": ""
+          },
+          {
+            "agentId": "has space",
+            "sessionId": ""
+          },
+          {
+            "agentId": "a_b",
+            "sessionId": ""
+          },
+          {
+            "agentId": null,
+            "sessionId": ""
+          }
+        ],
+        "sessionIds": [
+          {
+            "sessionId": "sess_desktop_x",
+            "isHome": false,
+            "agentId": ""
+          },
+          {
+            "sessionId": "sess_home_",
+            "isHome": false,
+            "agentId": ""
+          },
+          {
+            "sessionId": "sess_home_Up",
+            "isHome": false,
+            "agentId": ""
+          },
+          {
+            "sessionId": "sess_home__x",
+            "isHome": false,
+            "agentId": ""
+          },
+          {
+            "sessionId": "sess_daemon_1",
+            "isHome": false,
+            "agentId": ""
+          }
+        ]
+      }
+    },
+    {
+      "case": "a home thread's prompt carries its agent's role; a Lead's does not",
+      "observed": {
+        "options": {
+          "ownerIsAgent": false,
+          "toolFreeRole": false,
+          "delegationFree": false
+        },
+        "fields": [
+          {
+            "agent": "github-watcher",
+            "skipAgentRules": true,
+            "result": {
+              "roleRules": "",
+              "userPrompt": {
+                "$exact": "undefined"
+              },
+              "skipRoleCatalog": false,
+              "skipPersona": false,
+              "agent": "github-watcher",
+              "profile": {
+                "skip": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          },
+          {
+            "agent": "lead",
+            "skipAgentRules": true,
+            "result": {
+              "roleRules": "",
+              "userPrompt": {
+                "$exact": "undefined"
+              },
+              "skipRoleCatalog": true,
+              "skipPersona": true,
+              "agent": "lead",
+              "profile": {
+                "skip": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          },
+          {
+            "agent": null,
+            "skipAgentRules": true,
+            "result": {
+              "roleRules": "",
+              "userPrompt": {
+                "$exact": "undefined"
+              },
+              "skipRoleCatalog": true,
+              "skipPersona": true,
+              "agent": null,
+              "profile": {
+                "skip": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a blank home thread is never scratch, so no close tombstones its fixed id",
+      "observed": {
+        "blankDesktop": {
+          "session": {
+            "id": "sess_desktop_blank",
+            "messages": []
+          },
+          "scratch": true
+        },
+        "blankHome": {
+          "session": {
+            "id": "sess_home_github-watcher",
+            "messages": []
+          },
+          "scratch": false
+        }
+      }
+    }
+  ]
+}

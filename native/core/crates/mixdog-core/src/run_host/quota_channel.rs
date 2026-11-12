@@ -79,7 +79,7 @@ mod tests {
 
     use super::*;
 
-    const TWIN: &str = include_str!("../../../../fixtures/quota-usable/quota-usable-twin.json");
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/quota-usable/quota-usable-twin.json");
 
     /// Answers the one streamed request it is given and keeps what it was asked.
     struct Pc {
@@ -151,7 +151,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_exchange_and_the_disconnected_pc_read_as_nodes_model_proxy_channel_does() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["proxy"].as_array().unwrap();
         assert!(cases.len() > 70);
         let mut skipped = BTreeSet::new();

@@ -1,0 +1,89 @@
+{
+  "name": "glob-fs-root",
+  "driveRoot": true,
+  "files": {
+    "proc/1/status": "x\n",
+    "sys/block/sda/size": "x\n",
+    "dev/null-ish": "x\n",
+    "home/u/a.txt": "x\n",
+    "procfs.txt": "x\n"
+  },
+  "warmup": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "*.none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "**/*",
+        "path": "<ROOT>",
+        "sort": "natural",
+        "limit": 0
+      },
+      "text": "<ROOT>dev/null-ish\n<ROOT>home/u/a.txt\n<ROOT>proc/1/status\n<ROOT>procfs.txt\n<ROOT>sys/block/sda/size",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "**/*",
+        "sort": "natural",
+        "limit": 0
+      },
+      "text": "<ROOT>dev/null-ish\n<ROOT>home/u/a.txt\n<ROOT>proc/1/status\n<ROOT>procfs.txt\n<ROOT>sys/block/sda/size",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "**/*",
+        "path": "<ROOT>",
+        "limit": 0
+      },
+      "text": "<ROOT>dev/null-ish\n<ROOT>home/u/a.txt\n<ROOT>proc/1/status\n<ROOT>procfs.txt\n<ROOT>sys/block/sda/size",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "**/*",
+        "path": "<ROOT>proc",
+        "sort": "natural",
+        "limit": 0
+      },
+      "text": "<ROOT>proc/1/status",
+      "isError": false
+    },
+    {
+      "tool": "glob",
+      "input": {
+        "pattern": "**/*.txt",
+        "path": "<ROOT>"
+      },
+      "text": "<ROOT>home/u/a.txt\n<ROOT>procfs.txt",
+      "isError": false
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "status",
+        "path": "<ROOT>"
+      },
+      "text": "proc/1/status",
+      "isError": false
+    },
+    {
+      "tool": "find",
+      "input": {
+        "query": "null"
+      },
+      "text": "dev/null-ish",
+      "isError": false
+    }
+  ]
+}

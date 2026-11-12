@@ -1,0 +1,38 @@
+{
+  "domain": "shell-pwsh-bootstrap",
+  "recorder": "benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs",
+  "shell": "pwsh",
+  "standbyArgs": [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $__mixdogIn = [Console]::In.ReadToEnd(); $__mixdogAt = $__mixdogIn.IndexOf(\"`n\"); if ($__mixdogAt -lt 1 -or \"$($__mixdogIn.Length - $__mixdogAt - 1)\" -cne $__mixdogIn.Substring(0, $__mixdogAt)) { [Console]::Error.WriteLine('the command arrived incomplete and was not run'); exit 1 }; try { $__mixdogScript = [scriptblock]::Create($__mixdogIn.Substring($__mixdogAt + 1) + \"`nif (-not `$?) { exit 1 }\") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; $__mixdogIn = $null; . $__mixdogScript"
+  ],
+  "cases": [
+    {
+      "name": "a parse error with Korean text",
+      "input": {
+        "command": "Write-Output \"한글 출력 ("
+      },
+      "text": "[exit code: 1]\n\nParserError: 줄:3 char:14\n+ Write-Output \"한글 출력 (\n+              ~~~~~~~~에서\n문자열에 종결자 \"이(가) 없습니다.\n",
+      "isError": false
+    },
+    {
+      "name": "non-ASCII stdout and stderr",
+      "input": {
+        "command": "Write-Output '표준 출력 한글 é'; [Console]::Error.WriteLine('표준 오류 한글 ü')"
+      },
+      "text": "[exit code: 0]\n\n표준 출력 한글 é\n표준 오류 한글 ü\n",
+      "isError": false
+    },
+    {
+      "name": "an error record",
+      "input": {
+        "command": "Get-Item -LiteralPath 'Z:\\no-such\\파일.txt'"
+      },
+      "text": "[exit code: 1]\n\nGet-Item: \nLine |\n   3 |  Get-Item -LiteralPath 'Z:\\no-such\\파일.txt'\n     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~에서\n     | 드라이브를 찾을 수 없습니다. 이름이 'Z'인 드라이브가 없습니다.\n",
+      "isError": false
+    }
+  ]
+}

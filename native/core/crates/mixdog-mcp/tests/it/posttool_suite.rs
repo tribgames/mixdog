@@ -71,7 +71,7 @@ fn unmask(value: &Value, dir: &str) -> Value {
 async fn the_post_tool_hooks_send_and_decide_what_node_does() {
     let golden: Value = serde_json::from_str(include_str!("../golden/posttool.json")).unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let session_id = golden["common"]["session_id"].as_str().unwrap().to_owned();
     for case in golden["cases"].as_array().unwrap() {
         let label = case["name"].as_str().unwrap();
@@ -144,7 +144,7 @@ impl mixdog_mcp::hook_bus::TranscriptExport for CountedExport {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_bound_transcript_export_names_the_path_the_handlers_receive() {
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().join("work").to_string_lossy().into_owned();
     let handlers = json!([{"type": "mcp_tool", "server": "mock", "tool": "fixture_0"}]);

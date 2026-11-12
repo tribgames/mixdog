@@ -1,0 +1,60 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-webhook-late-reload.mjs --tree <b6f10295a with the patch> --patch benchmarks/rust-core/recorders/node-patches/node-fix-webhook-late-reload.patch",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 10030,
+      "path": "golden.json",
+      "sha256": "6f3c0d341215c8d76f5fb16e77ff875c32970e3f3f3bc7add32eb41d45266084"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-webhook-late-reload.patch",
+      "paths": [
+        "src/runtime/channels/lib/webhook/listener-lifecycle.mjs"
+      ],
+      "sha256": "a10ddd6ccfedab306f85500dc1cdcb0e070c40bb3b8df248f4ca0b113b4370f0"
+    },
+    "patches": [
+      {
+        "file": "node-fix-webhook-late-reload.patch",
+        "paths": [
+          "src/runtime/channels/lib/webhook/listener-lifecycle.mjs"
+        ],
+        "sha256": "a10ddd6ccfedab306f85500dc1cdcb0e070c40bb3b8df248f4ca0b113b4370f0"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 1
+    },
+    "srcSha256": "695fdb7a0e5599b5a310354d4d4a12d05791898eef74dda4d434e921aa952e31",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-webhook-late-reload.mjs",
+  "recorderSha256": "fbb7b0f822d408415323d720f59fbabb09e71535e23f18f258adc2618714ea0a",
+  "set": "webhook-late-reload",
+  "totalBytes": 10030
+}

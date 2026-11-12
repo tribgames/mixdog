@@ -1,0 +1,524 @@
+{
+  "domain": "memory-embedding-cache-retention",
+  "source": "src/runtime/memory/lib/embedding-cache-retention.test.mjs",
+  "cases": [
+    {
+      "name": "embedding cache defaults to ten thousand rows with a positive override",
+      "defaultMaxRows": 10000,
+      "resolve": [
+        {
+          "value": {
+            "$exact": "undefined"
+          },
+          "result": 10000
+        },
+        {
+          "value": "25000",
+          "result": 25000
+        },
+        {
+          "value": "0",
+          "result": 10000
+        },
+        {
+          "value": "invalid",
+          "result": 10000
+        },
+        {
+          "value": "-5",
+          "result": 10000
+        },
+        {
+          "value": "12.9",
+          "result": 12
+        },
+        {
+          "value": "",
+          "result": 10000
+        },
+        {
+          "value": null,
+          "result": 10000
+        },
+        {
+          "value": "1e3",
+          "result": 1000
+        },
+        {
+          "value": " 7 ",
+          "result": 7
+        },
+        {
+          "value": "Infinity",
+          "result": 10000
+        },
+        {
+          "value": "0.5",
+          "result": 10000
+        }
+      ],
+      "fromEnv": [
+        {
+          "result": 10000
+        },
+        {
+          "result": 321
+        }
+      ]
+    },
+    {
+      "name": "a legacy oversized embedding cache is truncated to reclaim disk pages",
+      "prune": {
+        "count": 32495,
+        "options": {
+          "maxRows": 10000
+        },
+        "deleteAnswers": "requested",
+        "failOn": null,
+        "result": {
+          "removed": 32495,
+          "truncated": true,
+          "remaining": 0
+        },
+        "statements": [
+          {
+            "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+            "params": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "sql": "TRUNCATE TABLE memory.embedding_cache",
+            "params": {
+              "$exact": "undefined"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "small overflow deletes only the oldest excess rows",
+      "prune": {
+        "count": 10007,
+        "options": {
+          "maxRows": 10000
+        },
+        "deleteAnswers": "requested",
+        "failOn": null,
+        "result": {
+          "removed": 7,
+          "truncated": false,
+          "remaining": 10000
+        },
+        "statements": [
+          {
+            "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+            "params": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+            "params": [
+              7
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "further shapes (beyond the test file)",
+      "prunes": [
+        {
+          "count": 0,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 0,
+            "truncated": false,
+            "remaining": 0
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            }
+          ]
+        },
+        {
+          "count": 10000,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 0,
+            "truncated": false,
+            "remaining": 10000
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            }
+          ]
+        },
+        {
+          "count": 9999,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 0,
+            "truncated": false,
+            "remaining": 9999
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            }
+          ]
+        },
+        {
+          "count": 20000,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 10000,
+            "truncated": false,
+            "remaining": 10000
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                5000
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                5000
+              ]
+            }
+          ]
+        },
+        {
+          "count": 20001,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 20001,
+            "truncated": true,
+            "remaining": 0
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "TRUNCATE TABLE memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            }
+          ]
+        },
+        {
+          "count": 12000,
+          "options": {
+            "maxRows": 10000,
+            "batchSize": 500
+          },
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 2000,
+            "truncated": false,
+            "remaining": 10000
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                500
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                500
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                500
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                500
+              ]
+            }
+          ]
+        },
+        {
+          "count": 10300,
+          "options": {
+            "maxRows": 10000,
+            "batchSize": 100
+          },
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 300,
+            "truncated": false,
+            "remaining": 10000
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            }
+          ]
+        },
+        {
+          "count": 10300,
+          "options": {
+            "maxRows": 10000,
+            "batchSize": 100
+          },
+          "deleteAnswers": 40,
+          "failOn": null,
+          "result": {
+            "removed": 320,
+            "truncated": false,
+            "remaining": 9980
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                100
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                60
+              ]
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                20
+              ]
+            }
+          ]
+        },
+        {
+          "count": 10300,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": 0,
+          "failOn": null,
+          "result": {
+            "removed": 0,
+            "truncated": false,
+            "remaining": 10300
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                300
+              ]
+            }
+          ]
+        },
+        {
+          "count": 10300,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": "requested",
+          "failOn": "DELETE",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "scripted failure on DELETE",
+            "code": "XX000",
+            "props": {}
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                300
+              ]
+            }
+          ]
+        },
+        {
+          "count": 32495,
+          "options": {
+            "maxRows": 10000
+          },
+          "deleteAnswers": "requested",
+          "failOn": "TRUNCATE",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "scripted failure on TRUNCATE",
+            "code": "XX000",
+            "props": {}
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "TRUNCATE TABLE memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            }
+          ]
+        },
+        {
+          "count": 10007,
+          "options": {},
+          "deleteAnswers": "requested",
+          "failOn": null,
+          "result": {
+            "removed": 7,
+            "truncated": false,
+            "remaining": 10000
+          },
+          "statements": [
+            {
+              "sql": "SELECT count(*)::bigint AS n FROM memory.embedding_cache",
+              "params": {
+                "$exact": "undefined"
+              }
+            },
+            {
+              "sql": "DELETE FROM memory.embedding_cache\n       WHERE ctid IN (\n         SELECT ctid FROM memory.embedding_cache\n         ORDER BY ctid ASC\n         LIMIT $1\n       )",
+              "params": [
+                7
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

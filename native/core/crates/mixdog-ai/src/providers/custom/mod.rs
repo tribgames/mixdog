@@ -216,11 +216,31 @@ fn config(profile: &CompatProfile, base_url: &str) -> CompatConfig {
     }
 }
 
-/// The `openai-chat` protocol's codec for the endpoint at `base_url`.
-pub fn chat_codec(id: &str, base_url: &str) -> Arc<dyn WireCodec> {
+/// The `openai-chat` protocol's codec for the endpoint at `base_url`. `replay` decides per request whether the
+/// model's reasoning is captured and sent back (`resolveCustomReasoning(...).replay`).
+pub fn chat_codec(id: &str, base_url: &str, replay: crate::providers::compat::chat::CustomReplay) -> Arc<dyn WireCodec> {
     let profile = profile(id, Wire::Chat);
-    let config = config(&profile, base_url);
+    let config = CompatConfig { custom_replay: Some(replay), ..config(&profile, base_url) };
     Arc::new(CompatChatCodec::new(profile, config))
+}
+
+/// `resolveCustomReasoning({ protocol: 'openai-chat', model, effort, baseURL }).replay` for the model `row` the
+/// provider holds (`getCachedModelInfo`, `null` when it holds none) and the turn's effort, else the provider's
+/// `reasoningEffort`.
+pub fn chat_replays(row: Option<&Value>, effort: Option<&str>, base_url: &str) -> bool {
+    let model = row.unwrap_or(&Value::Null);
+    let mut facts = crate::effort::reasoning_row(model);
+    facts.reasoning_content_field = model.get("reasoningContentField").and_then(Value::as_str) == Some("reasoning_content");
+    if let Some(custom) = model.get("customReasoning") {
+        facts.custom.replay = custom.get("replay").and_then(Value::as_bool);
+        facts.custom.wire_format = custom.get("wireFormat").and_then(Value::as_str).and_then(reasoning::WireFormat::parse);
+        facts.custom.wire_values = custom
+            .get("wireValues")
+            .and_then(Value::as_object)
+            .map(|values| values.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
+            .unwrap_or_default();
+    }
+    reasoning::resolve(&Protocol::OpenaiChat, &facts, effort, base_url).replay
 }
 
 /// The `openai-responses` protocol's codec for the endpoint at `base_url`.

@@ -1,0 +1,62 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-address.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "entry": "Ran session-address.mjs, lifecycle/teardown/session-close.mjs (closeCanonicalSession) and notification-bus.mjs (createNotificationBus, createCompletionWakeScheduler) with scripted manager / turn api; setImmediate captured and run by the recorder. Did not run a real runtime facade nor the real manager close.",
+  "exclusions": [
+    "the wake scheduler's setImmediate is captured and run by the recorder; the 20 ms WAKE_DELAY stderr note is not triggered (queuedAt = now) and not recorded",
+    "line 24 step 3 (newSession on the addressed runtime): outcome not compared; Node refuses it and tells the caller to make a new session entry, which is the core's thread/start (a new thread, never this one re-keyed)",
+    "line 35 second close: outcome not compared; the core's thread/delete of a thread already deleted answers false, Node's close of a terminal runtime true",
+    "line 108: the notify steps' outcomes are not compared (Node's listeners outlive the close; a deleted thread has no client), nor the open step's counters (Node's listener hands the completion to the model; the core shows a card and queues the model's copy)",
+    "line 150: rt not compared; Node's runtime stays open under a later lifecycle generation, the core's completions carry no generation and the closed thread is gone"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 16597,
+      "path": "recording.json",
+      "sha256": "77f864420da7d99ae06ff2cef0287a693690d3e2c7889ea87ead6026ba4fe68d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2e2a95456d03c0523f4eeb39d178d501e9e904447b0e1201e25bd7bd5990a285"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-address.mjs",
+  "recorderSha256": "e602de9593804fb3d38c68970c95ff4f4e84ace7ef59bcb121c2d9a4f8793c69",
+  "replay": "mixdog-core-session SessionDirectory, driven through the client's requests (thread/start, thread/resume, turn/start, thread/delete) and the shell completion entry TaskNotifier::finished (directory.rs), over the real thread store in a scratch data dir (session/address_replay.rs). The core has no per-process address: a request names its threadId and SessionDirectory routes it, so `rt.addressedSessionId` is the thread the request answered as and `rt.admission` is open / closing (the thread's cell is closed while its delete holds the mark) / terminal (a later open answers threadNotFound). Node's closeCanonicalSession is thread/delete; its finishCanonicalClose is the delete's durable mark (held in the test between the fence and the write). enqueuedCount/wakeCount are the thread's queue entries and turn/started frames after the step.",
+  "set": "session-address",
+  "testFile": "src/session-runtime/session-address.test.mjs",
+  "totalBytes": 16597,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
