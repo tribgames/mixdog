@@ -15,7 +15,7 @@ import {
   type AgentTurnReview,
   type TurnReviewFile,
 } from './turn-review-cache';
-import { cachedTurnReviewState, TURN_REVIEW_CAPABILITY, type TurnReviewCapabilityValue } from './turn-review-model';
+import { cachedTurnReviewState, fileChangeKey, TURN_REVIEW_CAPABILITY, type TurnReviewCapabilityValue } from './turn-review-model';
 import type { useTurnReviewDisclosure } from './use-turn-review-disclosure';
 import { sectionStoreFor } from './section-store';
 
@@ -229,7 +229,7 @@ function useTurnReviewRefreshSchedule({
   expanded,
   hasTurnActivity,
   agentReviewCount,
-  turnBoundaryKey,
+  changeKey,
   mutations,
   entryPendingRef,
   refreshAgentReviews,
@@ -239,7 +239,7 @@ function useTurnReviewRefreshSchedule({
   expanded: boolean;
   hasTurnActivity: boolean;
   agentReviewCount: number;
-  turnBoundaryKey: string;
+  changeKey: string;
   /** The session's change-history epoch (Undo/Reapply, Delete history). */
   mutations: number;
   entryPendingRef: MutableRefObject<boolean>;
@@ -256,10 +256,10 @@ function useTurnReviewRefreshSchedule({
     // it is about to draw, queued behind a read still in flight.
     if (opened && active && (hasTurnActivity || agentReviewCount > 0)) void refreshAgentReviews(true, false);
   }, [expanded, active, hasTurnActivity, agentReviewCount, refreshAgentReviews]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey stands in for items, mutations for a history change, as re-run triggers
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changeKey stands in for items, mutations for a history change, as re-run triggers
   useEffect(() => {
-    // A tool/turn boundary is the authoritative point at which the visible
-    // count must catch up. If an older request is still running, the callback
+    // A file-changing tool's end or the turn's end is the authoritative point
+    // at which the visible count must catch up. If an older request is still running, the callback
     // above coalesces this into one mandatory follow-up refresh instead of
     // dropping the final file set and leaving an earlier count on screen.
     if (active && hasTurnActivity) {
@@ -270,7 +270,7 @@ function useTurnReviewRefreshSchedule({
       // since its last capture, and seals the turn with a fresh capture.
       void refreshAgentReviews(true, boundaryInBackground);
     }
-  }, [active, busy, refreshAgentReviews, hasTurnActivity, turnBoundaryKey, mutations]);
+  }, [active, busy, refreshAgentReviews, hasTurnActivity, changeKey, mutations]);
   // Besides the transcript's boundaries, the review reads again when the
   // runtime says it may read differently (a command or tool boundary stamped
   // the worktree, the turn's end captured it, a worker's review changed) and
@@ -385,7 +385,10 @@ export function useTurnReviewReads({
     }
     return '';
   }, [items]);
-  const reviewBoundaryKey = JSON.stringify([turnScopeKey, turnBoundaryKey, busy]);
+  // The reads follow only what can change the worktree (a finished tool that
+  // may write files, a turn's end), not every tool completion.
+  const changeKey = useMemo(() => fileChangeKey(items), [items]);
+  const reviewBoundaryKey = JSON.stringify([turnScopeKey, changeKey, busy]);
   const { detailShown } = disclosure;
   const refreshAgentReviews = useCallback(
     // `background` marks a re-read inside a running turn (a boundary or a
@@ -421,7 +424,7 @@ export function useTurnReviewReads({
     expanded: disclosure.expanded,
     hasTurnActivity,
     agentReviewCount: reviewState.reviews.length,
-    turnBoundaryKey,
+    changeKey,
     mutations,
     entryPendingRef,
     refreshAgentReviews,
