@@ -36,6 +36,11 @@ async fn a_settings_change_reaches_every_app_feed_subscriber_whatever_its_origin
         assert_eq!(windows, 1, "{answerer}: one window");
         let phones: Vec<&str> = observed["relay"][0]["to"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
         assert!(phones.contains(&"phone-1"), "{answerer}: the answering phone is among them");
+        // Node hands it to the relay as a push no phone may miss (`droppable: false`); the core's word for that is the class of
+        // the feed that carries it: an ordered feed's lanes never drop an event.
+        for push in observed["relay"].as_array().unwrap() {
+            assert_eq!(push["droppable"], json!(!mixdog_protocol::SectionFeed::App.ordered()), "{answerer}: {push}");
+        }
         let mut listeners = vec![("window".to_owned(), 1, Origin::Local)];
         listeners.extend(phones.iter().enumerate().map(|(n, id)| ((*id).to_owned(), 2 + n as u64, Origin::Relay)));
         let mut clients = Vec::new();
