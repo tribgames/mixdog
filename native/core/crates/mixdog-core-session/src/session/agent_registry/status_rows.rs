@@ -72,7 +72,7 @@ fn text(session: &Row, key: &str) -> Option<String> {
 
 /// `rowState`: a closed session reads `closed`; a stage of its own wins; an idle, errored or closed
 /// status is its own stage; otherwise the runtime's.
-pub(super) fn row_state(session: &Row, runtime_stage: Option<&str>) -> (String, String) {
+fn row_state(session: &Row, runtime_stage: Option<&str>) -> (String, String) {
     let status = if session.get("closed") == Some(&Value::Bool(true)) { "closed".to_owned() } else { text(session, "status").unwrap_or_else(|| "idle".to_owned()) };
     let stage = text(session, "stage").unwrap_or_else(|| {
         if matches!(status.as_str(), "idle" | "error" | "closed") {
@@ -377,8 +377,7 @@ impl AgentStatus for AgentToolStatus {
         self.registry.refresh_tags_from_index(&scope).await;
         let mut workers = Vec::new();
         let mut pending = Vec::new();
-        // Only the entries a status can list: the rows whose own state is inactive are left out.
-        for (tag, session) in self.registry.status_entries(&scope) {
+        for (tag, session) in self.registry.session_entries(false, &scope) {
             let id = mixdog_js::js_trim(session.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
             let live = self.live(&id, text(&session, "agent").as_deref(), now, &mut pending);
             let (status, stage) = row_state(&session, live.runtime_stage.as_deref());

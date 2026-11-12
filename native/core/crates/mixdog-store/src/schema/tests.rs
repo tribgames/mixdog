@@ -644,9 +644,7 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "session_search_idx",
             "sessions",
             "thread_ops",
-            "turns",
-            "worker_removed",
-            "worker_revision"
+            "turns"
         ]
     );
     for query in [
