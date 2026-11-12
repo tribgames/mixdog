@@ -164,6 +164,9 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-core/src/run_host/tool_pool/session_output.rs', 101, 'session_list_output'), r('mixdog-core/src/run_host/tool_pool/session_output.rs', 254, 'session_read_output'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 217, 'DirectorySessionPort::read', 'action read of control')],
     missing: ['session action=list, send, create and bots are not served by the session port (control answers "not available in this runtime" for them): the list shape is replayed through session_list_output only'],
   },
+  'session-control-cases': {
+    rust: [r('mixdog-core/src/run_host/tool_pool/session_port.rs', 1, 'DirectorySessionPort::control')],
+  },
   'session-compact-cases': {
     rust: [r('mixdog-tools/src/orch/session.rs', 204, 'SessionTool', 'the session tool: actions compact and fork'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 377, 'DirectorySessionPort::schedule_compact'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 381, 'DirectorySessionPort::fork'), r('mixdog-core-session/src/session/directory.rs', 459, 'SessionDirectory::schedule_compact_after_turn', 'the actor runs the scheduled compaction when the thread\'s turn settles')],
     notPublic: ['the settle itself (mixdog-core-session/src/session/actor.rs run_ended) is private: a replay reaches it by running a turn on a SessionDirectory'],

@@ -541,7 +541,15 @@ impl SessionHandle {
         // `inheritFrom` (`lifecycle/inheritance.mjs`): the heir is a created, empty session and the source's conversation is
         // carried into it with its inheritance boundary, as an `intoThreadId` heir's is.
         let heirs = super::SessionDirectory::over(directory.clone());
-        heirs.carry_into(&self.id, &created.id, params.compact == Some(true)).await
+        // `inheritToNewSession` carries before it persists the heir, so a refused carry leaves no heir: the one this fork
+        // created is removed when its carry fails.
+        match heirs.carry_into(&self.id, &created.id, params.compact == Some(true)).await {
+            Ok(reply) => Ok(reply),
+            Err(error) => {
+                let _ = super::delete::delete_session(&directory, created.id.as_str(), None).await;
+                Err(error)
+            }
+        }
     }
 
     /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and

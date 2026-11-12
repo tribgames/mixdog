@@ -4655,6 +4655,12 @@ impl SessionActor {
             let starts = self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner());
             let start = starts.get(submission)?;
             let mut meta = serde_json::Map::new();
+            if let Some(sender) = start.sender {
+                meta.insert("sender".into(), json!(sender));
+            }
+            if let Some(agent) = &start.from_agent {
+                meta.insert("fromAgent".into(), json!(agent));
+            }
             if let Some(hop) = start.hop {
                 meta.insert("hop".into(), json!(hop));
             }
@@ -5531,6 +5537,12 @@ impl SessionActor {
                 body["meta"]["transcript"]["submissionIds"] = json!([submission]);
                 if let Some(trigger) = &routine.trigger {
                     body["meta"]["transcript"]["routineTrigger"] = trigger.clone();
+                }
+                if let Some(sender) = routine.sender {
+                    body["meta"]["transcript"]["sender"] = json!(sender);
+                }
+                if let Some(agent) = &routine.from_agent {
+                    body["meta"]["transcript"]["fromAgent"] = json!(agent);
                 }
                 if let Some(hop) = routine.hop {
                     body["meta"]["transcript"]["hop"] = json!(hop);

@@ -125,6 +125,10 @@ pub(crate) struct RoutineStart {
     pub bot_chain: Vec<String>,
     /// 	ranscriptMeta.roomRow: the room's newest user row the prompt shows (a member's turn).
     pub room_row: Option<String>,
+    /// `transcriptMeta.sender`: who sent the message (`lead` for the `session` tool's send).
+    pub sender: Option<&'static str>,
+    /// `transcriptMeta.fromAgent`: the bot that wrote into another bot's chat.
+    pub from_agent: Option<String>,
     /// The trusted text the turn's skills are selected from.
     pub skill_selection: Option<String>,
     /// `onCommitted`: runs the moment the turn starts, before any tool can.

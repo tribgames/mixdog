@@ -51,10 +51,49 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::callers::ThreadCallers;
+use super::session_output::ListPage;
 use super::session_output::range_of;
 use super::session_output::row_of;
 use super::session_output::session_read_output;
 use mixdog_js::js_trim;
+
+mod actions;
+
+/// The session catalog as the `session` tool's list reads it (`service.listThreadCatalog`, `readStoredThreadCatalogRow`,
+/// `storedLiveWork`): Node's catalog rows, newest activity first, with the live `working` and `agentWorking` laid over.
+#[async_trait]
+pub trait ThreadCatalog: Send + Sync {
+    /// At most `limit` rows after `cursor`, and the cursor that continues after the last one when more follow.
+    async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<ListPage, CoreError>;
+    /// The row of `id`, `None` when the catalog would not list it.
+    async fn row(&self, id: &str) -> Result<Option<Value>, CoreError>;
+    /// The sessions with live work now.
+    fn live(&self) -> LiveWork;
+}
+
+/// `storedLiveWork`: `own`, the sessions with a turn in flight; `agents`, the Leads an Agent session in flight works for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveWork {
+    pub own: Vec<String>,
+    pub agents: Vec<String>,
+}
+
+#[async_trait]
+impl ThreadCatalog for mixdog_core_session::session::thread_list::ThreadListService {
+    async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<ListPage, CoreError> {
+        let (sessions, next_cursor) = self.catalog_page(cursor, limit).await?;
+        Ok(ListPage { sessions, next_cursor })
+    }
+
+    async fn row(&self, id: &str) -> Result<Option<Value>, CoreError> {
+        self.catalog_row(id).await
+    }
+
+    fn live(&self) -> LiveWork {
+        let work = self.live_work();
+        LiveWork { own: work.own.iter().map(|id| id.as_str().to_owned()).collect(), agents: work.agents.iter().map(|id| id.as_str().to_owned()).collect() }
+    }
+}
 
 /// Requests to a thread, open or not (`CallContext::internal`): the directory seen as the tools
 /// see it.
@@ -67,6 +106,14 @@ pub trait ThreadRequests: Send + Sync {
     fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError>;
     /// The stored transcript of `thread`, oldest first (`service.readSession({ transcriptRange })`'s rows).
     async fn transcript(&self, thread: &ThreadId) -> Result<Vec<ThreadItem>, CoreError>;
+    /// `service.submitSession({ sessionId, prompt: content, options: { id, mode: 'prompt', transcriptMeta: { sender: 'lead',
+    /// fromAgent?, hop?, botChain? } } })`: `content` runs in `thread` at once when it is idle, else queues behind the running
+    /// turn. Whether the thread took it.
+    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, CoreError>;
+    /// A `thread/start` (a directory request, answered with the new thread's row under `thread`).
+    async fn start(&self, params: Value) -> Result<Value, CoreError>;
+    /// `turnHopOf(session)` and `turnBotChainOf(session)`: the bot-to-bot depth and chain of the turn `thread` is in.
+    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>);
 }
 
 #[async_trait]
@@ -92,6 +139,23 @@ impl ThreadRequests for SessionDirectory {
     async fn transcript(&self, thread: &ThreadId) -> Result<Vec<ThreadItem>, CoreError> {
         self.transcript_items(thread).await
     }
+
+    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, CoreError> {
+        Ok(self.submit_session_message(thread, content, id, hop, bot_chain, from_agent).await)
+    }
+
+    async fn start(&self, params: Value) -> Result<Value, CoreError> {
+        let op = OpId::from(uuid::Uuid::now_v7().to_string());
+        let request = CoreRequest { method: Method("thread/start"), params, op: Some(op), ctx: CallContext::internal("session-tool") };
+        match mixdog_core_api::ThreadDirectory::request(self, request).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Subscribe(started) => Ok(started.result),
+        }
+    }
+
+    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
+        (self.turn_hop(thread), self.turn_bot_chain(thread))
+    }
 }
 
 /// The Settings switch of AI session titles (`rt.config?.aiSessionTitles !== false`).
@@ -115,6 +179,9 @@ pub trait ProjectList: Send + Sync {
 #[async_trait]
 pub trait BotIds: Send + Sync {
     async fn ids(&self) -> Result<Vec<String>, String>;
+    /// `agentDisplayName(id)`: the name a bot goes by in the envelope of its messages (Mixy's name, else the definition's,
+    /// else the id).
+    async fn name(&self, id: &str) -> String;
 }
 
 /// [`BotIds`] over the agent definitions: each custom agent that is a contact, its kind read
@@ -140,6 +207,20 @@ impl BotIds for ContactBotIds {
             }
         }
         Ok(ids)
+    }
+
+    async fn name(&self, id: &str) -> String {
+        if id == MIXY_AGENT_ID {
+            return match self.agents.lead_status().await {
+                Ok(status) if !status.name.is_empty() => status.name,
+                _ => "Mixy".to_owned(),
+            };
+        }
+        let named = match self.agents.load(id).await {
+            Ok(Some(definition)) => definition.name.split_whitespace().collect::<Vec<_>>().join(" "),
+            _ => String::new(),
+        };
+        if named.is_empty() { id.to_owned() } else { named }
     }
 }
 
@@ -179,6 +260,9 @@ pub struct SessionPortParts {
     pub projects: Arc<dyn ProjectList>,
     pub bots: Arc<dyn BotIds>,
     pub suggestions: Arc<dyn Suggestions>,
+    /// What `list` reads: the catalog, bound once the thread list exists.
+    pub catalog: Arc<dyn ThreadCatalog>,
+    pub clock: Arc<dyn mixdog_agent::env::Clock>,
     pub io: InteractiveIo,
 }
 
@@ -215,34 +299,12 @@ impl DirectorySessionPort {
     /// `session action=read` (`targetRequest` and `sessionReadOutput`): a window of another session's transcript, counted
     /// from its newest row, each row quoted with its own text window.
     async fn read(&self, call: &ControlCall) -> Result<Value, PortError> {
-        let invalid = |field: &str, reason: &str| PortError::Invalid { field: field.to_owned(), reason: reason.to_owned() };
-        let id = call.args.get("session_id").and_then(Value::as_str).map(js_trim).unwrap_or_default();
-        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
-            return Err(invalid("session_id", "session: session_id is required for action=read"));
-        }
-        let given = |key: &str| call.args.get(key).filter(|v| !v.is_null());
-        let whole = |value: &Value| value.as_f64().filter(|n| n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0);
-        let limit = match given("limit") {
-            None => 25.0,
-            Some(value) => whole(value).filter(|n| (1.0..=100.0).contains(n)).ok_or_else(|| invalid("limit", "session: limit must be an integer from 1 to 100"))?,
-        };
-        let offset = match given("offset") {
-            None => 0.0,
-            Some(value) => whole(value).filter(|n| *n >= 0.0 && n + limit <= 9_007_199_254_740_991.0).ok_or_else(|| invalid("offset", "session: offset must be a nonnegative safe integer"))?,
-        };
-        let text_offset = match given("text_offset") {
-            None => 0.0,
-            Some(value) => whole(value).filter(|n| *n >= 0.0).ok_or_else(|| invalid("text_offset", "session: invalid text_offset"))?,
-        };
-        let item_id = given("item_id").map(mixdog_js::value_to_string).filter(|id| !id.is_empty());
-        if given("text_offset").is_some() && (given("offset").is_none() || limit != 1.0 || item_id.is_none()) {
-            return Err(invalid("text_offset", "session: text_offset requires offset, limit:1 and item_id from read"));
-        }
-        let target = ThreadId::from(id);
-        self.header(&target).await?;
+        let request = actions::target_request(call, "read")?;
+        let target = ThreadId::from(request.id.as_str());
+        self.target_header(&target).await?;
         let items = self.parts.requests.transcript(&target).await.map_err(core)?;
-        let range = range_of(items.iter().filter_map(row_of).collect(), offset as u64, limit as u64);
-        session_read_output(id, &range, text_offset as usize, item_id.as_deref()).map_err(failed)
+        let range = range_of(items.iter().filter_map(row_of).collect(), request.offset as u64, request.limit as u64);
+        session_read_output(&request.id, &range, request.text_offset as usize, request.item_id.as_deref()).map_err(failed)
     }
 }
 
@@ -287,6 +349,10 @@ impl SessionPort for DirectorySessionPort {
         Ok(if known { home } else { target.to_owned() })
     }
 
+    async fn unknown_bot(&self, target: &str) -> Result<Option<String>, PortError> {
+        self.unknown_bot_text(target).await
+    }
+
     async fn resolve_attachments(&self, _: &ThreadId, _: &Value, _: &AbsPath, _: &str) -> Result<Vec<Value>, PortError> {
         Err(PortError::Unavailable {
             capability: "attachments".to_owned(),
@@ -295,20 +361,29 @@ impl SessionPort for DirectorySessionPort {
     }
 
     async fn control(&self, call: ControlCall) -> Result<Value, PortError> {
-        let session_id = || call.args.get("session_id").map(mixdog_js::value_to_string).map(|s| mixdog_js::js_trim(&s).to_owned()).unwrap_or_default();
         match call.action.as_str() {
             "cancel" => {
-                let target = ThreadId::from(session_id());
+                let target = ThreadId::from(actions::target_request(&call, "cancel")?.id);
+                self.target_header(&target).await?;
                 let aborted = self.parts.requests.interrupt(&target).map_err(core)?;
                 Ok(json!({ "sessionId": target.as_str(), "aborted": aborted }))
             }
             "delete" => {
-                let target = ThreadId::from(session_id());
+                let target = ThreadId::from(actions::target_request(&call, "delete")?.id);
+                self.target_header(&target).await?;
                 let params = json!({ "threadId": target.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
                 let deleted = self.parts.requests.request(&target, "thread/delete", params).await.map_err(core)?;
                 Ok(json!({ "sessionId": target.as_str(), "deleted": deleted == Value::Bool(true) }))
             }
             "read" => self.read(&call).await,
+            "list" => self.list(&call).await,
+            "send" => self.send(&call).await,
+            "create" => self.create(&call).await,
+            // A target that is no session is the missing-session error the bot check reads; the status of one that is stays unanswered.
+            "status" => {
+                self.target_header(&ThreadId::from(actions::target_request(&call, "status")?.id)).await?;
+                Err(PortError::Unavailable { capability: "session-control".to_owned(), message: "session: action=status is not available in this runtime".to_owned() })
+            }
             other => Err(PortError::Unavailable {
                 capability: "session-control".to_owned(),
                 message: format!("session: action={other} is not available in this runtime"),
@@ -379,7 +454,8 @@ impl SessionPort for DirectorySessionPort {
     }
 
     async fn fork(&self, thread: &ThreadId, compact: bool) -> Result<(String, bool), PortError> {
-        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
+        // `inheritToNewSession({ compact })`: the carry summarises the conversation even when it fits and refuses, leaving no heir, when it cannot.
+        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "compact": compact });
         let reply = self.parts.requests.request(thread, "thread/fork", params).await.map_err(core)?;
         let id = reply
             .pointer("/thread/id")
@@ -398,27 +474,7 @@ impl SessionPort for DirectorySessionPort {
             ]);
             self.parts.threads.patch_header(&copy, set, Vec::new()).await?;
         }
-        if !compact {
-            return Ok((id, false));
-        }
-        // `inheritToNewSession({ compact: true })` summarises the heir's conversation even when it fits and refuses
-        // (the heir is never left behind) when it cannot: the copy is compacted, and removed when that did not happen.
-        let compacted = self
-            .parts
-            .requests
-            .request(&copy, "thread/compact/start", json!({ "threadId": id, "opId": uuid::Uuid::now_v7().to_string() }))
-            .await;
-        let done = matches!(&compacted, Ok(result) if !truthy(result.get("skipped")) && result.get("changed") != Some(&Value::Bool(false)));
-        if !done {
-            let reason = match compacted {
-                Ok(result) => result.get("reason").map(mixdog_js::value_to_string).unwrap_or_else(|| "nothing was compacted".to_owned()),
-                Err(error) => format!("{error:?}"),
-            };
-            let removal = json!({ "threadId": id, "opId": uuid::Uuid::now_v7().to_string() });
-            self.parts.requests.request(&copy, "thread/delete", removal).await.map_err(core)?;
-            return Err(failed(format!("session: fork with compact failed ({reason})")));
-        }
-        Ok((id, true))
+        Ok((id, compact))
     }
 
     async fn sidebar(&self, thread: &ThreadId, flag: SidebarFlag, value: bool) -> Result<(), PortError> {
