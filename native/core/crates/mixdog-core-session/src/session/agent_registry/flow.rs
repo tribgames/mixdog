@@ -154,7 +154,7 @@ const NON_PERSISTENT: [&str; 3] = ["running", "pending", "queued"];
 /// `<task-notification>` envelope persists as it is; a completion the model must not see (or one
 /// still running) yields nothing. The core's producers render envelopes only, so the legacy
 /// wrapper forms Node still converts never reach here.
-fn model_visible(text: &str, meta: &Value) -> Option<String> {
+pub(crate) fn model_visible(text: &str, meta: &Value) -> Option<String> {
     let message = mixdog_js::js_trim(text);
     if message.is_empty() || meta.get("model_visible") == Some(&Value::Bool(false)) {
         return None;

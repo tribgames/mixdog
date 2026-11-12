@@ -62,6 +62,18 @@ await set.run('legacy quoted rows still classify and dedupe against new rows by 
   };
 });
 
+await set.run('the task_id line names the task before the async header, and the header names it when no line does', () => {
+  const texts = {
+    headerOnly: 'Async agent task task_header_only (completed) finished.\n\nResult:\n> done',
+    lineAndHeader: 'Async agent task task_header_id (completed) finished.\n\nResult:\n> task_id: task_line_id\n> status: completed\n> \n> done',
+    agentTaskLine: 'agent task: task_agent_line\n\nbody',
+    none: 'finished with nothing that names a task',
+  };
+  const out = {};
+  for (const [name, text] of Object.entries(texts)) out[name] = { text, taskId: envelope.taskNotificationId(text), entry: entryOf(text) };
+  return out;
+});
+
 await set.finish({
   entry: {
     runs: 'task-notification-envelope.mjs renderAgentCompletionEnvelope, parseTaskNotification, taskNotificationId; tool-execution-contract.mjs isModelVisibleToolCompletionWrapper, isInternalRuntimeNotificationText, backgroundTaskHeaderStatus, modelVisibleToolCompletionMessage; session-ingest.mjs shouldExcludeIngestMessage; manager/pending-message-entry.mjs markCompletionEntry; manager/delivered-completions.mjs',
