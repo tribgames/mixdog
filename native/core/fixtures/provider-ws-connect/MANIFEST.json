@@ -1,0 +1,90 @@
+{
+  "clockStartMs": 1794225600000,
+  "command": "node benchmarks/rust-core/recorders/record-ws-connect.mjs --tree <b6f tree>",
+  "exclusions": {
+    "MIXDOG_PROVIDER_WS_HEDGE_MS / MIXDOG_PROVIDER_WS_ACQUIRE_TIMEOUT_MS": "module-load constants of the Node tree; every scenario runs on the defaults (3000 ms hedge, 15000 ms acquire). The core reads the same settings through the adapter context and its tests use the defaults too",
+    "events of kind closed": "the server's view of a closed connection. In Node a cancelled stuck leg (`socket.terminate()` before the upgrade) leaves its loopback connection open, the core drops the dial and closes it; the other closes follow the recorder's own release of the opened socket. Not compared: the replay compares the upgrades the server saw, when, and how the acquire ended",
+    "events of kind opened": "the server completing the upgrade; the same fact as the upgrade whose action is open",
+    "events of kind upgrade": "the server's view of a request arriving, in real I/O time after the dial; the dial events (the product asking for a connection, at the virtual time of the leg's start) are compared instead",
+    "outcome.message of a transport failure (lone-leg-reset, reset-beside-a-stuck-leg)": "the text is `ws`/libuv wording for the reset the recorder wrote; the core states the typed transport fault and its own words. The replay compares that the race ended, when, and with a transport (not status, not acquire-timeout) failure"
+  },
+  "fileCount": 7,
+  "files": [
+    {
+      "bytes": 1087,
+      "path": "all-stuck-oauth.json",
+      "sha256": "7bb1e4893268899ec50fc0bfc82d624fadb7ef580bcd53ac20a2e822ffc019a2"
+    },
+    {
+      "bytes": 1076,
+      "path": "all-stuck.json",
+      "sha256": "b571a0f23c72ccd26ff724ece5e186e3facd4f1b9f21ab21b0d3e83e759b2ab2"
+    },
+    {
+      "bytes": 471,
+      "path": "lone-leg-reset.json",
+      "sha256": "c213457103aeb051520b07b0208631df9a2a534d6b87840118be3e86233692a8"
+    },
+    {
+      "bytes": 1187,
+      "path": "reset-beside-a-stuck-leg.json",
+      "sha256": "21eacdaefa6355cc181f63bd9d434eaa79fb3652b18d7dab102185c5d16f7c60"
+    },
+    {
+      "bytes": 671,
+      "path": "status-ends-the-race.json",
+      "sha256": "fda4ae9ca855f8453b411bf0787ed44c49996b44ccc6b9e05cbb9ee88c376b88"
+    },
+    {
+      "bytes": 655,
+      "path": "stuck-then-open.json",
+      "sha256": "6ba3c2bb2996e9b17af49aaeb53c0a76d72a4a5f5527e645a20c7e84c7f52bfa"
+    },
+    {
+      "bytes": 833,
+      "path": "stuck-twice-then-open.json",
+      "sha256": "574e6bd8f6f5cd0401db9cdd15862f59706b936a4631edf87746d9d373f86466"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-ws-connect.mjs",
+  "recorderSha256": "3ff18b94062e2f4250896f7248c00a7b8a0cbf234be927f070a8956fb15d68de",
+  "scenarios": [
+    "all-stuck",
+    "all-stuck-oauth",
+    "lone-leg-reset",
+    "reset-beside-a-stuck-leg",
+    "status-ends-the-race",
+    "stuck-then-open",
+    "stuck-twice-then-open"
+  ],
+  "set": "provider-ws-connect",
+  "totalBytes": 5980
+}

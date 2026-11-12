@@ -117,6 +117,10 @@ impl WsSocket for Socket {
 enum Dialed {
     Socket(Vec<Result<Message, TransportFault>>),
     Rejected(u16),
+    /// The upgrade is never answered.
+    Stuck,
+    /// The connection is reset before the upgrade is answered.
+    Reset,
 }
 
 #[derive(Default)]
@@ -124,6 +128,8 @@ struct Dial {
     script: Mutex<VecDeque<Dialed>>,
     sent: Arc<Mutex<Vec<String>>>,
     dials: Mutex<u32>,
+    /// When each dial began.
+    began: Mutex<Vec<mixdog_rt::time::Instant>>,
 }
 
 impl Dial {
@@ -139,7 +145,11 @@ impl WsDial for Dial {
         _: tokio_tungstenite::tungstenite::handshake::client::Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         *self.dials.lock().unwrap() += 1;
-        match self.script.lock().unwrap().pop_front().expect("a scripted dial") {
+        self.began.lock().unwrap().push(mixdog_rt::time::Instant::now());
+        let next = self.script.lock().unwrap().pop_front().expect("a scripted dial");
+        match next {
+            Dialed::Stuck => std::future::pending().await,
+            Dialed::Reset => Err(ConnectError::Transport(TransportFault::Reset)),
             Dialed::Socket(frames) => Ok((
                 Box::new(Socket { sent: self.sent.clone(), frames: frames.into() }),
                 Response::builder().status(101).body(None).unwrap(),
@@ -366,6 +376,67 @@ async fn a_server_close_1009_keeps_the_session_on_http() {
     drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap();
     assert_eq!(*dial.dials.lock().unwrap(), 1);
     assert_eq!(http.seen.lock().unwrap().len(), 1);
+}
+
+/// Node's acquires of one socket (`fixtures/provider-ws-connect`, recorded by `record-ws-connect.mjs`): which dials
+/// began and when, and how the acquire ended, replayed through the adapter's real send path with only the dial scripted.
+const WS_CONNECT: [(&str, mixdog_testkit::Fixture); 7] = [
+    ("all-stuck", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/all-stuck.json")),
+    ("all-stuck-oauth", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/all-stuck-oauth.json")),
+    ("lone-leg-reset", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/lone-leg-reset.json")),
+    ("reset-beside-a-stuck-leg", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/reset-beside-a-stuck-leg.json")),
+    ("status-ends-the-race", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/status-ends-the-race.json")),
+    ("stuck-then-open", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/stuck-then-open.json")),
+    ("stuck-twice-then-open", mixdog_testkit::fixture_const!("../../fixtures/provider-ws-connect/stuck-twice-then-open.json")),
+];
+
+#[tokio::test(start_paused = true)]
+async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
+    for (id, text) in &WS_CONNECT {
+        let node: Value = serde_json::from_str(text).unwrap();
+        let mut script: Vec<Dialed> = node["script"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|action| match action.as_str().unwrap() {
+                "stuck" => Dialed::Stuck,
+                "reset" => Dialed::Reset,
+                "open" => Dialed::Socket(answer("resp_1", "opened")),
+                other => Dialed::Rejected(other.strip_prefix("status ").unwrap().parse().unwrap()),
+            })
+            .collect();
+        // The recorded server leaves every connection it was not told about stuck.
+        script.extend((script.len()..8).map(|_| Dialed::Stuck));
+        let dial = Dial::with(script);
+        let adapter = adapter(node["auth"] == "openai-oauth", Arc::default(), dial.clone()).with_mode(TransportMode::WsDelta);
+        let began = mixdog_rt::time::Instant::now();
+        let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), adapter.attempt(request(vec![say(Role::User, "hi")])))
+            .await
+            .unwrap_or_else(|_| panic!("{id}: the acquire did not end within 60 s of virtual time: a stuck upgrade is never replaced"));
+        let took = began.elapsed().as_millis() as u64;
+        let dials: Vec<u64> = dial.began.lock().unwrap().iter().map(|at| at.duration_since(began).as_millis() as u64).collect();
+        let dials_node: Vec<u64> = node["events"].as_array().unwrap().iter().filter(|e| e["on"] == "dial").map(|e| e["t"].as_u64().unwrap()).collect();
+        assert_eq!(dials, dials_node, "{id}: when each dial began");
+        let want = &node["outcome"];
+        assert_eq!(took, want["t"].as_u64().unwrap(), "{id}: when the acquire ended");
+        match (outcome, want["ok"].as_bool().unwrap()) {
+            (Ok(_), true) => {}
+            (Err(error), false) => {
+                if want["code"] == "EWSACQUIRETIMEOUT" {
+                    assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"), "{id}: the error's code");
+                    assert_eq!(error.message, want["message"].as_str().unwrap(), "{id}: the acquire timeout's text");
+                } else {
+                    assert_eq!(error.code, None, "{id}: only the acquire timeout carries a code");
+                }
+                assert_eq!(error.status.map(u64::from), want["httpStatus"].as_u64(), "{id}: the status of an answered upgrade");
+                if want["code"] == "ECONNRESET" {
+                    assert_eq!(error.transport, Some(TransportFault::Reset), "{id}: a reset is a transport fault");
+                }
+            }
+            (Ok(_), false) => panic!("{id}: Node failed with {want}, Rust opened"),
+            (Err(error), true) => panic!("{id}: Node opened, Rust failed: {error:?}"),
+        }
+    }
 }
 
 #[allow(dead_code)]

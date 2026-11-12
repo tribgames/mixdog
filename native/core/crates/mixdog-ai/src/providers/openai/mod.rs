@@ -12,6 +12,7 @@ pub mod delta;
 pub mod effort;
 pub mod effort_retry;
 pub mod error;
+pub mod hedge;
 pub mod input;
 pub mod login;
 pub mod models;
