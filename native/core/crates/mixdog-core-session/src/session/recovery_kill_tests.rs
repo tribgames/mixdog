@@ -11,7 +11,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mixdog_core_api::call::{CallContext, CoreRequest};
 use mixdog_core_api::ids::{ItemId, Method};
-use mixdog_core_api::{Reply, ThreadHandle};
+use mixdog_core_api::feed::Window;
+use mixdog_core_api::ids::{ConnectionId, SubscriptionId};
+use mixdog_core_api::mock::{MockConnection, MockLimits};
+use mixdog_core_api::sink::ConnectionSink;
+use mixdog_core_api::{FeedSource, Reply, ThreadHandle};
 use serde_json::json;
 
 use super::testing::{CallCounted, CommitHook, Rig};
@@ -93,7 +97,10 @@ async fn recovery_kill_child() {
         }
         Err(_) => real_store(&dir).await,
     };
-    let directory = SessionDirectory::new(rig.deps_on(store));
+    // The product's transcript, as a client's attach shows the recovered rows through it (the rig's text stub shows none of them as Node does).
+    let mut deps = rig.deps_parts(store);
+    deps.transcript = Arc::new(super::transcript::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(deps));
     let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
     if stage == "verify" {
         let read = CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") };
@@ -101,6 +108,23 @@ async fn recovery_kill_child() {
         let messages = read["messages"].as_array().expect("messages");
         let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
         assert_eq!(shown, [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")], "{read}");
+        // A client attaching now is sent the recovered turn in its feed: the call closed as cancelled and the cancelled end of the turn
+        // (Node shows the stored restart line as a cancelled end, `restore.mjs` `isTranscriptCancelledStatusText`), each once.
+        let connection = MockConnection::new(ConnectionId(1), MockLimits::default());
+        let source: Arc<dyn FeedSource> = reopened.clone();
+        let attached = mixdog_core_api::feed::subscribe(&source, SubscriptionId::from("sub1"), Window::LastItems(50), None, &connection).expect("attach");
+        connection.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+        let snapshot = connection
+            .drain_text()
+            .iter()
+            .filter_map(|text| serde_json::from_str::<serde_json::Value>(text.split_once(':').expect("a rendered frame").1).ok())
+            .find(|frame| frame["method"] == "thread/snapshot")
+            .expect("the attach is answered with a snapshot");
+        let items = snapshot["params"]["items"].as_array().expect("the snapshot's items");
+        let count = |wanted: &dyn Fn(&serde_json::Value) -> bool| items.iter().filter(|item| wanted(item)).count();
+        let said = |item: &serde_json::Value, text: &str| item.to_string().contains(text);
+        assert_eq!(count(&|item| item["type"] == "toolCall" && said(item, "Cancelled")), 1, "the cancelled call once: {items:?}");
+        assert_eq!(count(&|item| item["type"] == "turnEnd" && item["status"] == "cancelled"), 1, "the cancelled end of the turn once: {items:?}");
     }
     say("DONE");
 }
@@ -159,4 +183,34 @@ fn a_kill_at_any_write_of_a_recovery_leaves_it_to_finish_at_the_next_open() {
         }
     }
     panic!("the recovery never ended within 64 points");
+}
+
+/// The process is killed again during a recovery that an earlier kill had cut: at every pair of write points (the first kill at the
+/// `first`-th write of the first recovery, the second at the `second`-th write of the next), the open after the second kill still
+/// leaves the cancelled result, the restart line and the cancelled end once each, in the conversation and in what an attaching client is
+/// sent.
+#[test]
+fn a_second_kill_during_the_recovery_leaves_each_row_once() {
+    let mut pairs = 0;
+    for first in 0..64 {
+        let mut finished_first = false;
+        for second in 0..64 {
+            let dir = tempfile::tempdir().expect("data dir");
+            let Ended::Held(thread) = run_child(dir.path(), "seed", None, None) else { panic!("the seed holds") };
+            if !matches!(run_child(dir.path(), "recover", Some(first), Some(&thread)), Ended::Held(_)) {
+                finished_first = true;
+                break;
+            }
+            let again = run_child(dir.path(), "recover", Some(second), Some(&thread));
+            pairs += usize::from(matches!(again, Ended::Held(_)));
+            assert!(matches!(run_child(dir.path(), "verify", None, Some(&thread)), Ended::Done));
+            if matches!(again, Ended::Done) {
+                break;
+            }
+        }
+        if finished_first {
+            break;
+        }
+    }
+    assert!(pairs >= 2, "the second recovery wrote nothing to cut: {pairs}");
 }
