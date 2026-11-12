@@ -1,7 +1,7 @@
 //! `ModelRequest` → Chat Completions body (`openai-compat-wire.mjs
 //! toOpenAIMessages`, `openai-compat-chat-send.mjs`).
 
-use base64::Engine as _;
+use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};
 use mixdog_core_api::domain::provider::{
     BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource,
     Message, ModelRequest, ProviderError, Role, ToolDefinition,
@@ -36,70 +36,6 @@ fn label(filename: Option<&str>, fallback: &str) -> String {
     filename.filter(|n| !n.is_empty()).unwrap_or(fallback).to_owned()
 }
 
-/// `base64ByteLength`: the byte count of a base64 payload, without decoding it.
-fn base64_byte_length(data: &str) -> usize {
-    let padding = if data.ends_with("==") {
-        2
-    } else {
-        usize::from(data.ends_with('='))
-    };
-    (data.len() * 3 / 4).saturating_sub(padding)
-}
-
-/// The transport label of a file: trimmed, lower-cased, `application/pdf` when blank.
-fn file_mime(mime_type: &str) -> String {
-    let mime = mixdog_js::js_trim(mime_type).to_lowercase();
-    if mime.is_empty() { "application/pdf".to_owned() } else { mime }
-}
-
-/// `inlineFileKind(...) === 'pdf'`: the magic header outranks the label.
-fn is_pdf(mime: &str, data: &str) -> bool {
-    let base = mixdog_js::js_trim(mime.split(';').next().unwrap_or("")).to_lowercase();
-    if base == "application/pdf" {
-        return true;
-    }
-    data.get(..8)
-        .and_then(decode_base64)
-        .is_some_and(|head| head.starts_with(b"%PDF-"))
-}
-
-/// `inlineFileKind(...) === 'text'`: readable as plain text by its label.
-fn is_text_mime(mime: &str) -> bool {
-    const TEXTUAL: [&str; 6] = [
-        "application/json",
-        "application/xml",
-        "application/yaml",
-        "application/toml",
-        "application/x-ndjson",
-        "application/x-www-form-urlencoded",
-    ];
-    let base = mixdog_js::js_trim(mime.split(';').next().unwrap_or("")).to_lowercase();
-    base.starts_with("text/")
-        || base.starts_with("application/javascript")
-        || base.starts_with("application/ecmascript")
-        || base.ends_with("+json")
-        || base.ends_with("+xml")
-        || TEXTUAL.contains(&base.as_str())
-}
-
-/// A file with no inline form on this wire (`fileFallbackText`): a text-typed
-/// payload reads as text, any other is named so the model can open it from
-/// disk. Both carry `name (mime, N bytes)`.
-fn file_fallback_text(filename: Option<&str>, mime_type: &str, data: &str) -> String {
-    let mime = file_mime(mime_type);
-    let name = filename.filter(|n| !n.is_empty()).map(|n| format!("{n} ")).unwrap_or_default();
-    let label = format!("{name}({mime}, {} bytes)", base64_byte_length(data));
-    if is_text_mime(&mime) {
-        let bytes = decode_base64(data).unwrap_or_default();
-        format!("--- {label} ---\n{}", String::from_utf8_lossy(&bytes))
-    } else {
-        format!("[file not sent inline: {label} — this type has no inline form; open it from disk with read]")
-    }
-}
-
-fn decode_base64(data: &str) -> Option<Vec<u8>> {
-    base64::engine::general_purpose::STANDARD.decode(data).ok()
-}
 
 /// A PDF is lowered to text before the request is built (this wire has no
 /// document block); one that reaches the builder is a caller error.
@@ -129,7 +65,7 @@ fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
         } => {
             let name = label(filename.as_deref(), mime_type);
             match source {
-                BinarySource::Base64(data) if is_pdf(&file_mime(mime_type), data) => {
+                BinarySource::Base64(data) if file_kind(mime_type, data, filename.as_deref()) == FileKind::Pdf => {
                     return Err(pdf_not_prepared(&name));
                 }
                 BinarySource::Base64(data) => Some(text_part(file_fallback_text(filename.as_deref(), mime_type, data))),
@@ -141,7 +77,7 @@ fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
         ContentPart::Document { source, title } => match source {
             DocumentSource::Base64 { media_type, data } => {
                 let name = label(title.as_deref(), media_type);
-                if is_pdf(&file_mime(media_type), data) {
+                if file_kind(media_type, data, title.as_deref()) == FileKind::Pdf {
                     return Err(pdf_not_prepared(&name));
                 }
                 Some(text_part(file_fallback_text(title.as_deref(), media_type, data)))
@@ -419,7 +355,7 @@ mod tests {
 
     fn part(spec: &JsonValue) -> ContentPart {
         let text = |key: &str| spec[key].as_str().unwrap().to_owned();
-        let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+        let b64 = |bytes: &[u8]| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
         let file = |filename: String, mime: &str, data: String| ContentPart::File {
             source: BinarySource::Base64(data),
             mime_type: mime.to_owned(),

@@ -11,6 +11,7 @@ pub mod connect;
 pub mod cursor;
 pub mod devin;
 pub(crate) mod flat_schema;
+pub mod file_text;
 pub mod custom;
 pub mod google;
 pub mod grok;
