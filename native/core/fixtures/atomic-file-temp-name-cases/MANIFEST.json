@@ -1,0 +1,95 @@
+{
+  "cases": 1,
+  "command": "node benchmarks/rust-core/recorders/record-atomic-file-temp-name-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "No wire in the Node test.",
+    "notRun": "the writer's async twin is not run: the test's own names come from the sync writer",
+    "runs": "writeFileAtomicSync (src/runtime/shared/atomic-file.mjs) in scratch folders, RE_CACHE_TMP / RE_MANIFEST_TMP / RE_CALLS_CACHE_TMP (code-graph/constants.mjs), pruneDaemonCrashCaptures (daemon-crash-capture/retention.mjs), sweepStaleSummaryTempFiles (store-summary-index.mjs)"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1206,
+      "path": "golden.json",
+      "sha256": "75f039baf58867ef534bab4072f816472c8a4f0bf7ced42a6ca198eb7beeb2bc"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.names.cache[0]",
+      "$.cases[0].observed.names.manifest[0]",
+      "$.cases[0].observed.names.calls[0]",
+      "$.cases[0].observed.names.capture[0]",
+      "$.cases[0].observed.names.summary[0]"
+    ],
+    "reason": "the random 16-hex suffix of the writer's temp name (randomBytes(8)) differs per run"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-atomic-file-temp-name-cases.mjs",
+  "recorderSha256": "b217429d3eb593fa3ceeb77bc6c5eea7050c423a118e5dfb23bbed566851c55b",
+  "replay": {
+    "compare": "every temp name Node's writer produced is recognised as the temp of its target by the migration's 1.4.5 temp-file recogniser and is what the Rust writer also produces; compare the recorded names (random suffix written <hex16>) with the recogniser's answer",
+    "entry": "NO RUST ENTRY ON o1: the code-graph cache and summary-index stale-temp sweeps of Node have no Rust counterpart under those names: the Rust caches are not written by the Node writer.",
+    "existsButNotPublicOnO1": [
+      "the Rust writer's temp name `<target>.mixdog-tmp-<16 hex>` (mixdog-statefile/src/publish.rs:164 temp_path, private) and the migration's recogniser of the 1.4.5 name (mixdog-migrate/src/temp_files.rs atomic_publish_base, pub)"
+    ],
+    "missingOnO1": [
+      "the code-graph cache and summary-index stale-temp sweeps of Node have no Rust counterpart under those names: the Rust caches are not written by the Node writer"
+    ],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "atomic-file-temp-name-cases",
+  "totalBytes": 1206,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

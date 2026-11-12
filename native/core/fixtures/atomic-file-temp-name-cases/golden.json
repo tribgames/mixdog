@@ -1,0 +1,45 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "every stale-temp sweep still recognises the temp name the writer produces",
+      "observed": {
+        "written": [
+          "a1a1a1a1a1a1a1a1.json",
+          "manifest.json",
+          "a1a1a1a1a1a1a1a1.calls.json",
+          "daemon-20260915-064858-999999998-dead.json",
+          "session-summaries.json"
+        ],
+        "names": {
+          "cache": [
+            "a1a1a1a1a1a1a1a1.json.mixdog-tmp-<hex16>"
+          ],
+          "manifest": [
+            "manifest.json.mixdog-tmp-<hex16>"
+          ],
+          "calls": [
+            "a1a1a1a1a1a1a1a1.calls.json.mixdog-tmp-<hex16>"
+          ],
+          "capture": [
+            "daemon-20260915-064858-999999998-dead.json.mixdog-tmp-<hex16>"
+          ],
+          "summary": [
+            "session-summaries.json.mixdog-tmp-<hex16>"
+          ]
+        },
+        "cachePatterns": {
+          "cache": true,
+          "manifest": true,
+          "calls": true
+        },
+        "captureReclaimed": true,
+        "summarySwept": 1,
+        "summaryReclaimed": true
+      }
+    }
+  ]
+}
