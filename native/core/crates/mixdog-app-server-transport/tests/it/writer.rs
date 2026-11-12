@@ -263,6 +263,33 @@ async fn an_answer_waiting_for_the_reserve_ends_with_the_connection() {
     assert!(waiting.await.is_err(), "the waiting answer is told the connection closed");
 }
 
+/// A peer that keeps asking and reads nothing: the answers waiting for the reserve hold at most the queue's bytes, and the
+/// one past them closes the connection, whatever the peer still sends.
+#[tokio::test]
+async fn answers_waiting_past_the_queue_bytes_close_with_slow_consumer() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let peer = connect(&hub, ConnectionOrigin::Loopback, false);
+    let sink = peer.connection.sink.clone();
+    let answer = Bytes::from(vec![b'a'; limits.control_reserve_bytes as usize]);
+    assert!(sink.send_answer(answer.clone()).await.is_ok(), "the first holds the reserve");
+    let mut waiting = Vec::new();
+    let refused = loop {
+        let mut next = sink.send_answer(answer.clone());
+        match futures::poll!(&mut next) {
+            std::task::Poll::Pending => waiting.push(next),
+            std::task::Poll::Ready(outcome) => break outcome,
+        }
+        assert!(waiting.len() as u64 * limits.control_reserve_bytes <= limits.queue_bytes, "the waiting answers are bounded by the queue's bytes");
+    };
+    assert!(refused.is_err());
+    assert_eq!(sink.close_code(), Some(CloseCode::SlowConsumer));
+    for answer in waiting {
+        assert!(answer.await.is_err(), "every waiting answer ends with the connection");
+    }
+}
+
 #[tokio::test]
 async fn slow_consumer_lags_only_its_own_lanes_and_recovers_one_snapshot_each() {
     install_rt();

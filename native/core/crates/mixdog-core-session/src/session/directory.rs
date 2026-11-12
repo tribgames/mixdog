@@ -301,7 +301,7 @@ impl Drop for CreateInFlight<'_> {
 /// `CLOSE_ALL_DEADLINE_MS` (`teardown.mjs`).
 const CLOSE_ALL_DEADLINE: std::time::Duration = std::time::Duration::from_millis(5000);
 /// An open that takes this long is logged with the time of each of its steps.
-const SLOW_OPEN: std::time::Duration = std::time::Duration::from_millis(500);
+const SLOW_OPEN_MS: i64 = 500;
 
 /// `PROCESS_EXIT_REASON` (`teardown.mjs`): `/exit|quit|shutdown|sighup|sigint|sigterm/` on the
 /// lower-cased reason. Only such a close closes the session's agents (`closeAll`); any other
@@ -612,6 +612,11 @@ impl SessionDirectory {
     /// lane. `None` when the session is unknown or deleted.
     pub async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
         self.inner.stored_header(id).await
+    }
+
+    /// The header a listing reads of a session it does not open: what an open would have read, without loading the session.
+    pub async fn listed_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
+        self.inner.listed_header(id).await
     }
 
     /// [`stored_header`](Self::stored_header) for a decision that must tell "no such session"
@@ -1194,6 +1199,24 @@ impl DirInner {
         Ok(read.ok())
     }
 
+    /// The header a listing reads of a session it does not open (the Agents pool reads every worker the index names): the
+    /// live one of a loaded thread, else the stored record. It answers what an open would have read without loading the
+    /// session: a session still to be converted is converted first, the read waits out a full lane, and a session kept
+    /// only to host a worker row has no record (`None`, as for an unknown or unreadable one).
+    async fn listed_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
+        if let Some(handle) = self.loaded(id) {
+            return Some(handle.cell.header.load_full().as_ref().clone());
+        }
+        if let Some(there) = self.arriving.get().and_then(|arriving| arriving.arriving(id)) {
+            there.await;
+        }
+        self.deps.store.unheld().await;
+        let (store, thread) = (self.deps.store.clone(), id.clone());
+        let header = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await.ok()?.ok()?;
+        let row_only = header.get(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true);
+        (!row_only).then_some(header)
+    }
+
     /// `treeChanged` for a delete, in the thread's own admission: a peer is open (or opening),
     /// or an open began since `opens`, the count the peers' stored activity was read at.
     pub(crate) fn peers_changed(&self, peers: &[(ThreadId, f64)], opens: u64) -> bool {
@@ -1307,15 +1330,15 @@ impl DirInner {
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
-                        let began = std::time::Instant::now();
+                        let began = me.deps.clock.now_ms();
                         me.settle_teardowns(&thread).await;
                         // A session of the earlier version that is listed and not yet converted is converted now, ahead of the rest.
                         if let Some(there) = me.arriving.get().and_then(|arriving| arriving.arriving(&thread)) {
                             there.await;
                         }
-                        let waited = began.elapsed();
+                        let waited = me.deps.clock.now_ms();
                         let result = me.load(&thread).await;
-                        let loaded = began.elapsed();
+                        let loaded = me.deps.clock.now_ms();
                         // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
                         // for a delete or an op record) takes its tool surface as it resolves now,
                         // before any caller gets it.
@@ -1323,14 +1346,9 @@ impl DirInner {
                             me.refresh_resumed_tools(handle).await;
                         }
                         // An open a person waits for: one that took long says which step did.
-                        if began.elapsed() >= SLOW_OPEN {
-                            tracing::warn!(
-                                thread = thread.as_str(),
-                                before_ms = waited.as_millis() as u64,
-                                load_ms = (loaded - waited).as_millis() as u64,
-                                tools_ms = (began.elapsed() - loaded).as_millis() as u64,
-                                "slow session open"
-                            );
+                        let ended = me.deps.clock.now_ms();
+                        if ended - began >= SLOW_OPEN_MS {
+                            tracing::warn!(thread = thread.as_str(), before_ms = waited - began, load_ms = loaded - waited, tools_ms = ended - loaded, "slow session open");
                         }
                         let result = me.publish_opened(&thread, &opening, result);
                         tx.send_replace(Some(result));
