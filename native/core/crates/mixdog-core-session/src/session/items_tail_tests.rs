@@ -332,6 +332,54 @@ async fn a_page_from_the_newest_rows_equals_the_page_of_the_whole_history() {
     compare("stored", &stores, tokens).await;
 }
 
+/// A user message row (the model's own, not a display row) carrying the submission id it was sent under.
+fn prompt_message(iid: &str, submission: &str, kind: &str) -> CommitRecord {
+    let body = json!({ "role": "user", "content": "hi", "meta": { "transcript": { "clientSubmissionId": submission } } });
+    match kind {
+        "amend" => commit(json!({"k":"amend","iid":iid,"refs":[],"body":{"inline":body}})),
+        _ => commit(json!({"k":"item","iid":iid,"form":"message","model":true,"visible":true,"prompt":{"inline":"hi"},"refs":[],"body":{"inline":body}})),
+    }
+}
+
+/// An older user row amended to name submission `X`, which a row far newer (more than a tail's 128 records away) already
+/// shows: the cursor `X` is decided by the same row as by the whole history, which takes the older amended one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cursor_naming_an_amended_older_row_and_a_newer_one_picks_the_row_the_whole_history_does() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let real: Arc<dyn ThreadStore> = threads.clone();
+    let default: Arc<dyn ThreadStore> = Arc::new(DefaultTail(threads.clone()));
+    let stores = [("store", real), ("default", default)];
+    let mut rows = vec![prompt_message("m0", "old", "item")];
+    rows.extend((0..300).map(|i| assistant(i, "t0", true)));
+    rows.push(user("n1", "X", "t1"));
+    rows.extend((300..310).map(|i| assistant(i, "t1", true)));
+    rows.push(prompt_message("m0", "X", "amend"));
+    let live = create(&threads, tokens, "amended", rows).await;
+    let id = ThreadId::from("amended");
+    for cursor in ["X", "old", "m0", "n1", "a5"] {
+        for direction in ["desc", "asc"] {
+            let shape = json!({ "threadId": id, "limit": 3, "cursor": cursor, "sortDirection": direction });
+            let want = whole(&stores[0].1, tokens, &id, &shape).await;
+            for (path, store) in &stores {
+                let (got, _) = tailed(store, tokens, &id, &shape).await;
+                let what = format!("{path}: {shape}");
+                match (&want, got) {
+                    (Ok(Reply::Value(want)), Ok(Reply::Value(got))) => assert_eq!(&got, want, "{what}"),
+                    (Err(want), Err(got)) => assert_eq!(format!("{got:?}"), format!("{want:?}"), "{what}"),
+                    (want, got) => panic!("{what}: {got:?} against {want:?}"),
+                }
+            }
+        }
+    }
+    drop(live);
+}
+
 /// [`create`] with the rows committed 100 at a time, as a running session writes them, so the log carries its checkpoints.
 async fn create_long(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, total: usize) -> Log {
     let (threads, thread) = (threads.clone(), ThreadId::from(thread));

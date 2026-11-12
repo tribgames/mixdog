@@ -381,12 +381,13 @@ const PURGEABLE_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
     AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id) LIMIT 1";
 
 /// The tables holding a session's rows, with their keys: a purge step deletes by key.
-const PURGE_TABLES: [(&str, &str); 18] = [
+const PURGE_TABLES: [(&str, &str); 19] = [
     ("offload_refs", "source, session"),
     ("offload_known", "session"),
     ("offload_marks", "session"),
     ("archived_agents", "session, child"),
     ("history", "session, ordinal"),
+    ("history_alias", "session, alias, ordinal"),
     ("model_switches", "session, ordinal"),
     ("amends", "session, ordinal"),
     ("compactions", "session, ordinal"),
@@ -1286,7 +1287,7 @@ fn apply_frame(
             }
             refs(r)?;
         }
-        FrameKind::Amend { iid, refs: r, msg } => {
+        FrameKind::Amend { iid, refs: r, msg, aliases } => {
             if let Some(msg) = msg {
                 crate::message_index::amend(tx, session, iid, ordinal, (file_no, offset, len), msg)?;
             }
@@ -1305,6 +1306,10 @@ fn apply_frame(
                 .execute(params![session, ordinal, target, file_no, offset, len])?;
                 tx.prepare_cached("UPDATE history SET amend_ordinal = ?3 WHERE session = ?1 AND ordinal = ?2")?
                     .execute(params![session, target, ordinal])?;
+                for alias in aliases {
+                    tx.prepare_cached("INSERT OR IGNORE INTO history_alias (session, alias, ordinal) VALUES (?1, ?2, ?3)")?
+                        .execute(params![session, alias, target])?;
+                }
             }
             refs(r)?;
         }

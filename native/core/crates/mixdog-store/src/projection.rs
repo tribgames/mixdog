@@ -46,7 +46,8 @@ pub enum FrameKind {
         /// own id of a display row (`history_alias`). A superset is harmless: the reader checks what it finds.
         aliases: Vec<String>,
     },
-    Amend { iid: String, refs: Vec<Digest>, msg: Option<MessageRow> },
+    /// `aliases`: the ids the amended body names, added to the row it amends (the original's stay: a superset).
+    Amend { iid: String, refs: Vec<Digest>, msg: Option<MessageRow>, aliases: Vec<String> },
     Rewind { to_ordinal: u64 },
     /// `rows`: the entry iid and catalog contribution of each replacement message, in order.
     Compacted {
@@ -94,7 +95,7 @@ impl ProjectedFrame {
             FrameKind::Item { refs, prompt, msg, aliases, .. } => {
                 2 + refs.len() + 2 * usize::from(prompt.is_some()) + usize::from(msg.is_some()) + aliases.len()
             }
-            FrameKind::Amend { refs, .. } => 2 + refs.len(),
+            FrameKind::Amend { refs, aliases, .. } => 2 + refs.len() + aliases.len(),
             FrameKind::Compacted { rows, dropped, .. } => {
                 1 + rows.len() + dropped.as_ref().map_or(0, |d| d.message_ids.len() + d.call_ids.len())
             }
@@ -167,14 +168,18 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
                 op(&r.op),
             )
         }
-        Record::Amend(r) => (
-            FrameKind::Amend {
-                iid: r.iid.as_str().to_owned(),
-                refs: r.refs.as_slice().to_vec(),
-                msg: Some(message_row(&r.body, resolve)?),
-            },
-            op(&r.op),
-        ),
+        Record::Amend(r) => {
+            let body = message_body(&r.body, resolve)?;
+            (
+                FrameKind::Amend {
+                    iid: r.iid.as_str().to_owned(),
+                    refs: r.refs.as_slice().to_vec(),
+                    msg: Some(MessageRow::of(&body)),
+                    aliases: aliases_of(r.iid.as_str(), &body, false),
+                },
+                op(&r.op),
+            )
+        }
         Record::Rewind(r) => (FrameKind::Rewind { to_ordinal: r.to_ordinal }, op(&r.op)),
         Record::Compacted(r) => (
             FrameKind::Compacted {
