@@ -899,12 +899,13 @@ impl Migrator {
                 continue;
             }
             let path = cx.source_path(&file.file)?;
-            if !durable::exists(&path)? {
-                continue;
-            }
             if self.core_serves() {
+                // Also when the name is gone: a run that ended after it took the file aside left it there to be judged.
                 shared.fault(&format!("delete-shared:{}:before", file.file.path))?;
                 durable::remove_if_planned(&path, file.file.size, &file.file.sha256)?;
+                continue;
+            }
+            if !durable::exists(&path)? {
                 continue;
             }
             let (size, sha) = durable::hash_file(&path)?;
