@@ -308,28 +308,56 @@ pub struct SendIdentity {
     attempts: std::sync::Arc<std::sync::atomic::AtomicU32>,
     /// The display stages the adapter raised from inside an attempt (`onStageChange`), in order, for the caller to take
     /// after the attempt.
-    stages: std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>,
+    stages: std::sync::Arc<std::sync::Mutex<Vec<RaisedStage>>>,
     /// Whether this send raised its once-per-send `requesting` yet.
     requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
+/// A display stage an adapter raised, with the payload Node's `onStageChange(stage, payload)` carried.
+pub type RaisedStage = (&'static str, Option<serde_json::Value>);
+
 impl SendIdentity {
     /// Raises a display stage from inside an attempt.
     pub fn raise_stage(&self, stage: &'static str) {
-        self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(stage);
+        self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((stage, None));
+    }
+
+    /// Raises a display stage that carries a payload.
+    pub fn raise_stage_with(&self, stage: &'static str, payload: serde_json::Value) {
+        self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((stage, Some(payload)));
     }
 
     /// Raises `requesting` for a provider that raises it once before its whole retry ladder (Node raises it outside
-    /// `withRetry`): the send's first attempt raises it, a retry does not.
+    /// `withRetry`): the send's first attempt raises it, a retry does not; a re-issue ([`Self::reissue`]) raises it again.
     pub fn raise_requesting_once(&self) {
         if !self.requested.swap(true, std::sync::atomic::Ordering::SeqCst) {
             self.raise_stage("requesting");
         }
     }
 
+    /// The send begins its ladder again (a stream re-issued after output, a credential reloaded and the send run anew):
+    /// the once-per-ladder `requesting` is raised again by the next attempt.
+    pub fn reissue(&self) {
+        self.requested.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// The stages raised inside the attempt that ended, in order.
-    pub fn take_stages(&self) -> Vec<&'static str> {
+    pub fn take_stages(&self) -> Vec<RaisedStage> {
         std::mem::take(&mut *self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+
+    /// Runs `attempt`, handing each stage it raises to `deliver` right after the poll that raised it, so a stage is seen
+    /// when the request goes out and not when the attempt (which may read the response's first output) ends.
+    pub async fn deliver_stages<F: std::future::Future>(&self, attempt: F, mut deliver: impl FnMut(&'static str, Option<serde_json::Value>)) -> F::Output {
+        let mut attempt = std::pin::pin!(attempt);
+        std::future::poll_fn(|cx| {
+            let polled = attempt.as_mut().poll(cx);
+            for (stage, payload) in self.take_stages() {
+                deliver(stage, payload);
+            }
+            polled
+        })
+        .await
     }
 
     /// Marks an attempt of this send as begun and returns how many began before it: 0 for the send's first attempt,
@@ -1026,6 +1054,9 @@ pub struct ProviderError {
     pub reset_at: Option<SystemTime>,
     pub quota_scope: Option<QuotaScope>,
     pub reauth_required: bool,
+    /// The provider's own recovery of this send ran out with this failure (`markProviderRecoveryExhausted`: the
+    /// non-streaming re-issue of a refused stream): the send ends exhausted, whatever the ladder's verdict.
+    pub recovery_exhausted: bool,
     /// Anthropic `x-should-retry`.
     pub should_retry: Option<bool>,
     pub exposure: Exposure,
@@ -1105,6 +1136,7 @@ impl ProviderError {
             reset_at: None,
             quota_scope: None,
             reauth_required: false,
+            recovery_exhausted: false,
             should_retry: None,
             exposure: Exposure::default(),
             delivery,
@@ -1319,6 +1351,10 @@ pub enum RetryLineStyle {
     OfMax,
     /// `<tag> retry <n> after <message>`: the Antigravity ladder (antigravity-transport.mjs:179).
     Plain,
+    /// The Anthropic API route: a refused request is worded as [`RetryLineStyle::Attempt`], a stream that was
+    /// re-issued after it opened as the mid-stream ladder words it (`<tag> truncated stream — retry <n>/<max>`,
+    /// anthropic-midstream-recovery.mjs:262), whose stage counts retries, not attempts.
+    AnthropicApi,
 }
 
 /// The display stages a provider's send raises around its attempts ([`ProviderAdapter::send_stages`]).

@@ -286,6 +286,143 @@
           }
         ]
       }
+    },
+    {
+      "id": "unexpected-response-redacts-the-credential-it-echoes",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-handshake.test.mjs:28",
+      "input": {
+        "refusal": {
+          "status": 400,
+          "headers": [
+            [
+              "x-request-id",
+              "req_2"
+            ]
+          ],
+          "bodyChunks": [
+            "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential fixture-access-token was refused for this account\"}}"
+          ]
+        }
+      },
+      "result": {
+        "outcome": {
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "OpenAI OAuth WS handshake 400: the credential [REDACTED] was refused for this account",
+            "code": "invalid_request_error",
+            "props": {
+              "providerError": {
+                "type": "invalid_request_error",
+                "message": "the credential [REDACTED] was refused for this account"
+              },
+              "providerErrorCode": "invalid_request_error",
+              "status": 400,
+              "httpStatus": 400,
+              "headers": {
+                "x-request-id": "req_2",
+                "content-length": "119",
+                "connection": "close"
+              },
+              "httpBody": "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential [REDACTED] was refused for this account\"}}"
+            }
+          }
+        },
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-handshake-test"
+              ],
+              [
+                "thread-id",
+                "ws-handshake-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-handshake-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "+lzvFCYSnwAZ8j22rvFRnw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-refused",
+            "status": 400,
+            "statusText": "Bad Request",
+            "headers": [
+              [
+                "x-request-id",
+                "req_2"
+              ]
+            ],
+            "bodyChunks": [
+              "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential fixture-access-token was refused for this account\"}}"
+            ]
+          }
+        ]
+      }
     }
   ]
 }

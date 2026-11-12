@@ -440,14 +440,20 @@ impl AnthropicAdapter {
             wire.body = body;
         }
         wire.headers.push(("x-stainless-timeout".to_owned(), super::nonstream::TIMEOUT_SECONDS.to_owned()));
-        let read = scrub_refusal(self.post(&wire, secret).await?.read_all().await?, secret);
+        request.options.send_identity.raise_stage_with("requesting", serde_json::json!({ "transport": "non-streaming-fallback" }));
+        // A failure of this re-issue ends the send's recovery (`markProviderRecoveryExhausted`, anthropic-api-recovery.mjs:57).
+        let exhausted = |mut err: ProviderError| {
+            err.recovery_exhausted = true;
+            err
+        };
+        let read = scrub_refusal(self.post(&wire, secret).await.map_err(exhausted)?.read_all().await.map_err(exhausted)?, secret);
         if !read.status.is_some_and(|status| (200..300).contains(&status)) {
-            return Err(self.codec.classify(&read));
+            return Err(exhausted(self.codec.classify(&read)));
         }
         let message: Value = serde_json::from_slice(&read.body).map_err(|e| {
             let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
             err.message = format!("Anthropic non-streaming response is not JSON: {e}");
-            err
+            exhausted(err)
         })?;
         Ok(Box::new(AnthropicStream::ready(super::nonstream::events(&self.id, &request.model, &message))))
     }
@@ -590,7 +596,7 @@ impl ProviderAdapter for AnthropicAdapter {
         use mixdog_core_api::domain::provider::RetryLine;
         use mixdog_core_api::domain::provider::RetryLineStyle;
         Some(match self.codec.flavor() {
-            Flavor::ApiKey => RetryLine { tag: format!("[{}]", self.id), delay: true, style: RetryLineStyle::Attempt },
+            Flavor::ApiKey => RetryLine { tag: format!("[{}]", self.id), delay: true, style: RetryLineStyle::AnthropicApi },
             Flavor::OAuth => RetryLine { tag: format!("[{}]", self.id), delay: true, style: RetryLineStyle::OfMax },
         })
     }
@@ -622,7 +628,7 @@ impl ProviderAdapter for AnthropicAdapter {
                 let response = self.post(&wire, &secret).await?;
                 if (200..300).contains(&response.status) {
                     let thread = plan.as_mut().and_then(Plan::take_session);
-                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread));
+                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread).with_secret(&secret));
                     // OAuth replays only a rejected initial response (`_resendAfterRejection`).
                     if self.codec.flavor() != Flavor::ApiKey {
                         return Ok(stream);
@@ -717,11 +723,14 @@ struct AnthropicStream {
     /// A threaded send's hold on its conversation; dropped with the stream (or on failure), which gives the
     /// conversation back.
     thread: Option<ThreadSession>,
+    /// The credential the request was sent with: an error event that echoes it is redacted.
+    secret: Option<String>,
 }
 
 impl AnthropicStream {
     fn new(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
         Self {
+            secret: None,
             body: Some(body),
             decoder,
             queue: VecDeque::new(),
@@ -734,6 +743,7 @@ impl AnthropicStream {
     /// A turn already whole: its events, then the end.
     fn ready(events: Vec<StreamEvent>) -> Self {
         Self {
+            secret: None,
             body: None,
             decoder: Box::new(super::decoder::AnthropicDecoder::for_model(ProviderId::from(""), "")),
             queue: events.into(),
@@ -745,6 +755,11 @@ impl AnthropicStream {
 
     fn with_thread(mut self, thread: Option<ThreadSession>) -> Self {
         self.thread = thread;
+        self
+    }
+
+    fn with_secret(mut self, secret: &Secret) -> Self {
+        self.secret = Some(secret.0.clone());
         self
     }
 
@@ -772,6 +787,9 @@ impl AnthropicStream {
         // (`_anthropicSseError`, anthropic-sse.mjs:138), whose usage no ledger sees.
         if err.transport.is_some() {
             err.partial_usage = self.last_usage.clone().map(Box::new);
+        }
+        if let Some(secret) = &self.secret {
+            err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[secret]);
         }
         self.failed = Some(err);
     }

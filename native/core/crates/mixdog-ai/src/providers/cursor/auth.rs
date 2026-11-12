@@ -156,7 +156,8 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
     let success = head.is_success();
     let response = head.read_all().await?;
     if !success {
-        let detail = String::from_utf8_lossy(&response.body).trim().to_owned();
+        // The server's text may echo the token this exchange carried; it is redacted wherever it stands.
+        let detail = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), &[token]).trim().to_owned();
         return Err(exchange_error(response.status.unwrap_or(0), &response.headers, &detail));
     }
     let data: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);

@@ -144,6 +144,8 @@ struct Scripted {
     /// The display stages the provider declares (`send_stages`), and whether its attempt raises `requesting` itself.
     stages: mixdog_core_api::domain::provider::SendStages,
     raises_requesting: bool,
+    /// An attempt that raised `requesting` holds its response until this resolves (the run's observer saw the stage).
+    hold: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
 }
 
 impl Scripted {
@@ -160,6 +162,7 @@ impl Scripted {
         Arc::new(Self {
             stages: Default::default(),
             raises_requesting: false,
+            hold: Mutex::new(None),
             id: ProviderId::from("scripted"),
             policy,
             keepalive: KeepaliveSchedule::SPEC,
@@ -206,6 +209,11 @@ impl ProviderAdapter for Scripted {
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
         if self.raises_requesting {
             request.options.send_identity.raise_requesting_once();
+            let held = self.hold.lock().unwrap().take();
+            if let Some(seen) = held {
+                let seen = tokio::time::timeout(Duration::from_secs(30), seen).await;
+                assert!(seen.is_ok(), "the attempt waited 30 s for the run to be told `requesting` while it still held the response");
+            }
         }
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
@@ -299,13 +307,22 @@ impl SteerSource for Steer {
 struct Observer {
     events: Mutex<Vec<RunEvent>>,
     retract: Retracted,
+    /// Told when the first `requesting` stage arrives.
+    requesting: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 impl Observer {
     fn new(retract: Retracted) -> Arc<Self> {
         Arc::new(Self {
             events: Mutex::new(Vec::new()),
             retract,
+            requesting: Mutex::new(None),
         })
+    }
+    /// Resolves when the observer is given its first `requesting` stage.
+    fn on_requesting(&self) -> tokio::sync::oneshot::Receiver<()> {
+        let (told, seen) = tokio::sync::oneshot::channel();
+        *self.requesting.lock().unwrap() = Some(told);
+        seen
     }
     fn events(&self) -> Vec<RunEvent> {
         self.events.lock().unwrap().clone()
@@ -313,6 +330,11 @@ impl Observer {
 }
 impl RunObserver for Observer {
     fn event(&self, event: RunEvent) {
+        if matches!(event, RunEvent::Stage(Stage::Requesting))
+            && let Some(told) = self.requesting.lock().unwrap().take()
+        {
+            let _ = told.send(());
+        }
         self.events.lock().unwrap().push(event);
     }
     fn can_retract(&self) -> bool {
@@ -1353,6 +1375,40 @@ async fn the_loop_raises_the_requesting_stage_where_the_provider_does() {
     assert_eq!(stage_order(SendStages { preparing: 1, ..plain }, false).await, ["requesting", "reconnecting"], "once before the first attempt");
     assert_eq!(stage_order(SendStages { each_attempt: true, ..plain }, false).await, ["requesting", "reconnecting", "requesting"], "before every attempt");
     assert_eq!(stage_order(plain, true).await, ["requesting", "reconnecting"], "raised from inside the attempt, once");
+}
+
+/// The stage is delivered when the request goes out: an attempt that raised `requesting` and is still holding its
+/// response (the API route reads the first output before it returns) has already shown it to the run's observer, which
+/// starts the liveness clock then and not when the attempt ends.
+#[tokio::test]
+async fn requesting_reaches_the_run_while_the_attempt_still_holds_the_response() {
+    let script = vec![turn(vec![text("ok"), done(StopReason::EndTurn)])];
+    let h = Harness { provider: Scripted::staged(script, Default::default(), true), ..Harness::new(Vec::new()) };
+    *h.provider.hold.lock().unwrap() = Some(h.observer.on_requesting());
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+}
+
+/// A stream issued again after it opened (a mid-stream retry) raises the provider's once-per-ladder `requesting` again,
+/// as Node's stream loop does for each issue (anthropic.mjs:300); a refused request's retry does not.
+#[tokio::test]
+async fn a_reissued_stream_raises_requesting_again() {
+    let stages = |script: Vec<Attempt>| async move {
+        let h = Harness { provider: Scripted::staged(script, Default::default(), true), ..Harness::new(Vec::new()) };
+        finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+        h.observer
+            .events()
+            .into_iter()
+            .filter_map(|e| match e {
+                RunEvent::Stage(Stage::Requesting) => Some("requesting"),
+                RunEvent::Stage(Stage::Reconnecting { .. }) => Some("reconnecting"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let reset = || ProviderError::transport(TransportFault::Reset, DeliveryState::Ambiguous);
+    let ok = || turn(vec![text("ok"), done(StopReason::EndTurn)]);
+    assert_eq!(stages(vec![Attempt::Stream(vec![Step::Fail(reset())]), ok()]).await, ["requesting", "reconnecting", "requesting"]);
+    assert_eq!(stages(vec![Attempt::Reject(reset()), ok()]).await, ["requesting", "reconnecting"]);
 }
 
 /// The transport fault Node's provider error ended in: the last link of the recorded cause chain

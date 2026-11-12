@@ -1,4 +1,4 @@
-//! openai-ws-handshake (2 WIRE cases): the recorder called `acquireWebSocket` with its own handshake headers, so the
+//! openai-ws-handshake (3 WIRE cases): the recorder called `acquireWebSocket` with its own handshake headers, so the
 //! replay dials those headers through the core's own dialer (`RedirectedDialer`, the production `WsDial` redirected to
 //! the endpoint), compares the ordered ws-world events (dial, the upgrade request with every header, the refusal) whole,
 //! and the refusal as the OpenAI OAuth adapter's codec classifies it against the recorded error, field by field through
@@ -97,7 +97,7 @@ pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Rep
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load(SET);
-    assert_eq!(set.cases.len(), 2, "the recorded cases");
+    assert_eq!(set.cases.len(), 3, "the recorded cases");
     for case in &set.cases {
         replay(case).await;
     }
