@@ -10,13 +10,13 @@
     {
       "bytes": 101647,
       "path": "golden.json",
-      "sha256": "e19d4a12ec29d38dafbfe2ce9aac9dcb6c7875fbcafc81e4dc759fe38da5dd3b"
+      "sha256": "5ac5d9259f502689a513cf29443884c47032baef572dbafe23a798e58dc01c14"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -53,7 +53,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-recall-source.mjs",
-  "recorderSha256": "c7f7fd5d11faf42b8e4f970757dca82cc25d241cb57adb2a7ee5464b3e5b9309",
+  "recorderSha256": "dfe6e24f9db91323a0dc25335ac1f03634c54aa94f2d1de6c0a8666b0dd25c3d",
   "replay": "mixdog-services memory/recall/format.rs: pub fn render_entry_lines (:220); reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay renders each recorded row set with the recorded options and compares the text exactly",
   "set": "memory-recall-source",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",

@@ -670,7 +670,7 @@ impl ProviderAdmin {
         out.insert("outcome".into(), json!(result.outcome));
         out.insert("resetCredits".into(), result.reset_credits.unwrap_or(Value::Null));
         let budget = std::time::Duration::from_millis(15_000);
-        if let Ok(Some(dashboard)) = tokio::time::timeout(budget, dashboards.after_redeem(sources, &self.accounts)).await {
+        if let Ok(Some(dashboard)) = mixdog_rt::time::timeout(budget, dashboards.after_redeem(sources, &self.accounts)).await {
             out.insert("dashboard".into(), dashboard);
         }
         Ok(Value::Object(out))

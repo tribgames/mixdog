@@ -175,6 +175,30 @@ impl Ledger {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// memory-cycle-status.test.mjs 25: the statusline's `memoryCycleStatus` reads `updatedAt`,
+    /// `running.{cycle,started_at,pid}` and `backlog.unchunked` from this file.
+    #[tokio::test]
+    async fn the_state_file_carries_what_the_statusline_segment_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("memory-cycle-state.json");
+        let ledger = Ledger::new(file.clone(), mixdog_rt::testing::tokens().maintenance_io, Arc::new(|| 10_000_000));
+        let read = || serde_json::from_slice::<Value>(&std::fs::read(&file).unwrap()).unwrap();
+        ledger.set_backlog(json!({ "unchunked": 700, "at": 1 })).await;
+        let state = read();
+        assert_eq!((state["updatedAt"].clone(), state["running"].clone(), state["backlog"]["unchunked"].clone()), (json!(10_000_000), Value::Null, json!(700)));
+        ledger.mark_running("cycle1").await;
+        assert_eq!(read()["running"], json!({ "cycle": "cycle1", "started_at": 10_000_000, "pid": std::process::id() }));
+        ledger.mark_done("cycle1", true, None).await;
+        assert_eq!(read()["running"], Value::Null);
+    }
+}
+
 fn health_json(health: &CycleHealth) -> Value {
     json!({
         "last_success_at": health.last_success_at,

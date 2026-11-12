@@ -1,0 +1,261 @@
+{
+  "name": "code-graph-modes",
+  "files": {
+    "src/lib/math.mjs": "export function add(a, b) {\n  return a + b;\n}\n\nexport function sub(a, b) {\n  return a - b;\n}\n",
+    "src/lib/util.mjs": "import { add } from './math.mjs';\n\nexport const twice = (x) => add(x, x);\n",
+    "src/main.mjs": "import { add, sub } from './lib/math.mjs';\n\nexport function main() {\n  return add(1, 2) + sub(5, 3);\n}\n\nexport function other() {\n  return add(3, 4);\n}\n",
+    "src/app.py": "def greet(name):\n    return name\n\n\nclass Greeter:\n    def run(self):\n        return 1\n"
+  },
+  "warmup": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "warmupNone"
+        ]
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "nope"
+      },
+      "thrown": "code_graph: unknown mode \"nope\""
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/missing.mjs"
+        ],
+        "mode": "symbols"
+      },
+      "thrown": "code_graph: cwd '<ROOT>' is not inside a project and aggregate file anchors do not all exist under exactly one detectable project root. Refusing to index an arbitrary tree."
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol"
+      },
+      "thrown": "find_symbol: provide \"symbol\" (to locate) or \"file\" (to list its symbols)."
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "file": "src/lib/math.mjs",
+        "mode": "symbols"
+      },
+      "text": "export function add (L1-3)  function add(a, b)\nexport function sub (L5-7)  function sub(a, b)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "callees",
+        "symbols": [
+          "main"
+        ]
+      },
+      "text": "# callees\nadd\tcallsite src/main.mjs:4:10\tdecl src/lib/math.mjs:1\t(in main)\tkind=call\nsub\tcallsite src/main.mjs:4:22\tdecl src/lib/math.mjs:5\t(in main)\tkind=call",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "depth": 2,
+        "mode": "callers",
+        "symbols": [
+          "add"
+        ]
+      },
+      "text": "# transitive callers of add (depth=2) — page 1, nodes 1-3 of 3; INDENTED children are ITS callers\nadd\n  twice\tsrc/lib/util.mjs:3\n  main\tsrc/main.mjs:4\n  other\tsrc/main.mjs:8\n# END — complete caller set delivered (page 1 of 1): named callers PLUS timer/event/module-level call sites (the «…» leaves), each with file:line. No further callers/grep/read is needed.",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "callers",
+        "symbols": [
+          "add"
+        ]
+      },
+      "text": "# call sites\nsrc/lib/util.mjs:3:29\tcall\tcaller=twice\texport const twice = (x) => add(x, x);\nsrc/main.mjs:4:10\tcall\tcaller=main\treturn add(1, 2) + sub(5, 3);\nsrc/main.mjs:8:10\tcall\tcaller=other\treturn add(3, 4);",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/lib/math.mjs"
+        ],
+        "mode": "dependents"
+      },
+      "text": "src/lib/util.mjs:1\nsrc/main.mjs:1",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "body": false,
+        "mode": "find_symbol",
+        "symbols": [
+          "add"
+        ]
+      },
+      "text": "# best declaration candidate\nsrc/lib/math.mjs:1-3:17 (javascript, export function, matches=1)\nsignature: function add(a, b)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "find_symbol",
+        "symbols": [
+          "add"
+        ]
+      },
+      "text": "# best declaration candidate\nsrc/lib/math.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function add(a, b) {\n2:   return a + b;\n3: }",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/lib/math.mjs"
+        ],
+        "mode": "impact"
+      },
+      "text": "file\tsrc/lib/math.mjs\nlanguage\tjavascript\nimports\t0\ndependents\t2\nrelated\t2\nscanned_symbols\t2\nexternal_references\t7\nexternal_callers\t2\n\n# structural\nsrc/lib/util.mjs\nsrc/main.mjs\n\n# top symbol impact\nadd\trefs=5\tcallers=2 -> src/lib/util.mjs, src/main.mjs\nsub\trefs=2\tcallers=1 -> src/main.mjs\n\n# external callers\nsrc/lib/util.mjs\nsrc/main.mjs",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/main.mjs"
+        ],
+        "mode": "imports"
+      },
+      "text": "src/lib/math.mjs\n\n# raw\n./lib/math.mjs",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "depth": 2,
+        "files": [
+          "src/main.mjs"
+        ],
+        "mode": "overview"
+      },
+      "text": "file: src/main.mjs\nlanguage: javascript\noutline:\nexport function main (L3-5)  function main()\nexport function other (L7-9)  function other()\nimports: src/lib/math.mjs",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/main.mjs"
+        ],
+        "mode": "overview"
+      },
+      "text": "file: src/main.mjs\nlanguage: javascript\noutline:\nexport function main (L3-5)  function main()\nexport function other (L7-9)  function other()\nimports: src/lib/math.mjs",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "body": true,
+        "limit": 2,
+        "mode": "references",
+        "symbols": [
+          "add"
+        ]
+      },
+      "text": "# declaration\n# best declaration candidate\nsrc/lib/math.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function add(a, b) {\n2:   return a + b;\n3: }\n\n# references\nsrc/lib/util.mjs:3:29\tcall\towner=twice\texport const twice = (x) => add(x, x);\nsrc/main.mjs:4:10\tcall\towner=main\treturn add(1, 2) + sub(5, 3);\n... +1 more references",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "references",
+        "symbols": [
+          "add"
+        ]
+      },
+      "text": "# declaration\n# best declaration candidate\nsrc/lib/math.mjs:1-3:17 (javascript, export function, matches=1)\nsignature: function add(a, b)\n\n# references\nsrc/lib/util.mjs:3:29\tcall\towner=twice\texport const twice = (x) => add(x, x);\nsrc/main.mjs:4:10\tcall\towner=main\treturn add(1, 2) + sub(5, 3);\nsrc/main.mjs:8:10\tcall\towner=other\treturn add(3, 4);",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/lib/math.mjs"
+        ],
+        "mode": "related"
+      },
+      "text": "file\tsrc/lib/math.mjs\nlanguage\tjavascript\nimports\t0\ndependents\t2\nrelated\t2\n\n# imports\n(none)\n\n# dependents\nsrc/lib/util.mjs\nsrc/main.mjs\n\n# related\nsrc/lib/util.mjs\nsrc/main.mjs",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "search",
+        "symbols": [
+          "twice"
+        ]
+      },
+      "text": "# search keyword=twice matches=1 shown=1\ntwice\tsrc/lib/util.mjs:3-3:14\texport variable\ttwice = (x) =>",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "mode": "symbol_search",
+        "symbols": [
+          "gree"
+        ]
+      },
+      "text": "# search keyword=gree matches=2 shown=2\ngreet\tsrc/app.py:1-2:1\texport function\tdef greet(name)\nGreeter\tsrc/app.py:5-7:1\texport class\tclass Greeter",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/lib/math.mjs"
+        ],
+        "mode": "symbols",
+        "symbols": [
+          "sub"
+        ]
+      },
+      "text": "export function sub (L5-7)  function sub(a, b)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/app.py"
+        ],
+        "mode": "symbols"
+      },
+      "text": "export function greet (L1-2)  def greet(name)\nexport class Greeter (L5-7)\n  function run (L6-7)  def run(self)",
+      "isError": false
+    },
+    {
+      "tool": "code_graph",
+      "input": {
+        "files": [
+          "src/lib/math.mjs"
+        ],
+        "mode": "symbols"
+      },
+      "text": "export function add (L1-3)  function add(a, b)\nexport function sub (L5-7)  function sub(a, b)",
+      "isError": false
+    }
+  ]
+}

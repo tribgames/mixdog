@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# For other crates' replays: the scheduler's call recorder (`Scheduler::record_calls`).
+test-support = []
+
 [lints]
 workspace = true
 
@@ -14,8 +18,8 @@ mixdog-store = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-app-protocol = { workspace = true }
-# Linked as a library by path (not a workspace member), as mixdog-tools does.
-mixdog-graph = { path = "../../../mixdog-graph" }
+# Linked as a library (crates/mixdog-graph builds native/mixdog-graph's sources), as mixdog-tools does.
+mixdog-graph = { workspace = true }
 mixdog-agent = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-protocol = { workspace = true }
@@ -66,20 +70,20 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32
 
 [dev-dependencies]
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 # The relay fixture of the webhook tunnel tests: a WebSocket server that sees the leg's request.
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 # The real process manager the tidy tests spawn under, as mixdog-scm's tests do.
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
@@ -91,4 +95,11 @@ mixdog-protocol = { workspace = true }
 mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-services = { path = ".", features = ["test-support"] }

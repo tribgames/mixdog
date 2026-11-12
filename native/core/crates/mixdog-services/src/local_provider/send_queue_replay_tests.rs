@@ -11,7 +11,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use mixdog_ai::admission::{Admission, AdmissionRequest, LaneKey, process_lane_settings};
+use mixdog_ai::broker::{AttemptSink, ModelBroker, SendRequest};
 use mixdog_ai::catalog::CachedModelInfo;
+use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_ai::providers::local::Endpoint;
 use mixdog_ai::providers::local::Inference;
 use mixdog_ai::providers::local::LocalRuntime;
@@ -109,6 +112,8 @@ struct Shared {
     release: tokio::sync::Notify,
     /// Requests in the order they reached the wire (`A#1`), and the holds among them, for the scripts that name requests.
     order: Mutex<Vec<String>>,
+    /// When each named request reached the wire, on the paused clock.
+    times: Mutex<Vec<(String, tokio::time::Instant)>>,
 }
 
 /// The wire: each send takes the next script and answers it as an event stream (a `progress` of text is a content chunk, the
@@ -182,6 +187,7 @@ impl HttpSend for Wire {
             };
             let name = format!("{who}#{n}");
             self.shared.order.lock().unwrap().push(name.clone());
+            self.shared.times.lock().unwrap().push((name.clone(), tokio::time::Instant::now()));
             let steps = self.named.lock().unwrap().remove(&name).unwrap_or_else(|| panic!("a script for {name}"));
             (name, steps)
         } else {
@@ -205,7 +211,7 @@ struct World {
 fn world(model: &str, scripts: Vec<(&str, Vec<Step>)>) -> World {
     let dir = tempfile::tempdir().unwrap();
     let runtime = super::provider::tests::provider(dir.path());
-    let shared = Arc::new(Shared { model: model.into(), runtime: runtime.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default() });
+    let shared = Arc::new(Shared { model: model.into(), runtime: runtime.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default(), times: Mutex::default() });
     let wire = Arc::new(Wire { shared: shared.clone(), scripts: Mutex::new(scripts.into_iter().map(|(name, steps)| (name.to_owned(), steps)).collect()), named: Mutex::default(), counts: Mutex::default() });
     let adapter = Arc::new(RegisteredAdapter::new(wire.clone(), Arc::new(Injected(ManagedRuntime(runtime)))));
     World { shared, adapter, wire, _dir: dir }
@@ -381,6 +387,141 @@ async fn a_retry_keeps_the_slot_while_a_second_send_waits() {
     assert_eq!(settled(&state["inference"], None), expected);
 }
 
+/// The model proxy's send: the PC's broker sends once through the registered adapter, the retries of the send are its own.
+struct Discard(Option<tokio_util::sync::CancellationToken>);
+
+impl AttemptSink for Discard {
+    fn event(&mut self, _: p::StreamEvent) {}
+    fn discard(&mut self) {
+        if let Some(cancel) = &self.0 {
+            cancel.cancel();
+        }
+    }
+}
+
+async fn broker_send(broker: &ModelBroker, adapter: &RegisteredAdapter, model: &str, who: &str, lane: &str, cancel: &tokio_util::sync::CancellationToken, cancel_on_retry: bool) -> Result<u32, String> {
+    let key = LaneKey::new(mixdog_protocol::ProviderId::from("mixdog-local"), lane);
+    let send = SendRequest { request: request_of(model, who, None), lane: broker.admission().lane(&key, process_lane_settings()(&key)), admission: AdmissionRequest::default() };
+    let mut sink = Discard(cancel_on_retry.then(|| cancel.clone()));
+    broker.send(adapter, send, &mut sink, cancel).await.map_err(|error| format!("{error:?}"))
+}
+
+fn broker() -> ModelBroker {
+    ModelBroker::new(Arc::new(Admission::new()), Arc::new(StandardRetryDecider))
+}
+
+/// The next local send is admitted: it answers inside a deadline of the paused clock, which a held slot would let pass.
+async fn next_send_is_admitted(world: &World, model: &str) {
+    let next = tokio::time::timeout(Duration::from_secs(5), send(&world.adapter, model)).await;
+    assert_eq!(next.expect("the next local send to be admitted"), Ok(()));
+}
+
+/// Node's proxy calls the queue-wrapped provider send, which holds the slot across the inner retries. The recorded retry case
+/// ("a retry keeps the slot while a second send waits"), through the broker the model proxy sends with: its own retry decides
+/// the attempts, and the second send, on another lane, waits in the local queue behind the whole send.
+#[tokio::test(start_paused = true)]
+async fn a_retry_through_the_broker_keeps_the_slot_while_a_second_send_waits() {
+    let node = recorded("a retry keeps the slot while a second send waits");
+    let model = node["model"].as_str().unwrap();
+    let world = world(model, Vec::new());
+    for (name, steps) in node["scripts"].as_object().unwrap() {
+        world.wire.named.lock().unwrap().insert(name.clone(), steps_of(steps));
+    }
+    let broker = Arc::new(broker());
+    let spawn = |who: &'static str| {
+        let (adapter, broker, model) = (world.adapter.clone(), broker.clone(), model.to_owned());
+        tokio::spawn(async move { broker_send(&broker, &adapter, &model, who, who, &tokio_util::sync::CancellationToken::new(), false).await })
+    };
+    let mut a = spawn("A");
+    let b = spawn("B");
+    tokio::select! {
+        () = world.shared.held.notified() => {}
+        ended = &mut a => panic!("the first send ended before its retry held the slot: {ended:?}"),
+    }
+    let strings = |value: &Value| value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["reachedWhileHeld"]));
+    tokio::time::advance(Duration::from_millis(node["elapsedWhileHeld"].as_u64().unwrap())).await;
+    world.shared.release.notify_one();
+    let (a_end, b_end) = (a.await.unwrap(), b.await.unwrap());
+    assert_eq!((a_end.is_ok(), b_end.is_ok()), (true, true), "{a_end:?} {b_end:?}");
+    assert_eq!(*world.shared.order.lock().unwrap(), strings(&node["wireOrder"]));
+    // The broker's backoff is its own (jittered), Node's retry delay is the recording's: the wait of the send that queued
+    // behind the retry holds whichever backoff the first send took.
+    let times = world.shared.times.lock().unwrap().clone();
+    let at = |name: &str| times.iter().find(|(n, _)| n == name).unwrap().1;
+    let backoff = (at("A#2") - at("A#1")).as_millis() as u64;
+    let mut expected = recorded_inference(&node);
+    expected["queueWaitMs"] = json!(node["inference"]["queueWaitMs"].as_u64().unwrap() + backoff);
+    let state = world.shared.runtime.catalog.state.get(model);
+    assert_eq!(settled(&state["inference"], None), expected);
+}
+
+/// A send group that ends on its last error lets the next send in.
+#[tokio::test(start_paused = true)]
+async fn a_group_that_ends_on_its_last_error_lets_the_next_send_in() {
+    let world = world("local-group-error", vec![("A", vec![Step::Status(500)]), ("next", vec![Step::Result { input: 1, output: 1 }])]);
+    let attempt = p::ProviderAdapter::attempt(&*world.adapter, request_of("local-group-error", "A", Some("g1"))).await;
+    assert!(attempt.is_err());
+    p::ProviderAdapter::settle_send(&*world.adapter, "g1", p::SendEnd::Surfaced).await;
+    next_send_is_admitted(&world, "local-group-error").await;
+}
+
+/// The group's guard dropped between attempts (the caller's future dropped, in or out of a runtime, or a panic) lets go through
+/// `release_send`, which is synchronous.
+#[tokio::test(start_paused = true)]
+async fn a_group_let_go_between_attempts_lets_the_next_send_in() {
+    let world = world("local-group-between", vec![("A", vec![Step::Status(500)]), ("next", vec![Step::Result { input: 1, output: 1 }])]);
+    assert!(p::ProviderAdapter::attempt(&*world.adapter, request_of("local-group-between", "A", Some("g2"))).await.is_err());
+    p::ProviderAdapter::release_send(&*world.adapter, "g2");
+    next_send_is_admitted(&world, "local-group-between").await;
+}
+
+/// A group whose answer was being read when its caller went away lets the next send in.
+#[tokio::test(start_paused = true)]
+async fn a_group_let_go_mid_answer_lets_the_next_send_in() {
+    let steps = vec![Step::Progress("text".into()), Step::Hold];
+    let world = world("local-group-mid", vec![("A", steps), ("next", vec![Step::Result { input: 1, output: 1 }])]);
+    let mut stream = p::ProviderAdapter::attempt(&*world.adapter, request_of("local-group-mid", "A", Some("g3"))).await.unwrap();
+    assert!(stream.next().await.unwrap().is_ok());
+    drop(stream);
+    p::ProviderAdapter::release_send(&*world.adapter, "g3");
+    next_send_is_admitted(&world, "local-group-mid").await;
+}
+
+/// The broker's send cancelled between attempts lets the next send in.
+#[tokio::test(start_paused = true)]
+async fn a_broker_send_cancelled_between_attempts_lets_the_next_send_in() {
+    let world = world("local-broker-cancel", vec![("A", vec![Step::Status(500)]), ("next", vec![Step::Result { input: 1, output: 1 }])]);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let ended = broker_send(&broker(), &world.adapter, "local-broker-cancel", "A", "a", &cancel, true).await;
+    assert!(ended.unwrap_err().contains("Cancelled"));
+    next_send_is_admitted(&world, "local-broker-cancel").await;
+}
+
+/// The broker's send ending on its last error lets the next send in.
+#[tokio::test(start_paused = true)]
+async fn a_broker_send_that_surfaces_its_error_lets_the_next_send_in() {
+    let world = world("local-broker-error", vec![("A", vec![Step::Status(400)]), ("next", vec![Step::Result { input: 1, output: 1 }])]);
+    let ended = broker_send(&broker(), &world.adapter, "local-broker-error", "A", "a", &tokio_util::sync::CancellationToken::new(), false).await;
+    assert!(ended.is_err());
+    next_send_is_admitted(&world, "local-broker-error").await;
+}
+
+/// The broker's future dropped while its retry holds the slot (a dropped caller) lets the next send in.
+#[tokio::test(start_paused = true)]
+async fn a_broker_send_dropped_while_it_holds_the_slot_lets_the_next_send_in() {
+    let world = world("local-broker-drop", vec![("A1", vec![Step::Status(500)]), ("A2", vec![Step::Progress("text".into()), Step::Hold]), ("next", vec![Step::Result { input: 1, output: 1 }])]);
+    let broker = Arc::new(broker());
+    let task = tokio::spawn({
+        let (adapter, broker) = (world.adapter.clone(), broker.clone());
+        async move { broker_send(&broker, &adapter, "local-broker-drop", "A", "a", &tokio_util::sync::CancellationToken::new(), false).await }
+    });
+    world.shared.held.notified().await;
+    task.abort();
+    let _ = task.await;
+    next_send_is_admitted(&world, "local-broker-drop").await;
+}
+
 /// `getCachedModelInfo` is `installedLocalProviderModels().find(id) || null`, read now (Node reads the disk on every call): at each
 /// moment the adapter answers the row the runtime lists for the id, or nothing, for a model installed, not downloaded, removed
 /// and one that was never registered.
@@ -396,7 +537,7 @@ async fn the_cached_model_info_is_the_installed_models_row_at_every_moment() {
     }
     let dir = tempfile::tempdir().unwrap();
     let provider = super::provider::tests::provider(dir.path());
-    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
+    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default(), times: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
     let mut rows = provider.installed_rows();
     let (first, second) = (install(&provider, 1, b"first weights").await, install(&provider, 2, b"second weights").await);
     let ids = [first.as_str(), second.as_str(), "never-registered"];
@@ -422,7 +563,7 @@ async fn the_cached_model_info_is_the_installed_models_row_at_every_moment() {
 async fn a_cached_read_right_after_an_operation_sees_its_result() {
     let dir = tempfile::tempdir().unwrap();
     let provider = super::provider::tests::provider(dir.path());
-    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
+    let adapter = RegisteredAdapter::new(Arc::new(Wire { shared: Arc::new(Shared { model: String::new(), runtime: provider.clone(), reached: Mutex::default(), snapshots: Mutex::default(), held: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), order: Mutex::default(), times: Mutex::default() }), scripts: Mutex::default(), named: Mutex::default(), counts: Mutex::default() }), Arc::new(Injected(ManagedRuntime(provider.clone()))));
     let (first, second) = (install(&provider, 1, b"first weights").await, install(&provider, 2, b"second weights").await);
     let ids = [first.as_str(), second.as_str()];
     let cached = |adapter: &RegisteredAdapter| ids.map(|id| adapter.cached_row(id).map(|row| row["id"].clone()));

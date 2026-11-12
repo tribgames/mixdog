@@ -5,7 +5,13 @@
 // SessionHostTransport.invokeSession over a scripted daemon client records the lane (read / configure) of every action.
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
-//        benchmarks/rust-core/recorders/record-session-host-transport-read-set-cases.mjs --tree <export of b6f10295a with node_modules>
+//        benchmarks/rust-core/recorders/record-session-host-transport-read-set-cases.mjs --tree <export of b6f10295a with node_modules> \
+//        --patch benchmarks/rust-core/recorders/node-patches/node-fix-session-host-read-set.patch
+// b6f10295a's SessionHostTransport kept a copy of the desktop's capability list as its read lane (READ_CAPABILITIES), so 12 actions the
+// daemon serves on session.read (isSessionTerminal, agentDefinitionPresence, getChannelSettings, getChannelWorkerStatus, getSettingsSnapshot,
+// searchLocalProviderModels, inspectHuggingFaceModel, getTurnLiveness, getSessionWorktreeWork, hooksStatus, listShellJobs,
+// listStoppableShellJobs) went out as `configure`, which the daemon refuses: a user-visible bug. The recording is of b6f10295a with that
+// one fix (the patch is d34d8a2ce's change, made against b6f10295a's text).
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('session-host-transport-read-set-cases', import.meta.url);

@@ -10,8 +10,8 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_rt::DurabilityIo;
 use mixdog_rt::LaneToken;
-use mixdog_rt::MaintenanceIo;
 use sha2::Digest;
 use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
@@ -50,7 +50,7 @@ fn write(path: &Path, content: &str) -> std::io::Result<()> {
 
 /// Archives `content`; `None` when it cannot be written (compaction is then skipped).
 pub async fn persist(
-    lane: MaintenanceIo,
+    lane: DurabilityIo,
     cancel: &CancellationToken,
     data_dir: &Path,
     session: &str,

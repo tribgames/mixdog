@@ -77,6 +77,16 @@ impl EffortSnapshot {
             effort: text("effort")?,
         })
     }
+
+    /// The snapshot as a message's `meta.effortConfiguration` stores it.
+    pub fn to_value(&self) -> JsonValue {
+        let mode = match self.mode {
+            EffortMode::Responses => "responses",
+            EffortMode::Anthropic => "anthropic",
+            EffortMode::Custom => "custom",
+        };
+        serde_json::json!({ "version": 1, "provider": self.provider, "model": self.model, "mode": mode, "initialEffort": self.initial_effort, "effort": self.effort })
+    }
 }
 
 /// `claude-opus-5.5-20260101` → `claude-opus-5-5`: trimmed, lowercase, without

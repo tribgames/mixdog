@@ -54,7 +54,7 @@
         },
         {
           "value": "0.5",
-          "result": 0
+          "result": 10000
         }
       ],
       "fromEnv": [

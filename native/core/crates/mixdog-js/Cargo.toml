@@ -19,12 +19,18 @@ iana-time-zone = { workspace = true }
 sha2 = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [features]
 # The loader of the tool references recorded goldens carry (`fixture_tools`): a dev-dependency of the crates that replay them.
 fixture-tools = ["dep:sha2"]
+# Test hooks of the literal pre-check of long texts (`regex::prefilter_probe`): the patterns built, the engine's own
+# decision, and when the pre-check applies.
+prefilter-probe = []
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-js = { path = ".", features = ["fixture-tools"] }
+mixdog-js = { path = ".", features = ["fixture-tools", "prefilter-probe"] }

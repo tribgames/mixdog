@@ -17,12 +17,12 @@ pub mod hop_bindings;
 pub mod quota_usage;
 pub mod home_directory;
 pub mod quota_history;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
 #[cfg(test)]
-mod fixture_fs;
+mod mixy_presence_replay_tests;
 #[cfg(test)]
 mod process_tests;
-#[cfg(test)]
-mod process_services_tests;
 #[cfg(test)]
 #[cfg(test)]
 mod wire_parity_tests;
@@ -54,7 +54,7 @@ mod failed_turn_rewind;
 pub mod assemble;
 pub mod run_approvals;
 pub mod prewarm;
-pub mod message_row;
+pub use mixdog_agent::message_row;
 pub mod rules_lead;
 pub mod deferred_manifest;
 pub mod tool_migration;
@@ -93,6 +93,7 @@ pub mod summary_routes;
 pub mod tail;
 pub mod unattended;
 pub mod tool_progress;
+pub mod quiet_watch;
 pub mod tool_pool;
 pub mod explorer_host;
 pub mod explorer_env;
@@ -117,7 +118,15 @@ pub mod compaction_follow;
 pub mod settings_changes;
 pub mod prompt_session;
 #[cfg(test)]
-mod prompt_session_tests;
+mod compaction_node_harness;
+#[cfg(test)]
+mod execution_tail_node_tests;
+#[cfg(test)]
+mod summary_mode_node_tests;
+#[cfg(test)]
+mod presend_goal_reminder_node_tests;
+#[cfg(test)]
+mod offload_prune_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
@@ -125,18 +134,19 @@ pub mod thread_todos;
 pub mod directory_sessions;
 pub mod room_list;
 pub mod room_publication;
-#[cfg(test)]
-mod roster_rows_tests;
 pub mod room_approvals;
 pub mod next_request_source;
 pub mod request_snapshot;
 pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;
+#[cfg(test)]
+mod session_route_state_replay;
 pub mod compact_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;
 pub mod retiring_compactor;
+pub mod goal_reminder_compactor;
 pub mod side_question_store;
 pub mod side_requests;
 pub mod side_wiring;
@@ -162,4 +172,10 @@ pub mod workflow_surface;
 pub mod member_names;
 pub mod room_daemon;
 pub mod room_files;
+#[cfg(test)]
+mod room_rows_replay;
+#[cfg(test)]
+mod room_send_replay;
+#[cfg(test)]
+mod pool_list_replay;
 pub mod room_labels;

@@ -90,7 +90,7 @@ impl Authorizer for Renewing {
 
 fn server_for(entry: &Value, authorizer: Option<Arc<dyn Authorizer>>, dir: &std::path::Path) -> Arc<McpServer> {
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let config = McpServerConfig::from_entry("legacy", entry, &Default::default()).unwrap();
     McpServer::new(config, io, Spiller::new(dir.to_path_buf(), io.durability), OutputPolicy::default(), authorizer)
 }

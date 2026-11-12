@@ -117,8 +117,9 @@ impl Drop for SendGroup {
         if !self.open {
             return;
         }
-        // Only a dropped future gets here (an explicit exit settled the group); settling is
-        // async, so it runs on the runtime the run was on.
+        // Only a dropped future gets here (an explicit exit settled the group). What other sends wait
+        // for is let go at once, with no runtime; the async settling runs on the runtime the run was on.
+        self.provider.release_send(&self.id);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let (provider, id) = (Arc::clone(&self.provider), std::mem::take(&mut self.id));
             runtime.spawn(async move { provider.settle_send(&id, SendEnd::Cancelled).await });

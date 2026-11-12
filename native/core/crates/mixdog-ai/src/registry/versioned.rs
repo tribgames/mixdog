@@ -93,6 +93,10 @@ impl ProviderAdapter for VersionedAdapter {
         self.inner.attempt(request).await
     }
 
+    fn release_send(&self, group: &str) {
+        self.inner.release_send(group);
+    }
+
     async fn settle_send(&self, group: &str, end: SendEnd) {
         self.inner.settle_send(group, end).await;
     }

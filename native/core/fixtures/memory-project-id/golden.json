@@ -4,65 +4,158 @@
   "cases": [
     {
       "name": "a NUL-filled project.id is no marker",
-      "markerBytesHex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "cwd": ".",
       "result": null
     },
     {
       "name": "a real one still resolves",
-      "markerBytesHex": "6d792d70726f6a6563740a",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "6d792d70726f6a6563740a"
+        }
+      ],
+      "cwd": ".",
       "result": "my-project"
     },
     {
       "name": "common is the common scope",
-      "markerBytesHex": "636f6d6d6f6e0a",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "636f6d6d6f6e0a"
+        }
+      ],
+      "cwd": ".",
       "result": null
     },
     {
       "name": "COMMON in any case",
-      "markerBytesHex": "436f4d4d6f6e",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "436f4d4d6f6e"
+        }
+      ],
+      "cwd": ".",
       "result": null
     },
     {
       "name": "blank marker",
-      "markerBytesHex": "20200a0920",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "20200a0920"
+        }
+      ],
+      "cwd": ".",
       "result": null
     },
     {
       "name": "empty marker",
-      "markerBytesHex": "",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": ""
+        }
+      ],
+      "cwd": ".",
       "result": null
     },
     {
       "name": "CRLF line end",
-      "markerBytesHex": "77696e2d70726f6a6563740d0a",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "77696e2d70726f6a6563740d0a"
+        }
+      ],
+      "cwd": ".",
       "result": "win-project"
     },
     {
       "name": "NUL bytes with text are kept as read",
-      "markerBytesHex": "616263000000",
-      "cwdBelowMarkerRoot": ".",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "616263000000"
+        }
+      ],
+      "cwd": ".",
       "result": "abc\u0000\u0000\u0000"
     },
     {
       "name": "a sub directory resolves through the ancestor marker",
-      "markerBytesHex": "6f757465720a",
-      "cwdBelowMarkerRoot": "a/b",
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "6f757465720a"
+        },
+        {
+          "dir": "a/b"
+        }
+      ],
+      "cwd": "a/b",
       "result": "outer"
     },
     {
       "name": "an inner .mixdog without project.id does not mask the outer marker",
-      "innerHasMarker": false,
+      "layout": [
+        {
+          "dir": ".mixdog"
+        },
+        {
+          "file": ".mixdog/project.id",
+          "bytesHex": "6f757465722d69640a"
+        },
+        {
+          "dir": "inner/.mixdog"
+        }
+      ],
+      "cwd": "inner",
       "result": "outer-id"
     },
     {
       "name": "no marker in any ancestor of the temp base",
+      "layout": [
+        {
+          "dir": "bare"
+        }
+      ],
+      "cwd": "bare",
       "result": null
     }
   ]

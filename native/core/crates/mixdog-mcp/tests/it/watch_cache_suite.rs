@@ -60,7 +60,7 @@ async fn a_skill_written_under_a_watched_root_pushes_a_change() {
     let mut changes = skills.subscribe();
     std::fs::create_dir_all(root.join("alpha")).unwrap();
     std::fs::write(root.join("alpha").join("SKILL.md"), "---\nname: alpha\n---\n").unwrap();
-    tokio::time::timeout(Duration::from_secs(10), changes.changed())
+    mixdog_rt::time::timeout(Duration::from_secs(10), changes.changed())
         .await
         .expect("the change is pushed")
         .unwrap();

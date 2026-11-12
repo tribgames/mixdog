@@ -37,6 +37,7 @@ const VALUES: &[(&str, &str, Verdict)] = &[
         "THIS",
         Survives("this process's running Grok refreshes keyed by credential file path; an entry leaves when its refresh ends, and a replay's credential files are its own"),
     ),
+    ("broker/send.rs", "NEXT", Survives("the counter that keeps the ids of the broker's send groups distinct; no recording names an id, and a replay's groups end with their sends")),
     ("catalog/listing.rs", "EMPTY", NotState("an empty JSON object")),
     ("catalog/service.rs", "EMPTY", NotState("an empty JSON object")),
     ("catalog/lookup/registry.rs", "PRICING_OVERRIDES", NotState("a constant price table")),

@@ -25,7 +25,7 @@ impl SetupBuilder for Builder {
     async fn build(&self, options: SetupOptions) -> Result<Value, Failure> {
         let n = self.builds.fetch_add(1, Ordering::SeqCst) + 1;
         self.options.lock().unwrap().push((options.check_secrets, options.detect_local));
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         if self.fail.load(Ordering::SeqCst) {
             return Err(Failure::error("keychain unreachable"));
         }
@@ -119,7 +119,7 @@ fn world(ready: bool) -> (CachedProviderSetup, Arc<Builder>, Arc<Keychain>, Arc<
 }
 
 async fn settle() {
-    tokio::time::sleep(Duration::from_millis(120)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(120)).await;
 }
 
 #[tokio::test]
@@ -191,7 +191,7 @@ async fn an_invalidated_cache_is_not_refilled_by_a_build_begun_before_it() {
     let (setup, _, _, _) = world(true);
     let slow = setup.clone();
     let building = tokio::spawn(async move { slow.cached(false, false).await });
-    tokio::time::sleep(Duration::from_millis(5)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     setup.invalidate();
     building.await.unwrap().unwrap();
     assert!(!setup.has_cached(), "the stale build answers its caller but fills nothing");

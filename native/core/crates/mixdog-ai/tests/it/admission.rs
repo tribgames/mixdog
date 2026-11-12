@@ -70,7 +70,7 @@ async fn waiters_go_by_priority_then_round_robin_by_owner() {
             permit.finish(Outcome::Success);
         }));
         tokio::task::yield_now().await;
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     }
     first.finish(Outcome::Success);
     for task in tasks {
@@ -102,7 +102,7 @@ async fn queue_bound_and_cancellation() {
         let (admission, lane, c) = (admission.clone(), lane.clone(), waiting_cancel.clone());
         tokio::spawn(async move { admission.acquire(&lane, req("y", Priority::default()), &c).await.map(|_| ()) })
     };
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(20)).await;
     assert!(matches!(
         admission.acquire(&lane, req("z", Priority::default()), &cancel).await,
         Err(AdmissionError::QueueFull { .. })

@@ -4,7 +4,7 @@
 //   await runSessionRecorder(import.meta.url, { set, testFile, entry, replay, exclusions }, async ({ imp, tree }) => ({ cases }));
 import { rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
+import { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
 import { exact } from './exact.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
@@ -12,6 +12,10 @@ export async function runSessionRecorder(recorderUrl, meta, build) {
   const cli = parseArgs();
   const tree = resolveTree(cli);
   const outDir = cli.get('out') ?? join(FIXTURES_ROOT, meta.set);
+  // `--commit <full id>`: the tree must be exactly that commit's export (with `--patch`, the commit with that fix), checked before
+  // anything runs; the manifest then names the commit. Without it the identity is the closest commit of this repository's history.
+  const commit = cli.get('commit');
+  const identity = commit ? nodeTreeIdentity(cli, cli.get('identity-tree') ?? tree, commit) : null;
   const stage = stageSet(outDir);
   const provenance = recorderProvenance(recorderUrl, meta.dataFiles ?? []);
   const recorder = provenance.recorder;
@@ -20,8 +24,9 @@ export async function runSessionRecorder(recorderUrl, meta, build) {
   writeSetManifest(stage, {
     set: meta.set,
     recorder,
-    command: `node ${recorder} --tree <tree>`,
+    command: `node ${recorder} --tree <tree>${commit ? ` --commit ${commit}` : ''}`,
     identityTree: cli.get('identity-tree') ?? tree,
+    identity,
     extra: { ...provenance, testFile: meta.testFile, entry: meta.entry, replay: meta.replay, ...(meta.values ? { values: meta.values } : {}), exclusions: meta.exclusions, ...(meta.patch ? { patch: meta.patch } : {}) },
   });
   commitStage(stage, outDir);

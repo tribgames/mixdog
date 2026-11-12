@@ -29,6 +29,12 @@ const deferred = () => { let resolve; const promise = new Promise((done) => { re
 const tmpdirFor = async (prefix) => { const d = await mkdtemp(join(tmpdir(), prefix)); dirs.push(d); return d; };
 const responseFor = (command) => { if (command.list) return JSON.stringify(command.collection ? { [command.collection]: [] } : []); return command.json ? JSON.stringify({ id: 42, number: 7, merged: true }) : 'done'; };
 const cmdView = (c) => structuredClone(c);
+// The normalisation set.finish applies to every recorded string; a byte count is of the text as stored, so it does not depend on
+// the length of this host's temp folder.
+const REPLACE_IN_TEXT = [[tmpdir(), '<tmp>'], [tmpdir().replaceAll('\\', '/'), '<tmp>']];
+const REPLACE_REGEX = [[/(<tmp>[\\\\/]+github(?:-[a-z]+)*)-[A-Za-z0-9]{6}/g, '$1-XXXXXX']];
+const stored = (text) => REPLACE_REGEX.reduce((t, [re, to]) => t.replace(re, to), REPLACE_IN_TEXT.reduce((t, [from, to]) => t.replaceAll(from, to), text));
+const storedBytes = (text) => Buffer.byteLength(stored(text), 'utf8');
 /** executeGithubRequest with a scripted `run`; `answer(command, index)` returns the text (or throws). */
 async function request(input, answer, options = {}) {
   const commands = [];
@@ -44,7 +50,7 @@ async function tool(input, answer, options = {}) {
   const out = { input, commands };
   try {
     const text = await executeGithubTool(input, CWD, { ...options, run: async (command) => { commands.push(cmdView(command)); return answer(command, commands.length - 1); } });
-    out.textBytes = Buffer.byteLength(text, 'utf8');
+    out.textBytes = storedBytes(text);
     out.text = text;
     let parsed = null;
     try { parsed = JSON.parse(text); } catch { /* an Error: text */ }
@@ -140,7 +146,7 @@ await set.run('the agent tool is registered and returns the ordinary builtin tex
   const value = await executeBuiltinTool('github', { action: 'repo.view', repo }, CWD, { run: async () => '{"full_name":"owner/project"}' });
   const unsupported = await executeGithubTool({ action: 'not-supported' }, CWD);
   const bounded = await executeGithubTool({ action: 'run.logs', repo, id: 42 }, CWD, { run: async () => '한'.repeat(100000) });
-  return { isBuiltinTool: isBuiltinTool('github'), builtinValue: value, unsupported, bounded, boundedBytes: Buffer.byteLength(bounded, 'utf8') };
+  return { isBuiltinTool: isBuiltinTool('github'), builtinValue: value, unsupported, bounded, boundedBytes: storedBytes(bounded) };
 });
 await set.run('model-facing results drop API-only fields, keep decision fields, and preserve the raw response', () => withDataDir('github-raw-', async () => {
   const user = (login, type = 'User') => ({ login, id: 1, node_id: 'U', type, avatar_url: 'a', followers_url: 'f' });
@@ -236,8 +242,8 @@ await set.run('two clones cannot claim the same new destination, even for differ
 await set.finish({
   entry: { runs: 'src/runtime/github/contract.mjs, commands.mjs, client.mjs (executeGithubRequest), tool.mjs (executeGithubTool), the builtin registry (executeBuiltinTool/isBuiltinTool) and tool-classify _isMutationTool, with the process runner `run` scripted (the injection point the tests use)', notRun: 'no `gh` process, no network; the cwd is the process cwd (the repo inference reads its response from the scripted run)' },
   replay: { entry: 'mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)', normalised: { tempDirs: 'temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest', cwd: 'the process cwd is not recorded' } },
-  replaceInText: [[tmpdir(), '<tmp>'], [tmpdir().replaceAll('\\', '/'), '<tmp>']],
-  replaceRegex: [[/(<tmp>[\\\\/]+github(?:-[a-z]+)*)-[A-Za-z0-9]{6}/g, '$1-XXXXXX']],
+  replaceInText: REPLACE_IN_TEXT,
+  replaceRegex: REPLACE_REGEX,
 });
 for (const d of dirs) await rm(d, { recursive: true, force: true }).catch(() => {});
 process.exit(0);

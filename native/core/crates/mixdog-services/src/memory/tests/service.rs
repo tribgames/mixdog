@@ -38,7 +38,7 @@ impl MemoryModule for FakeMemory {
         "ingest_session: considered=1 inserted=1".into()
     }
 
-    async fn recall(&self, args: Value) -> String {
+    async fn recall(&self, args: Value, _: &tokio_util::sync::CancellationToken) -> String {
         self.calls.lock().expect("calls").push(json!(["recall", args]));
         self.results.lock().expect("results").pop_front().unwrap_or_else(|| "(no results)".into())
     }
@@ -171,7 +171,7 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     expected_args["sessionId"] = json!(session_id);
     expected_args["currentSessionId"] = json!(session_id);
     let answer = ask(&service, json!({ "query": "zzz unrelated", "args": {} })).await;
-    let expected = recall.recall(&expected_args).await.text;
+    let expected = recall.recall_cancellable(&expected_args, &tokio_util::sync::CancellationToken::new()).await.text;
     assert_eq!(answer, expected);
 }
 

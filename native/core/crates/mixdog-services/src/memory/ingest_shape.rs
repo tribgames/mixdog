@@ -154,6 +154,47 @@ pub fn session_message_content_for_ingest(message: &Value) -> String {
     base
 }
 
+/// `projectSessionMessagesForIngest`: what Node's memory proxy hands the memory runtime for `ingest_session`
+/// (`memory-runtime-proxy/tool-wire.mjs`): the conversation rows only, each its role, its prose and the identity
+/// fields the stable source reference reads. The ingest then shapes the projected rows once more, as Node's runtime does.
+pub fn project_session_messages_for_ingest(messages: &Value) -> Vec<Value> {
+    let Some(messages) = messages.as_array() else { return Vec::new() };
+    let mut projected = Vec::new();
+    for message in messages {
+        let Some(fields) = message.as_object() else {
+            // An array is a JS object too: it has no role, so it is skipped below.
+            continue;
+        };
+        let Some(role) = normalize_ingest_role(fields.get("role")) else { continue };
+        if should_exclude_ingest_message(message) {
+            continue;
+        }
+        let content = session_message_content_for_ingest(message);
+        if js_trim(&content).is_empty() {
+            continue;
+        }
+        let mut next = serde_json::Map::new();
+        next.insert("role".into(), Value::String(role.into()));
+        next.insert("content".into(), Value::String(content));
+        for key in ["ts", "timestamp"] {
+            if let Some(value) = fields.get(key) {
+                next.insert(key.into(), value.clone());
+            }
+        }
+        if truthy(fields.get("toolCallId")) {
+            next.insert("toolCallId".into(), fields["toolCallId"].clone());
+        }
+        if let Some(calls) = fields.get("toolCalls").and_then(Value::as_array) {
+            let ids: Vec<Value> =
+                calls.iter().filter(|call| truthy(call.get("id"))).map(|call| serde_json::json!({ "id": call["id"] })).collect();
+            if !ids.is_empty() {
+                next.insert("toolCalls".into(), Value::Array(ids));
+            }
+        }
+        projected.push(Value::Object(next));
+    }
+    projected
+}
 
 /// The row as the shared ingest predicate reads it.
 pub fn should_exclude_ingest_message(message: &Value) -> bool {
@@ -175,4 +216,8 @@ pub fn should_exclude_ingest_message(message: &Value) -> bool {
         has_tool_calls: message.get("toolCalls").is_some_and(Value::is_array),
     })
 }
+
+#[cfg(test)]
+#[path = "ingest_shape_node_cases_tests.rs"]
+mod node_cases_tests;
 

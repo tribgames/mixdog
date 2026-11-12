@@ -38,7 +38,6 @@ use super::auth::RequestAuth;
 use crate::providers::key_source::ApiKeySource;
 use super::cache::layer::Ask;
 use super::cache::layer::ExplicitCache;
-use super::cache::layer::HeldConnection;
 use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
@@ -262,7 +261,7 @@ impl GoogleAdapter {
             .or(request.options.provider_state.as_ref())
             .and_then(|s| s.gemini.clone())
             .filter(|s| s.cache_name == name)?;
-        Some(Cached { name, state, changed: answer.state, held: answer.held })
+        Some(Cached { name, state, changed: answer.state })
     }
 
     /// One authorized send, with the single credential-recovery resend of a 401.
@@ -373,8 +372,6 @@ struct Cached {
     state: GeminiCacheState,
     /// `Some` when attaching changed the session's provider state.
     changed: Option<ProviderState>,
-    /// The connection of the create this request made, held until the request is sent.
-    held: HeldConnection,
 }
 
 #[async_trait]
@@ -526,18 +523,16 @@ impl GoogleAdapter {
         if let Some(state) = cached.as_ref().and_then(|c| c.changed.clone()) {
             queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
-        let created = cached.as_mut().map(|c| std::mem::take(&mut c.held));        let mut response = {
+        let mut response = {
             let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
             self.dispatch(&self.codec.wire(request, &inner, attach)?).await?
         };
-        drop(created);
         // A cache the server refuses (gone, evicted, mismatched) is forgotten
         // here and in the session, and the request runs once without it: a 400/404
         // whose error names the cached content (`isGeminiCachedContentError`,
         // gemini.mjs:222-231). Any other refusal is the request's error.
         if let Some(attached) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
-            // Read and replayed on the same turn of Node's event loop: the replay finds the refusal's socket busy.
-            let (refused, held) = response.read_all_held().await?;
+            let refused = response.read_all().await?;
             if !names_cached_content(&refused.body, &attached.name) {
                 return Err(self.codec.classify_for(&refused, request, false));
             }
@@ -548,7 +543,6 @@ impl GoogleAdapter {
             let rest = request.options.provider_state.as_ref().map(|s| s.rest.clone()).unwrap_or_default();
             queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
             response = self.dispatch(&self.codec.wire(request, &inner, None)?).await?;
-            drop(held);
         }
         // A region from the environment that lacks the model (404) is retried
         // once on global (`vertex-ai.mjs:325-327`).
