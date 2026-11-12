@@ -37,7 +37,7 @@ listed with their trace accounting under `mismatched` in
 
 | Change | Details |
 |---|---|
-| Effort judge active | Auto effort now runs on OpenAI OAuth routes: the judge picks each turn's effort and re-judges after every tool result (see below). It had been skipped on `openai-oauth`, which handed it a bare model id with no effort ladder; it now reads the catalog row ([`autoEffortModel`](../../src/runtime/agent/orchestrator/providers/effort-configuration.mjs)) |
+| Effort judge active | Auto effort now runs on OpenAI OAuth routes: the judge picks each turn's effort and re-judges after every tool result (see below). It had been skipped on `openai-oauth`, which handed it a bare model id with no effort ladder; it now reads the catalog row (`autoEffortModel`) |
 | Web search unblocked | The baseline harnesses ship with web search on; this bench used to block Mixdog's. The [harness](harness/mixdog_agent.py) now passes `--web-search` |
 | GPT-6.1 Sol rates | $2 input / $0.10 cached / $10 output per M tokens; Codex `cost_usd` fits with zero residual ([`model-rates.mjs`](analysis/model-rates.mjs)) |
 

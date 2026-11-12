@@ -25,11 +25,11 @@ or requests a setting with no mutation action.
 | `usage` | The /usage surface (provider usage); no sign-in |
 | `doctor` | Runtime diagnostics |
 | `context` | Context and compaction |
-| `developer` | Developer options (TUI: Developer picker) |
-| `voice` | Voice Built-in card on the Extensions tab (TUI: Settings hub) |
-| `connection` | Web-app pairing; Desktop only, the TUI shows guidance |
+| `developer` | Developer options |
+| `voice` | Voice Built-in card on the Extensions tab |
+| `connection` | Web-app pairing; Desktop only |
 
-An attached Desktop or TUI may navigate and return `opened:true`.
+An attached Desktop may navigate and return `opened:true`.
 
 ## Desktop map
 
@@ -137,14 +137,13 @@ The setup tool does not mutate:
   position, SSH and remote-access settings, sidebar/list ordering (except bot order,
   `set_bot_order`) and other
   per-device view state;
-- MCP server OAuth sign-in and sign-out (Desktop MCP list/editor, TUI
-  `/mcp login` and `/mcp logout`; remote windows paste the redirect address);
+- MCP server OAuth sign-in and sign-out (Desktop MCP list/editor; remote
+  windows paste the redirect address);
 - the Delegation and Output style instruction texts (Settings → Delegation /
   Output style; revision-checked free text — `set_output_style` only chooses
   the active style);
 - notification permission and subscription on the receiving device;
 - web-app pairing credentials and OS permission dialogs;
-- TUI-local theme palettes (use `/theme`; Desktop themes are separate);
 - importing, exporting or removing a JSON color theme file, choosing a skin or
   custom skin picture (plate, accent, photo), and the Lead's pixel face
   (stored on the host as `leadAvatar`, edited from the Desktop or a paired
@@ -164,9 +163,4 @@ The setup tool does not mutate:
   other-account switch.
 
 Use `open` where a target exists, then let the user act.
-
-## TUI notes
-
-The TUI settings hub exposes system shell in addition to common settings.
-Desktop-host actions need the Desktop app; opening the TUI is not a substitute.
 
