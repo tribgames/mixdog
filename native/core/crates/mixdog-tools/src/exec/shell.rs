@@ -102,7 +102,7 @@ const BACKGROUND_GUIDANCE: &str =
 
 /// Why the command left the foreground (`promotion-results.mjs` `backgroundVerb`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PromotionReason {
+pub(super) enum PromotionReason {
     /// `background: true`.
     Background,
     /// The hold ran out.
@@ -259,6 +259,21 @@ pub(super) fn foreground_cap_ms(hold: u64, env: &dyn Fn(&str) -> Option<String>)
 /// longer than the window, there is budget left to hand to a background task.
 pub(super) fn promotes_at_timeout(background_enabled: bool, time_limit: u64, hold: u64, env: &dyn Fn(&str) -> Option<String>) -> bool {
     background_enabled && (time_limit == 0 || time_limit > foreground_cap_ms(hold, env))
+}
+
+/// What the end of the hold does, the one decision both the wait and the promotion message follow: `None` enforces the
+/// run limit (a limit at or below the hold has no budget left to hand to a background task; Node does not arm its
+/// threshold timer then, `armDeadlines`), `Some(reason)` promotes the run for that reason.
+pub(super) fn hold_end(background: bool, time_limit: u64, hold: u64, env: &dyn Fn(&str) -> Option<String>) -> Option<PromotionReason> {
+    if time_limit > 0 && time_limit <= hold {
+        None
+    } else if background {
+        Some(PromotionReason::Background)
+    } else if time_limit > 0 && promotes_at_timeout(true, time_limit, hold, env) && hold == foreground_cap_ms(hold, env) {
+        Some(PromotionReason::Timeout)
+    } else {
+        Some(PromotionReason::Threshold)
+    }
 }
 
 /// The run limit: an explicit `timeout_ms`, else the background safety net
@@ -916,11 +931,9 @@ impl ShellTool {
         if hold > 0 {
             // New user input or a notification ends the hold, the same wake `task wait` uses.
             let wait = runtime.config.wake.begin(&ctx.thread_id);
-            // A run limit at or below the hold has no budget left to hand to a background task:
-            // the limit is enforced instead of promoting.
-            let enforce_limit = time_limit > 0 && time_limit <= hold;
+            let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, &process_env);
             let hold_timer = async {
-                if enforce_limit {
+                if at_hold_end.is_none() {
                     std::future::pending::<()>().await;
                 } else {
                     mixdog_rt::time::sleep(Duration::from_millis(hold)).await;
@@ -932,13 +945,7 @@ impl ShellTool {
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
                 () = hold_timer => {
-                    reason = if args.background == Some(true) {
-                        PromotionReason::Background
-                    } else if time_limit > 0 && promotes_at_timeout(true, time_limit, hold, &process_env) && hold == foreground_cap_ms(hold, &process_env) {
-                        PromotionReason::Timeout
-                    } else {
-                        PromotionReason::Threshold
-                    };
+                    reason = at_hold_end.unwrap_or(PromotionReason::Threshold);
                 }
                 () = wait.released() => {
                     reason = match wait.wake().map(|w| w.reason) {
