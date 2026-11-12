@@ -530,6 +530,8 @@ pub(crate) struct Shared {
     budget: Arc<EventBudget>,
     /// The control reserve: answers, errors and server requests.
     reserve: Arc<OrderedReserve>,
+    /// The bytes of the answers that wait for the control reserve ([`Shared::queue_answer`]), bounded by `queueBytes`.
+    answers_waiting: Arc<OrderedReserve>,
     /// The ordered event room: frames of ordered lanes.
     ordered_room: Arc<OrderedReserve>,
     state: Mutex<State>,
@@ -570,6 +572,7 @@ impl Shared {
                 lag_waiting: AtomicBool::new(false),
             }),
             reserve: OrderedReserve::new(limits.control_reserve, true),
+            answers_waiting: OrderedReserve::new(limits.control_reserve + limits.event_budget, true),
             ordered_room: OrderedReserve::new(limits.ordered_queue, true),
             state: Mutex::new(State::default()),
             clock,
@@ -775,8 +778,22 @@ impl Shared {
         Err(SinkClosed)
     }
 
-    /// [`Self::queue_control`] that waits for the reserve's room instead of closing; ends with the connection.
+    /// [`Self::queue_control`] that waits for the reserve's room instead of closing; ends with the connection. The answers
+    /// waiting hold at most `queueBytes` between them: a peer that keeps asking and reads nothing is a slow consumer once
+    /// they would hold more, whatever it sends meanwhile.
     async fn queue_answer(self: Arc<Self>, frame: Bytes) -> Result<(), SinkClosed> {
+        if let Some(queued) = self.try_queue_control(&frame, None) {
+            return queued;
+        }
+        let Some(_waiting) = self.answers_waiting.try_take(frame.len()) else {
+            tracing::warn!(
+                frame_bytes = frame.len(),
+                waiting_bytes = self.answers_waiting.used.load(Ordering::Acquire),
+                "the answers waiting for the control reserve are past the queue's bytes: closing the connection as a slow consumer"
+            );
+            self.slow_consumer();
+            return Err(SinkClosed);
+        };
         loop {
             // Armed before the attempt, so room returned between the attempt and the wait is not missed.
             let returned = self.reserve.returned.notified();

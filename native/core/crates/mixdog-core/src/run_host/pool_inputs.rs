@@ -54,7 +54,7 @@ impl PoolStore for RegistryPoolStore {
     /// opening each of them would load every session of the profile to list them.
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>> {
         let ids: Vec<ThreadId> = session_ids.iter().map(|id| ThreadId::from(id.as_str())).collect();
-        futures::future::join_all(ids.iter().map(|id| self.directory.stored_header(id))).await
+        futures::future::join_all(ids.iter().map(|id| self.directory.listed_header(id))).await
     }
 }
 
