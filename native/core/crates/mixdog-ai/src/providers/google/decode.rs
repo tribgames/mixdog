@@ -209,8 +209,10 @@ pub struct GeminiDecoder {
     leak: LeakGuard,
     /// Fingerprints of every call the guard or the native filter let through.
     dispatched: HashSet<String>,
-    /// Calls recovered from text, released with the native ones after a clean finish.
+    /// Calls recovered from text (Node's `getLeakedToolCalls()`); with `defer` they are released after a clean finish.
     leaked: Vec<ToolCall>,
+    /// The guard holds recovered calls until a clean finish (`deferToolCalls`); off, each is dispatched as it is recovered.
+    defer: bool,
     /// Native calls held for the same release, so the turn's list is native first, then leaked.
     native_done: Vec<ToolCall>,
     /// The answer text of the chunk being decoded, when the guard is on.
@@ -257,12 +259,19 @@ impl GeminiDecoder {
             leak: LeakGuard::new(HashSet::new(), false),
             dispatched: HashSet::new(),
             leaked: Vec::new(),
+            defer: true,
             native_done: Vec::new(),
             chunk_text: String::new(),
             raw: String::new(),
             shown: String::new(),
             model: None,
         }
+    }
+
+    /// The calls recovered from text and not yet released (what Node's guard returns as `getLeakedToolCalls()`).
+    #[cfg(test)]
+    pub(super) fn held_leaked_calls(&self) -> &[ToolCall] {
+        &self.leaked
     }
 
     /// Binds the replay envelope to the model that produced it (Node's `requestContext.model`): a later turn replays its
@@ -275,6 +284,13 @@ impl GeminiDecoder {
     /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
     pub fn with_known_tools(mut self, names: HashSet<String>) -> Self {
         self.leak = LeakGuard::new(names, false);
+        self
+    }
+
+    /// `deferToolCalls: false`: a recovered call is dispatched the moment it is recovered, so a failure after it is a
+    /// replay boundary (`emittedToolCall`). Every adapter of the product defers.
+    pub fn with_deferred_calls(mut self, defer: bool) -> Self {
+        self.defer = defer;
         self
     }
 
@@ -296,6 +312,10 @@ impl GeminiDecoder {
             if !self.dispatched.insert(leak::fingerprint(&call.name, &call.arguments)) {
                 continue;
             }
+            if !self.defer {
+                self.exposure.tool_dispatched = true;
+                out.push(StreamEvent::ToolCallDone(call.clone()));
+            }
             self.leaked.push(call);
             out.push(StreamEvent::Progress(ProgressKind::Tool));
         }
@@ -308,7 +328,10 @@ impl GeminiDecoder {
                 out.push(StreamEvent::ToolCallDone(call));
             }
         }
-        out.extend(std::mem::take(&mut self.leaked).into_iter().map(StreamEvent::ToolCallDone));
+        let leaked = std::mem::take(&mut self.leaked);
+        if self.defer {
+            out.extend(leaked.into_iter().map(StreamEvent::ToolCallDone));
+        }
     }
 
     fn line(&mut self, raw: &[u8], out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {

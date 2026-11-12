@@ -315,12 +315,15 @@ impl SteerSource for Steer {
 struct Observer {
     events: Mutex<Vec<RunEvent>>,
     retract: Retracted,
+    /// Holds a permit once an early notice has arrived since the last wait.
+    early_arrived: tokio::sync::Notify,
 }
 impl Observer {
     fn new(retract: Retracted) -> Arc<Self> {
         Arc::new(Self {
             events: Mutex::new(Vec::new()),
             retract,
+            early_arrived: tokio::sync::Notify::new(),
         })
     }
     fn events(&self) -> Vec<RunEvent> {
@@ -329,7 +332,11 @@ impl Observer {
 }
 impl RunObserver for Observer {
     fn event(&self, event: RunEvent) {
+        let early = matches!(event, RunEvent::EarlyResult(_));
         self.events.lock().unwrap().push(event);
+        if early {
+            self.early_arrived.notify_one();
+        }
     }
     fn can_retract(&self) -> bool {
         true
@@ -894,6 +901,8 @@ struct Harness {
     artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
+    /// A working directory and the file service holding it, where a test runs a real file tool over files.
+    sandbox: Option<(mixdog_core_api::domain::common::AbsPath, Arc<MockFileService>)>,
     /// A real adapter and the decider that judges its failures, in place of the scripted provider.
     real: Option<(Arc<dyn ProviderAdapter>, Arc<dyn mixdog_core_api::domain::retry::RetryDecider>)>,
 }
@@ -933,6 +942,7 @@ impl Harness {
             artifacts: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
+            sandbox: None,
             real: None,
         }
     }
@@ -987,7 +997,7 @@ impl Harness {
         ToolEnv {
             thread_id: ThreadId::from("t"),
             turn_id: TurnId::from("r"),
-            cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(),
+            cwd: self.sandbox.as_ref().map_or_else(|| mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(), |(cwd, _)| cwd.clone()),
             surface: SurfaceKind::Lead,
             io: ToolIo {
                 interactive: tokens.interactive_io,
@@ -995,7 +1005,7 @@ impl Harness {
                 maintenance: tokens.maintenance_io,
             },
             approvals: self.approvals.clone(),
-            files: Arc::new(MockFileService::default()),
+            files: self.sandbox.as_ref().map_or_else(|| Arc::new(MockFileService::default()), |(_, files)| files.clone()),
             processes: Arc::new(MockProcessManager::default()),
             progress: Arc::new(MockProgress::default()),
             deadline_of: None,
@@ -3901,30 +3911,51 @@ async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
 // (`fixtures/agent/leaked-toolcall/record.mjs`: the real agent loop over the route's real decoder)
 // ---------------------------------------------------------------------------
 
-/// `read` that records the call ids it ran for and answers with Node's body of `a.txt`.
+/// The core's real `read` tool, observed: which call ids it ran for and when each finished. The `failing` scenario's
+/// forced failure (the recorder's `beforeToolExecution` throwing `boom`) replaces the run.
 struct Reader {
-    spec: ToolSpec,
+    real: Arc<dyn Tool>,
     ran: Mutex<Vec<String>>,
     finished: tokio::sync::Semaphore,
-    /// The run fails with Node's recorded `Error: boom` (a thrown executor error).
     fail: bool,
 }
 #[async_trait]
 impl Tool for Reader {
     fn spec(&self) -> &ToolSpec {
-        &self.spec
+        self.real.spec()
     }
-    async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         self.ran.lock().unwrap().push(ctx.call_id.as_str().to_owned());
+        let outcome = if self.fail {
+            Err(ToolError::new(ToolErrorCode::Internal { incident_id: "boom".into() }, "Error: boom"))
+        } else {
+            self.real.call(ctx, args).await
+        };
         self.finished.add_permits(1);
-        if self.fail {
-            return Err(ToolError::new(ToolErrorCode::Internal { incident_id: "boom".into() }, "Error: boom"));
-        }
-        Ok(ToolOutput {
-            parts: vec![ToolPart::Text("[lines 1-1]\nhello probe\n[lines 1-1 of 1]".into())],
-            ..ToolOutput::default()
-        })
+        outcome
     }
+}
+
+/// The recorder's sandbox: a directory holding `a.txt` (`record.mjs` `loopCwd`), and where the recorder names its root
+/// in what it writes, `<ROOT>`.
+async fn leak_sandbox() -> (mixdog_core_api::domain::common::AbsPath, Arc<MockFileService>) {
+    use mixdog_core_api::domain::fs::{FileService, WritePrecondition, WriteRequest};
+    let root = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir().join("mixdog-leaked-toolcall").join("sandbox")).unwrap();
+    let files = Arc::new(MockFileService::default());
+    let tokens = mixdog_rt::testing::tokens();
+    files.create_dir(tokens.durability_io, root.clone(), true).await.unwrap();
+    let path = mixdog_core_api::domain::common::AbsPath::new(root.as_path().join("a.txt")).unwrap();
+    files
+        .write(tokens.durability_io, WriteRequest { path, content: b"hello probe\n".to_vec(), precondition: WritePrecondition::Unconditional })
+        .await
+        .unwrap();
+    (root, files)
+}
+
+/// `rooted` of the recorder: the sandbox root, in its native and forward-slash spellings, is written `<ROOT>`.
+fn rooted(text: &str, root: &mixdog_core_api::domain::common::AbsPath) -> String {
+    let native = root.as_path().to_string_lossy().into_owned();
+    text.replace(&native, "<ROOT>").replace(&native.replace('\\', "/"), "<ROOT>")
 }
 
 struct LeakCtx;
@@ -3941,7 +3972,7 @@ impl mixdog_ai::providers::openai::config::WireContext for LeakCtx {
 }
 
 /// The events Rust's decoder of `route` yields for the wire Node's decoder was fed, one unit per wire event.
-fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
+fn leaked_events(route: &str, scenario: &JsonValue) -> (Vec<StreamEvent>, Option<ProviderError>) {
     use mixdog_ai::providers::openai::decoder::{Framing, ResponsesDecoder};
     let known: std::collections::HashSet<String> =
         scenario["known"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
@@ -3966,7 +3997,8 @@ fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
             use mixdog_ai::providers::compat::chat::ChatDecoder;
             use mixdog_ai::providers::compat::profile::{CompatProfile, CredentialKind};
             let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
-            let mut decoder = ChatDecoder::new(profile, ProviderId::from("groq")).with_known_tools(known);
+            // The recorder's `providerName`.
+            let mut decoder = ChatDecoder::new(profile, ProviderId::from("custom")).with_known_tools(known);
             drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\n\n").into_bytes()).collect())
         }
         "gemini" => {
@@ -4042,13 +4074,24 @@ fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
     }
 }
 
-fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units: Vec<Vec<u8>>) -> Vec<StreamEvent> {
+/// The events the decoder yields, and the failure that ended the stream (a decoder that owes events to its failure hands
+/// them out first, as `DecodedStream` reads it).
+fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units: Vec<Vec<u8>>) -> (Vec<StreamEvent>, Option<ProviderError>) {
     let mut events = Vec::new();
     for unit in units {
-        events.extend(decoder.feed(&unit).expect("feed"));
+        match decoder.feed(&unit) {
+            Ok(more) => events.extend(more),
+            Err(error) => return (events, Some(error)),
+        }
     }
-    events.extend(decoder.finish().expect("finish"));
-    events
+    match decoder.finish() {
+        Ok(more) => {
+            let owes_failure = !more.is_empty() && !decoder.terminal_seen();
+            events.extend(more);
+            if owes_failure { (events, decoder.finish().err()) } else { (events, None) }
+        }
+        Err(error) => (events, Some(error)),
+    }
 }
 
 /// A minted id is recorded as `<prefix>_leaked_*`.
@@ -4076,17 +4119,22 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         let route = scenario["route"].as_str().unwrap();
         let Some(stored) = scenario.get("stored") else { continue };
         let label = format!("{route} / {}", scenario["name"]);
-        let events = leaked_events(route, scenario);
+        let (events, failure) = leaked_events(route, scenario);
+        let real_read = mixdog_tools::fs::ReadTool::new(None, None).with_state(Arc::new(mixdog_tools::fs::ReadState::new(None)));
         let reader = Arc::new(Reader {
-            spec: ToolSpec { name: "read".into(), ..Echo::tool().spec().clone() },
+            real: Arc::new(real_read),
             ran: Mutex::new(Vec::new()),
             finished: tokio::sync::Semaphore::new(0),
             fail: scenario["failing"] == true,
         });
-        let mut h = Harness::new(vec![
-            turn(events.into_iter().map(Step::Event).collect()),
-            turn(vec![text("final"), done(StopReason::EndTurn)]),
-        ]);
+        let mut steps: Vec<Step> = events.into_iter().map(Step::Event).collect();
+        // A turn Node's send rejected (`normalizeCompatChatResponse`) reaches the loop as the error the decoder fails with.
+        if let Some(error) = &failure {
+            steps.push(Step::Fail(error.clone()));
+        }
+        let mut h = Harness::new(vec![turn(steps), turn(vec![text("final"), done(StopReason::EndTurn)])]);
+        let (root, files) = leak_sandbox().await;
+        h.sandbox = Some((root.clone(), files));
         // A denying gate answers with the text Node's PreToolUse deny produced; the tool never runs.
         let denying = scenario["denying"] == true;
         // A tool the executor does not have is answered with text too, and never runs.
@@ -4096,6 +4144,17 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
             h.gate = Arc::new(DenyAll(recorded));
         }
         let tool: Arc<dyn Tool> = reader.clone();
+        if let Some(want_error) = stored.get("turnError") {
+            let failed = h.run(config(), vec![tool], vec![AgentMessage::user("go")]).run().await.expect_err(&label);
+            let AgentError::Provider(error) = &failed.error else { panic!("{label}: not a provider error: {:?}", failed.error) };
+            assert_eq!(error.message, want_error.as_str().unwrap(), "{label}: the error the turn ends with");
+            assert_eq!(h.provider.requests().len() as u64, stored["sends"].as_u64().unwrap(), "{label}: the send is not retried");
+            assert!(reader.ran.lock().unwrap().is_empty(), "{label}: no call ran");
+            let stored_assistants = failed.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Assistant).count();
+            assert_eq!(stored_assistants, stored["messages"].as_array().unwrap().len(), "{label}: nothing stored for the cut turn");
+            compared += 1;
+            continue;
+        }
         let output = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
         // A call no listed call consumed is left to finish, as in Node: wait for every run Node saw.
         let expected = if denying || unknown { 0 } else { stored["early"].as_array().unwrap().len() };
@@ -4134,11 +4193,15 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         let results: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Tool).collect();
         let want_results = stored["toolResults"].as_array().unwrap();
         assert_eq!(results.len(), want_results.len(), "{label}: tool results");
+        // Where several calls read `a.txt`, which one the real tool answers with the file's lines and which with its dedup stub
+        // (`[file unchanged`) follows the order the runs reached the file: Node ran the streamed call before the batch's, this
+        // loop starts a native call as its event arrives. Those bodies are not compared (manifest); every other body is.
+        let several_runs = stored["executed"].as_array().unwrap().len() > 1;
+        let body_comparable = |body: &str| !several_runs || !(body.starts_with("[file unchanged") || body.starts_with("[lines 1-1]"));
         for (message, want) in results.iter().zip(want_results) {
             assert_eq!(id_shape(message.tool_call_id().unwrap()), want["toolCallId"].as_str().unwrap(), "{label}: result id");
-            // The body of a repeated read is Node's read-dedup stub, a tool's answer, not the loop's.
-            if stored["executed"].as_array().unwrap().len() == 1 && want["content"].as_str().unwrap().starts_with("[lines 1-1]") {
-                assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: result body");
+            if body_comparable(want["content"].as_str().unwrap()) {
+                assert_eq!(rooted(&message.text(), &root), want["content"].as_str().unwrap(), "{label}: result body");
             }
         }
         // The UI's early notices (`__earlyNotify`): one per call that ran a tool, whichever path started it, whether or not
@@ -4150,14 +4213,15 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
                 .into_iter()
                 .filter_map(|event| match event {
                     RunEvent::EarlyResult(message) => {
-                        Some((id_shape(message.tool_call_id().unwrap_or_default()), message.text(), message.tool_kind == Some(ToolKind::Error)))
+                        Some((id_shape(message.tool_call_id().unwrap_or_default()), rooted(&message.text(), &root), message.tool_kind == Some(ToolKind::Error)))
                     }
                     _ => None,
                 })
                 .collect()
         };
         while early().len() < want_early.len() {
-            tokio::task::yield_now().await;
+            let arrived = tokio::time::timeout(Duration::from_secs(30), h.observer.early_arrived.notified()).await;
+            assert!(arrived.is_ok(), "{label}: waited 30 s for early notice {} of {}", early().len() + 1, want_early.len());
         }
         let mut got_early = early();
         got_early.sort();
@@ -4185,8 +4249,17 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
                 assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: stored denial text");
             }
         }
-        if want_early.len() == 1 && want_early[0]["content"].as_str().unwrap().starts_with("[lines 1-1]") {
-            assert_eq!(got_early[0].1, want_early[0]["content"].as_str().unwrap(), "{label}: early notice body");
+        // Minted ids share one shape, so the bodies are compared per id as sorted lists.
+        let mut early_ids: Vec<&str> = want_early.iter().map(|e| e["toolCallId"].as_str().unwrap()).collect();
+        early_ids.dedup();
+        for id in early_ids {
+            let mut want_bodies: Vec<&str> = want_early.iter().filter(|e| e["toolCallId"] == id).map(|e| e["content"].as_str().unwrap()).collect();
+            let mut got_bodies: Vec<&str> = got_early.iter().filter(|(got_id, _, _)| got_id == id).map(|(_, body, _)| body.as_str()).collect();
+            want_bodies.sort();
+            got_bodies.sort();
+            if want_bodies.iter().all(|body| body_comparable(body)) {
+                assert_eq!(got_bodies, want_bodies, "{label}: early notice bodies of {id}");
+            }
         }
         let mut ran: Vec<String> = reader.ran.lock().unwrap().iter().map(|id| id_shape(id)).collect();
         ran.sort();
