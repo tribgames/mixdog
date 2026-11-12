@@ -25,6 +25,11 @@
 param(
     [switch]$NoLaunch,
     [switch]$KeepDaemon,
+    # A mixdogd built ahead and stamped (dev-fast-direct.mjs --action=stamp-core-binary): cargo is not run.
+    [string]$CoreBinary = '',
+    # Everything up to the swap; the detached worker is not started and the install is not touched.
+    [switch]$StopBeforeSwap,
+    [string]$ReceiptPath = '',
     [switch]$CleanupOnly,
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop')
 )
@@ -430,7 +435,10 @@ try {
     # That worker still reads the snapshot, so the worktree may only be removed
     # once it reports a terminal status — otherwise it loses its own source mid
     # flight and fails the very assertion this wrapper exists to satisfy.
-    $receiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
+    $receiptPath = if ($ReceiptPath) { $ReceiptPath } else { Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json' }
+    $arguments += @('-ReceiptPath', $receiptPath)
+    if ($CoreBinary) { $arguments += @('-CoreBinary', $CoreBinary) }
+    if ($StopBeforeSwap) { $arguments += '-StopBeforeSwap' }
     Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
     $timings['snapshotPreparationMs'] = [math]::Round(
         ([DateTime]::UtcNow - $deployStartedAtUtc).TotalMilliseconds
@@ -444,6 +452,8 @@ try {
     $env:MIXDOG_FASTDIRECT_SOURCE_ROOT = [string]$repoRoot
     & powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $deploy @arguments
     if ($LASTEXITCODE -ne 0) { throw "FastDirect deploy exited with $LASTEXITCODE" }
+    # -StopBeforeSwap started no worker: nothing to wait for, and the snapshot goes.
+    if ($StopBeforeSwap) { Write-Step 'stopped before the swap; nothing was installed'; return }
 
     Write-Step 'waiting for the detached install worker'
     $deadline = (Get-Date).AddMinutes(15)
