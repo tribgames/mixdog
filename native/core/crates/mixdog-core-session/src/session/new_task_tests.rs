@@ -887,8 +887,8 @@ async fn the_129th_request_in_flight_is_refused() {
 /// committed, and a retry of the same submission answers the same task without a second prompt. The recency write is the real
 /// registry's (`Catalog::touch` over the core state store), made to fail the way the recorded publication cause breaks it: the
 /// commit that makes the write durable fails with an I/O error (the file stays as it was). The corrupt-registry run is declared
-/// excluded by the MANIFEST (Node recovers a damaged registry file and its recency write succeeds; the core's registry is typed
-/// SQLite state with no such damage). Each replayed run is replayed whole: its draft is sent as recorded (`<root>` is the per-run folder, as the manifest
+/// excluded by the MANIFEST (Node sets a damaged registry aside and carries on; the core refuses to start on a corrupt core state:
+/// an open product difference). Only the runs the manifest names are skipped. Each replayed run is replayed whole: its draft is sent as recorded (`<root>` is the per-run folder, as the manifest
 /// declares), and the answer, receipt, retry and calls are compared with the recording's, but for the snapshot fields this set's
 /// MANIFEST `exclusions` declare (`EXCLUDED_SNAPSHOT_FIELDS`). The receipt's signature is the 64 hex digits the manifest normalises.
 #[tokio::test(start_paused = true)]
@@ -896,14 +896,26 @@ async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/project-recency-failure-cases/golden.json")).expect("golden");
     let case = &golden["cases"][1];
     assert_eq!(case["case"], "an accepted submission commits its receipt and stays subscribed after ${cause} breaks recency");
-    for recorded in case["observed"]["runs"].as_array().expect("runs") {
+    // The runs the MANIFEST excludes, by index (`$.cases[1].observed.runs[<n>]`): only these are skipped.
+    let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/project-recency-failure-cases/MANIFEST.json")).expect("manifest");
+    let excluded: Vec<usize> = manifest["exclusions"]
+        .as_object()
+        .expect("exclusions")
+        .keys()
+        .filter_map(|key| key.strip_prefix("$.cases[1].observed.runs[")?.strip_suffix(']')?.parse().ok())
+        .collect();
+    let runs = case["observed"]["runs"].as_array().expect("runs");
+    assert!(excluded.len() < runs.len(), "the manifest excludes every run: nothing would be replayed");
+    let mut replayed = 0;
+    for (index, recorded) in runs.iter().enumerate() {
         let id = recorded["options"]["id"].as_str().expect("id");
         let cause = recorded["cause"].as_str().expect("cause");
-        // The corrupt-registry run is declared excluded by the MANIFEST (`$.cases[1].observed.runs[1]`): the core's registry is typed
-        // SQLite state, which holds no unparsable registry for Node's quarantine-and-start-empty to answer.
-        if cause == "corrupt registry" {
+        if excluded.contains(&index) {
+            // Not replayable until the daemon's boot on a corrupt core state is decided (the manifest's reason).
+            assert_eq!(cause, "corrupt registry", "run {index} is excluded by the manifest for another cause");
             continue;
         }
+        replayed += 1;
         let rig = Rig::new();
         let runs = counting(&rig);
         let root = mixdog_workspace::pathguard::canonical(rig._data.path()).expect("root").to_string_lossy().into_owned();
@@ -987,6 +999,7 @@ async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
         // The recording's `registryFile` equals its `originalRegistry`: the failed write left the registry as it was.
         assert_eq!(state.projects().await.expect("rows"), registered, "{id}: the registry is as it was");
     }
+    assert_eq!(replayed, runs.len() - excluded.len(), "every run the manifest does not exclude is replayed");
 }
 
 /// The snapshot fields the set's MANIFEST `exclusions` declare: host-side, with no counterpart in the core's thread summary.
