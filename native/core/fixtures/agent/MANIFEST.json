@@ -63,9 +63,9 @@
       "sha256": "a3b99b253ca9c0284f06de9c3facf1c7853f07eb201c0512b97d6deb72cbe2cd"
     },
     {
-      "bytes": 329980,
+      "bytes": 330028,
       "path": "compact/golden/usage.json",
-      "sha256": "3e5216bb96dbfd890dc3b6d0abecbbbe340df6709e411138887461d699222f9f"
+      "sha256": "37a9bff0d141479ae9b8e69fb39da4f2a95ae9c4957f270ab5e289ea2453745a"
     },
     {
       "bytes": 20467,
@@ -88,9 +88,9 @@
       "sha256": "217304c5f70827657253bc6a1dd3b57ab187c7158962dead7f179cf4a72ccc31"
     },
     {
-      "bytes": 55733,
+      "bytes": 56158,
       "path": "compact/record_usage.mjs",
-      "sha256": "9b17ca512bf15900d2a3f12d48e89fd7e558197e8c499fd1428afd846064d790"
+      "sha256": "ecc88850878e7d7ac70ee311f9efde718931411c7e2d7a0c60bcf19d4e971df6"
     },
     {
       "bytes": 3313,
@@ -303,9 +303,9 @@
       "sha256": "3fd2167dd6f0eb3af7aaed49e2af9de6a3fd46033041e1597d7e8f1d2221fac6"
     },
     {
-      "bytes": 9711,
+      "bytes": 10350,
       "path": "record.mjs",
-      "sha256": "9add1b170dbdbdc6e43622c78235dafc9739a0489f62e6f7ba5b8098344eeadd"
+      "sha256": "3e7ed1ad66d95814e9331d74f58425f7180383a999dcdbee17176f5b31da12ac"
     },
     {
       "bytes": 311,
@@ -427,27 +427,32 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "exact": true,
-    "files": 9139,
-    "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
-    },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
-    "version": "1.4.5"
+    "version": "1.4.5",
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "files": 9139,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "exact": true,
+      "filesDifferingFromCommit": 0,
+      "commitFilesMissingFromTree": 0
+    },
+    "exact": true
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
+  "recorderSha256": "3e7ed1ad66d95814e9331d74f58425f7180383a999dcdbee17176f5b31da12ac",
   "set": "agent",
-  "totalBytes": 4229097
+  "totalBytes": 4230209
 }
