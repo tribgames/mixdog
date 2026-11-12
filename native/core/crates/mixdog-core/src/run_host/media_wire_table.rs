@@ -18,7 +18,7 @@ use mixdog_agent::run::{Run, RunCarry, RunConfig};
 use mixdog_agent::text_only::{TextOnlyInput, TextOnlyModel};
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_core_api::domain::common::AbsPath;
-use mixdog_core_api::domain::ext::{DocumentText, ExtError, PdfIntake};
+use mixdog_core_api::domain::ext::{DocumentText, ExtError, PdfIntake, ProfiledImageResizer};
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::mock::{MockApprovalGate, MockCodec, MockFileService, MockProcessManager, MockProgress, MockRetryDecider};
 use mixdog_core_api::domain::provider::{
@@ -122,6 +122,10 @@ struct Family {
     vision: bool,
     encode: Encode,
     bodies: Mutex<Vec<Value>>,
+    /// The Messages wire's image preparation, which every Messages adapter runs before it builds its request.
+    images: Option<Arc<dyn ProfiledImageResizer>>,
+    /// The messages of the requests the preparation refused (the run loop's recovery sends again without the image).
+    refusals: Mutex<Vec<String>>,
 }
 
 #[async_trait]
@@ -148,6 +152,16 @@ impl ProviderAdapter for Family {
         self.vision
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let request = match &self.images {
+            Some(resizer) => match mixdog_ai::providers::anthropic::images::prepare_request(request, resizer.as_ref()).await {
+                Ok(prepared) => prepared,
+                Err(refusal) => {
+                    self.refusals.lock().unwrap().push(refusal.message.clone());
+                    return Err(refusal);
+                }
+            },
+            None => request,
+        };
         self.bodies.lock().unwrap().push((self.encode)(&request));
         Ok(Box::new(Reply(
             [
@@ -224,14 +238,16 @@ fn encoder(family: &str) -> Encode {
             let codec = mixdog_ai::providers::google::codec::GoogleCodec::gemini("http://127.0.0.1", Arc::new(Gemini));
             Box::new(move |r| wire_body(&codec, r))
         }
+        // The run frame the codec writes: `build_run` and the connect envelope of `CursorCodec::encode`, on the model
+        // Node's send resolved the name to (no catalog entry: the name, no parameters), in the recorder's conversation.
         "cursor" => Box::new(|r| {
-            let parsed = mixdog_ai::providers::cursor::request::parse_messages(&r.messages).expect("the Cursor request parses");
-            json!({
-                "systems": parsed.systems,
-                "history": parsed.history.iter().map(|entry| serde_json::from_str::<Value>(entry).unwrap()).collect::<Vec<_>>(),
-                "userText": parsed.user_text,
-                "userImages": parsed.user_images.iter().map(|i| json!({ "mimeType": i.mime_type, "data": base64::engine::general_purpose::STANDARD.encode(&i.data) })).collect::<Vec<_>>(),
-            })
+            use mixdog_ai::providers::cursor::request::{build_run, conversation_id, ModelSelection};
+            let selection = ModelSelection { model_id: r.model.clone(), parameters: Vec::new(), max_mode: false, pricing_model: None };
+            let conversation = conversation_id(CURSOR_SCOPE);
+            let run = build_run(r, &selection, &conversation, CURSOR_UUID).expect("the Cursor run builds");
+            let mut frame = mixdog_ai::providers::connect::frame::encode(&run.message, 0);
+            pin_uuids(&mut frame, &conversation);
+            json!({ "frame": base64::engine::general_purpose::STANDARD.encode(&frame) })
         }),
         // The chat request `DevinCodec::encode` frames: `build_chat_request` and its protobuf encoding. The recorder
         // writes the host's OS name as `<os>` (the `metadata.os` field), so the test does the same.
@@ -260,6 +276,31 @@ fn encoder(family: &str) -> Encode {
     }
 }
 
+/// The session scope of the recorder's Cursor conversation, and the value its `crypto.randomUUID` was pinned to.
+const CURSOR_SCOPE: &str = "media-wire";
+const CURSOR_UUID: &str = "00000000-0000-4000-8000-000000000000";
+
+fn is_uuid(window: &[u8]) -> bool {
+    window.len() == 36
+        && window.iter().enumerate().all(|(at, b)| if matches!(at, 8 | 13 | 18 | 23) { *b == b'-' } else { b.is_ascii_hexdigit() })
+}
+
+/// Writes `CURSOR_UUID` over every uuid of the frame but the conversation's: the core draws each image's uuid at random,
+/// Node's were pinned to that value (manifest: normalised, cursor row).
+fn pin_uuids(frame: &mut [u8], conversation: &str) {
+    let mut at = 0;
+    while at + 36 <= frame.len() {
+        if is_uuid(&frame[at..at + 36]) {
+            if &frame[at..at + 36] != conversation.as_bytes() {
+                frame[at..at + 36].copy_from_slice(CURSOR_UUID.as_bytes());
+            }
+            at += 36;
+        } else {
+            at += 1;
+        }
+    }
+}
+
 fn first_difference(core: &Value, node: &Value, at: String) -> Option<String> {
     match (core, node) {
         (Value::Object(x), Value::Object(y)) => x.keys().chain(y.keys()).find_map(|k| match (x.get(k), y.get(k)) {
@@ -274,18 +315,33 @@ fn first_difference(core: &Value, node: &Value, at: String) -> Option<String> {
 }
 
 /// Every row of the table through the run loop: the request body the core sends equals the one Node's family builds.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_row_of_nodes_media_table_replays_equal() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
     let table: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the table is JSON");
     let rows = table["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 120, "12 provider rows × 10 attachment kinds");
+    assert_eq!(rows.len(), 171, "12 provider rows × 10 attachment kinds, and 10 image kinds on 5 Messages providers, 1 on one");
+    // The Messages wire's images are fitted by the extension host's `sharp`: Node's own `resizeImageBuffer`, run by the real worker.
+    let tokens = mixdog_rt::testing::tokens();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
+    let pool = Arc::new(
+        mixdog_exthost::ExtHostPool::new(mixdog_exthost::ExtHostConfig {
+            program: "node".into(),
+            args: vec![root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+            electron: false,
+            workers: 1,
+            pending_cap: 64,
+            spawn_io: tokens.spawn_io,
+            render_browser: mixdog_exthost::RenderBrowserConfig { command: None, profile_root: std::env::temp_dir().join("mixdog-exthost-media-wire"), no_sandbox: false },
+        })
+        .unwrap(),
+    );
+    let resizer: Arc<dyn ProfiledImageResizer> = Arc::new(mixdog_exthost::ExtImageCodec::new(pool.clone()));
     let extracted: Arc<dyn DocumentText> = Arc::new(Extracted {
         pdf: table["extraction"]["pdf"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect(),
         office: table["extraction"]["office"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned))).collect(),
     });
     let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
     let blobs = mixdog_store::blobs::BlobStore::new(dir.path());
     for data in table["blobs"].as_object().unwrap().values() {
         let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_str().unwrap()).unwrap();
@@ -308,6 +364,8 @@ async fn every_row_of_nodes_media_table_replays_equal() {
             vision: capabilities["vision"] != json!(false),
             encode: encoder(family),
             bodies: Mutex::new(Vec::new()),
+            images: (family == "anthropic-messages").then(|| resizer.clone()),
+            refusals: Mutex::new(Vec::new()),
         });
         let lowering = Arc::new(MediaLowering::new(thread.clone(), extracted.clone(), store.clone(), Arc::new(NoFacts), false, provider.id.clone()));
         let transcript: Vec<AgentMessage> = row["messages"].as_array().unwrap().iter().map(|m| message_of(m).unwrap()).collect();
@@ -360,6 +418,15 @@ async fn every_row_of_nodes_media_table_replays_equal() {
         let run = Run::new(env, CancellationToken::new(), provider.clone(), ToolSet::new(Vec::new()), tool_env, config, transcript, RunCarry::default())
             .run()
             .await;
+        // A request Node refuses (an image it cannot prepare) is refused by the core's preparation with the same message; the
+        // run loop then recovers by sending again without the image, which the table does not record.
+        if let Some(expected) = row.get("error").and_then(Value::as_str) {
+            let refusals = provider.refusals.lock().unwrap().clone();
+            if refusals.first().map(String::as_str) != Some(expected) {
+                differences.push(format!("{name}: refused with {refusals:?}, Node: {expected}"));
+            }
+            continue;
+        }
         let node = row.get("body").unwrap_or_else(|| panic!("{name}: Node's row has no body: {row}"));
         match run {
             Err(failure) => differences.push(format!("{name}: the run failed: {:?}", failure.error)),
@@ -374,5 +441,6 @@ async fn every_row_of_nodes_media_table_replays_equal() {
             }
         }
     }
+    pool.close().await;
     assert!(differences.is_empty(), "{} of {} rows differ:\n{}", differences.len(), rows.len(), differences.join("\n"));
 }

@@ -5,7 +5,9 @@
     "extraction, side node: the text of a PDF (pdf.js, first 100 pages, 256 KiB, the fixed unreadable text) and of an Office file is the extension host's, which runs Node's own code; the replay's DocumentText answers each file of the table with what Node's lowering gave for the same bytes (`extraction`, the text after the label line of Node's own lowering). The table's PDFs are one page, so the page and size limits and the truncation of a long extraction are compared by the media-text set instead (`fixtures/tools/media-text/pdf.json`: 105 pages, 300 KB of text; replayed by mixdog-exthost tests/it/pool.rs); the unreadable PDF and the unreadable Office container are exercised here",
     "opencode-go and deepseek-chat flags, side core: both are now built by the product's builder (`opencode-go-oauth` on a model its routing sends to Messages, `deepseek` on the one-shot Chat route) and their flags compared with these rows by mixdog-ai registry::builder::tests::each_route_takes_the_documents_nodes_instance_declared",
     "mixdog-local flags, side core: the registry never builds the managed local route (`builder.rs`: \"built per turn from the managed runtime's endpoint\"); the product builds its media layer per turn (`ManagedLocalModels::media`: `MediaLowering::new(.., LOCAL_PROVIDER_ID)`, the text-only route), which is what the replay runs (`TextOnlyInput`). That route lowers every PDF to text and every image to the omitted text whatever flags an adapter declares, so `nativePdf` / `vision` of the Node instance are not read from a core adapter",
-    "cursor row, side node and core: Cursor sends a protobuf frame over HTTP/2 that `buildRunRequest` (not exported) assembles from `parseMessages`'s result; the core's `CursorCodec::encode` frames the run it was built with. The row is `parseMessages`'s result (systems, history, user text, user images), which is everything an attachment changes in the frame, not the frame",
+    "cursor row, side node: the model catalog (`getCursorModels`, which asks the network) is the runtime's fallback list; every other part of Cursor's send runs, the HTTP/2 session being the captured transport. Side core: the replay builds the frame with `build_run` and the connect envelope `CursorCodec::encode` writes, on the model Node's send resolved the same name to (no catalog entry: the name itself, no parameters)",
+    "anthropic-messages rows, side core: the images are fitted by the extension host's `sharp` (Node's own `resizeImageBuffer` run by the real worker, the same code that produced the recorded bytes), so no encoder differs and the bytes are compared as they are; the replay starts that worker (node and `sharp` from the repository's node_modules)",
+    "anthropic-messages rows, kinds image-below-minimum .. image-over-byte-cap: recorded for the five Messages providers (the over-byte-cap image for the built-in API only, its recording being 6 MB); the other families lower an image to the provider's own block and carry the stored bytes, which the table's one image row pins",
     "families not in the table, side node: anthropic-oauth, openai-oauth, vertex-ai and antigravity-oauth share the builder of the row that names their wire (anthropic, openai, gemini) and declare the same flags (provider-native-pdf.test.mjs); grok-oauth, cursor-oauth and the other compat classes share the xai / cursor-api / deepseek-chat rows' lowering with nativePdf false; opencode-go's and command-code's Gemini and Responses engines take the rows of their families",
     "refused requests, side node: no row of the table is refused by Node (every request carries text beside its attachment), so the core's refusal of a media-only turn on the text-only route is compared by the text-only goldens (fixtures/agent/text_only) and not here",
     "anthropic-messages rows, side node: citations, context and cache_control a caller puts on a document block are not part of a stored file reference and are not recorded"
@@ -13,9 +15,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 220313,
+      "bytes": 7646332,
       "path": "table.json",
-      "sha256": "87d8855b20e37d10034985ae8cb75e34d5a6d07a538d9f554fe3d07f8bd151a9"
+      "sha256": "7dfcda653c8d004dbf6c5c247c4e8d2afb21ed735dff6a58c2851f1f005a588a"
     }
   ],
   "inputs": [
@@ -30,7 +32,7 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": [
-    "anthropic-messages rows, field messages[].content[] (image parts): the Messages send resizes every image (`prepareAnthropicImages`, sharp: the table's 1x1 PNG is enlarged to 200x200) and puts an annotation text block before a resized one. The recorder drops the annotation and writes the stored PNG bytes back, so the rest of the request is compared. The core's Messages send does not resize: an open difference, named in the report, not a declared equality",
+    "cursor row, the uuids of the frame: Node's `crypto.randomUUID` is pinned to 00000000-0000-4000-8000-000000000000 for the call (it names the user message and each image of the frame); the core draws the image uuids at random, so the replay passes the same value as the message id and writes it over every other uuid-shaped string of its frame except the conversation id (derived from the session scope on both sides, compared as is)",
     "devin row, field metadata.os of the request (the host's OS name): the recorder writes `<os>` and the replay sets the same value"
   ],
   "product": {
@@ -51,8 +53,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-media-wire.mjs",
-  "recorderSha256": "78f54d6aa0b995c513f79a23f75d0d1f0ac15e27b1b834ddcde5514d8a62ae09",
+  "recorderSha256": "a66cc709cafbec5fb8062549723a49162adb936044e0e1ab5289acb61254fcf4",
   "set": "media-wire",
-  "totalBytes": 220313,
-  "values": "plain JSON: each row is the whole request body of the provider's own send (the JSON its transport was handed, captured at `fetch` with every provider's real `send`; the built-in Responses wire's `buildRequestBody`, which its socket send serialises; Devin's `GetChatMessageRequest` bytes as base64; the managed local model through its own `send`); only Cursor's row is a part of its request (below)"
+  "totalBytes": 7646332,
+  "values": "plain JSON: each row is the whole request body of the provider's own send (the JSON its transport was handed, captured at `fetch` with every provider's real `send`; the built-in Responses wire's `buildRequestBody`, which its socket send serialises; Devin's `GetChatMessageRequest` bytes as base64; the managed local model through its own `send`; Cursor's run frame as its HTTP/2 transport was handed it, base64); the Messages wire's images are the ones `prepareAnthropicImages` made (resized, annotation text included) and an image it refuses is the row's error"
 }
