@@ -1,10 +1,12 @@
 //! The durability invariant, over generated sequences on the real store: for every interleaving of accepts (a turn's
 //! rows, a room post, an import, a manual compaction, the recovery at open), failed writes (the log's barrier failing in
-//! the real writer, a draft file's replace or removal failing), new work meanwhile, a value marked sensitive, a close
-//! while writes fail and a reopen, the log holds exactly the accepted units in accept order, each once, less what the
-//! session was told it lost at a close, which is always everything after what landed; every run the log starts ends
-//! once; and no file under the session's directory holds a marked value once the session has had its chance to take it
-//! out (it is quiet, and the draft writes it owes have been tried until they succeeded).
+//! the real writer 0, 1, 2 or many times in a row, a draft file's replace or removal failing), new work meanwhile, a
+//! value marked sensitive, closes (the last subscriber leaving, Node's detaching close, a delete) raced by an open of the
+//! same session, and restarts: a close whose write fails does not complete, the session staying open (the racing open
+//! finds it) with nothing it accepted given up; after every close or restart that completes, the log holds exactly the
+//! accepted units in accept order, each once; every run the log starts ends once; and no file under the session's
+//! directory holds a marked value once the session has had its chance to take it out (it is quiet, and the draft writes
+//! it owes have been tried until they succeeded).
 //!
 //! Each sequence is drawn from its seed, so a failure names the seed and the steps that reproduce it.
 #![allow(clippy::disallowed_methods, reason = "test oracle: reads the session's files on disk")]
@@ -17,6 +19,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 
 use mixdog_core_api::CoreError;
+use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::ItemId;
@@ -48,6 +51,8 @@ const SEEDS: u64 = 64;
 static LOG_FAILS: AtomicUsize = AtomicUsize::new(0);
 /// Draft replaces and removals still to fail.
 static DRAFT_FAILS: AtomicUsize = AtomicUsize::new(0);
+/// Writes of a delete mark still to fail.
+static MARK_FAILS: AtomicUsize = AtomicUsize::new(0);
 /// Log barriers failed so far, and the signal of each.
 static LOG_FAILED: AtomicUsize = AtomicUsize::new(0);
 static FAILED: tokio::sync::Notify = tokio::sync::Notify::const_new();
@@ -56,8 +61,12 @@ fn take(budget: &AtomicUsize) -> bool {
     budget.try_update(SeqCst, SeqCst, |left| left.checked_sub(1)).is_ok()
 }
 
-fn append_hook(step: AppendStep, _: &[Record]) -> std::io::Result<()> {
-    if step == AppendStep::Write && take(&LOG_FAILS) {
+fn deletes(record: &Record) -> bool {
+    matches!(record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.get(mixdog_store::summary::DELETED) == Some(&Value::Bool(true)))
+}
+
+fn append_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
+    if step == AppendStep::Write && ((records.iter().any(deletes) && take(&MARK_FAILS)) || take(&LOG_FAILS)) {
         LOG_FAILED.fetch_add(1, SeqCst);
         FAILED.notify_waiters();
         return Err(std::io::Error::other("EIO: injected"));
@@ -129,9 +138,14 @@ enum Step {
     FailDraft(usize),
     /// The secret is marked sensitive.
     Mark,
-    /// The session closes (`failing`: while every write fails), then opens again with the disk well: the open recovers the
-    /// runs whose end did not land.
-    Close { failing: bool },
+    /// The log's next `fails` writes fail (0, 1, 2 or many), and the session closes while an open of it races the close:
+    /// its last subscriber leaves (`leave`), or Node's close detaches it (`closeSession(id, reason, { tombstone: false })`).
+    Close { leave: bool, fails: usize },
+    /// `thread/delete`, its delete mark's write failing.
+    Delete,
+    /// Core shutdown with the disk well, then the session opens in a new directory: the open recovers the runs whose
+    /// end did not land.
+    Restart,
 }
 
 /// xorshift64*: the steps of a seed.
@@ -145,7 +159,7 @@ fn steps(seed: u64) -> Vec<Step> {
     };
     let len = 6 + below(7);
     (0..len)
-        .map(|_| match below(14) {
+        .map(|_| match below(17) {
             0..=2 => Turn { drafted: below(2) == 0, fail: if below(2) == 0 { 0 } else { 1 + below(4) as usize } },
             3 | 4 => Step::Post,
             5 => Step::Import,
@@ -153,7 +167,9 @@ fn steps(seed: u64) -> Vec<Step> {
             7 => Step::FailLog(1 + below(4) as usize),
             8 | 9 => Step::FailDraft(1 + below(3) as usize),
             10 | 11 => Step::Mark,
-            _ => Step::Close { failing: below(2) == 0 },
+            12..=14 => Step::Close { leave: below(2) == 0, fails: [0, 1, 2, 50][below(4) as usize] },
+            15 => Step::Delete,
+            _ => Step::Restart,
         })
         .collect()
 }
@@ -189,9 +205,10 @@ struct World {
     marked: bool,
     known: HashSet<String>,
     units: Vec<Unit>,
-    /// Lost reports read so far, and the tokens they named.
-    told: usize,
-    lost: Vec<String>,
+    /// The session left without its close completing: the sequence cannot go on.
+    gone: bool,
+    /// A crashed run's draft is recovered as its partial reply ([`DraftedCrash`]).
+    drafted_crash: bool,
     failures: Vec<String>,
     data: super::testing::DataDir,
 }
@@ -224,10 +241,11 @@ fn script(plans: Arc<Mutex<HashMap<String, TurnPlan>>>, answered: Arc<Mutex<Hash
 }
 
 impl World {
-    async fn new(seed: u64) -> Self {
+    async fn new(seed: u64, drafted_crash: bool) -> Self {
         use mixdog_core_api::domain::mock::MockOwnership;
         LOG_FAILS.store(0, SeqCst);
         DRAFT_FAILS.store(0, SeqCst);
+        MARK_FAILS.store(0, SeqCst);
         let data = super::testing::DataDir::default();
         let tokens = mixdog_rt::testing::tokens();
         let root = data.path().to_path_buf();
@@ -246,7 +264,7 @@ impl World {
         let (plans, answered): (Arc<Mutex<HashMap<String, TurnPlan>>>, Arc<Mutex<HashSet<String>>>) = Default::default();
         rig.set_script(script(plans.clone(), answered.clone()));
         let clock = Arc::new(StepClock::default());
-        let directory = directory(&rig, &threads, &marks, &clock);
+        let directory = directory(&rig, &threads, &marks, &clock, drafted_crash);
         let handle = start_thread(&directory).await;
         World {
             seed,
@@ -263,8 +281,8 @@ impl World {
             marked: false,
             known: HashSet::new(),
             units: Vec::new(),
-            told: 0,
-            lost: Vec::new(),
+            gone: false,
+            drafted_crash,
             failures: Vec::new(),
             data,
         }
@@ -366,27 +384,92 @@ impl World {
         lock(&self.rig.snapshots.0).iter().filter(|event| **event == stopped).count()
     }
 
-    /// Closes the session and waits for its actor to end. A close while writes fail gets that failure; one that keeps
-    /// writing after it is given the disk back after its third failed write, so it ends (and is caught by the check).
-    async fn close(&mut self, failing: bool) {
-        if failing {
-            LOG_FAILS.store(50, SeqCst);
-            DRAFT_FAILS.store(50, SeqCst);
-        }
+    /// The log's next `fails` writes fail, and the session closes while an open of it races the close. A close that
+    /// completes leaves everything accepted on disk once its actor ended, and the session is opened again; one whose write
+    /// failed does not complete: the session stays open, the very one the racing open found, and nothing it accepted is
+    /// given up (a later close or restart that completes finds all of it on disk).
+    async fn close(&mut self, leave: bool, fails: usize) {
+        LOG_FAILS.store(fails, SeqCst);
+        let directory = self.directory();
+        let (old, id) = (self.handle.clone(), self.handle.id.clone());
         let (stops, failed) = (self.stops(), LOG_FAILED.load(SeqCst));
-        self.directory().shutdown().await;
-        crate::eventually_on!(&[&self.rig.snapshots.1, &FAILED], || (self.stops() > stops || LOG_FAILED.load(SeqCst) >= failed + 3).then_some(())).await;
-        LOG_FAILS.store(0, SeqCst);
-        DRAFT_FAILS.store(0, SeqCst);
-        crate::eventually_on!(&[&self.rig.snapshots.1], || (self.stops() > stops).then_some(())).await;
-        self.check_closed();
+        if leave {
+            if !old.cell.subscribing() {
+                self.fail(format!("the session is closed before its close (closed: {})", old.cell.closed.load(SeqCst)));
+                self.gone = true;
+                return;
+            }
+            old.cell.subscribed(true);
+        }
+        let closing = async {
+            if leave {
+                old.cell.unsubscribed();
+                // Closed: the session left the directory. Failed: the write it gave what it holds failed, and it is loaded.
+                crate::eventually_on!(&[&old.cell.stepped, directory.left(), &FAILED], || {
+                    if !directory.handle(&id).is_some_and(|handle| Arc::ptr_eq(&handle.cell, &old.cell)) {
+                        return Some(true);
+                    }
+                    (LOG_FAILED.load(SeqCst) > failed && old.cell.handed.load(SeqCst) == 0).then_some(false)
+                })
+                .await
+            } else {
+                close_of(&directory).detach(id.as_str(), "manual", false).await
+            }
+        };
+        let ctx = CallContext::internal("test");
+        let (closed, raced) = tokio::join!(closing, directory.open_handle(&id, &ctx));
+        if closed {
+            crate::eventually_on!(&[&self.rig.snapshots.1], || (self.stops() > stops).then_some(())).await;
+            self.check_stored(if leave { "the last subscriber left" } else { "a detaching close" });
+            self.open_again(&directory).await;
+            return;
+        }
+        let kept = directory.handle(&id).is_some_and(|handle| Arc::ptr_eq(&handle.cell, &old.cell));
+        let found = raced.as_ref().is_ok_and(|raced| Arc::ptr_eq(&raced.cell, &old.cell));
+        if !kept || !found {
+            self.fail(format!("a close whose write failed let the session go (still loaded: {kept}; the racing open found it: {found})"));
+            self.gone = true;
+            return;
+        }
+        self.settle().await;
     }
 
-    async fn reopen(&mut self) {
-        let directory = directory(&self.rig, &self.threads, &self.marks, &self.clock);
+    /// `thread/delete` whose delete mark's write fails (or the detach before it, while the log's writes fail): the delete
+    /// answers `false` and the session stays open with what it holds.
+    async fn delete(&mut self, n: usize) {
+        MARK_FAILS.store(1, SeqCst);
+        let (directory, old) = (self.directory(), self.handle.clone());
+        let op = format!("op-delete-{n}");
+        let reply = mixdog_core_api::ThreadDirectory::request(&*directory, request("thread/delete", json!({ "threadId": old.id, "opId": op }), &op)).await;
+        MARK_FAILS.store(0, SeqCst);
+        if !matches!(reply, Ok(Reply::Value(Value::Bool(false)))) {
+            self.fail(format!("a delete whose mark failed answered {:?}", reply.map(|_| "a reply other than false")));
+        }
+        if !directory.handle(&old.id).is_some_and(|handle| Arc::ptr_eq(&handle.cell, &old.cell)) {
+            self.fail("a delete whose mark failed let the session go".to_owned());
+            self.gone = true;
+            return;
+        }
+        self.settle().await;
+    }
+
+    /// Core shutdown with the disk well (everything accepted is on disk once its actor ended), then an open in a new
+    /// directory.
+    async fn restart(&mut self) {
+        LOG_FAILS.store(0, SeqCst);
+        DRAFT_FAILS.store(0, SeqCst);
+        let stops = self.stops();
+        self.directory().shutdown().await;
+        crate::eventually_on!(&[&self.rig.snapshots.1], || (self.stops() > stops).then_some(())).await;
+        self.check_stored("a restart");
+        let directory = directory(&self.rig, &self.threads, &self.marks, &self.clock, self.drafted_crash);
+        self.directories.push(directory.clone());
+        self.open_again(&directory).await;
+    }
+
+    async fn open_again(&mut self, directory: &Arc<SessionDirectory>) {
         let handle = directory.open_handle(&self.handle.id, &CallContext::internal("test")).await.expect("the thread opens");
         crate::eventually_on!(&[&handle.cell.stepped], || handle.recovered().then_some(())).await;
-        self.directories.push(directory);
         self.handle = handle;
         self.settle().await;
     }
@@ -420,32 +503,13 @@ impl World {
         self.known.contains(text).then(|| text.to_owned())
     }
 
-    /// At a close, once its actor ended: the log holds every unit accepted and not lost before, in accept order, up to
-    /// where the session was told the rest is lost, and the rest is exactly what it was told, in order.
-    fn check_closed(&mut self) {
+    /// Once a close or restart completed and its actor ended: the log holds every accepted unit, in accept order, each once,
+    /// and nothing else.
+    fn check_stored(&mut self, what: &str) {
         let stored: Vec<String> = self.records().iter().filter_map(|record| self.token(record)).collect();
-        let id = self.handle.id.as_str().to_owned();
-        let (told, reports) = {
-            let reports = lock(&self.rig.notices.2);
-            let told: Vec<String> =
-                reports[self.told..].iter().filter(|(session, _)| *session == id).flat_map(|(_, records)| records.iter().filter_map(|record| self.token(record)).collect::<Vec<_>>()).collect();
-            (told, reports.len())
-        };
-        self.told = reports;
-        let before: HashSet<String> = self.lost.iter().cloned().collect();
-        self.lost.extend(told.iter().cloned());
-        let lost: HashSet<String> = self.lost.iter().cloned().collect();
-        let expected: Vec<String> = self
-            .units
-            .iter()
-            .filter(|unit| unit.accepted || unit.tokens.iter().any(|token| lost.contains(token)))
-            .flat_map(|unit| unit.tokens.iter().cloned())
-            .filter(|token| !before.contains(token))
-            .collect();
-        let mut seen = stored.clone();
-        seen.extend(told.iter().cloned());
-        if seen != expected {
-            self.fail(format!("the log holds {stored:?} and the close told {told:?} lost; accepted in order: {expected:?}"));
+        let expected: Vec<String> = self.units.iter().filter(|unit| unit.accepted).flat_map(|unit| unit.tokens.iter().cloned()).collect();
+        if stored != expected {
+            self.fail(format!("after {what} the log holds {stored:?}; accepted in order: {expected:?}"));
         }
     }
 
@@ -471,6 +535,14 @@ impl World {
         if !self.marked {
             return;
         }
+        let holding = self.holding();
+        if !holding.is_empty() {
+            self.fail(format!("the marked value is in {holding:?}"));
+        }
+    }
+
+    /// The files under the session's directory that hold the value.
+    fn holding(&self) -> Vec<String> {
         let mut holding = Vec::new();
         let mut dirs = vec![self.data.path().join("sessions").join(self.handle.id.as_str())];
         while let Some(dir) = dirs.pop() {
@@ -483,9 +555,7 @@ impl World {
                 }
             }
         }
-        if !holding.is_empty() {
-            self.fail(format!("the marked value is in {holding:?}"));
-        }
+        holding
     }
 
     async fn run(mut self) -> Vec<String> {
@@ -498,37 +568,116 @@ impl World {
                 Step::FailLog(count) => LOG_FAILS.store(count, SeqCst),
                 Step::FailDraft(count) => DRAFT_FAILS.store(count, SeqCst),
                 Step::Mark => self.mark().await,
-                Step::Close { failing } => {
-                    self.close(failing).await;
-                    self.reopen().await;
-                }
+                Step::Close { leave, fails } => self.close(leave, fails).await,
+                Step::Delete => self.delete(n).await,
+                Step::Restart => self.restart().await,
+            }
+            if self.gone {
+                return std::mem::take(&mut self.failures);
+            }
+            // A session whose subscriber left unloads once quiet (a turn ended): a close that completed, so everything it
+            // accepted is on disk.
+            if self.handle.cell.closed.load(SeqCst) {
+                self.check_stored("an unload once quiet");
+                let directory = self.directory();
+                self.open_again(&directory).await;
             }
             self.check_secret();
         }
-        LOG_FAILS.store(0, SeqCst);
         DRAFT_FAILS.store(0, SeqCst);
-        self.close(false).await;
-        self.reopen().await;
-        self.close(false).await;
-        self.check_runs();
-        self.check_secret();
+        self.close(true, 0).await;
+        if !self.gone {
+            self.restart().await;
+            self.restart().await;
+            self.check_runs();
+            self.check_secret();
+        }
         std::mem::take(&mut self.failures)
     }
 }
 
-fn directory(rig: &Rig, threads: &Arc<super::StoreThreads>, marks: &Arc<super::store::SensitiveMarksOf>, clock: &Arc<StepClock>) -> Arc<SessionDirectory> {
+/// The run host's finalization of a crashed run, as far as these tests read it: its draft's partial reply is the
+/// assistant row it leaves.
+struct DraftedCrash(Arc<super::testing::ScriptRuns>);
+
+impl super::RunFactory for DraftedCrash {
+    fn start(&self, run: super::RunStart) -> std::pin::Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
+        super::RunFactory::start(&*self.0, run)
+    }
+
+    fn crashed(&self, run: super::CrashedRun) -> super::CrashedRows {
+        let rows = Some(run.draft.text)
+            .filter(|text| !text.is_empty())
+            .map(|text| ItemCommit { iid: super::run::new_item_id(), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": text }), prompt: None })
+            .into_iter()
+            .collect();
+        super::CrashedRows { rows, ..Default::default() }
+    }
+}
+
+fn directory(rig: &Rig, threads: &Arc<super::StoreThreads>, marks: &Arc<super::store::SensitiveMarksOf>, clock: &Arc<StepClock>, drafted_crash: bool) -> Arc<SessionDirectory> {
     let mut deps = rig.deps_parts(threads.clone());
     deps.clock = clock.clone();
     deps.sensitive = marks.clone();
+    if drafted_crash {
+        deps.runs = Arc::new(DraftedCrash(rig.runs.clone()));
+    }
     Arc::new(SessionDirectory::new(Arc::new(deps)))
 }
 
+/// Node's detaching close over the session directory (no providers, no shells).
+fn close_of(directory: &Arc<SessionDirectory>) -> super::close::SessionClose {
+    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(super::switch_replay::NoProviders)));
+    super::close::SessionClose::new(directory.clone(), providers, Arc::new(super::switch_replay::NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)))
+}
+
+/// The failure budgets are the process's: one test of this module runs at a time.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generated_failure_schedules_keep_the_accepted_units_in_order_and_no_marked_value_on_disk() {
+    let _serial = SERIAL.lock().await;
     install_hooks();
     let mut failures = Vec::new();
     for seed in 1..=SEEDS {
-        failures.extend(World::new(seed).await.run().await);
+        failures.extend(World::new(seed, false).await.run().await);
     }
     assert!(failures.is_empty(), "{} failing sequences:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// A run left open as its session ends (core shutdown while the log refuses every write: Node's exit drain fails and the
+/// process exits), its draft holding in clear a value marked meanwhile (the draft's redaction and removal failed too):
+/// the next open recovers the run from the draft, then removes the draft, and no file under the session's directory,
+/// the log included, holds the value.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_draft_left_by_a_run_open_at_shutdown_is_recovered_then_removed_and_the_marked_value_is_in_no_file() {
+    let _serial = SERIAL.lock().await;
+    install_hooks();
+    let mut world = World::new(0, true).await;
+    world.turn(0, true, 50).await;
+    DRAFT_FAILS.store(50, SeqCst);
+    let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": world.secret } } });
+    world.rig.sensitive.remember(world.handle.id.as_str(), &[fill]);
+    world.marked = true;
+    // The draft's redaction failed, then its removal: it waits for its next round.
+    crate::eventually_on!(&[&world.handle.cell.stepped, &world.clock.armed], || (world.clock.pending() && DRAFT_FAILS.load(SeqCst) == 48).then_some(())).await;
+    let stops = world.stops();
+    world.directory().shutdown().await;
+    crate::eventually_on!(&[&world.rig.snapshots.1], || (world.stops() > stops).then_some(())).await;
+    assert!(!world.holding().is_empty(), "the session ended with its draft holding the value in clear");
+    let ended = world.records().iter().any(|record| matches!(record, Record::Run(run) if matches!(run.phase, RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted)));
+    assert!(!ended, "the run's end is not on disk");
+
+    LOG_FAILS.store(0, SeqCst);
+    DRAFT_FAILS.store(0, SeqCst);
+    let directory = directory(&world.rig, &world.threads, &world.marks, &world.clock, true);
+    world.directories.push(directory.clone());
+    world.open_again(&directory).await;
+    let recovered = world.records().iter().any(|record| {
+        matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body.get("content").and_then(Value::as_str).is_some_and(|text| text.starts_with("d0 the code is "))))
+    });
+    assert!(recovered, "the run is recovered from its draft");
+    world.check_runs();
+    world.check_secret();
+    assert!(world.failures.is_empty(), "{}", world.failures.join("\n"));
 }
