@@ -1,0 +1,95 @@
+{
+  "cases": 2,
+  "command": "node benchmarks/rust-core/recorders/record-file-has-data-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the errno-injection case (fs.openSync patched to throw): not reachable by a shipped client",
+    "runs": "shared/file-has-data.mjs fileHasData / fileHasDataAsync and local-provider/catalog.mjs exactLocalProviderFile on real files in a temp dir"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11833,
+      "path": "golden.json",
+      "sha256": "bb358752686c75d833c5665a7c9941e252e1e7dd9341fa124b18a92916d80e7c"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-file-has-data-cases.mjs",
+  "recorderSha256": "48465ee54ec67e89a2b9824ef1e42f21099641caae28c9a84e145f76f2c38f54",
+  "replay": {
+    "compare": "mixdog-services local_provider/catalog.rs file_has_data and exact_file: write each recorded step into a temp dir, compare every verdict",
+    "entry": "Drive these public items on o1: mixdog-services/src/local_provider/catalog.rs:29 file_has_data; mixdog-services/src/local_provider/catalog.rs:42 exact_file.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 29,
+        "name": "file_has_data",
+        "path": "native/core/crates/mixdog-services/src/local_provider/catalog.rs"
+      },
+      {
+        "line": 42,
+        "name": "exact_file",
+        "path": "native/core/crates/mixdog-services/src/local_provider/catalog.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "file-has-data-cases",
+  "totalBytes": 11833,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
