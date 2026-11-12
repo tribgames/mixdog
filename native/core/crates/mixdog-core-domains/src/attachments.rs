@@ -74,7 +74,7 @@ impl StoreAttachments {
         };
         if image {
             let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-            return Ok(Some(ContentPart::Image(ImageSource::Base64 { data, mime_type: label })));
+            return Ok(Some(ContentPart::Image(ImageSource::Base64 { data, mime_type: label, width: None, height: None })));
         }
         // The bytes decide a PDF before the label does (`bytesDecideMime`); a file without a type is a PDF.
         let pdf = bytes.starts_with(b"%PDF-");
@@ -145,7 +145,7 @@ mod tests {
         };
         let (_dir, store, png) = stored("png-bytes").await;
         let image = store.media_of(&file(png.clone(), "IMAGE/PNG", "a.png"), true).await.unwrap();
-        assert_eq!(image, Some(ContentPart::Image(ImageSource::Base64 { data: b64("png-bytes"), mime_type: "image/png".into() })));
+        assert_eq!(image, Some(ContentPart::Image(ImageSource::Base64 { data: b64("png-bytes"), mime_type: "image/png".into(), width: None, height: None })));
         let (_dir, store, pdf) = stored("%PDF-1.4 x").await;
         let mislabelled = store.media_of(&file(pdf.clone(), "application/octet-stream", "a.pdf"), true).await.unwrap();
         assert_eq!(
