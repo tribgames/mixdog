@@ -3183,10 +3183,11 @@ impl SessionActor {
                     return;
                 }
                 // An unload waiting for this write does not complete: the session stays open, and the next close or turn
-                // writes what is held first.
+                // writes what is held first. The idle clock is not started again: with storage that keeps failing it
+                // would ask for the same write every period for ever, and nothing but a close, a turn or a subscriber
+                // can change what there is to write.
                 if std::mem::take(&mut self.unload_due) {
                     tracing::warn!("session {}: its close failed on a write; it stays open with its unwritten records held", self.id.as_str());
-                    self.arm_idle_evict();
                 }
                 self.hold_failed(&error, cause, retain);
             }
