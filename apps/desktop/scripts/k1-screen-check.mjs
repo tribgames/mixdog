@@ -126,10 +126,22 @@ try {
     // "Show all sessions" is the profile's own choice (session-sidebar-state.ts): with it on, Node's sidebar lists them too.
     const showAgents = await ev(() => localStorage.getItem('mixdog:session-sidebar-show-agents'));
     const showsAgents = showAgents === 'true' || showAgents === '1';
+    // Where a row that should not be there was drawn: its text and the lists it sits in.
+    const agentRowsWhere = await ev((ids) => ids.map((id) => {
+      const row = document.querySelector(`.session-row[data-session-id="${id}"]`);
+      const within = [];
+      for (let at = row?.parentElement; at && within.length < 6; at = at.parentElement) if (at.className) within.push(String(at.className));
+      return { id, text: row?.textContent?.slice(0, 80), within };
+    }), agentRows.slice(0, 3));
+    // The rows the screen was given, to tell a row drawn wrongly from a row given wrongly.
+    const given = await ev(async (id) => {
+      const rows = await window.mixdogDesktop.listSessions();
+      return { rows: rows.length, agentSessions: rows.filter((r) => r.agentSession).length, row: id ? rows.find((r) => r.id === id) ?? null : null };
+    }, agentRows[0] ?? '');
     areas.sessionList = {
       status: drawn.length > 0 && (showsAgents || agentRows.length === 0) ? 'pass' : 'fail',
       drawn: drawn.length, node: { sessions: baseline.sessions.length, sidebar: baseline.sessions.length - agentIds.size },
-      showAgents, agentRowsDrawn: agentRows.length, agentRows: agentRows.slice(0, 5), notInNodeCount: offNode.length, notInNode: offNode.slice(0, 5),
+      showAgents, agentRowsDrawn: agentRows.length, agentRows: agentRows.slice(0, 5), agentRowsWhere, given, notInNodeCount: offNode.length, notInNode: offNode.slice(0, 5),
     };
 
     // Project list: the project switcher against Node's registered projects.
@@ -246,8 +258,11 @@ diagnostics = diagnostics.slice(-10);
 const result = {
   passed: ['sessionList', 'projectList', 'sessionTranscript', 'settings', 'connection', 'core'].every((n) => areas[n]?.status === 'pass') && !areas.run,
   areas, screenText, rendererExceptions: exceptions.slice(0, 5), consoleErrors: consoleErrors.slice(0, 5), diagnosticsErrors: diagnostics,
+  // What the app's own process said of a failure (a rejected request names its error there and nowhere else).
+  appErrors: [...new Set(appOutput.split(/\r?\n/).filter((line) => /error|fail|reject/i.test(line)).map((line) => line.slice(0, 500)))].slice(0, 30),
 };
 writeFileSync(outPath, JSON.stringify(result, null, 1));
+writeFileSync(resolve(work, 'app-output.log'), appOutput);
 for (const [name, a] of Object.entries(areas)) {
   console.log(`${a.status.toUpperCase().padEnd(5)} ${name}: ${a.error ?? ''} drawn=${JSON.stringify(a.drawn ?? null)} node=${JSON.stringify(a.node)}`);
 }
