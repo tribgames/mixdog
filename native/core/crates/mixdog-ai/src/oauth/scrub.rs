@@ -83,11 +83,10 @@ pub fn oauth_body_summary(text: &str, secret_values: &[&str]) -> String {
 fn scrub_token_text(text: &str, secret_values: &[&str]) -> String {
     let text = BEARER.replace_all(text, format!("Bearer {REDACTED}").as_str());
     let text = SK_ANT.replace_all(&text, REDACTED);
-    let mut scrubbed = JWT.replace_all(&text, REDACTED).into_owned();
-    for secret in secret_values.iter().filter(|secret| !secret.is_empty()) {
-        scrubbed = scrubbed.replace(secret, REDACTED);
-    }
-    scrubbed
+    let scrubbed = JWT.replace_all(&text, REDACTED);
+    // The values named, and every credential a request carried, in each form a server repeats them in.
+    let named = super::carried::Matcher::of_secrets(secret_values);
+    super::carried::redact(&named.redact_str(&scrubbed))
 }
 
 /// `"field": value` with `value` a string (possibly cut off) or a bare non-numeric word, as one

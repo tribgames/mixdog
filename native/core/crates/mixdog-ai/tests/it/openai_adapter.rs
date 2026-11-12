@@ -369,6 +369,19 @@ async fn the_turn_state_token_replays_within_its_turn_only() {
     assert_eq!(header(&seen[2].headers, "x-codex-turn-state"), None, "a new turn starts clean");
 }
 
+/// Node raises `requesting` before each HTTP/SSE request and names the attempt (`openai-http-sse-request.mjs:133`).
+#[tokio::test]
+async fn an_http_attempt_raises_requesting_and_names_its_attempt() {
+    let http = ScriptedHttp::with(vec![(200, vec![], sse("text")), (200, vec![], sse("text"))]);
+    let adapter = adapter(TransportKind::Http1, http, ScriptedDial::with(vec![]), Credentials::new("tok", None));
+    let sent = request(None);
+    collect(&adapter, sent.clone()).await.unwrap();
+    collect(&adapter, sent.clone()).await.unwrap();
+    let first = serde_json::json!({ "attempt": 1, "maxAttempts": 5, "retry": false });
+    let second = serde_json::json!({ "attempt": 2, "maxAttempts": 5, "retry": true });
+    assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", Some(first)), ("requesting", Some(second))]);
+}
+
 // ---- WebSocket --------------------------------------------------------------
 
 fn frame(json: &str) -> Message {
@@ -393,6 +406,18 @@ async fn ws_attempt_sends_one_create_frame_and_streams_frames() {
     let handshake = dial.requests.lock().unwrap();
     assert_eq!(header(&handshake[0], "authorization"), Some("Bearer tok"));
     assert_eq!(header(&handshake[0], "chatgpt-account-id"), Some("acct"));
+}
+
+/// Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`): one per attempt.
+#[tokio::test]
+async fn each_ws_attempt_raises_requesting_before_its_socket_is_acquired() {
+    let done = || frame(r#"{"type":"response.completed","response":{"id":"r","model":"m","status":"completed","output":[]}}"#);
+    let dial = ScriptedDial::with(vec![Dialed::Rejected(401), Dialed::Socket(vec![done()])]);
+    let adapter = adapter(TransportKind::WebSocket, ScriptedHttp::with(vec![]), dial, Credentials::new("old", Some("new")));
+    let sent = request(None);
+    collect(&adapter, sent.clone()).await.unwrap();
+    // The upgrade refused and replayed with the reloaded credential is one acquisition of the attempt.
+    assert_eq!(sent.options.send_identity.take_stages(), vec![("requesting", None)]);
 }
 
 #[tokio::test]

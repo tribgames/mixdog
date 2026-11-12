@@ -24,7 +24,7 @@ use mixdog_core_api::domain::retry::RetryRow;
 use mixdog_core_api::domain::retry::RetrySchedule;
 
 /// `CODEX_REQUEST_MAX_RETRIES`.
-const REQUEST_RETRIES: u32 = 4;
+pub(super) const REQUEST_RETRIES: u32 = 4;
 /// `MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT`: the one stream budget.
 const STREAM_RETRIES: u32 = 5;
 /// `CODEX_STREAM_BACKOFF_MS` is this base doubled.

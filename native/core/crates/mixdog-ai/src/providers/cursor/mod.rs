@@ -459,6 +459,9 @@ impl CursorAdapter {
         // A catalog failure never blocks a turn: the id is then sent as it is.
         let catalog = self.cached_models(token).await.unwrap_or_default();
         let selection = self.selection(&catalog, request)?;
+        // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries and after the catalog was read
+        // and the model chosen (cursor.mjs:656).
+        request.options.send_identity.raise_requesting_once();
         let scope = request
             .options
             .transport_scope
@@ -547,8 +550,6 @@ impl ProviderAdapter for CursorAdapter {
         };
         let mut refreshed = false;
         loop {
-            // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries (cursor.mjs:656).
-            request.options.send_identity.raise_requesting_once();
             let error = match self.open(&request, &token).await {
                 Ok(mut stream) => {
                     stream.prime().await;
@@ -568,9 +569,34 @@ impl ProviderAdapter for CursorAdapter {
                     continue;
                 }
             }
-            return Err(error);
+            return Err(with_failure_hint(error));
         }
     }
+}
+
+/// The server's own detail of a Connect failure the protocol-drift check reads: the message after `Cursor <code>: `.
+fn failure_detail(error: &ProviderError) -> &str {
+    error.message.split_once(": ").map_or("", |(_, detail)| detail)
+}
+
+/// `isCursorProtocolDrift` (cursor-wire-guards.mjs:293): a protocol error, or a detail that names a wire mismatch.
+fn is_protocol_drift(error: &ProviderError) -> bool {
+    static DRIFT: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?-u:\b)(protocol|protobuf|wire drift|invalid argument|failed_precondition)(?-u:\b)").expect("constant pattern"));
+    error.code.as_deref() == Some("protocol_error") || DRIFT.is_match(failure_detail(error))
+}
+
+/// `withCursorFailureHint`: the guidance a final Cursor failure ends with, once.
+fn with_failure_hint(mut error: ProviderError) -> ProviderError {
+    let hint = if matches!(error.code.as_deref(), Some("unauthenticated" | "permission_denied")) {
+        auth::REAUTH_GUIDANCE
+    } else if is_protocol_drift(&error) {
+        "Cursor may have changed its wire protocol; update Mixdog or set MIXDOG_CURSOR_CLIENT_VERSION if this persists."
+    } else {
+        return error;
+    };
+    error.message = format!("{} {hint}", error.message);
+    error
 }
 
 impl crate::catalog::CachedModelInfo for CursorAdapter {

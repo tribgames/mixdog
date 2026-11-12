@@ -29,6 +29,7 @@ use crate::netproxy::RoutedClients;
 use crate::netproxy::clients::ClientError;
 
 use super::deadlines::NODE_DISPATCHER;
+use super::guard::Guarded;
 use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
 use super::http::client_builder;
@@ -548,6 +549,20 @@ async fn settle(
     Ok(response)
 }
 
+/// A link before its exchanges are redacted of the credentials they carried: only [`Guarded`] reaches it.
+struct Bare<'a, T>(&'a T);
+
+#[async_trait]
+impl HttpSend for Bare<'_, ReqwestLink> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        exchange: Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
+        settle(exchange, self.0.hops(request, exchange)).await
+    }
+}
+
 #[async_trait]
 impl HttpSend for ReqwestLink {
     async fn send(
@@ -555,7 +570,7 @@ impl HttpSend for ReqwestLink {
         request: WireRequest,
         exchange: Exchange,
     ) -> Result<HttpResponse, ProviderError> {
-        settle(exchange, self.hops(request, exchange)).await
+        Guarded(Bare(self)).send(request, exchange).await
     }
 }
 
@@ -633,6 +648,18 @@ impl BidiOpen for ReqwestLink {
         first: Vec<u8>,
         exchange: Exchange,
     ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+        Guarded(Bare(self)).open(request, first, exchange).await
+    }
+}
+
+#[async_trait]
+impl BidiOpen for Bare<'_, ReqwestLink> {
+    async fn open(
+        &self,
+        request: WireRequest,
+        first: Vec<u8>,
+        exchange: Exchange,
+    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         // A streaming request body cannot be replayed, so a redirect is never followed.
         let redirect = exchange.redirect;
         if redirect == Redirect::Follow {
@@ -649,6 +676,7 @@ impl BidiOpen for ReqwestLink {
         });
         let surface = exchange.surface;
         let builder = self
+            .0
             .builder(&request, surface)
             .await?
             .body(reqwest::Body::wrap_stream(stream));
@@ -669,7 +697,7 @@ impl BidiOpen for ReqwestLink {
 
 /// An open WebSocket as the adapters use it.
 #[async_trait]
-pub trait WsSocket: Send {
+pub trait WsSocket: Send + Sync {
     async fn send(&self, message: Message) -> Result<(), TransportFault>;
     /// The next data frame, or the one fault that ended the link, then `None`.
     async fn recv(&mut self) -> Option<Result<Message, TransportFault>>;
@@ -762,12 +790,23 @@ impl WsDial for KeepaliveDialer {
         &self,
         request: Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        Guarded(Bare(self)).dial(request).await
+    }
+}
+
+#[async_trait]
+impl WsDial for Bare<'_, KeepaliveDialer> {
+    async fn dial(
+        &self,
+        request: Request,
+    ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        let this = self.0;
         #[cfg(any(test, feature = "test-support"))]
-        if let Some((addr, tls)) = &self.pinned {
-            let (connection, response) = ws::connect_pinned(request, *addr, &self.schedule, tls.clone()).await?;
+        if let Some((addr, tls)) = &this.pinned {
+            let (connection, response) = ws::connect_pinned(request, *addr, &this.schedule, tls.clone()).await?;
             return Ok((Box::new(connection), response));
         }
-        let (connection, response) = ws::connect_via(request, &self.schedule, self.policy.as_deref()).await?;
+        let (connection, response) = ws::connect_via(request, &this.schedule, this.policy.as_deref()).await?;
         Ok((Box::new(connection), response))
     }
 }

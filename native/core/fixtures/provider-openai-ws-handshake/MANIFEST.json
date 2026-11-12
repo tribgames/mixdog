@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 13543,
+      "bytes": 18229,
       "path": "cases.json",
-      "sha256": "45b342452c08a694f9d095c7afac9eab7fc54598943d4b13122cde029d82c707"
+      "sha256": "1a96302ff51d432bbef827317ff4d21db75eb809988ae96565fd68cb0c7dc0dc"
     }
   ],
   "inputs": [
@@ -64,6 +64,10 @@
     {
       "id": "unexpected-response-redacts-the-credential-it-echoes",
       "level": "wire"
+    },
+    {
+      "id": "unexpected-response-redacts-the-credential-in-each-spelling-it-echoes",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -89,19 +93,23 @@
       {
         "file": "node-fix-scrub-echoed-credential.patch",
         "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic.mjs",
-          "src/runtime/agent/orchestrator/providers/gemini.mjs",
           "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
-          "src/runtime/agent/orchestrator/providers/cursor-wire.mjs",
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs",
           "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-wire.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
           "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
-          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
-          "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs",
           "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs",
-          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs"
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs"
         ],
-        "sha256": "ec5517ec9dba1abf3a4d58e9f17e8121a7e1775668b4a17780f74e95f6ca04b4"
+        "sha256": "932615ff535e360cf1ec4567f79ea278c42e780308576cd82d276b30ca7138e2"
       },
       {
         "file": "node-fix-cursor-end-frame-error.patch",
@@ -115,17 +123,17 @@
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 17
+      "filesDifferingFromCommit": 18
     },
-    "srcSha256": "2f7a45be69239bc9fe42539db08d83077550873c9c2fc352ff143e456a3c9946",
+    "srcSha256": "6bb4e47e91cd66bec2a3bc0cf1bfee6484806e47146f75a672a727cef04843ef",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-handshake.mjs",
-  "recorderSha256": "f8b5093ec32d5f88f99ea4e0ec064a145a0c5dd64663567c25d4b24eaa51da50",
+  "recorderSha256": "c91c7d67b380184aa587d570dc87e5dbb7b02eb074d4ff6e4f2bff362d5a1ec6",
   "replay": "Rust entry (pub, on o1): mixdog_ai::transport::ws::connect (transport/ws.rs:237) and ConnectError (transport/ws.rs:70); the adapter above it is OpenAiAdapter (openai/adapter.rs:308).",
   "set": "provider-openai-ws-handshake",
-  "totalBytes": 13543,
+  "totalBytes": 18229,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

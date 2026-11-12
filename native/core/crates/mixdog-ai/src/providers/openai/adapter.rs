@@ -739,6 +739,19 @@ impl OpenAiAdapter {
             Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
         };
         let mut wire = codec.encode_with(request, effort_of(request).as_ref())?;
+        // Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`) and before each
+        // HTTP/SSE request, which names its attempt (`openai-http-sse-request.mjs:133`).
+        let identity = &request.options.send_identity;
+        match wire_kind {
+            Wire::Ws => identity.raise_stage("requesting"),
+            Wire::Http => {
+                let attempt = identity.next_attempt();
+                identity.raise_stage_with(
+                    "requesting",
+                    serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
+                );
+            }
+        }
         let mut credential = self.credentials.current().await?;
         let mut refreshed = false;
         let mut stripped = false;

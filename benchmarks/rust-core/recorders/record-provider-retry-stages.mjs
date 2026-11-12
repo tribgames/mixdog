@@ -34,7 +34,7 @@ const rec = await startRecording({
     '`streaming stages` is not compared: the core raises `streaming` from its run loop when a stream opens (mixdog-agent/src/send.rs, `RunEvent::Stage(Stage::Streaming)`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder\'s `reconnecting` stage and the provider\'s own `requesting` stage (raised where Node\'s send raises it: SendIdentity::raise_stage / SendStages), compared whole and in order',
   ],
   entry: 'anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider(\'xai\', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: \'api-key\', apiKey } or { authMode: \'adc\', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and cursor.mjs CursorOAuthProvider({}) (over node:http2, against the world\'s h2c hub) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case\'s input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.',
-  compare: 'Serve each case\'s replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages and the stderr lines.',
+  compare: 'Serve each case\'s replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages (with their payloads), the stages and the requests as one sequence (`sequence`: each stage where it stands among the arrivals) and the stderr lines.',
   replay: 'Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build("anthropic" | "xai" | "vertex-ai" | "anthropic-oauth" | "openrouter" | "grok-oauth" | "antigravity-oauth" | "devin-oauth") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).',
 });
 // Cursor sends over `node:http2` (cursor-wire-transport.mjs:4): its streams reach the world's h2c hub (lib/h2-world.mjs), which must be
@@ -77,7 +77,11 @@ const send = async ({ net, clock }, provider, model, replies, aux = () => undefi
   let attempt = 0;
   // The positions (among the arrivals) of the requests that are attempts of the send.
   const attemptRequests = [];
+  // The stages and the arrivals as one sequence, in the order they happened (a stage is raised before the request it announces
+  // reaches the endpoint, so it stands before that arrival).
+  const sequence = [];
   net.reply = (record) => {
+    sequence.push({ request: net.records.length - 1 });
     const auxiliary = aux(record);
     if (auxiliary !== undefined) return auxiliary;
     attemptRequests.push(net.records.length - 1);
@@ -93,15 +97,20 @@ const send = async ({ net, clock }, provider, model, replies, aux = () => undefi
   };
   try {
     const outcome = provider
-      .send(HISTORY, model, [], { ...options, onStageChange: (stage, payload) => stages.push(payload === undefined ? { stage } : { stage, payload }) })
+      .send(HISTORY, model, [], { ...options, onStageChange: (stage, payload) => {
+        sequence.push({ stage });
+        stages.push(payload === undefined ? { stage } : { stage, payload });
+      } })
       .then((result) => ({ result }), (error) => ({ error }));
     const done = await clock.followRetries(outcome, { what: 'the retry ladder', causes: () => { const n = net.records.length; return () => net.records.length > n; } });
-    return { ...done, stages, stderr, attemptRequests, draws: { first: firstDraw, count: randomDrawn - firstDraw, uuidFirst: uuidStart, uuidCount: uuidDrawn - uuidStart } };
+    return { ...done, stages, sequence, stderr, attemptRequests, draws: { first: firstDraw, count: randomDrawn - firstDraw, uuidFirst: uuidStart, uuidCount: uuidDrawn - uuidStart } };
   } finally {
     process.stderr.write = write;
   }
 };
 
+// A key with characters an encoder rewrites (`/`, `+`, `&`), so each spelling of it differs from the key itself.
+const ODD_KEY = 'fixture/odd+key&1';
 const json = (status, body, headers) => ({ status, contentType: 'application/json', ...(headers ? { headers } : {}), body: JSON.stringify(body) });
 const ADVICE = { 'retry-after': '2' };
 const anthropicError = (type, message) => ({ type: 'error', error: { type, message } });
@@ -125,6 +134,15 @@ const cases = [
     'claude',
     // A refusal that echoes the key it was sent inside ordinary message text (no bearer prefix, no token shape, no secret field): only the credential the request carried names it. The error text and the error's parsed body carry it redacted.
     [json(400, anthropicError('invalid_request_error', 'the credential fixture-key was refused for this model'))],
+  ],
+  [
+    'anthropic-api-key-redacts-an-encoded-credential-in-a-400',
+    'src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:109',
+    { provider: 'anthropic' },
+    () => new AnthropicProvider({ apiKey: ODD_KEY }),
+    'claude',
+    // The refusal repeats the key percent-encoded and as URL-safe base64: the error text and the error's parsed body carry each redacted.
+    [json(400, anthropicError('invalid_request_error', `the credential ${encodeURIComponent(ODD_KEY)}, ${Buffer.from(ODD_KEY).toString('base64url')} and ${ODD_KEY} was refused for this model`))],
   ],
   [
     'anthropic-api-key-redacts-an-opaque-credential-in-a-429',
@@ -401,6 +419,16 @@ const routes = [
     'gemini-2.5-pro',
     // A refusal that echoes the key it was sent inside ordinary message text: the error text carries it redacted.
     [json(400, geminiError(400, 'INVALID_ARGUMENT', 'the credential fixture-key was refused for this model'))],
+  ],
+  [
+    'gemini-redacts-an-encoded-credential-in-a-400',
+    'src/runtime/agent/orchestrator/providers/gemini.mjs:194',
+    { provider: 'gemini', credentials: {} },
+    () => new GeminiProvider({ apiKey: ODD_KEY, preconnect: false }),
+    'gemini-2.5-pro',
+    // A refusal that echoes the key in the spellings a server repeats it in (percent-encoded as in a query string, URL-safe base64, as sent):
+    // the error text carries each redacted (node-patches/node-fix-scrub-echoed-credential.patch).
+    [json(400, geminiError(400, 'INVALID_ARGUMENT', `the credential ${encodeURIComponent(ODD_KEY)}, ${Buffer.from(ODD_KEY).toString('base64url')} and ${ODD_KEY} was refused for this model`))],
   ],
   [
     'antigravity-redacts-an-opaque-credential-in-a-400',

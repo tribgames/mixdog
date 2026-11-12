@@ -342,6 +342,9 @@ fn assert_matches_result(name: &str, got: &Outcome, result: &Value, project: Pro
         let status = want["status"].as_u64().filter(|s| *s != 0).map(|s| s as u16);
         assert_eq!(error.status.filter(|s| *s != 0), status, "{name}: status");
         assert_eq!(error.reauth_required, want["reauthRequired"] == true, "{name}: reauth");
+        // The text a user and a log see, whole: what the redaction left of it and what the wording adds are Node's.
+        assert_eq!(error.message, want["message"].as_str().unwrap_or_default(), "{name}: message");
+        assert_eq!(error.retry_after, want["retryAfterMs"].as_u64().map(std::time::Duration::from_millis), "{name}: retry after");
         if let Some(live) = want["liveTextEmitted"].as_bool() {
             assert_eq!(error.exposure.text_emitted, live, "{name}: text exposure");
         }

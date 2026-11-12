@@ -62,7 +62,10 @@ impl ProviderAdapter for VersionedAdapter {
     fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
         self.inner.retry_policy_for(model)
     }
+    /// The dialect's version is read before the send raises its first stage, as Node's send awaits it first
+    /// (`ensureAntigravityVersion`, `warmCursorClientVersion`).
     async fn prepare_send(&self, request: &ModelRequest) {
+        self.versions.warm(self.dialect).await;
         self.inner.prepare_send(request).await;
     }
     fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {

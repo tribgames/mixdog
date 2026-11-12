@@ -138,10 +138,11 @@ pub fn trailer_error(payload: &[u8], operation: &str, secrets: &[String]) -> Opt
     Some(out)
 }
 
-/// A rejected sign-in names the re-auth step; the flag drives that, not text.
+/// A rejected sign-in ends the sign-in and names the re-auth step (`devinProviderError`, devin.mjs:245).
 fn mark_reauth(error: &mut ProviderError) {
-    if error.kind == ErrorKind::Auth && error.code.as_deref() == Some("unauthenticated") {
+    if error.kind == ErrorKind::Auth && error.code.as_deref() == Some("unauthenticated") && !error.reauth_required {
         error.reauth_required = true;
+        error.message = format!("Devin rejected the sign-in ({}). {}", error.message, super::auth::REAUTH_GUIDANCE);
     }
 }
 
