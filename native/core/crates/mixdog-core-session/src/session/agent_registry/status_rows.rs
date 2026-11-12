@@ -373,7 +373,8 @@ impl AgentStatus for AgentToolStatus {
         let session = mixdog_core_ports::ports::route::header_names_session(&handle.cell.header.load()).then(|| thread.as_str().to_owned());
         let scope = Scope { caller_session_id: session.clone(), host_pid: Some(pid) };
         let now = self.clock.now_ms();
-        self.registry.refresh_tags_from_sessions(false, &scope).await;
+        // The status pulse reads the index only (`memoryOnly`): a row past its deadline leaves it at the maintenance pass.
+        self.registry.refresh_tags_from_index(&scope).await;
         let mut workers = Vec::new();
         let mut pending = Vec::new();
         for (tag, session) in self.registry.session_entries(false, &scope) {

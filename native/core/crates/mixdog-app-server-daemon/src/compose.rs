@@ -457,6 +457,12 @@ impl ComposedCore {
         self.real.restore_remote_intent();
     }
 
+    /// After the stop: closes the core's SQLite files, for a process that removes the data directory and lives on (`mixdogd exec`).
+    /// The daemon never calls it; its process exit closes them.
+    pub fn close_data_files(&self) {
+        self.real.close_data_files();
+    }
+
     /// The memory database handle, for the readiness test that makes a first use.
     #[cfg(test)]
     pub fn memory_db(&self) -> Arc<mixdog_services::memory::pg::db::Db> {
@@ -1067,6 +1073,29 @@ mod tests {
             .await
             .unwrap();
             assert!(requested_at_first_step.load(Ordering::SeqCst), "closing was already requested when the first budgeted step started");
+        });
+    }
+
+    /// A core composed for `mixdog exec` binds its in-process lifecycle before its first request: the request is counted and the daemon log
+    /// has no "admitted before the lifecycle was bound" line (Node's exec writes nothing of the kind). Unbound, the line is written.
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
+    fn an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle() {
+        crate::compose_test_support::in_child(module_path!(), "an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            let stop = tokio_util::sync::CancellationToken::new();
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
+            log.enable_file_logging();
+            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, stop)).await.unwrap();
+            core.late_lifecycle().bind_in_process().unwrap();
+            let before = core.late_lifecycle().get().unwrap().status().seq_of_snapshot;
+            let guard = core.request_started("thread/list", &serde_json::json!({}));
+            assert!(core.late_lifecycle().get().unwrap().status().seq_of_snapshot > before, "the request is counted by the lifecycle");
+            drop(guard);
+            core.flush_log().await;
+            // A log with no line in it was never created.
+            let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap_or_default();
+            assert!(!text.contains("admitted before the lifecycle was bound"), "{text}");
         });
     }
 

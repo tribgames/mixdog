@@ -568,7 +568,19 @@ impl ThreadStore for MemStore {
         head: HeadRead,
         _window: WindowRead,
     ) -> Result<OpenedLog, CoreError> {
-        let records = *head.0.downcast::<Vec<(u64, Record)>>().expect("MemStore head");
+        let mut records = *head.0.downcast::<Vec<(u64, Record)>>().expect("MemStore head");
+        // An amended row opens as its amend body, as the real store's window reads it (`history_item`).
+        for at in 0..records.len() {
+            let Record::Amend(amend) = &records[at].1 else { continue };
+            let (iid, body) = (amend.iid.clone(), amend.body.clone());
+            for (_, record) in &mut records[..at] {
+                if let Record::Item(item) = record
+                    && item.iid.as_str() == iid.as_str()
+                {
+                    item.body = body.clone();
+                }
+            }
+        }
         let (header, control, log_id) = match records.first() {
             Some((_, Record::Session(session))) => (
                 match &session.header {

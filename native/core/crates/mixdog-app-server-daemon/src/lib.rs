@@ -47,6 +47,7 @@ pub mod late_seams;
 pub mod late_tool_surface;
 pub mod os_probe;
 pub mod control;
+pub mod crash_record;
 pub mod daemon_log;
 pub mod desktop_defaults;
 pub mod discovery;

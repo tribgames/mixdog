@@ -11,6 +11,7 @@ use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::estimate::MessageMeter;
 use mixdog_agent::compact::execution_tail::MessageRows;
 use mixdog_agent::compact::pressure::ImageIdentities;
+use mixdog_agent::compact::pressure::Inspections;
 use mixdog_agent::compact::pressure::Route;
 use mixdog_agent::compact::pressure::StatusInput;
 use mixdog_agent::compact::pressure::TranscriptSigner;
@@ -134,27 +135,30 @@ pub trait ContextWorld: Send + Sync {
 /// code) fed by the session's own snapshot. No loaded session is Node's status of no session, `null`.
 pub struct LiveContextStatus {
     world: Arc<dyn ContextWorld>,
+    /// The readings the Context inspector listed, for its entry previews.
+    inspections: Inspections,
 }
 
 impl LiveContextStatus {
     pub fn new(world: Arc<dyn ContextWorld>) -> Self {
-        Self { world }
+        Self { world, inspections: Inspections::new() }
     }
 }
 
 #[async_trait]
 impl ContextStatusHost for LiveContextStatus {
-    async fn context_status(&self, thread: Option<ThreadId>, _options: Option<Value>) -> Result<Value, CoreError> {
-        Ok(self.world.snapshot(thread.as_ref()).await?.map_or(Value::Null, |snapshot| status_of(&snapshot)))
+    async fn context_status(&self, thread: Option<ThreadId>, options: Option<Value>) -> Result<Value, CoreError> {
+        Ok(self.world.snapshot(thread.as_ref()).await?.map_or(Value::Null, |snapshot| self.status_of(&snapshot, options.as_ref())))
     }
 
     async fn context_status_for(&self, thread: ThreadId, header: Map<String, Value>) -> Result<Value, CoreError> {
-        Ok(self.world.snapshot_for(&thread, header).await?.map_or(Value::Null, |snapshot| status_of(&snapshot)))
+        Ok(self.world.snapshot_for(&thread, header).await?.map_or(Value::Null, |snapshot| self.status_of(&snapshot, None)))
     }
 }
 
-/// `context_status` over one snapshot.
-fn status_of(snapshot: &ContextSnapshot) -> Value {
+impl LiveContextStatus {
+    /// `context_status` over one snapshot, with the inspections the caller's options ask for attached.
+    fn status_of(&self, snapshot: &ContextSnapshot, options: Option<&Value>) -> Value {
     let meter = MessageMeter { media: &*snapshot.media, replay_owner: &snapshot.replay_owner };
     let signer = TranscriptSigner { meter: &meter, images: &*snapshot.images, rows: &*snapshot.rows };
     let request_tools = RequestTools { native: &snapshot.request_native, defined: &snapshot.request_defined };
@@ -174,7 +178,9 @@ fn status_of(snapshot: &ContextSnapshot) -> Value {
         meter: &meter,
         signer: &signer,
     };
-    context_status(&input)
+    let annotations_of = |name: &str| snapshot.annotations.get(name).cloned().unwrap_or_default();
+    self.inspections.attach(context_status(&input), &input, &annotations_of, options)
+}
 }
 
 #[cfg(test)]

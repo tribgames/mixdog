@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { recorderProvenance } from './lib/provenance.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const recorder = 'benchmarks/rust-core/recorders/record-exec-readonly.mjs';
@@ -289,7 +290,7 @@ async function main() {
     writeJson(join(stage, `${name}.json`), { ...result, usage: JSON.parse(result.usage) });
   }
   rmSync(scratch, { recursive: true, force: true });
-  writeSetManifest(stage, { set: 'exec-readonly', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true } });
+  writeSetManifest(stage, { set: 'exec-readonly', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url) } });
   commitStage(stage, finalDir);
 }
 await main();

@@ -139,6 +139,12 @@ impl AgentTrace {
         due
     }
 
+    /// `traceCacheBreak(record)`'s row (see `cache_break_payload` for the fields of `record`). True when the trace spool
+    /// is due for `flush`.
+    pub fn cache_break(&self, record: &Map<String, Value>, now_ms: i64) -> bool {
+        self.append(&cache_break_trace_record(record), now_ms)
+    }
+
     /// `_appendToolFailureRow(row)`: the row is written as given. True when due for `flush`.
     pub fn append_tool_failure(&self, row: &Value, now_ms: i64) -> bool {
         match &self.failures {

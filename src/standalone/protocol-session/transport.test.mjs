@@ -1,5 +1,6 @@
 // Discovery, core launch, the loopback WebSocket connector and the management client, against real sockets and files.
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import http from 'node:http';
 import test from 'node:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,8 @@ import { connect } from '../../../packages/protocol-client/src/index.ts';
 import { render as renderMethodArgs } from '../../../scripts/gen-session-method-args.mjs';
 import { stopCoreForRuntimeRoot } from './core-control.mjs';
 import { CoreDiscoveryError, parseDiscovery, readCoreDiscovery, rpcEndpoint } from './discovery.mjs';
-import { ensureCore } from './ensure-core.mjs';
+import { beginDaemonSpawnCapture } from '../../session-runtime/services/daemon-crash-capture/spawn-capture.mjs';
+import { ensureCore, launchCore } from './ensure-core.mjs';
 import { createWebSocketConnector } from './ws-connector.mjs';
 
 const OPTIONS = JSON.parse(
@@ -71,6 +73,35 @@ test('ensureCore starts a core once when none runs and waits until discovery say
   });
   assert.equal(found.state, 'serving');
   assert.deepEqual(launched, ['mixdogd serve']);
+});
+
+test('the launched core writes fd 2 into its boot capture, which records its ready and its exit', async (context) => {
+  const dataDir = tempDir(context);
+  const spawned = [];
+  const child = Object.assign(new EventEmitter(), { pid: 5150, unref: () => {} });
+  const capture = await launchCore({
+    bin: 'mixdogd',
+    spawnImpl: (bin, args, options) => {
+      spawned.push({ bin, args, options });
+      setImmediate(() => child.emit('spawn'));
+      return child;
+    },
+    beginCapture: (options) => beginDaemonSpawnCapture({ ...options, dataDir, prune: false }),
+  });
+  assert.deepEqual(spawned.map(({ bin, args }) => [bin, ...args]), [['mixdogd', 'serve']]);
+  assert.equal(spawned[0].options.detached, true);
+  assert.equal(typeof spawned[0].options.stdio[2], 'number', 'fd 2 is the capture file');
+  assert.ok(capture.capturePath.startsWith(join(dataDir, 'daemon-crash')));
+  capture.noteReady();
+  writeFileSync(capture.capturePath, 'thread main panicked: the core lost its store\n');
+  child.emit('exit', 101, null);
+  const record = JSON.parse(readFileSync(capture.recordPath, 'utf8'));
+  assert.equal(record.launcher, 'core');
+  assert.equal(record.pid, 5150);
+  assert.equal(record.ready, true);
+  assert.equal(record.exitCode, 101);
+  assert.equal(record.exitReason, 'exited with code 101');
+  assert.ok(record.stderrBytes > 0);
 });
 
 test('ensureCore attaches to a serving core without starting one, and fails at once on a blocked core', async () => {

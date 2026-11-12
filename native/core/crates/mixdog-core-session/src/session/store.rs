@@ -950,13 +950,13 @@ impl StoreThreads {
     }
 }
 
-/// [`super::seams::TurnIngest`] over the session-search writer.
-pub struct SessionSearchTurns(pub Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>);
+/// [`super::seams::TurnIngest`] over the session-search writer; `None` when the process has no memory runtime.
+pub struct SessionSearchTurns(pub Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>);
 
 impl SessionSearchTurns {
     /// Over the memory service's one session-search writer (`SessionSearchIngest::new(db,
     /// sensitive)`, the same one `forgetSessionSearch` and the backfill use).
-    pub fn new(ingest: Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>) -> Self {
+    pub fn new(ingest: Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>) -> Self {
         Self(ingest)
     }
 }
@@ -981,7 +981,9 @@ pub(crate) fn search_session(
 
 impl super::seams::TurnIngest for SessionSearchTurns {
     fn ingest_turn(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header, messages: Vec<Value>) {
-        self.0.ingest_turn(search_session(id, header, messages));
+        if let Some(ingest) = &self.0 {
+            ingest.ingest_turn(search_session(id, header, messages));
+        }
     }
 }
 
