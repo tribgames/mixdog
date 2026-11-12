@@ -853,6 +853,9 @@ impl Tasks for JobBoard {
     fn cancel(&self, task_id: &str, reason: &str) {
         JobBoard::cancel(self, task_id, reason, CancelNotice::Default);
     }
+    fn cancel_owned(&self, session_id: &str, reason: &str) {
+        self.cancel_all(&CancelAll { reason: reason.to_owned(), scope: Scope { caller_session_id: Some(session_id.to_owned()), host_pid: None }, ..CancelAll::default() });
+    }
     fn cleanup(&self, scope: &Scope, force: bool) -> Cleaned {
         Cleaned { removed: self.cleanup_jobs(scope, force) }
     }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
-use mixdog_agent::agent_tool::dispatch::{CloseParts, close_resolved};
+use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved};
 use mixdog_tools::orch::agent::ClosedView;
 use mixdog_agent::agent_tool::host::CloseOptions;
 use mixdog_agent::agent_tool::host::Registry;
@@ -92,7 +92,7 @@ impl AgentSessions {
         if children.is_empty() {
             return false;
         }
-        futures::future::join_all(children.iter().map(|child| self.close_session(child, reason, CloseOptions::default()))).await;
+        futures::future::join_all(children.iter().map(|child| cancel_agent_tree(self, board, child, reason, CloseOptions::default()))).await;
         true
     }
 
@@ -231,6 +231,14 @@ impl Sessions for AgentSessions {
 
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String> {
         self.registry.descendants(session_id)
+    }
+
+    fn child_session_ids(&self, session_id: &str) -> Vec<String> {
+        self.registry.children_of(session_id)
+    }
+
+    fn begin_cancellation(&self, ids: &[String]) -> Box<dyn Send> {
+        Box::new(self.registry.begin_cancellation(ids))
     }
 
     fn clear_statusline_route(&self, session_id: &str) {

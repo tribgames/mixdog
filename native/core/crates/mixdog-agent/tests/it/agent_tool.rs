@@ -253,6 +253,10 @@ impl Sessions for Fakes {
             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
             .unwrap_or_default()
     }
+    // The recorder's `closeSession` is one logged call: it walks no tree.
+    fn child_session_ids(&self, _session_id: &str) -> Vec<String> {
+        Vec::new()
+    }
     fn clear_statusline_route(&self, _session_id: &str) {}
 }
 
@@ -276,6 +280,7 @@ impl Tasks for Fakes {
             self.0.log(json!(["cancelTask", task_id]));
         }
     }
+    fn cancel_owned(&self, _session_id: &str, _reason: &str) {}
     fn cleanup(&self, _scope: &Scope, _force: bool) -> Cleaned {
         Cleaned { removed: 0 }
     }
