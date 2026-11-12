@@ -208,11 +208,11 @@ pub trait ReviewDisk: Send + Sync {
     async fn create_dir_all(&self, dir: &Path) -> std::io::Result<()>;
     /// lstat(path); a missing path is None.
     async fn lstat(&self, path: &Path) -> std::io::Result<Option<LinkStat>>;
-    /// Runs `job` on the durability lane, under `lock`'s file lock (`<lock>.lock`, ten seconds' wait)
-    /// when given. A refused lock is the `Err`; the job did not run.
     /// Runs `job` on the interactive read lane, so a read never queues behind writes.
     async fn blocking_read(&self, job: ReadJob) -> std::io::Result<()>;
-    async fn blocking(&self, lock: Option<&Path>, job: BlockingJob) -> std::io::Result<()>;
+    /// Runs `job` on the durability lane, under `lock`'s file lock (`<lock>.lock`, waited for as long as given)
+    /// when given. A lock not taken in that time is the `Err`; the job did not run.
+    async fn blocking(&self, lock: Option<(&Path, Duration)>, job: BlockingJob) -> std::io::Result<()>;
     /// `currentFile({ root, path })` of the session review: the recorded file read under the link
     /// rules of `currentText`.
     async fn current_file(&self, root: &str, path: &str) -> CurrentFile;

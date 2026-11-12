@@ -52,6 +52,8 @@ pub type Record = Obj;
 mod changes;
 
 pub use changes::SharedRecord;
+#[cfg(test)]
+pub(super) use changes::CHANGES_LOCK_WAIT;
 use changes::ChangeCache;
 
 fn root_key(value: &str) -> String {
