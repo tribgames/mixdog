@@ -470,6 +470,13 @@ impl ComposedCore {
         self.real.mcp_glue.connections_settled().await;
     }
 
+    /// How many callers wait for a scope's first connect now: a replay of a `load_tool` that waits for a server still connecting lets the
+    /// held connect go only once this is 1.
+    #[cfg(test)]
+    pub(crate) fn mcp_first_connect_waiters(&self) -> tokio::sync::watch::Receiver<usize> {
+        self.real.mcp_glue.first_connect_waiters()
+    }
+
     /// The memory database handle, for the readiness test that makes a first use.
     #[cfg(test)]
     pub fn memory_db(&self) -> Arc<mixdog_services::memory::pg::db::Db> {

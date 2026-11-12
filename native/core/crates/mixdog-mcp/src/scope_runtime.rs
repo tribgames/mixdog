@@ -79,6 +79,8 @@ struct Cell {
     ready: watch::Sender<bool>,
     /// How many callers wait at the readiness barrier now (for whoever must know they arrived).
     waiting: watch::Sender<usize>,
+    /// The same count over every scope ([`ScopeRuntime::waiting_all`]).
+    waiting_all: Arc<watch::Sender<usize>>,
     /// Why the scope's connection is not what its configuration asks for: the first connect did not
     /// return. Node records a failed connect and keeps the runtime (connect.mjs:121-124); the status
     /// shows it, and the next operation that applies (a reset, reconnect or reconcile) clears it.
@@ -129,18 +131,20 @@ pub fn request_scope() -> Option<String> {
     REQUEST_SCOPE.try_with(Clone::clone).ok().flatten()
 }
 /// A caller at the readiness barrier, counted while it waits.
-struct AtWaiting<'a>(&'a watch::Sender<usize>);
+struct AtWaiting<'a>(&'a Cell);
 
 impl<'a> AtWaiting<'a> {
-    fn enter(waiting: &'a watch::Sender<usize>) -> Self {
-        waiting.send_modify(|count| *count += 1);
-        Self(waiting)
+    fn enter(cell: &'a Cell) -> Self {
+        cell.waiting.send_modify(|count| *count += 1);
+        cell.waiting_all.send_modify(|count| *count += 1);
+        Self(cell)
     }
 }
 
 impl Drop for AtWaiting<'_> {
     fn drop(&mut self) {
-        self.0.send_modify(|count| *count -= 1);
+        self.0.waiting.send_modify(|count| *count -= 1);
+        self.0.waiting_all.send_modify(|count| *count -= 1);
     }
 }
 
@@ -175,6 +179,7 @@ pub struct ScopeRuntime {
     hub: Arc<McpHub>,
     configs: Arc<dyn ScopeConfigs>,
     table: Mutex<Table>,
+    waiting_all: Arc<watch::Sender<usize>>,
     #[cfg(feature = "test-support")]
     watch: std::sync::OnceLock<Arc<dyn OpWatch>>,
 }
@@ -185,6 +190,7 @@ impl ScopeRuntime {
             hub,
             configs,
             table: Mutex::default(),
+            waiting_all: Arc::new(watch::channel(0).0),
             #[cfg(feature = "test-support")]
             watch: std::sync::OnceLock::new(),
         })
@@ -228,6 +234,24 @@ impl ScopeRuntime {
         }
     }
 
+    /// `awaitInitialConnect` (`initial-connect-gate.mjs`) for `scope`: waits for its first connect, bounded by the
+    /// slowest enabled server's startup budget (the default budget when none is enabled); never fails. A budget of
+    /// 0 disables the wait, as the connect may then never settle. Returns at once when the scope is not open or its
+    /// first connect settled.
+    pub async fn await_initial(&self, scope: &str) {
+        let Some(cell) = self.cell(scope) else { return };
+        if *cell.ready.borrow() {
+            return;
+        }
+        let resolved = self.configs.resolve(&cell.scope, &cell.cwd, None).await;
+        let budgets: Vec<Duration> = resolved.configs.iter().filter(|c| c.enabled).map(|c| c.startup_timeout).collect();
+        if budgets.contains(&Duration::ZERO) {
+            return;
+        }
+        let budget = budgets.into_iter().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT);
+        let _ = mixdog_rt::time::timeout(budget, Self::ready(&cell)).await;
+    }
+
     /// [`open`](Self::open) without the wait: the scope is registered and its first connect started
     /// (by the first caller only), and the cell is handed back while that connect may still be pending.
     fn begin(self: &Arc<Self>, scope: &str, owner: &str, cwd: &str) -> Result<Arc<Cell>, ScopeReleased> {
@@ -260,6 +284,7 @@ impl ScopeRuntime {
                         turns: SerialChain::new(),
                         ready,
                         waiting,
+                        waiting_all: self.waiting_all.clone(),
                         failure: Mutex::new(None),
                     });
                     table.cells.insert(key.clone(), cell.clone());
@@ -301,7 +326,7 @@ impl ScopeRuntime {
         (!self.hub.is_released(&cell.scope)).then(|| cell.scope.clone())
     }
     async fn ready(cell: &Cell) {
-        let _waiting = AtWaiting::enter(&cell.waiting);
+        let _waiting = AtWaiting::enter(cell);
         let mut ready = cell.ready.subscribe();
         let _ = ready.wait_for(|ready| *ready).await;
     }
@@ -310,6 +335,11 @@ impl ScopeRuntime {
     /// the scope is not open.
     pub fn waiting(&self, scope: &str) -> Option<watch::Receiver<usize>> {
         self.cell(scope).map(|cell| cell.waiting.subscribe())
+    }
+
+    /// How many callers wait for a first connect, over every scope; the receiver follows the count.
+    pub fn waiting_all(&self) -> watch::Receiver<usize> {
+        self.waiting_all.subscribe()
     }
 
     /// Opens the runtime scope, working in `cwd`, and returns its id once its first connect settled
