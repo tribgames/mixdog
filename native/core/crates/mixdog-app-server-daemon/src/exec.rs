@@ -662,11 +662,32 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
-    /// A 50 MiB PowerShell command goes through the shell tool and answers its length; the call's duration and how far it
-    /// raised this process's peak working set and peak committed memory (`K32GetProcessMemoryInfo`) over a warm-up call's
-    /// are printed (`-- --nocapture`).
+    /// The shell tool's command of `size` bytes: a PowerShell script that answers the length of its one long string.
+    #[cfg(windows)]
+    fn long_command(size: usize) -> (String, usize) {
+        let head = "$null = $PSScriptRoot; $s = '";
+        let tail = "'; Write-Output ('len|' + $s.Length)";
+        let len = size - head.len() - tail.len();
+        (format!("{head}{}{tail}", "a".repeat(len)), len)
+    }
+
+    /// A PowerShell command just over the 1 MiB input queue of the process helper (it goes in more than one piece, and the
+    /// shell reads it whole) goes through the shell tool and answers its length. The 50 MiB case is `pwsh_50_mib_command`.
     #[cfg(windows)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_command_just_over_the_input_queue_answers_its_length() {
+        let rig = rig().await;
+        let (command, len) = long_command(1024 * 1024 + 4096);
+        let ran = rig.run("over", &command).await;
+        assert!(ran.contains(&format!("len|{len}")), "{}", &ran[..ran.len().min(400)]);
+    }
+
+    /// A 50 MiB PowerShell command goes through the shell tool and answers its length; the call's duration and how far it
+    /// raised this process's peak working set and peak committed memory (`K32GetProcessMemoryInfo`) over a warm-up call's
+    /// are printed (`-- --nocapture`). It takes 53 s and 414 MiB, so it is run by the `pwsh-50-mib` profile only.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "the 50 MiB measurement: `nextest run --profile pwsh-50-mib --run-ignored only -p mixdog-app-server-daemon`"]
     async fn pwsh_50_mib_command() {
         #[repr(C)]
         #[derive(Default)]
@@ -694,17 +715,14 @@ mod tests {
         };
         let rig = rig().await;
         assert!(rig.run("warm", "Write-Output hi").await.contains("hi"));
-        let size = 50 * 1024 * 1024;
-        let head = "$null = $PSScriptRoot; $s = '";
-        let tail = "'; Write-Output ('len|' + $s.Length)";
-        let command = format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()));
+        let (command, len) = long_command(50 * 1024 * 1024);
         let (ws, commit) = peaks();
         let start = std::time::Instant::now();
         let ran = rig.run("big", &command).await;
         let took = start.elapsed();
         drop(command);
         let (ws_after, commit_after) = peaks();
-        assert!(ran.contains(&format!("len|{}", size - head.len() - tail.len())), "{}", &ran[..ran.len().min(400)]);
+        assert!(ran.contains(&format!("len|{len}")), "{}", &ran[..ran.len().min(400)]);
         let mib = |bytes: usize| bytes as f64 / 1048576.0;
         println!(
             "50 MiB command: {:.1} s; peak working set {:.0} -> {:.0} MiB (+{:.0}), peak commit {:.0} -> {:.0} MiB (+{:.0})",
