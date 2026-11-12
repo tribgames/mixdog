@@ -2291,3 +2291,188 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
 }
+// ---- the shell's refusal of a command the built-in tools cover, and `machine`: recorded from Node ----
+
+/// A workspace file's bytes from its recipe: hex, or text (repeated, with a trailing piece, in UTF-16 with a BOM).
+fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
+    if let Some(h) = f.get("hex").and_then(JsonValue::as_str) {
+        return (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect();
+    }
+    let mut text = f["text"].as_str().unwrap().to_owned();
+    if let Some(times) = f.get("repeat").and_then(JsonValue::as_u64) {
+        text = text.repeat(times as usize);
+    }
+    if let Some(tail) = f.get("tail").and_then(JsonValue::as_str) {
+        text.push_str(tail);
+    }
+    if f.get("enc").and_then(JsonValue::as_str) == Some("utf16le") {
+        let mut out = vec![0xff, 0xfe];
+        for unit in text.encode_utf16() {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
+        return out;
+    }
+    text.into_bytes()
+}
+
+/// The recorded workspace under `dir`, and its path as Node spells it (no verbatim prefix).
+fn recorded_files(dir: &std::path::Path, files: &serde_json::Map<String, JsonValue>) -> std::path::PathBuf {
+    let root = dir.join("ws");
+    for (rel, f) in files {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        if f.get("remove").is_none() {
+            std::fs::write(path, recipe_bytes(f)).unwrap();
+        }
+    }
+    std::path::PathBuf::from(std::fs::canonicalize(&root).unwrap().to_string_lossy().trim_start_matches(r"\\?\"))
+}
+
+/// A call's context over the recorded workspace, offering the tools the case names (null: no session information).
+fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue) -> ToolContext {
+    let mut c = ctx(rig, "cover");
+    c.files = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
+    c.cwd = AbsPath::new(root).unwrap();
+    c.options.offered_tools = offers.as_array().map(|tools| Arc::new(tools.iter().map(|t| t.as_str().unwrap().to_owned()).collect()));
+    c
+}
+
+/// The guard on Node's recorded table (`record-shell-cover.mjs`): every command under both shell families, the tools the
+/// session offers, and the refusal text or the call that runs with its notes. Path rules differ per platform, so the table
+/// is replayed on the platform it was recorded on.
+#[cfg(windows)]
+#[tokio::test]
+async fn the_shell_guard_covers_what_node_covers() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
+    assert_eq!(doc["platform"], "win32");
+    let dir = tempfile::tempdir().unwrap();
+    let root = recorded_files(dir.path(), doc["files"].as_object().unwrap());
+    let forward = root.to_string_lossy().replace('\\', "/");
+    let back = root.to_string_lossy().into_owned();
+    let fix = |s: &str| s.replace(&forward, "<WS>").replace(&back, "<WS>");
+    let rig = rig();
+    let mut failures = Vec::new();
+    let cases = doc["cases"].as_array().unwrap();
+    for case in cases {
+        let c = cover_ctx(&rig, &root, &case["offers"]);
+        let command = case["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
+        let cwd = case["args"]["cwd"].as_str().map(|c| c.replace("<WS>", &forward));
+        let powershell = case["shellType"] == "powershell";
+        let got = super::guard::guard_call(&c, &command, cwd.as_deref(), false, powershell).await;
+        let want = &case["result"];
+        let same = match &got {
+            super::guard::Guarded::Refused(text) => want["failure"].as_str() == Some(fix(text).as_str()),
+            super::guard::Guarded::Run { command, cwd, notes } => {
+                want["failure"].is_null()
+                    && want["args"]["command"].as_str() == Some(fix(command).as_str())
+                    && want["args"]["cwd"].as_str() == cwd.as_deref().map(fix).as_deref()
+                    && want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).eq(notes.iter().map(|n| fix(n)).collect::<Vec<_>>().iter().map(String::as_str))
+            }
+        };
+        if !same {
+            failures.push(format!("{} {} offers {}\n  want {want}\n  got  {got:?}", case["shellType"], case["args"], case["offers"]));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+/// The refusal reaches the caller through the shell tool itself, as an error with Node's text: nothing runs.
+#[cfg(windows)]
+#[tokio::test]
+async fn the_shell_tool_refuses_a_covered_command_with_nodes_text() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-cover/cases.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = recorded_files(dir.path(), doc["files"].as_object().unwrap());
+    let forward = root.to_string_lossy().replace('\\', "/");
+    let rig = rig();
+    let mut refused = 0;
+    for case in doc["cases"].as_array().unwrap() {
+        let failure = case["result"]["failure"].as_str().unwrap_or("");
+        // The rig's shell is a POSIX one.
+        if case["shellType"] != "posix" || case["args"].get("cwd").is_some() || !failure.contains("the built-in tools cover this command") {
+            continue;
+        }
+        let c = cover_ctx(&rig, &root, &case["offers"]);
+        let command = case["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
+        let outcome = rig.shell.call(&c, serde_json::json!({ "command": command })).await;
+        let Err(e) = outcome else { panic!("{command} was run") };
+        assert_eq!(e.message_for_model.replace(&forward, "<WS>"), failure, "{command}");
+        refused += 1;
+    }
+    assert!(refused > 30, "{refused} refusals replayed");
+}
+
+/// What the `machine` tool prints, as the recorder writes it: each reading a placeholder, the wording, the order of the
+/// sections and the number of `top by …` rows exact (`record-machine-tool.mjs` states the rules).
+fn machine_shape(text: &str) -> String {
+    let process_row = regex::Regex::new(r"^ {2}\S.* \(pid \d+\) {2}cpu [\d.]+% {2}mem \d+ MB$").unwrap();
+    let more_row = regex::Regex::new(r"^ {2}… \d+ more$").unwrap();
+    let mut out: Vec<String> = Vec::new();
+    let mut section = String::new();
+    for line in text.split('\n') {
+        let heads = ["cpu", "memory", "processes", "drives", "top by cpu", "top by memory"];
+        if heads.iter().any(|h| line.starts_with(h)) {
+            section = line.split([':', '(']).next().unwrap().trim().to_owned();
+        }
+        let mut next = line.to_owned();
+        if line.starts_with("cpu: ") {
+            next = regex::Regex::new(r"^cpu: \d+% busy of \d+ cores").unwrap().replace(line, "cpu: <n>% busy of <n> cores").into_owned();
+        } else if line.starts_with("memory: ") {
+            next = regex::Regex::new(r"^memory: [\d.]+ GB available of [\d.]+ GB \(\d+% used\)$").unwrap().replace(line, "memory: <gb> GB available of <gb> GB (<n>% used)").into_owned();
+        } else if section == "drives" && line.starts_with("  ") && !line.trim().is_empty() {
+            if out.last().is_some_and(|l| l == "  <drive> <gb> GB of <gb> GB") {
+                continue;
+            }
+            next = "  <drive> <gb> GB of <gb> GB".to_owned();
+        } else if line.starts_with("processes matching \"") {
+            next = regex::Regex::new(r"\((\d+)\):$").unwrap().replace(line, |c: &regex::Captures| if &c[1] == "0" { "(0):".to_owned() } else { "(<n>):".to_owned() }).into_owned();
+        } else if section.starts_with("processes matching") {
+            if line == "  none" {
+                next = line.to_owned();
+            } else if process_row.is_match(line) || more_row.is_match(line) {
+                if out.last().is_some_and(|l| l == "  <process rows>") {
+                    continue;
+                }
+                next = "  <process rows>".to_owned();
+            }
+        } else if process_row.is_match(line) {
+            next = "  <process> (pid <n>)  cpu <n>%  mem <n> MB".to_owned();
+        }
+        out.push(next);
+    }
+    out.join("\n")
+}
+
+/// Node's `machine` on its recorded arguments: the same sections, wording and refusals, whatever the machine's own readings.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn machine_has_nodes_shape() {
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/machine-tool/cases.json")).unwrap();
+    let rig = real_rig();
+    let tool = MachineTool::new();
+    let mut failures = Vec::new();
+    for (n, case) in doc["cases"].as_array().unwrap().iter().enumerate() {
+        let (refused, text) = match tool.call(&ctx(&rig, &format!("machine{n}")), case["input"].clone()).await {
+            Ok(out) => match &out.parts[0] {
+                ToolPart::Text(t) => (false, t.clone()),
+                other => panic!("{other:?}"),
+            },
+            Err(e) => (true, e.message_for_model),
+        };
+        let want = &case["result"];
+        let shaped = machine_shape(&text);
+        let mut expected = want["text"].as_str().unwrap().to_owned();
+        // A machine too loaded to list its processes in time is told so (the tool's own deadline; Node's recorder refuses to
+        // record that answer): the process sections give way to that one line and nothing else changes.
+        if shaped.contains("processes: unavailable (no answer within the deadline)") {
+            let lines: Vec<&str> = expected.split('\n').collect();
+            let from = lines.iter().position(|l| *l == "top by cpu:").unwrap();
+            let to = lines.iter().position(|l| l.starts_with("drives")).unwrap();
+            let tail = lines.iter().position(|l| l.starts_with("processes matching")).unwrap_or(lines.len());
+            expected = [&lines[..from], &["processes: unavailable (no answer within the deadline)"][..], &lines[to..tail]].concat().join("\n");
+        }
+        if shaped != expected || refused != want["isError"].as_bool().unwrap() {
+            failures.push(format!("{}\n  want {}\n  got  {shaped}", case["name"], want["text"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
