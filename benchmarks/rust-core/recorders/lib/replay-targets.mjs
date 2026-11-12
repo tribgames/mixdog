@@ -164,6 +164,10 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-tools/src/desktop/computer_recovery.rs', 139, 'tool_error_recovery'), r('mixdog-tools/src/desktop/computer_recovery.rs', 144, 'format_tool_error'), r('mixdog-tools/src/desktop/computer.rs', 59, 'ComputerTool', 'the call: a failure of the host is worded by format_tool_error')],
     missing: ['computerResultRecovery (a reply body with a structured code): the Rust backend answers its replies as text parts'],
   },
+  'computer-linux-readiness': {
+    rust: [r('mixdog-tools/src/desktop/computer_linux.rs', 230, 'check_readiness'), r('mixdog-tools/src/desktop/computer_linux.rs', 463, 'missing_capabilities'), r('mixdog-tools/src/desktop/computer_linux.rs', 547, 'preflight'), r('mixdog-tools/src/desktop/computer_linux.rs', 588, 'capture_fallback'), r('mixdog-tools/src/desktop/computer_linux.rs', 376, 'required_capabilities'), r('mixdog-tools/src/desktop/computer_linux.rs', 161, 'detect_session'), r('mixdog-tools/src/desktop/computer_linux.rs', 166, 'detect_desktop'), r('mixdog-tools/src/desktop/computer_linux.rs', 524, 'ReadinessCache')],
+    notPublic: ['the real probes (SystemProbes: PATH, access, gdbus, gsettings) read the machine; the recording injects every probe as Node\'s test does'],
+  },
   'google-mcp': {
     rust: [r('mixdog-mcp/src/google_mcp.rs', 639, 'answer'), r('mixdog-mcp/src/google_mcp.rs', 83, 'service'), r('mixdog-mcp/src/http.rs', 93, 'HttpTransport::with_google_fetch')],
     notPublic: ['the sign-in flow (PKCE, loopback redirect) is replayed by the mcp-oauth sets; here the connector end is'],

@@ -1,0 +1,126 @@
+{
+  "cases": 32,
+  "command": "node benchmarks/rust-core/recorders/record-computer-linux-readiness.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": "computer-bridge/linux-readiness.mjs checkLinuxComputerReadiness, missingCapabilities, linuxComputerPreflight, linuxCaptureFallback, detectSession, detectDesktop; linux-action-capabilities.mjs requiredCapabilities",
+  "exclusions": {
+    "realProbes": "the real probes (PATH scan, access(), gdbus, gsettings) are not run: the test injects every one, as the recording does"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1412169,
+      "path": "golden.json",
+      "sha256": "0dba88e21305e18e6cd4f096f6f5581f65ba8a34325f5142051aa0359ea6534e"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "049ecf780821e10a5deb4b0012890443dc2f66605ed02cd9f15d611b71ef18d3"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-computer-linux-readiness.mjs",
+  "recorderSha256": "c83bdd57668e363a729d847606b173eafd8bad01dd60bfbc28a2b075ca3bc142",
+  "replay": {
+    "compare": "mixdog-tools desktop::computer_linux: check_readiness over the recorded probes, missing_capabilities, preflight, capture_fallback, required_capabilities, detect_session/detect_desktop, ReadinessCache; every recorded value compared whole",
+    "entry": "Drive these public items on o1: mixdog-tools/src/desktop/computer_linux.rs:230 check_readiness; mixdog-tools/src/desktop/computer_linux.rs:463 missing_capabilities; mixdog-tools/src/desktop/computer_linux.rs:547 preflight; mixdog-tools/src/desktop/computer_linux.rs:588 capture_fallback; mixdog-tools/src/desktop/computer_linux.rs:376 required_capabilities; mixdog-tools/src/desktop/computer_linux.rs:161 detect_session; mixdog-tools/src/desktop/computer_linux.rs:166 detect_desktop; mixdog-tools/src/desktop/computer_linux.rs:524 ReadinessCache.",
+    "existsButNotPublicOnO1": [
+      "the real probes (SystemProbes: PATH, access, gdbus, gsettings) read the machine; the recording injects every probe as Node's test does"
+    ],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 230,
+        "name": "check_readiness",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      },
+      {
+        "line": 463,
+        "name": "missing_capabilities",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      },
+      {
+        "line": 547,
+        "name": "preflight",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      },
+      {
+        "line": 588,
+        "name": "capture_fallback",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      },
+      {
+        "line": 376,
+        "name": "required_capabilities",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      },
+      {
+        "line": 161,
+        "name": "detect_session",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      },
+      {
+        "line": 166,
+        "name": "detect_desktop",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      },
+      {
+        "line": 524,
+        "name": "ReadinessCache",
+        "path": "native/core/crates/mixdog-tools/src/desktop/computer_linux.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "computer-linux-readiness",
+  "totalBytes": 1412169,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
