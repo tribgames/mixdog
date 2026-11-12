@@ -215,14 +215,18 @@ mod tests {
     fn spellings_of_one_directory_share_a_key_as_in_node() {
         let doc: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/scm-locks.json")).unwrap();
         assert_eq!(doc["platform"], "win32");
-        let root = "C:\\mixdog-lock-test-root";
-        let key = |spelling: &str| path_key(Path::new(&spelling.replace("<ROOT>", root)));
-        let first = key(doc["keys"][0]["spelling"].as_str().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Repo").join(".git").join("x")).unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let root_key = path_key(dir.path());
+        // The recorded key spells the checkout's root `<ROOT>` and separates with `\`; the core's key separates with `/`.
         let mut failures = Vec::new();
         for case in doc["keys"].as_array().unwrap() {
             let spelling = case["spelling"].as_str().unwrap();
-            if (key(spelling) == first) != case["sameAsFirst"].as_bool().unwrap() {
-                failures.push(format!("{spelling}: Node {} the first spelling's key, here the opposite", if case["sameAsFirst"] == true { "shares" } else { "does not share" }));
+            let got = path_key(Path::new(&spelling.replace("<ROOT>", &root))).replacen(&root_key, "<ROOT>", 1);
+            let want = case["key"].as_str().unwrap().replace('\\', "/");
+            if got != want {
+                failures.push(format!("{spelling}: Node key {want:?}, here {got:?}"));
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
