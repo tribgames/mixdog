@@ -29,12 +29,13 @@ import { SECTION_NAMES, type DesktopSectionsSnapshot } from '../shared/contract-
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { mergeToolRows, rowOf, sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
 import { createChatHostApi, READ_NOT_HELD, READ_NOT_VIEWED, type ChatHostShared } from './remote-chat-host';
+import { remoteSessionIdOf, withRemoteSession } from '../shared/blank-snapshot.ts';
 import { createCapabilityLane } from '../main/protocol/capability-route';
 import { coreErrorForWindow } from '../main/protocol/core-error';
 import { routeService } from '../main/protocol/service-route';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows';
 import { remoteToolOutput } from '../main/remote-transcript';
-import { approvalAllowIsPointerOnly, approvalAllowOnceDecision } from '../shared/approval-enter-rule';
+import { approvalAllowIsPointerOnly } from '../shared/approval-enter-rule';
 import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 
 /** The part of `ProtocolClient` (packages/protocol-client) this adapter uses. */
@@ -94,7 +95,6 @@ export interface ChatShared {
   };
 }
 
-export type ApprovalNotificationAnswer = 'answered' | 'settled' | 'open';
 
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -269,16 +269,6 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
         if (shown?.id === id && approvalAllowIsPointerOnly(shown.approval)) return false;
       }
       return resolveApproval(sessionId, id, answer);
-    },
-    // remote-session-methods.ts:199-213: Deny answers as the card's 거절; Allow answers with the decision the card's 한 번만 허용 sends,
-    // and only for the approval the session shows now where a bare Enter allows it once (push-notifier.ts approvalAllowDecision);
-    // any other Allow is 'open'.
-    answerApprovalNotification: async (sessionId: string, id: string, action: 'allow' | 'deny'): Promise<ApprovalNotificationAnswer> => {
-      if (action !== 'allow' && action !== 'deny') throw new TypeError('action must be allow or deny.');
-      const shown = await shownApproval(sessionId);
-      const decision = action === 'allow' ? (shown?.id === id ? approvalAllowOnceDecision(shown.approval) : null) : { approved: false };
-      if (!decision) return 'open';
-      return (await resolveApproval(sessionId, id, decision as unknown as Record<string, unknown>)) ? 'answered' : 'settled';
     },
     provideSecretInput: async (requestId: string, value: string): Promise<boolean> => {
       await send({ method: 'approval/provideSecret', params: { requestId, secret: typeof value === 'string' ? value : '' } });
@@ -487,7 +477,7 @@ export function createRosterFeed<S>(options: {
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 const CHAT_CALLS = [
-  'abortSession', 'agentRoomAction', 'answerApprovalNotification', 'cancelQuotaResume', 'continueSessionInModel', 'deleteSession',
+  'abortSession', 'agentRoomAction', 'cancelQuotaResume', 'continueSessionInModel', 'deleteSession',
   'getQuotaAutoResume', 'getTaskWorkspace', 'inheritSession', 'listProviderModels', 'markSessionRead', 'openAgentHome',
   'prefetchSession', 'provideSecretInput', 'readCapabilities', 'readTranscriptHistory', 'readTranscriptItem', 'releaseShellJob',
   'renameSession', 'resetAgentHome', 'resolveToolApprovalForSession', 'scheduleQuotaResume', 'searchSessionContent', 'setModelRoute',
@@ -499,6 +489,8 @@ const CHAT_CALLS = [
 const CATALOG_PUBLISHING_CALLS = [
   'markSessionRead', 'renameSession', 'setSessionFavorite', 'setSessionProject', 'setSessionArchived', 'deleteSession',
 ] as const satisfies ReadonlyArray<(typeof CHAT_CALLS)[number]>;
+/** The calls whose answer Node's host also published as its shell snapshot (session-host-lifecycle.ts:170-190). */
+const SHELL_PUBLISHING_CALLS = ['startProject', 'startProjectTask', 'startTask'] as const satisfies ReadonlyArray<(typeof CHAT_CALLS)[number]>;
 
 /** `sharedFor` and the api are made PER CALL from `host.client()`: that client carries this call's transmission claim
  *  (phone-send-scope.ts), so a request written through anything built from it is claimed; one captured at start would not be. */
@@ -543,6 +535,21 @@ export function createChatAdapter(options: {
       return answer;
     };
   }
+  // `getSnapshot` is Node's host shell snapshot (session-host.ts:436 `publication.shellSnapshot`): null until a start call published
+  // one (session-host-lifecycle.ts:170-190 `publishShell`), then the latest start's blank snapshot, its remote fields as the remote
+  // channel stands now (session-host-publication.ts:281-301). The shell is this page's: a start made in the desktop window is not seen.
+  const shells = new WeakMap<object, SessionSnapshot>();
+  for (const name of SHELL_PUBLISHING_CALLS) {
+    calls[name] = async (params, host) => {
+      const snapshot = (await (api(host)[name] as (...args: unknown[]) => Promise<SessionSnapshot>)(...params)) as SessionSnapshot;
+      shells.set(host.ctx, snapshot);
+      return snapshot;
+    };
+  }
+  calls.getSnapshot = (_params, host) => {
+    const held = shells.get(host.ctx);
+    return held ? withRemoteSession(held, remoteSessionIdOf(options.remoteSession(host.client() as unknown as ChatClient))) : null;
+  };
   calls.listSessions = (_params, host) => feedFor(host).list(host.client() as unknown as RosterClient);
   return {
     group: 'chat',
@@ -620,19 +627,21 @@ const sharedFor = (scoped: ChatClient): ChatHostShared => {
       });
       return asked ? String(asked.id) : cardId;
     },
-    // This page folds the thread itself (`sessionStateOf`), whole within its `thread/resume` window: a page grows that window, and a
-    // tool row's whole output is read from the fold.
-    transcript: {
-      page: async (threadId, _state, limit) => {
-        const [resume] = routeService('prefetchSession', [threadId, limit]).requests;
-        await client.resumeThread(threadId, resume?.params.window);
-      },
-      output: (_threadId, state, itemId) => remoteToolOutput(state, itemId),
-    },
+    transcript: foldTranscript(client),
     // The client's own fold of thread items into transcript rows (`rowOf`, then `mergeToolRows`).
     foldRows: (items) => mergeToolRows(items.map((item) => rowOf(item as never)).filter((row) => row !== null)),
   };
 };
+
+/** The transcript this page shows: its own fold of the thread (`sessionStateOf`), whole within the thread's `thread/resume` window. A
+ *  page grows that window (Node's `prefetchSession` limit); a tool row's whole output is read from the fold (`remoteToolOutput`). */
+export const foldTranscript = (client: Pick<ChatClient, 'resumeThread'>): ChatShared['transcript'] => ({
+  page: async (threadId, _state, limit) => {
+    const [resume] = routeService('prefetchSession', [threadId, limit]).requests;
+    await client.resumeThread(threadId, resume?.params.window);
+  },
+  output: (_threadId, state, itemId) => remoteToolOutput(state, itemId),
+});
 
 /** The core's `hostState` key `remoteSession` as this client's section store holds it. */
 const remoteSession = (scoped: ChatClient): unknown =>
