@@ -266,16 +266,7 @@ pub struct CompactedRecord {
     /// (a failed turn's retry removes its stale prompt from the context, which shows nothing).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silent: Option<bool>,
-    /// Read and discarded: an earlier build of this branch wrote `lost: true` on compactions
-    /// whose archive was not kept. It is never written again and changes nothing (the archive
-    /// is shown), but those logs still hold it and must decode.
-    #[serde(default, rename = "lost", skip_serializing, deserialize_with = "discard_legacy_flag")]
-    pub legacy_lost: (),
     pub replacement: Slot<Vec<ReplacementEntry>>,
-}
-
-fn discard_legacy_flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    serde::de::IgnoredAny::deserialize(d).map(drop)
 }
 
 /// 1.4.5 `droppedIdentities`: the message ids and tool call ids that left the context.
