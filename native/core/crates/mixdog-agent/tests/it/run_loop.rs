@@ -315,12 +315,15 @@ impl SteerSource for Steer {
 struct Observer {
     events: Mutex<Vec<RunEvent>>,
     retract: Retracted,
+    /// Holds a permit once an early notice has arrived since the last wait.
+    early_arrived: tokio::sync::Notify,
 }
 impl Observer {
     fn new(retract: Retracted) -> Arc<Self> {
         Arc::new(Self {
             events: Mutex::new(Vec::new()),
             retract,
+            early_arrived: tokio::sync::Notify::new(),
         })
     }
     fn events(&self) -> Vec<RunEvent> {
@@ -329,7 +332,11 @@ impl Observer {
 }
 impl RunObserver for Observer {
     fn event(&self, event: RunEvent) {
+        let early = matches!(event, RunEvent::EarlyResult(_));
         self.events.lock().unwrap().push(event);
+        if early {
+            self.early_arrived.notify_one();
+        }
     }
     fn can_retract(&self) -> bool {
         true
@@ -894,6 +901,8 @@ struct Harness {
     artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
+    /// A working directory and the file service holding it, where a test runs a real file tool over files.
+    sandbox: Option<(mixdog_core_api::domain::common::AbsPath, Arc<MockFileService>)>,
     /// A real adapter and the decider that judges its failures, in place of the scripted provider.
     real: Option<(Arc<dyn ProviderAdapter>, Arc<dyn mixdog_core_api::domain::retry::RetryDecider>)>,
 }
@@ -933,6 +942,7 @@ impl Harness {
             artifacts: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
+            sandbox: None,
             real: None,
         }
     }
@@ -987,7 +997,7 @@ impl Harness {
         ToolEnv {
             thread_id: ThreadId::from("t"),
             turn_id: TurnId::from("r"),
-            cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(),
+            cwd: self.sandbox.as_ref().map_or_else(|| mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(), |(cwd, _)| cwd.clone()),
             surface: SurfaceKind::Lead,
             io: ToolIo {
                 interactive: tokens.interactive_io,
@@ -995,7 +1005,7 @@ impl Harness {
                 maintenance: tokens.maintenance_io,
             },
             approvals: self.approvals.clone(),
-            files: Arc::new(MockFileService::default()),
+            files: self.sandbox.as_ref().map_or_else(|| Arc::new(MockFileService::default()), |(_, files)| files.clone()),
             processes: Arc::new(MockProcessManager::default()),
             progress: Arc::new(MockProgress::default()),
             deadline_of: None,
@@ -3901,36 +3911,51 @@ async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
 // (`fixtures/agent/leaked-toolcall/record.mjs`: the real agent loop over the route's real decoder)
 // ---------------------------------------------------------------------------
 
-/// `read` that records the call ids it ran for and answers with Node's body of `a.txt`.
+/// The core's real `read` tool, observed: which call ids it ran for and when each finished. The `failing` scenario's
+/// forced failure (the recorder's `beforeToolExecution` throwing `boom`) replaces the run.
 struct Reader {
-    spec: ToolSpec,
+    real: Arc<dyn Tool>,
     ran: Mutex<Vec<String>>,
     finished: tokio::sync::Semaphore,
-    /// The run fails with Node's recorded `Error: boom` (a thrown executor error).
     fail: bool,
 }
 #[async_trait]
 impl Tool for Reader {
     fn spec(&self) -> &ToolSpec {
-        &self.spec
+        self.real.spec()
     }
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         self.ran.lock().unwrap().push(ctx.call_id.as_str().to_owned());
-        self.finished.add_permits(1);
-        if self.fail {
-            return Err(ToolError::new(ToolErrorCode::Internal { incident_id: "boom".into() }, "Error: boom"));
-        }
-        // The recorder's sandbox holds `a.txt` only; any other path is Node's "[path absent]" answer, which names the sandbox
-        // root as the token the recorder wrote for it.
-        let body = match args["path"].as_str() {
-            Some("a.txt") => "[lines 1-1]\nhello probe\n[lines 1-1 of 1]".to_owned(),
-            other => format!(
-                "[path absent] ENOENT: no such file or directory, stat '{}' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>)",
-                other.unwrap_or_default()
-            ),
+        let outcome = if self.fail {
+            Err(ToolError::new(ToolErrorCode::Internal { incident_id: "boom".into() }, "Error: boom"))
+        } else {
+            self.real.call(ctx, args).await
         };
-        Ok(ToolOutput { parts: vec![ToolPart::Text(body)], ..ToolOutput::default() })
+        self.finished.add_permits(1);
+        outcome
     }
+}
+
+/// The recorder's sandbox: a directory holding `a.txt` (`record.mjs` `loopCwd`), and where the recorder names its root
+/// in what it writes, `<ROOT>`.
+async fn leak_sandbox() -> (mixdog_core_api::domain::common::AbsPath, Arc<MockFileService>) {
+    use mixdog_core_api::domain::fs::{FileService, WritePrecondition, WriteRequest};
+    let root = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir().join("mixdog-leaked-toolcall").join("sandbox")).unwrap();
+    let files = Arc::new(MockFileService::default());
+    let tokens = mixdog_rt::testing::tokens();
+    files.create_dir(tokens.durability_io, root.clone(), true).await.unwrap();
+    let path = mixdog_core_api::domain::common::AbsPath::new(root.as_path().join("a.txt")).unwrap();
+    files
+        .write(tokens.durability_io, WriteRequest { path, content: b"hello probe\n".to_vec(), precondition: WritePrecondition::Unconditional })
+        .await
+        .unwrap();
+    (root, files)
+}
+
+/// `rooted` of the recorder: the sandbox root, in its native and forward-slash spellings, is written `<ROOT>`.
+fn rooted(text: &str, root: &mixdog_core_api::domain::common::AbsPath) -> String {
+    let native = root.as_path().to_string_lossy().into_owned();
+    text.replace(&native, "<ROOT>").replace(&native.replace('\\', "/"), "<ROOT>")
 }
 
 struct LeakCtx;
@@ -4095,8 +4120,9 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         let Some(stored) = scenario.get("stored") else { continue };
         let label = format!("{route} / {}", scenario["name"]);
         let (events, failure) = leaked_events(route, scenario);
+        let real_read = mixdog_tools::fs::ReadTool::new(None, None).with_state(Arc::new(mixdog_tools::fs::ReadState::new(None)));
         let reader = Arc::new(Reader {
-            spec: ToolSpec { name: "read".into(), ..Echo::tool().spec().clone() },
+            real: Arc::new(real_read),
             ran: Mutex::new(Vec::new()),
             finished: tokio::sync::Semaphore::new(0),
             fail: scenario["failing"] == true,
@@ -4107,6 +4133,8 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
             steps.push(Step::Fail(error.clone()));
         }
         let mut h = Harness::new(vec![turn(steps), turn(vec![text("final"), done(StopReason::EndTurn)])]);
+        let (root, files) = leak_sandbox().await;
+        h.sandbox = Some((root.clone(), files));
         // A denying gate answers with the text Node's PreToolUse deny produced; the tool never runs.
         let denying = scenario["denying"] == true;
         // A tool the executor does not have is answered with text too, and never runs.
@@ -4165,14 +4193,15 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         let results: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Tool).collect();
         let want_results = stored["toolResults"].as_array().unwrap();
         assert_eq!(results.len(), want_results.len(), "{label}: tool results");
-        // A repeated read's body is Node's read-dedup stub (`[file unchanged`), and which of several `a.txt` reads gets the
-        // file's lines depends on Node's run order: neither is the loop's, so those bodies are not compared (manifest).
-        let executed_runs = stored["executed"].as_array().unwrap().len();
-        let body_comparable = |body: &str| !body.starts_with("[file unchanged") && (!body.starts_with("[lines 1-1]") || executed_runs == 1);
+        // Where several calls read `a.txt`, which one the real tool answers with the file's lines and which with its dedup stub
+        // (`[file unchanged`) follows the order the runs reached the file: Node ran the streamed call before the batch's, this
+        // loop starts a native call as its event arrives. Those bodies are not compared (manifest); every other body is.
+        let several_runs = stored["executed"].as_array().unwrap().len() > 1;
+        let body_comparable = |body: &str| !several_runs || !(body.starts_with("[file unchanged") || body.starts_with("[lines 1-1]"));
         for (message, want) in results.iter().zip(want_results) {
             assert_eq!(id_shape(message.tool_call_id().unwrap()), want["toolCallId"].as_str().unwrap(), "{label}: result id");
             if body_comparable(want["content"].as_str().unwrap()) {
-                assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: result body");
+                assert_eq!(rooted(&message.text(), &root), want["content"].as_str().unwrap(), "{label}: result body");
             }
         }
         // The UI's early notices (`__earlyNotify`): one per call that ran a tool, whichever path started it, whether or not
@@ -4184,14 +4213,15 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
                 .into_iter()
                 .filter_map(|event| match event {
                     RunEvent::EarlyResult(message) => {
-                        Some((id_shape(message.tool_call_id().unwrap_or_default()), message.text(), message.tool_kind == Some(ToolKind::Error)))
+                        Some((id_shape(message.tool_call_id().unwrap_or_default()), rooted(&message.text(), &root), message.tool_kind == Some(ToolKind::Error)))
                     }
                     _ => None,
                 })
                 .collect()
         };
         while early().len() < want_early.len() {
-            tokio::task::yield_now().await;
+            let arrived = tokio::time::timeout(Duration::from_secs(30), h.observer.early_arrived.notified()).await;
+            assert!(arrived.is_ok(), "{label}: waited 30 s for early notice {} of {}", early().len() + 1, want_early.len());
         }
         let mut got_early = early();
         got_early.sort();
@@ -4224,10 +4254,10 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         early_ids.dedup();
         for id in early_ids {
             let mut want_bodies: Vec<&str> = want_early.iter().filter(|e| e["toolCallId"] == id).map(|e| e["content"].as_str().unwrap()).collect();
+            let mut got_bodies: Vec<&str> = got_early.iter().filter(|(got_id, _, _)| got_id == id).map(|(_, body, _)| body.as_str()).collect();
+            want_bodies.sort();
+            got_bodies.sort();
             if want_bodies.iter().all(|body| body_comparable(body)) {
-                let mut got_bodies: Vec<&str> = got_early.iter().filter(|(got_id, _, _)| got_id == id).map(|(_, body, _)| body.as_str()).collect();
-                want_bodies.sort();
-                got_bodies.sort();
                 assert_eq!(got_bodies, want_bodies, "{label}: early notice bodies of {id}");
             }
         }

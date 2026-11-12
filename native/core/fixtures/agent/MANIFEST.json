@@ -454,7 +454,7 @@
     {
       "path": "leaked-toolcall/golden/leaked_toolcall.json",
       "scope": "scenarios[].stored.toolResults[].content and stored.early[].content",
-      "reason": "The recorder writes its sandbox root (a per-run scratch directory the real read tool prints in its path-absent answer) as <ROOT>; the replay compares these bodies with the same token, except bodies that begin with [file unchanged (the read tool's dedup state for a repeated read of a.txt) and the [lines 1-1] body of a scenario in which more than one call ran (which of several reads of a.txt got the file lines follows Node's run order). Those are not compared."
+      "reason": "The recorder writes its sandbox root (a per-run scratch directory the real read tool prints in its path-absent answer) as <ROOT>; the replay runs the core's real read tool over a sandbox holding a.txt, maps its root to the same token and compares these bodies, except, in a scenario in which more than one call ran, the bodies that begin with [file unchanged or [lines 1-1] (which of several reads of a.txt got the file lines and which the dedup stub follows the order the runs reached the file: Node ran the streamed call before the batch's, the core starts a native call as its event arrives). Those are not compared."
     }
   ]
 }
