@@ -40,6 +40,7 @@ const ALL_TOOLS = ['gdbus', 'wl-copy', 'wl-paste', 'tesseract'];
 const HOME = '/home/u';
 const W = 'hwnd:0x1';
 const DISPLAY = { width: 2, height: 2 };
+const SECOND_DISPLAY = { width: 3, height: 2 };
 // What the GNOME extension's screenshot is: a real 2x2 PNG (zlib-compressed scanlines, CRCs).
 const PIXELS = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]];
 const SCREENSHOT = pngOf(2, 2, PIXELS).toString('base64');
@@ -116,6 +117,7 @@ const SESSIONS = [
   ['gnome-screenshot-fails', GNOME, { windowCalls: true, uinput: true, tools: ALL_TOOLS, screenshot: 'fails' }],
   ['gnome-screenshot-writes-no-file', GNOME, { windowCalls: true, uinput: true, tools: ALL_TOOLS, screenshot: 'no-file' }],
   ['gnome-screenshot-empty-image', GNOME, { windowCalls: true, uinput: true, tools: ALL_TOOLS, screenshot: 'empty' }],
+  ['gnome-two-displays', GNOME, { windowCalls: true, uinput: true, tools: ALL_TOOLS, displays: [DISPLAY, SECOND_DISPLAY] }],
   ['gnome-no-runtime-dir', GNOME, { windowCalls: true, uinput: true, tools: ALL_TOOLS, bus: false, busBy: 'address', runtimeDir: false }],
   ['kde-everything', KDE, { uinput: true, tools: ALL_TOOLS }],
   ['kde-gdbus-only', KDE, { tools: ['gdbus'] }],
@@ -136,7 +138,7 @@ const SESSIONS = [
 
 // The machine a session runs on, as data (it is written into the recording): the files and processes the probes read, the display, the
 // windows and the screenshot the stand-ins answer. `windowCalls` true = a current helper, a number = that loaded version, false = nothing answers.
-function worldOf(env, { uinput = false, windowCalls = false, helper = NOT_INSTALLED, a11y = true, bus = true, busBy = 'socket', tools = [], helperDir = 'user', userExtensionsOff = false, screenshot = 'ok', runtimeDir = true }) {
+function worldOf(env, { displays = [DISPLAY], uinput = false, windowCalls = false, helper = NOT_INSTALLED, a11y = true, bus = true, busBy = 'socket', tools = [], helperDir = 'user', userExtensionsOff = false, screenshot = 'ok', runtimeDir = true }) {
   const socket = bus && busBy === 'socket';
   const extension = `${helperDir === 'system' ? '/usr/share' : `${HOME}/.local/share`}/gnome-shell/extensions/${GNOME_EXTENSION_UUID}/metadata.json`;
   return {
@@ -151,7 +153,7 @@ function worldOf(env, { uinput = false, windowCalls = false, helper = NOT_INSTAL
     windowVersion: windowCalls === true ? MIN_WINDOW_HELPER_VERSION : windowCalls || null,
     a11y,
     gsettings: { enabled: helper.enabled ? `['${GNOME_EXTENSION_UUID}']\n` : '@as []\n', disabled: `${userExtensionsOff}\n` },
-    display: DISPLAY,
+    displays,
     shotId: SHOT_ID,
     // The scripted `mixdog-computer`: its answer to each request action it is asked; any other action is answered as an error.
     helperReplies: {
@@ -178,7 +180,12 @@ function liveWorld(data) {
           const { how, png, emptyPng } = world.screenshot;
           if (how === 'fails') return { status: 1, stderr: 'Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.gnome.Shell was not provided by any .service files\n' };
           const file = String(args.at(-1)).slice(1, -1);
-          if (how !== 'no-file') world.files[file] = Buffer.from(how === 'empty' ? emptyPng : png, 'base64');
+          // The extension photographs the area it is asked for: the picture has that area's size.
+          const [kind, , , , width, height] = args.slice(args.indexOf('--') + 1);
+          const area = kind === "'area'" && Number(width) > 0 && Number(height) > 0
+            ? pngOf(Number(width), Number(height), Array.from({ length: Number(width) * Number(height) }, (_, at) => PIXELS[at % PIXELS.length])).toString('base64')
+            : png;
+          if (how !== 'no-file') world.files[file] = Buffer.from(how === 'empty' ? emptyPng : area, 'base64');
           return { status: 0, out: '()\n' };
         }
         return { status: 1 };
@@ -210,6 +217,7 @@ currentData = worldOf(GNOME, {});
 const restoreFirst = machine.install(liveWorld(currentData), 'linux');
 const { createComputerHost } = await set.load('apps/desktop/src/main/computer/index.ts');
 restoreFirst();
+const { readDisplays } = await set.load('apps/desktop/src/main/computer/host/display-reads.ts');
 
 /** A host on the machine, its bridge listening and published; `finish` takes it down and the machine with it. */
 async function withHost(data, platform, body, { keepCache = false } = {}) {
@@ -232,26 +240,56 @@ async function withHost(data, platform, body, { keepCache = false } = {}) {
   }
 }
 
-// The commands the client posts to the host's bridge (the real fetch still carries them): a capture is the capture of a screen when the
-// command the client sent names a screen and no window.
+// The commands the client posts to the host's bridge (the real fetch still carries them) and the bridge's answer to each: a capture is the
+// capture of a screen when the command the client sent names a screen and no window. The machine's events up to the first post are the
+// client's own (its preflight); the ones after it are the desktop host's.
 const realFetch = globalThis.fetch;
 let posted = [];
-globalThis.fetch = (url, options) => {
-  if (options?.body) posted.push(JSON.parse(options.body));
-  return realFetch(url, options);
+let answers = [];
+let hostFrom = null;
+globalThis.fetch = async (url, options) => {
+  if (options?.body) {
+    if (!posted.length) hostFrom = machine.events.length;
+    posted.push(JSON.parse(options.body));
+  }
+  const response = await realFetch(url, options);
+  if (options?.body) answers.push(await response.clone().json());
+  return response;
 };
 
-/** One tool call: its result and everything the machine was asked, in order. `screen`: it was the capture of a screen. */
+/**
+ * The bridge answer with the time the host measured for each step set to 0: `elapsed_ms` of a capture attempt and the `timings_ms` of a reply
+ * are wall-clock milliseconds of the host's code (they differ by run), and the client drops both from the text the model reads.
+ */
+function settleTimes(answer) {
+  if (typeof answer?.value?.text !== 'string') return answer;
+  const settle = (value, timed) => {
+    if (Array.isArray(value)) return value.map((item) => settle(item, timed));
+    if (value === null || typeof value !== 'object') return timed && typeof value === 'number' ? 0 : value;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, settle(item, timed || key === 'timings_ms' || key === 'elapsed_ms')]));
+  };
+  return { ...answer, value: { ...answer.value, text: JSON.stringify(settle(JSON.parse(answer.value.text), false)) } };
+}
+
+/**
+ * One tool call: its result and everything the machine was asked, in order. A capture of a screen ends at the desktop host: `host` is the
+ * command it was sent and the bridge's answer (`{ ok, value }` or `{ ok, error }`), `events` the client's own and `hostEvents` the host's.
+ */
 async function call(args, sessionId) {
   machine.reset();
   posted = [];
+  answers = [];
+  hostFrom = null;
   const result = await executeComputerTool(args, sessionId ? { sessionId } : {});
   const [command] = posted;
   const screen = command?.action === 'capture' && command.screen !== undefined && !command.window_id && !command.app;
-  return { result: resultOf(result), events: machine.events, screen };
+  if (!screen) return { result: resultOf(result), events: machine.events, screen };
+  return {
+    result: resultOf(result), events: machine.events.slice(0, hostFrom), hostEvents: machine.events.slice(hostFrom), screen,
+    host: { command, answer: settleTimes(answers[0]) },
+  };
 }
 
-const isGnomeWayland = (env) => { const session = detectSession(env); return session === 'wayland' && detectDesktop(env, session) === 'gnome'; };
 
 await set.run('the commands every session is asked about', () => COMMANDS);
 await set.run('the tool calls every session is asked', () => TOOL_CALLS);
@@ -268,10 +306,8 @@ await set.run('session and desktop detection', () => {
 await set.run('what each command requires', () => COMMANDS.map((command) => [...caps.requiredCapabilities(command)]));
 
 // A call the preflight lets through runs the desktop host's own layers (window arrivals, idle checks, element state) that the core does not
-// have: those are not recorded. A capture that passes is the capture of a screen only on GNOME Wayland; elsewhere Node takes it through
-// Electron (desktopCapturer, the portal), which the core does not have: recorded as `electron`.
+// have: those are not recorded, except the two the core asks of the desktop host: the capture of a screen and the display list of a diagnose.
 const passedThrough = [];
-const electronOnly = [];
 for (const [name, env, options] of SESSIONS) {
   await set.run(`session ${name}`, async () => {
     const world = worldOf(env, options);
@@ -279,16 +315,39 @@ for (const [name, env, options] of SESSIONS) {
     for (const args of TOOL_CALLS) {
       const outcome = await withHost(world, 'linux', () => call(args, ''));
       const passed = outcome.result.toolMeta === undefined;
-      if (!passed || args.action === 'diagnose') calls.push({ args, ...outcome });
-      else if (outcome.screen && isGnomeWayland(world.env)) calls.push({ args, ...outcome });
-      else if (outcome.screen) {
-        electronOnly.push(`${name} / ${JSON.stringify(args)}`);
-        calls.push({ args, electron: true });
-      } else passedThrough.push(`${name} / ${JSON.stringify(args)}`);
+      if (!passed || args.action === 'diagnose' || outcome.screen) calls.push({ args, ...outcome });
+      else passedThrough.push(`${name} / ${JSON.stringify(args)}`);
     }
-    return { world, calls };
+    // The display list the host answers `host/computer/displays` with: its own `readDisplays()`.
+    const hostDisplays = await withHost(world, 'linux', async () => readDisplays());
+    return { world, hostDisplays, calls };
   });
 }
+
+// No desktop attached: no bridge is published, and Node's client refuses before it validates, probes or dispatches anything.
+await set.run('no desktop attached', async () => {
+  const world = worldOf(GNOME, { windowCalls: true, uinput: true, tools: ALL_TOOLS });
+  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-no-desktop-'));
+  const dataDir = machine.dataDir;
+  machine.dataDir = emptyDir;
+  const calls = [];
+  try {
+    for (const args of [tool('capture', { mode: 'vision', screen: 0 }), tool('capture', { mode: 'vision', screen: 1 }), tool('diagnose')]) {
+      currentData = world;
+      const restore = machine.install(liveWorld(world), 'linux');
+      resetLinuxComputerPreflightCache();
+      try {
+        calls.push({ args, ...(await call(args, '')) });
+      } finally {
+        restore();
+      }
+    }
+  } finally {
+    machine.dataDir = dataDir;
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+  }
+  return { world, calls };
+});
 
 // One probe for the whole process: the calls of two sessions inside its 3 s share it; the first call past it asks again. Each call runs on its
 // own host (the probe's cache lives in the module, not in the host), one after the other.
@@ -313,18 +372,21 @@ await set.run('the probe is shared by two sessions inside 3 seconds and asked ag
     rows.push({ at, uinput, calls });
   }
   resetLinuxComputerPreflightCache();
-  return { world, call: diagnose, steps: rows };
+  const hostDisplays = await withHost(world, 'linux', async () => readDisplays());
+  return { world, hostDisplays, call: diagnose, steps: rows };
 });
 
 fs.rmSync(DATA_DIR, { recursive: true, force: true });
 await set.finish({
   entry: 'computer-bridge/client.mjs executeComputerTool (validation, linuxCaptureFallback, linuxComputerPreflight, the dispatch and the fallback note) over the desktop host apps/desktop/src/main/computer (createComputerHost, its loopback bridge, diagnose, the capture engine and its GNOME shell source), over linux-readiness.mjs probing its own machine (process.env, fs.accessSync/existsSync/readFileSync, child_process.spawn/execFile gdbus/gsettings, Date.now); detectSession, detectDesktop; linux-action-capabilities.mjs requiredCapabilities',
-  replay: { entry: 'mixdog-tools desktop::computer_linux tests: each recorded tool call through ProcessComputerBackend::run on the Linux path (probes, gdbus and the helper injected at the process manager, the environment, the 3 s cache on the runtime clock, one cache for every session), compared whole with the recorded outcome (error flag, every content block but the bytes and media type of an image (width and height are compared), the gdbus/gsettings invocations and the helper requests in order); detect_session/detect_desktop, required_capabilities', normalised: {} },
+  replay: { entry: 'mixdog-tools desktop::computer_linux tests: each recorded tool call through ProcessComputerBackend::run on the Linux path (probes, gdbus and the helper injected at the process manager, the environment, the 3 s cache on the runtime clock, one cache for every session), with the desktop standing for the one the recorder ran (it answers host/computer/capture with the bridge answer the recorder saw, and host/computer/displays with the readDisplays() it recorded), compared whole with the recorded outcome (error flag, every content block with the image media type, bytes, width and height, the gdbus/gsettings invocations and helper requests in order, the command the desktop was sent); detect_session/detect_desktop, required_capabilities', normalised: {} },
   exclusions: {
-    electron: `a capture Node takes through Electron (desktopCapturer, the portal) only: every session that is not GNOME on Wayland. The core has no Electron (decision D-DESKTOP), answers Unavailable, and the replay asserts that. Case by case: ${JSON.stringify(electronOnly)}`,
-    hostLayer: `a call the preflight lets through that is not a capture or a diagnose runs the desktop host's own layers (window arrivals, idle checks, element state, about 40 helper requests for a launch); that layer is a separate task and these calls are not recorded. Calls dropped: ${passedThrough.length}, case by case: ${JSON.stringify(passedThrough)}`,
-    act: 'an `act` is not recorded: the core\'s act sequencing is not the desktop host\'s (separate task)',
-    imageBytes: "NOT COMPARED: the bytes and media type of every image block. Node resamples and re-encodes the frame in Electron (Chromium's JPEG encoder), which the recorder cannot run: Electron's image is a stand-in whose `toJPEG(quality)` keeps the PNG it was given behind a `STANDIN-JPEG q<quality>` line, so the recorded bytes are Node's code with that stand-in, not Chromium's, and the core (which returns the extension's PNG unchanged) has no encoder to compare them with. The replay compares the block's `width` and `height` only. Open until the route of the capture's resample/encode is decided (the Electron host, or the core's own encoder).",
+    hostLayer: `a call the preflight lets through that is not a capture of a screen or a diagnose runs the desktop host's own layers (window arrivals, idle checks, element state, about 40 helper requests for a launch); that layer is a separate task and these calls are not recorded. Calls dropped: ${passedThrough.length}, case by case: ${JSON.stringify(passedThrough)}`,
+    hostEvents: "a capture of a screen ends at the desktop host, so the gdbus / gsettings invocations and helper requests the host made while taking it are recorded as `hostEvents` and not replayed: the core does not make them (it asks the host); `events` holds only the client's own, up to the command's post. A diagnose is composed by the core from the helper's own reads, so its events are all compared.",
+    timings: "the milliseconds the desktop host measured for its own steps (`elapsed_ms` of each capture attempt, `timings_ms` of a reply) differ by run: in the recorded bridge answer (`host.answer`) every number under those keys is 0. The client removes both from the text the model reads, so the tool result (`result`) is the real one.",
+    hostStandIn: "the host that took each capture is Node's real desktop host with Electron replaced by the recorder's stand-in (lib/computer-host-world.mjs): its `toJPEG(quality)` keeps the PNG it was given behind a `STANDIN-JPEG q<quality>` line, so the recorded JPEG bytes are Node's fit-and-encode path run over that stand-in, not Chromium's. The core passes the host's reply on unchanged, so the bytes are compared as recorded; they say nothing about Chromium's encoder.",
+    noDesktop: "with no desktop attached Node refuses every call before it validates (client.mjs dispatchComputerCommand); only the calls the core sends to the desktop (a capture of a screen, a diagnose) are recorded in that state. The core runs every other action on its own helper with no desktop, and that is not recorded.",
+    gnomeCaptureLimit: "the 12 s GNOME_SHELL_CAPTURE_TIMEOUT_MS runs inside the desktop host (capture-source-plan.ts), where the pixels are taken; the core no longer takes them, so a timeout of the shell is the host's reply and is not recorded (a hanging gdbus would need 12 real seconds of Node). The core's own bound is the client's REQUEST_TIMEOUT_MS of 150 s, the capability's deadline, covered by a unit test.",
     randomUUID: `crypto.randomUUID returns ${SHOT_ID} for every call (the screenshot file name); the replay's id source gives the same`,
     platform: 'process.platform is set to linux for each case: the recorder runs on Windows. Another platform is not recorded: the preflight does not run there, and its host answers through Electron (the stand-in has no systemPreferences), which the core does not have',
     probeCache: 'the concurrent calls of one instant are not recorded: their helper requests interleave in an order the replay cannot reproduce; the calls of the 3 s window are sequential',
