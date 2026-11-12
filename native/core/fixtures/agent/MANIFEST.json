@@ -253,14 +253,14 @@
       "sha256": "6ec1f55693dc2179b2faa0382abeafdd0b96a18ffcea52c590b2e5573e7e10a1"
     },
     {
-      "bytes": 1217602,
+      "bytes": 1212022,
       "path": "leaked-toolcall/golden/leaked_toolcall.json",
-      "sha256": "9b757c0eb3fdcaaf8754a8c174362c95c31bcd19ff068d7cc2c4d113b88ce25d"
+      "sha256": "231014023aa5092928140f57d33b8c89801fb9c200bc0ed8159596a7b6c6912a"
     },
     {
-      "bytes": 31871,
+      "bytes": 32299,
       "path": "leaked-toolcall/record.mjs",
-      "sha256": "ac3a285df074bcd5025b3f284bdafe47baac8f56e1997e2488d8e79177efab3c"
+      "sha256": "7595f48b78c8ec3cd9358135185b166b53cf7932b3d7110e838bc181399aac67"
     },
     {
       "bytes": 18290,
@@ -449,5 +449,12 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 4229097
+  "totalBytes": 4226267,
+  "exclusions": [
+    {
+      "path": "leaked-toolcall/golden/leaked_toolcall.json",
+      "scope": "scenarios[].stored.toolResults[].content and stored.early[].content",
+      "reason": "The recorder writes its sandbox root (a per-run scratch directory the real read tool prints in its path-absent answer) as <ROOT>; the replay compares these bodies with the same token, except bodies that begin with [file unchanged (the read tool's dedup state for a repeated read of a.txt) and the [lines 1-1] body of a scenario in which more than one call ran (which of several reads of a.txt got the file lines follows Node's run order). Those are not compared."
+    }
+  ]
 }
