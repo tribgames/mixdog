@@ -334,6 +334,11 @@ impl CoreState {
     /// empty database) and the read pool's idle connections close, so the files can be removed while other handles still exist
     /// (a test's teardown; the exec's private root after its core stopped). Returns once the writer has done it.
     pub fn close(&self) {
+        self.replace_writer();
+        self.shared.pool.close();
+    }
+
+    fn replace_writer(&self) {
         let (done, closed) = mpsc::channel::<()>();
         let job: Job = Box::new(move |conn| {
             *conn = Connection::open_in_memory().expect("an in-memory database opens");
@@ -342,7 +347,13 @@ impl CoreState {
         if self.sender.send(job).is_ok() {
             let _ = closed.recv();
         }
-        self.shared.pool.close();
+    }
+
+    /// Test support: the writer's connection is replaced by an empty in-memory database, so every later write fails (a registry
+    /// publication that fails) while reads of the file, which stays as it was, still answer.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn break_writer(&self) {
+        self.replace_writer();
     }
 
     /// Runs `f` in one `BEGIN IMMEDIATE` transaction on the writer; commits when it

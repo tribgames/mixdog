@@ -884,29 +884,133 @@ async fn the_129th_request_in_flight_is_refused() {
 
 /// Node's recording `fixtures/project-recency-failure-cases` ("an accepted submission commits its receipt and stays subscribed after
 /// ${cause} breaks recency"): the recency write after the accepted prompt fails, the task is still accepted with its receipt
-/// committed, and a retry of the same submission answers the same task without a second prompt. The write itself is the one the
-/// accepted task makes, once, on the Project the draft names; Node's record of it is `calls` (one create, one submit).
+/// committed, and a retry of the same submission answers the same task without a second prompt. The recency write is the real
+/// registry's (`Catalog::touch` over the core state store), made to fail the way each recorded cause breaks it: the writer's
+/// publication (the file stays as it was) and the registry file itself (garbage where the database was). Each recorded run is
+/// replayed whole: its draft is sent as recorded (`<root>` is the per-run folder, as the manifest declares), and the answer, receipt,
+/// retry and calls are compared with the recording's. The recording's snapshot carries host-side fields (`items`, `queued`, the
+/// remote fields) the core has no counterpart for (`new-task-dedupe` MANIFEST `recorded[].reply.snapshot`): those stay as recorded,
+/// while its `sessionId`, `cwd` and `currentProject` are the core's own. The receipt's signature is the 64 hex digits the manifest
+/// normalises.
 #[tokio::test(start_paused = true)]
 async fn an_accepted_task_stays_accepted_when_only_the_recency_write_fails() {
-    let golden = mixdog_testkit::Exact::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/project-recency-failure-cases/golden.json"));
-    let case = &golden.get("cases").as_array()[1];
-    assert_eq!(case.get("case").as_str(), "an accepted submission commits its receipt and stays subscribed after ${cause} breaks recency");
-    for recorded in case.get("observed").get("runs").as_array() {
-        let id = recorded.get("options").get("id").as_str();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/project-recency-failure-cases/golden.json")).expect("golden");
+    let case = &golden["cases"][1];
+    assert_eq!(case["case"], "an accepted submission commits its receipt and stays subscribed after ${cause} breaks recency");
+    for recorded in case["observed"]["runs"].as_array().expect("runs") {
+        let id = recorded["options"]["id"].as_str().expect("id");
+        let cause = recorded["cause"].as_str().expect("cause");
         let rig = Rig::new();
         let runs = counting(&rig);
-        let place = Arc::new(super::testing::RecordingPlace { touch_error: Some("registry publication failed".to_owned()), ..Default::default() });
+        let root = mixdog_workspace::pathguard::canonical(rig._data.path()).expect("root").to_string_lossy().into_owned();
+        let draft = rooted(&recorded["draft"], &root);
+        let project = draft["projectPath"].as_str().expect("the draft's Project").to_owned();
+        std::fs::create_dir_all(&project).expect("project folder");
+        let tokens = mixdog_rt::testing::tokens();
+        let database = rig._data.path().join("registry").join("core.sqlite");
+        std::fs::create_dir_all(database.parent().unwrap()).expect("registry folder");
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &database).expect("state");
+        let row = mixdog_store::state::ProjectRow { path: project.clone(), alias: None, hidden: false, hidden_rank: None, last_used_at: Some(1), name: Some("project".to_owned()) };
+        state.write(move |tx| tx.put_project(&row)).await.expect("registered");
+        let catalog = Arc::new(mixdog_workspace::catalog::Catalog::new(
+            state.clone(),
+            mixdog_workspace::lanes::Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
+        ));
+        let registered = state.projects().await.expect("rows");
+        match cause {
+            "publication" => state.break_writer(),
+            // The store is a WAL database: garbage over its main file alone never reaches a reader while the log holds its pages,
+            // so the damaged registry is one the store has let go of (its connections closed) and whose file is garbage.
+            "corrupt registry" => {
+                state.close();
+                std::fs::write(&database, b"this is not a database; ".repeat(400)).expect("corrupted");
+            }
+            other => panic!("a cause the replay does not break: {other}"),
+        }
+        // The break reaches the real writer: the same write, made directly, fails.
+        catalog.touch(&project, None).await.expect_err("the registry write fails");
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.new_place = place.clone();
+        deps.new_place = Arc::new(RegistryPlace(catalog.clone()));
         let directory = SessionDirectory::new(Arc::new(deps));
-        let first = within("the submission's answer", submit(&directory, "op-1", id, "accepted work", json!({}))).await.expect("accepted");
-        let retry = within("the retry's answer", submit(&directory, "op-2", id, "accepted work", json!({}))).await.expect("retry");
+        let start = |op: &'static str| {
+            let (draft, directory) = (&draft, &directory);
+            async move {
+                let reply = directory
+                    .request(CoreRequest {
+                        method: Method("thread/start"),
+                        params: json!({ "opId": op, "kind": "task", "draft": draft, "initialInput": { "prompt": "accepted work", "options": { "clientSubmissionId": id } } }),
+                        op: Some(OpId::from(op)),
+                        ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new()),
+                    })
+                    .await
+                    .expect("accepted");
+                let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+                subscribe.result["thread"].clone()
+            }
+        };
+        let first = within("the submission's answer", start("op-1")).await;
+        let retry = within("the retry's answer", start("op-2")).await;
         let receipt = stored(&rig, id).expect("a receipt");
-        assert_eq!(receipt.phase().name(), recorded.get("receipt").get("phase").as_str(), "{id}");
-        assert_eq!(first, recorded.get("receipt").get("sessionId").as_str(), "{id}");
-        assert_eq!(retry, recorded.get("retry").get("sessionId").as_str(), "{id}");
-        assert_eq!(runs.load(Ordering::SeqCst) as f64, recorded.get("calls").get("submits").as_f64(), "{id}: prompts sent");
-        assert_eq!(directory.loaded_ids().len() as f64, recorded.get("calls").get("creates").as_f64(), "{id}: tasks created");
-        assert_eq!(*place.touched.lock().unwrap(), vec!["/ws".to_owned()], "{id}: one recency write, none for the retry");
+        let signature = receipt.signature();
+        assert!(signature.len() == 64 && signature.bytes().all(|byte| byte.is_ascii_hexdigit()), "{id}: {signature}");
+        let answer = |recorded: &Value, thread: &Value| {
+            let mut snapshot = recorded["snapshot"].clone();
+            snapshot["sessionId"] = thread["id"].clone();
+            // The thread's stored header: its working folder and the Project it is classified under.
+            let header = directory.handle(&thread["id"].as_str().expect("thread id").to_owned().into()).expect("a loaded thread").cell.header.load_full();
+            snapshot["cwd"] = header["cwd"].clone();
+            snapshot["currentProject"] = header["desktopSession"]["projectPath"].clone();
+            json!({ "accepted": true, "sessionId": thread["id"], "snapshot": snapshot })
+        };
+        let loaded = directory.loaded_ids();
+        let observed = json!({
+            "cause": recorded["cause"],
+            "options": { "id": id },
+            "draft": draft,
+            "result": answer(&rooted(&recorded["result"], &root), &first),
+            "receipt": { "signature": recorded["receipt"]["signature"], "sessionId": receipt.session_id(), "phase": receipt.phase().name() },
+            "retry": answer(&rooted(&recorded["retry"], &root), &retry),
+            "calls": {
+                "creates": loaded.len(),
+                "submits": runs.load(Ordering::SeqCst),
+                "unsubscribes": usize::from(!loaded.iter().any(|loaded| loaded.as_str() == receipt.session_id())),
+            },
+        });
+        assert_eq!(observed, rooted(recorded, &root), "{id}");
+        if cause == "publication" {
+            // The recording's `registryFile` equals its `originalRegistry`: the failed write left the registry as it was.
+            assert_eq!(state.projects().await.expect("rows"), registered, "{id}: the registry is as it was");
+        } else {
+            state.projects().await.expect_err("the damaged registry still does not read");
+        }
+    }
+}
+
+/// `<root>` of a recording written as the per-run folder, in every string of `value`.
+fn rooted(value: &Value, root: &str) -> Value {
+    match value {
+        Value::String(text) => Value::String(text.replace("<root>", root)),
+        Value::Array(items) => Value::Array(items.iter().map(|item| rooted(item, root)).collect()),
+        Value::Object(members) => Value::Object(members.iter().map(|(key, member)| (key.clone(), rooted(member, root))).collect()),
+        other => other.clone(),
+    }
+}
+
+/// The new-thread place over the real Project registry: the recency write is `Catalog::touch`, the call the daemon's place
+/// makes (`WorkspaceFolders::touch_selected`).
+struct RegistryPlace(Arc<mixdog_workspace::catalog::Catalog>);
+
+#[async_trait::async_trait]
+impl super::NewThreadPlace for RegistryPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        self.0.list().await.map(|rows| rows.into_iter().map(|row| row.path).collect()).map_err(|error| error.message)
+    }
+
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.0.touch(path, None).await.map(drop).map_err(|error| error.message)
+    }
+
+    async fn enter_worktree(&self, _: &mixdog_core_api::ids::ThreadId, _: &Value, _: Option<&Value>, _: &CancellationToken) -> Result<(), CoreError> {
+        Ok(())
     }
 }
