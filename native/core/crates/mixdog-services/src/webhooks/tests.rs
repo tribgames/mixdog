@@ -308,13 +308,9 @@ async fn request_parsing_answers_as_node_answers_it() {
         let sequential = case["sequential"].as_bool().unwrap_or(false);
         let fin = case["halfClose"].as_bool().unwrap_or(false) || case["server"] == "gate";
         let seen = peer_sees(listener.port(), &parts, sequential, fin).await;
-        let recorded: Vec<Value> = case["responses"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| json!({"status": r["status"], "contentType": r["headers"].get("content-type").cloned().unwrap_or(Value::Null), "body": r["body"]}))
-            .collect();
-        let seen: Vec<Value> = seen.into_iter().map(|(status, content_type, body)| json!({"status": status, "contentType": content_type, "body": body})).collect();
+        // Every recorded header is compared (`Date`, which the recorder drops, is dropped from what the peer sees too).
+        let recorded: Vec<Value> = case["responses"].as_array().unwrap().iter().map(|r| json!({"status": r["status"], "headers": r["headers"], "body": r["body"]})).collect();
+        let seen: Vec<Value> = seen.into_iter().map(|(status, headers, body)| json!({"status": status, "headers": headers, "body": body})).collect();
         assert_eq!(seen, recorded, "{name}: what the peer sees");
         assert!(case["closed"].as_bool().unwrap(), "{name}: Node closes the connection");
         assert_eq!(case["settled"], 0, "{name}: nothing settles in Node");
@@ -413,67 +409,116 @@ async fn serve_on_loopback(f: &Fx) -> WebhookListener {
     WebhookListener::start(service, 0).await.unwrap()
 }
 
+/// A reply the peer parsed: status, lower-cased headers without `Date`, decoded body.
+type Parsed = (u16, std::collections::BTreeMap<String, String>, String);
+
+/// Every wait on a socket has this deadline and names what it waits for when it passes. It is longer than
+/// every paused-clock bound a test waits for (the 25 s process bound), so it fires only on a real hang.
+const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn within<T>(waiting_for: &str, future: impl std::future::Future<Output = T>) -> T {
+    mixdog_rt::time::timeout(DEADLINE, future).await.unwrap_or_else(|_| panic!("{waiting_for} did not arrive within {DEADLINE:?}"))
+}
+
 async fn read_response(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, String)> {
-    read_response_typed(stream, pending).await.map(|(status, _, body)| (status, body))
+    read_response_typed(stream, pending, "a reply").await.map(|(status, _, body)| (status, body))
 }
 
 /// Writes `parts` (a `sequential` second part only after the first reply came) and returns every reply
-/// the peer gets until the listener closes: (status, content type, body). `fin` half-closes the
-/// sending side after the writes, so a listener that kept the connection alive ends it too.
-async fn peer_sees(port: u16, parts: &[&str], sequential: bool, fin: bool) -> Vec<(u16, Option<String>, String)> {
-    let (mut read, mut write) = TcpStream::connect(("127.0.0.1", port)).await.unwrap().into_split();
+/// the peer gets until the listener closes. `fin` half-closes the sending side after the writes, so a
+/// listener that kept the connection alive ends it too.
+async fn peer_sees(port: u16, parts: &[&str], sequential: bool, fin: bool) -> Vec<Parsed> {
+    let (mut read, mut write) = within("the loopback connection", TcpStream::connect(("127.0.0.1", port))).await.unwrap().into_split();
     let (mut pending, mut seen) = (Vec::new(), Vec::new());
     let first = if sequential { 1 } else { parts.len() };
     for part in &parts[..first] {
         let _ = write.write_all(part.as_bytes()).await;
     }
     if sequential {
-        seen.extend(read_response_typed(&mut read, &mut pending).await);
+        seen.extend(read_response_typed(&mut read, &mut pending, "the reply to the first request").await);
         let _ = write.write_all(parts[1].as_bytes()).await;
     }
     if fin {
         let _ = write.shutdown().await;
     }
-    while let Some(reply) = read_response_typed(&mut read, &mut pending).await {
+    while let Some(reply) = read_response_typed(&mut read, &mut pending, "the listener closing the connection after its reply").await {
         seen.push(reply);
     }
     seen
 }
 
-/// One response off the stream, framed by its `Content-Length`; None when the peer closed first.
-async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, Option<String>, String)> {
+/// One more read into `pending`; false when the peer closed.
+async fn fill(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, waiting_for: &str) -> bool {
     let mut chunk = [0u8; 8192];
+    match within(waiting_for, stream.read(&mut chunk)).await {
+        Ok(0) | Err(_) => false,
+        Ok(n) => {
+            pending.extend_from_slice(&chunk[..n]);
+            true
+        }
+    }
+}
+
+/// One response off the stream, framed by `Transfer-Encoding: chunked` or its `Content-Length`; None
+/// when the peer closed first. `waiting` names what the caller is waiting for.
+async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, waiting: &str) -> Option<Parsed> {
     let head_end = loop {
         if let Some(at) = pending.windows(4).position(|w| w == b"\r\n\r\n") {
             break at;
         }
-        match stream.read(&mut chunk).await {
-            Ok(0) | Err(_) => return None,
-            Ok(n) => pending.extend_from_slice(&chunk[..n]),
+        if !fill(stream, pending, &format!("{waiting}: the response head")).await {
+            return None;
         }
     };
     let head = String::from_utf8_lossy(&pending[..head_end]).into_owned();
     let status = head.split(' ').nth(1)?.parse().ok()?;
-    let length: usize = head
-        .lines()
-        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap()))
-        .unwrap_or(0);
-    while pending.len() < head_end + 4 + length {
-        match stream.read(&mut chunk).await {
-            Ok(0) | Err(_) => return None,
-            Ok(n) => pending.extend_from_slice(&chunk[..n]),
-        }
+    let mut headers = std::collections::BTreeMap::new();
+    for line in head.lines().skip(1) {
+        let (name, value) = line.split_once(':').expect("a header line has a colon");
+        headers.insert(name.to_ascii_lowercase(), value.trim().to_owned());
     }
-    let body = String::from_utf8_lossy(&pending[head_end + 4..head_end + 4 + length]).into_owned();
-    let content_type = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-type:").map(|v| v.trim().to_owned()));
-    pending.drain(..head_end + 4 + length);
-    Some((status, content_type, body))
+    headers.remove("date");
+    let mut at = head_end + 4;
+    let mut body = Vec::new();
+    if headers.get("transfer-encoding").is_some_and(|v| v == "chunked") {
+        loop {
+            let line_end = loop {
+                if let Some(p) = pending[at..].windows(2).position(|w| w == b"\r\n") {
+                    break at + p;
+                }
+                if !fill(stream, pending, &format!("{waiting}: a chunk size line")).await {
+                    return None;
+                }
+            };
+            let size = usize::from_str_radix(std::str::from_utf8(&pending[at..line_end]).unwrap().trim(), 16).expect("a hex chunk size");
+            while pending.len() < line_end + 2 + size + 2 {
+                if !fill(stream, pending, &format!("{waiting}: a chunk of {size} bytes")).await {
+                    return None;
+                }
+            }
+            body.extend_from_slice(&pending[line_end + 2..line_end + 2 + size]);
+            at = line_end + 2 + size + 2;
+            if size == 0 {
+                break;
+            }
+        }
+    } else {
+        let length: usize = headers.get("content-length").map_or(0, |v| v.parse().unwrap());
+        while pending.len() < at + length {
+            if !fill(stream, pending, &format!("{waiting}: the response body")).await {
+                return None;
+            }
+        }
+        body.extend_from_slice(&pending[at..at + length]);
+        at += length;
+    }
+    pending.drain(..at);
+    Some((status, headers, String::from_utf8_lossy(&body).into_owned()))
 }
-
 /// Sends `parts` one after the other and returns the first reply, None when the server closed
 /// without one.
 async fn try_exchange(port: u16, parts: &[&[u8]], half_close: bool) -> Option<(u16, String)> {
-    let stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let stream = within("the loopback connection", TcpStream::connect(("127.0.0.1", port))).await.unwrap();
     let (mut read, mut write) = stream.into_split();
     let parts: Vec<Vec<u8>> = parts.iter().map(|p| p.to_vec()).collect();
     // The writer runs beside the reader: a reply may arrive while the sender is still sending,
@@ -550,7 +595,7 @@ async fn a_request_framed_both_ways_never_carries_a_second_request() {
     stream.write_all(&both).await.unwrap();
     stream.write_all(behind).await.unwrap();
     let mut replies = Vec::new();
-    stream.read_to_end(&mut replies).await.unwrap();
+    within("the listener closing the connection", stream.read_to_end(&mut replies)).await.unwrap();
     let text = String::from_utf8(replies).unwrap();
     assert_eq!(text.matches("HTTP/1.1 ").count(), 1, "{text}");
     assert!(f.dispatched.0.lock().unwrap().is_empty());
