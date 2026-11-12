@@ -222,6 +222,47 @@ async fn one_answer_larger_than_the_control_reserve_is_written_and_the_connectio
     assert_eq!(stalled.until_closed().await.last(), Some(&Wire::Close(CloseCode::SlowConsumer)));
 }
 
+/// Two large answers a client asked for at once: the second, made while the first is still on its way to the socket, waits
+/// for the reserve and is written behind it; the connection stays open (the desktop's first screen asks for a list page
+/// and a transcript read together, 300 KiB and 450 KiB against the 512 KiB reserve).
+#[tokio::test]
+async fn an_answer_made_while_another_is_on_its_way_waits_for_the_reserve() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let mut peer = connect(&hub, ConnectionOrigin::Loopback, false);
+    let sink = peer.connection.sink.clone();
+    let size = limits.control_reserve_bytes as usize + 1;
+    let (first, second) = (Bytes::from(vec![b'a'; size]), Bytes::from(vec![b'b'; size]));
+    assert!(sink.send_answer(first.clone()).await.is_ok(), "an empty reserve admits the answer");
+    let mut waiting = sink.send_answer(second.clone());
+    assert!(futures::poll!(&mut waiting).is_pending(), "the second waits while the first holds the reserve");
+    assert_eq!(sink.close_code(), None, "waiting ends no connection");
+
+    peer.allow(usize::MAX >> 4);
+    assert!(waiting.await.is_ok(), "the room the first gave back takes the second");
+    let wire = peer.take_text(2).await;
+    assert!(wire[0].as_bytes() == &first[..] && wire[1].as_bytes() == &second[..], "both are written, in the order they were made");
+    assert_eq!(sink.close_code(), None, "the connection stays open");
+}
+
+/// An answer that waits for the reserve ends when the connection does.
+#[tokio::test]
+async fn an_answer_waiting_for_the_reserve_ends_with_the_connection() {
+    install_rt();
+    let limits = small_limits();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let peer = connect(&hub, ConnectionOrigin::Loopback, false);
+    let sink = peer.connection.sink.clone();
+    let answer = Bytes::from(vec![b'a'; limits.control_reserve_bytes as usize + 1]);
+    assert!(sink.send_answer(answer.clone()).await.is_ok());
+    let mut waiting = sink.send_answer(answer.clone());
+    assert!(futures::poll!(&mut waiting).is_pending());
+    // A frame that may not wait finds the reserve held and closes the connection, as before.
+    assert!(sink.send_control(answer).is_err());
+    assert!(waiting.await.is_err(), "the waiting answer is told the connection closed");
+}
+
 #[tokio::test]
 async fn slow_consumer_lags_only_its_own_lanes_and_recovers_one_snapshot_each() {
     install_rt();

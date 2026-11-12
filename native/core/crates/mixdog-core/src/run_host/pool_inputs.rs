@@ -15,7 +15,6 @@ use mixdog_core_agents::agents::RuntimeEntry;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::hidden_agents::hidden_agent;
 use mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds;
-use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::run_host::progress::WaitedJobs;
 use mixdog_core_session::session::Clock;
 use mixdog_core_session::session::SessionDirectory;
@@ -30,12 +29,12 @@ use super::group_usage_tokens::GroupUsageTokens;
 /// `PoolStore`: the worker index documents as the registry holds them, and a session's header.
 pub struct RegistryPoolStore {
     registry: Arc<AgentRegistry>,
-    threads: Arc<dyn ThreadState>,
+    directory: Arc<SessionDirectory>,
 }
 
 impl RegistryPoolStore {
-    pub fn new(registry: Arc<AgentRegistry>, threads: Arc<dyn ThreadState>) -> Self {
-        Self { registry, threads }
+    pub fn new(registry: Arc<AgentRegistry>, directory: Arc<SessionDirectory>) -> Self {
+        Self { registry, directory }
     }
 }
 
@@ -50,12 +49,12 @@ impl PoolStore for RegistryPoolStore {
     }
 
     /// One answer per id, in order; `None` for a session that is not stored.
+    ///
+    /// The header a loaded session holds, else its stored record: a listing reads every worker the index names, and
+    /// opening each of them would load every session of the profile to list them.
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>> {
-        let mut out = Vec::with_capacity(session_ids.len());
-        for id in session_ids {
-            out.push(self.threads.header(&ThreadId::from(id.as_str())).await.ok());
-        }
-        out
+        let ids: Vec<ThreadId> = session_ids.iter().map(|id| ThreadId::from(id.as_str())).collect();
+        futures::future::join_all(ids.iter().map(|id| self.directory.stored_header(id))).await
     }
 }
 
