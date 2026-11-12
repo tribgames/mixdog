@@ -142,8 +142,8 @@ export function remoteTranscriptScenarios(m) {
       return {
         phoneCopyShorter: phoneCopy.result.length < LONG.length,
         asked,
-        fullIsLong: full.result === LONG,
-        fullRawIsLong: full.rawResult === LONG,
+        full,
+        phoneCopy,
         gone: await methods.readTranscriptItem([SESSION, 'gone']).catch((error) => error.message),
         goneIsNotHeld: (await methods.readTranscriptItem([SESSION, 'gone']).catch((error) => error.message)) === READ_NOT_HELD,
         numericItem: await outcome(methods.readTranscriptItem([SESSION, 7])),
