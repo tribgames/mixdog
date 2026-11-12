@@ -141,11 +141,35 @@ fn main() {
         .ok()
         .or_else(|| std::env::var("MOCK_SCENARIO_FILE").ok().map(|path| std::fs::read_to_string(path).unwrap()))
         .map(|raw| serde_json::from_str(&raw).unwrap());
+    // `phases` in the scenario (a recorded case of `record-mcp-list-shape.mjs`): `tools/list` answers `phases[n][cursor]`
+    // (`""` for the first page) verbatim, n being how many times the tool `poke` was called; a `poke` answers, then
+    // announces `list_changed`.
+    let mut phase = 0usize;
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let method = message["method"].as_str().map(str::to_owned);
         let id = message.get("id").cloned();
+        if let Some(phases) = scenario.as_ref().and_then(|s| s["phases"].as_array()) {
+            match (method.as_deref(), id.clone()) {
+                (Some("tools/list"), Some(id)) => {
+                    let cursor = message["params"]["cursor"].as_str().unwrap_or_default();
+                    let reply = match phases[phase.min(phases.len() - 1)].get(cursor) {
+                        Some(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                        None => json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": format!("no such cursor {cursor}")}}),
+                    };
+                    send(&shared, reply);
+                    continue;
+                }
+                (Some("tools/call"), Some(id)) if message["params"]["name"] == "poke" => {
+                    send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": text("poked")}));
+                    phase += 1;
+                    send(&shared, json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}));
+                    continue;
+                }
+                _ => {}
+            }
+        }
         match (method.as_deref(), id) {
             (Some("tools/list"), Some(id)) if scenario.is_some() => {
                 let tools = scenario.as_ref().map(|s| s["tools"].clone()).unwrap_or_default();
