@@ -3188,6 +3188,9 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for MovingCwd {
+        fn release_send(&self, group: &str) {
+            self.inner.release_send(group);
+        }
         fn id(&self) -> &ProviderId {
             self.inner.id()
         }
