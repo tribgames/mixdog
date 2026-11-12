@@ -43,6 +43,12 @@ fn in_own_process(test: &str) -> bool {
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut run, 0x0800_0000);
     let out = run.output().unwrap();
+    // A filter that matches nothing (a renamed test) exits successfully without running the body.
+    assert!(
+        String::from_utf8_lossy(&out.stdout).lines().any(|line| line == "running 1 test"),
+        "{test} in a process of its own: the child did not run exactly that one test\n{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
     assert!(
         out.status.success(),
         "{test} in a process of its own: {}\n{}\n{}",
