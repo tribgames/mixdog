@@ -330,6 +330,18 @@ export async function redactSessionFiles(recorder, session) {
   return acked;
 }
 
+/**
+ * The log outgrew its base (SessionLogRecorder.rebaseDue): `session` is
+ * written as a fresh base replacing it, where a save would have added its
+ * records. Nothing but the log is touched. Rejects with what the rewrite
+ * rejects with; the log is then the one it was.
+ */
+export function rebaseSessionLog(recorder, session) {
+  return withScanCheckpointsRetired(sessionScanCheckpointDir(), sessionLogPath(session.id), () =>
+    recorder.rewrite(session, { reason: 'size' })
+  );
+}
+
 /** redactSessionFiles, synchronously: the exit drain's. */
 export function redactSessionFilesSync(recorder, session) {
   const id = session.id;

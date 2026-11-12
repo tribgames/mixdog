@@ -103,6 +103,27 @@ export function _sessionLogIoForTest() {
   return io;
 }
 
+// A log only grows between bases: every record it took stays in it, and each
+// open, load and transcript read replays all of them. Past this size and this
+// many times its base, a fresh base replaces it (rebaseDue). A 487 MB log,
+// 335 MB of it histories since replaced, was read whole at every open, taking
+// the daemon's external memory up by the file's size and its thread for
+// seconds (2026-11-12).
+let rebaseMinBytes = 16 * 1024 * 1024;
+const REBASE_GROWTH = 4;
+export function _setRebaseMinBytesForTest(bytes) {
+  const prior = rebaseMinBytes;
+  rebaseMinBytes = bytes;
+  return prior;
+}
+
+/** The bytes of a log's base: its `session` record and the history after it. */
+function baseBytesOf(bytes) {
+  const header = bytes.indexOf(0x0a);
+  const history = header < 0 ? -1 : bytes.indexOf(0x0a, header + 1);
+  return history < 0 ? bytes.length : history + 1;
+}
+
 function syncFdSync(fd) {
   try {
     io.fsyncSync(fd);
@@ -641,15 +662,18 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
   let log;
   // The stat the replay is proven to be of (unchanged across the read), or null.
   let known = null;
+  let baseBytes;
   try {
     const opened = fstatSync(fd, { bigint: true });
     const bytes = readFileSync(fd);
     log = parseSessionLog(bytes);
     if (!log.valid) throw logError(SESSION_LOG_ERRORS.INVALID, `log has no valid base: ${logPath}`);
+    baseBytes = baseBytesOf(bytes);
     if (log.damage) {
       closeSync(fd);
       fd = null;
       log = repairDamagedLog(logPath, log, options.claim);
+      baseBytes = log.size;
       fd = openSync(logPath, 'r+');
     } else if (log.tornTail) {
       cutTornTail(fd, logPath, bytes, log.tornTail.offset);
@@ -670,6 +694,7 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
     refs: log.messages,
     options: recorderOptions(options),
     known,
+    baseBytes,
   });
   if (expect) {
     try {
@@ -700,7 +725,7 @@ function repairDamagedLog(logPath, log, claim) {
 }
 
 export class SessionLogRecorder {
-  constructor({ logPath, fd, log, refs, options, known = null }) {
+  constructor({ logPath, fd, log, refs, options, known = null, baseBytes = log.size }) {
     this.logPath = logPath;
     this._jsonPath = join(dirname(logPath), `${basename(logPath, SESSION_LOG_SUFFIX)}.json`);
     this.sessionId = log.sessionId;
@@ -724,14 +749,20 @@ export class SessionLogRecorder {
     this._closed = false;
     this._closedHard = false;
     this._reset(log.logId, log.seq, log.size, log.header, refs);
+    this._baseBytes = baseBytes;
     if (known) this._know(known, this._generation());
   }
 
+  // `size`: the log as it stands — a fresh base's own size, but for the open
+  // of a log that grew since its base (the constructor then sets that base's).
   _reset(logId, seq, size, header, refs) {
     this.logId = logId;
     this._seq = seq;
     this._ackedSeq = seq;
     this._end = size;
+    this._baseBytes = size;
+    // The size the log must reach before a rebase is tried again (deferRebase).
+    this._rebaseAfter = 0;
     this._queue = [];
     this._unacked = null;
     this._strings = new Map();
@@ -776,6 +807,22 @@ export class SessionLogRecorder {
   /** The message references the log holds as recorded, in order. */
   recordedMessages() {
     return this._refs.slice();
+  }
+
+  /**
+   * Whether the acknowledged log outgrew its base (rebaseMinBytes,
+   * REBASE_GROWTH) and no rewrite of it is queued: the next save is then
+   * written as a rewrite, a base of the session as it stands, instead of as
+   * more records.
+   */
+  get rebaseDue() {
+    if (this.finished || this._fd === null || this._ops.some((op) => op.kind === 'rewrite')) return false;
+    return this._end >= Math.max(rebaseMinBytes, REBASE_GROWTH * this._baseBytes, this._rebaseAfter);
+  }
+
+  /** A rebase did not land: it is not tried again before the log doubled. */
+  deferRebase() {
+    this._rebaseAfter = this._end * 2;
   }
 
   /** Drops everything not yet written (a deleted session, or a barrier that
