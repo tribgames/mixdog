@@ -1,0 +1,29 @@
+{
+  "name": "machine",
+  "title": "Machine Status",
+  "annotations": {
+    "title": "Machine Status",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "compressible": true
+  },
+  "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "process": {
+        "type": "string",
+        "description": "Also list processes whose name contains this text."
+      },
+      "top": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20,
+        "description": "Rows per top list; default 5."
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,7 +1,7 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
-    "notRun": "the 3 s default cold wait that expires (case 47: branch gaps-memory-channels) and the real embedder",
+    "notRun": "the real embedder",
     "runs": "embedRecallQuery (recall-embedding-readiness.mjs) with scripted isReady / canWarmup / warmup / embed / onWarmupError and an AbortSignal; setTimeout/clearTimeout are wrapped only to record the armed delay and whether it was cleared"
   },
   "exclusions": "none: case 47 (timeout fallback) is recorded here with virtual timers (the wait timer is recorded and fired by hand; no real time passes)",
@@ -55,7 +55,7 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs",
   "recorderSha256": "0a3485d1bfa97f8ee2ad0787a9b61daee274f7de8c97d2470abef4934b137f63",
-  "replay": "the `memory/recall` request a client makes (mixdog-services memory/service.rs:273 -> Recall::recall, memory/recall/mod.rs:240), whose embedding step is the provider's private query_vector (memory/embed/provider.rs:137; is_ready :85, warmup :91). A replay sends a recall while the embedder is cold/ready/failing/cancelled and compares per scenario the returned state class (dense used, lexical fallback after the bounded wait, failure kept lexical, cancellation error), the error name/code/message, the ordered embedder calls (embed with {priority:true, inputType:\"query\"}) and the ordered `trace` of each scenario (recorder steps: clock firing a timer, abort, release of a gate; product events: calls, timers armed/cleared; settles). Rust awaits the warmup without a bound today (gap item 2 of gaps-memory-channels: the 3 s MIXDOG_RECALL_COLD_EMBED_WAIT_MS bound is work for the Rust side; its Node recording is case 47 here); the other scenarios map to the same function today",
+  "replay": "embed_recall_query (mixdog-services memory/recall/readiness.rs), the core's embedRecallQuery: the product's recall reaches it through RecallEmbedder::query_vector (readiness.rs, wired as the recall's QueryEmbedder in memory/boot.rs MemoryStack), which waits for a cold model at most cold_embed_wait() (MIXDOG_RECALL_COLD_EMBED_WAIT_MS, 3 s) and falls back to lexical recall. The replay (memory/replays/recall_readiness.rs, one test per case and further shape) scripts the embedder as the recorder did, gives the call a CancellationToken carrying the recorded abort reason, observes the wait's timer (armed delay, cleared, fired) through a test-only seam, fires it by advancing the paused tokio clock by the recorded delay, and compares per scenario the result or rejection whole, the injected-error identity, the ordered calls, the ordered trace (recorder steps at their recorded places, product events, settles) and the timer summary",
   "set": "memory-recall-readiness",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 19030,

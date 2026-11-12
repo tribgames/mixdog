@@ -160,6 +160,8 @@ pub async fn run_attempt(
         let error = codec.classify(&rejected);
         if resend.is_some_and(|resend| resend(&error)) {
             again = true;
+            // Node's gate calls `send` again: the resend is a request with an id of its own.
+            request.options.send_identity.remint();
             wire = codec.encode(request)?;
             continue;
         }
@@ -178,6 +180,7 @@ pub struct HttpAdapter {
     listing: Option<Arc<dyn ModelListing>>,
     resend: Option<Resend>,
     retry_line: Option<mixdog_core_api::domain::provider::RetryLine>,
+    input_excludes_cache: Option<bool>,
 }
 
 impl HttpAdapter {
@@ -200,12 +203,19 @@ impl HttpAdapter {
             listing: None,
             resend: None,
             retry_line: None,
+            input_excludes_cache: None,
         }
     }
 
     /// The line the provider's ladder writes before each retry ([`ProviderAdapter::retry_line`]).
     pub fn with_retry_line(mut self, line: mixdog_core_api::domain::provider::RetryLine) -> Self {
         self.retry_line = Some(line);
+        self
+    }
+
+    /// The usage convention of an adapter whose class states it apart from its name ([`ProviderAdapter::input_excludes_cache`]).
+    pub fn with_input_excludes_cache(mut self, excludes: bool) -> Self {
+        self.input_excludes_cache = Some(excludes);
         self
     }
 
@@ -224,6 +234,7 @@ impl HttpAdapter {
 
 #[async_trait]
 impl ProviderAdapter for HttpAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -250,6 +261,10 @@ impl ProviderAdapter for HttpAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         self.listing.as_deref()
+    }
+
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.input_excludes_cache
     }
 
     /// Grok, the local runtime and a custom provider's engines (`provider.nativePdf = false`).

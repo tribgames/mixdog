@@ -762,6 +762,134 @@ pub fn cache_break_record(a: &Args) -> Args {
         .done()
 }
 
+/// `cleanText(value, max)`: absent, null and `''` are null; otherwise `String(value)` with each run of CR, LF and TAB as
+/// one space, cut to `max` UTF-16 units.
+fn clean_text(value: Option<&Value>, max: usize) -> Option<String> {
+    let value = value.filter(|v| !v.is_null() && v.as_str() != Some(""))?;
+    let mut out = String::new();
+    let mut in_run = false;
+    for c in mixdog_js::value_to_string(value).chars() {
+        let space = matches!(c, '\r' | '\n' | '\t');
+        if !space {
+            out.push(c);
+        } else if !in_run {
+            out.push(' ');
+        }
+        in_run = space;
+    }
+    Some(crate::text::slice_utf16(&out, max))
+}
+
+/// `cleanHash`: the cleaned text's first 16 units.
+fn clean_hash(value: Option<&Value>) -> Option<String> {
+    clean_text(value, 128).map(|text| crate::text::slice_utf16(&text, 16)).filter(|text| !text.is_empty())
+}
+
+/// `finiteNumber`.
+fn finite_number(value: Option<&Value>) -> Option<Value> {
+    let n = number(value);
+    n.is_finite().then(|| num_value(n))
+}
+
+/// `buildCacheBreakPayload(record)` (`cache-break-trace.mjs`): the fields of a cache-break record, nulls left out.
+pub fn cache_break_payload(record: &Args) -> Args {
+    let text = |key: &str| clean_text(record.get(key), 120).map(Value::String);
+    let hash = |key: &str| clean_hash(record.get(key)).map(Value::String);
+    let num = |key: &str| finite_number(record.get(key));
+    let flag = |key: &str| Some(Value::Bool(is_true(record.get(key))));
+    let fields: Vec<(&str, Option<Value>)> = vec![
+        ("classification", Some(text("classification").unwrap_or_else(|| "unknown".into()))),
+        ("reason", Some(text("reason").unwrap_or_else(|| "unknown".into()))),
+        ("source", text("source")),
+        ("provider", text("provider")),
+        ("model", text("model")),
+        ("transport", text("transport")),
+        ("intentional_transition", text("intentionalTransition")),
+        ("index", num("index")),
+        ("previous_count", num("previousCount")),
+        ("next_count", num("nextCount")),
+        ("previous_hash", hash("previousHash")),
+        ("next_hash", hash("nextHash")),
+        ("previous_request_prefix_hash", hash("previousRequestPrefixHash")),
+        ("next_request_prefix_hash", hash("nextRequestPrefixHash")),
+        ("request_prefix_changed", flag("requestPrefixChanged")),
+        ("cached_tokens", num("cachedTokens")),
+        ("prompt_tokens", num("promptTokens")),
+        ("uncached_tokens", num("uncachedTokens")),
+        ("cache_ratio", num("cacheRatio")),
+        ("actual_cache_miss", flag("actualCacheMiss")),
+        ("previous_cached_prefix_tokens", num("previousCachedPrefixTokens")),
+        ("idle_ms", num("idleMs")),
+        ("missing_prefix_guard_baseline", is_true(record.get("missingPrefixGuardBaseline")).then_some(Value::Bool(true))),
+        ("input_prefix_mismatch_index", num("inputPrefixMismatchIndex")),
+        ("input_prefix_mismatch_previous_count", num("inputPrefixMismatchPreviousCount")),
+        ("input_prefix_mismatch_current_count", num("inputPrefixMismatchCurrentCount")),
+        ("input_prefix_mismatch_expected_type", text("inputPrefixMismatchExpectedType")),
+        ("input_prefix_mismatch_expected_hash", hash("inputPrefixMismatchExpectedHash")),
+        ("input_prefix_mismatch_actual_type", text("inputPrefixMismatchActualType")),
+        ("input_prefix_mismatch_actual_hash", hash("inputPrefixMismatchActualHash")),
+        ("changed_blocks", text("changedBlocks")),
+        ("system_markers_changed", record.get("markersChanged").filter(|v| v.is_boolean()).cloned()),
+        ("lost_message_breakpoints", text("lostMessageBreakpoints")),
+    ];
+    fields.into_iter().filter_map(|(key, value)| Some((key.to_owned(), value?))).collect()
+}
+
+/// `traceCacheBreak(record)`'s trace row: `{sessionId, iteration, kind, classification, reason, source, provider, model,
+/// transport, payload}` over [`cache_break_payload`].
+pub fn cache_break_trace_record(record: &Args) -> Args {
+    let mut args = Args::new();
+    args.insert("sessionId".into(), or_null(record.get("sessionId")));
+    // Raw: `cache_break_record` applies `finiteNumber` once; an absent iteration must stay absent (Number(null) is 0).
+    if let Some(iteration) = record.get("iteration") {
+        args.insert("iteration".into(), iteration.clone());
+    }
+    args.insert("payload".into(), Value::Object(cache_break_payload(record)));
+    cache_break_record(&args)
+}
+
+/// `formatCacheBreakLine(record)`: the `[cache-break] key=value ...` stderr line (no newline).
+pub fn cache_break_line(record: &Args) -> String {
+    let payload = cache_break_payload(record);
+    let p = |key: &str| payload.get(key).cloned();
+    let fields = [
+        ("classification", p("classification")),
+        ("reason", p("reason")),
+        ("source", p("source")),
+        ("session", clean_text(record.get("sessionId"), 160).map(Value::String)),
+        ("provider", p("provider")),
+        ("model", p("model")),
+        ("iteration", finite_number(record.get("iteration"))),
+        ("index", p("index")),
+        ("previousCount", p("previous_count")),
+        ("nextCount", p("next_count")),
+        ("previousHash", p("previous_hash")),
+        ("nextHash", p("next_hash")),
+        ("inputMismatchIndex", p("input_prefix_mismatch_index")),
+        ("intent", p("intentional_transition")),
+        ("cachedTokens", p("cached_tokens")),
+        ("promptTokens", p("prompt_tokens")),
+        ("previousCachedPrefixTokens", p("previous_cached_prefix_tokens")),
+        ("idleMs", p("idle_ms")),
+        ("noGuardBaseline", p("missing_prefix_guard_baseline")),
+        ("changedBlocks", p("changed_blocks")),
+        ("systemMarkersChanged", p("system_markers_changed")),
+        ("lostMessageBreakpoints", p("lost_message_breakpoints")),
+    ];
+    let shown: Vec<String> = fields
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let value = value?;
+            Some(match &value {
+                Value::String(_) => format!("{key}={}", crate::text::stringify(&value)),
+                Value::Number(n) => format!("{key}={}", mixdog_js::number_to_string(n.as_f64().unwrap_or(f64::NAN))),
+                other => format!("{key}={other}"),
+            })
+        })
+        .collect();
+    format!("[cache-break] {}", shown.join(" "))
+}
+
 /// `cache_break` / `cache_miss` of the WebSocket send (`openai-ws-send-trace.mjs`): the fields are
 /// `sessionId`, `iteration`, `classification`?, `source`?, `provider`, `model`, `transport`?, `payload`.
 pub fn ws_send_cache_record(kind: &str, a: &Args) -> Args {

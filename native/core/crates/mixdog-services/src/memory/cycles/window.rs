@@ -71,7 +71,7 @@ async fn commit_chunk(env: &WindowEnv, chunk: &super::quality::Chunk, root_id: i
         .await?;
     let members: Vec<Row> = locked.iter().map(super::rows::row_of).collect();
     let taken = locked.iter().any(|row| row.get::<_, Option<i64>>("chunk_root").is_some());
-    if taken || !assess_chunk_quality(&chunk.summary, Some(&chunk.quality), &members).0 {
+    if taken || !assess_chunk_quality(&chunk.summary, Some(&chunk.quality), &members).usable {
         return Err(MemoryError::Runtime("cycle1 source changed before commit".into()));
     }
     let now = (env.now)();

@@ -175,6 +175,7 @@ struct Refusing {
 
 #[async_trait]
 impl ProviderAdapter for Refusing {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         self.inner.id()
     }
@@ -288,6 +289,7 @@ impl ModelStream for ScriptedStream {
 
 #[async_trait]
 impl ProviderAdapter for Scripted {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         self.inner.id()
     }
@@ -458,6 +460,7 @@ impl ModelStream for DyingStream {
 
 #[async_trait]
 impl ProviderAdapter for Dying {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         self.inner.id()
     }

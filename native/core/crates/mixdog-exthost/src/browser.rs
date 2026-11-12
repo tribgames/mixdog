@@ -31,6 +31,9 @@ use crate::process::spawn_command;
 
 const ENDPOINT_PREFIX: &str = "DevTools listening on ";
 
+/// How long a launched browser has to publish its endpoint (puppeteer's default `timeout`).
+const LAUNCH_TIMEOUT: Duration = Duration::from_millis(30_000);
+
 /// How the render browser is found and kept.
 #[derive(Clone, Debug)]
 pub struct RenderBrowserConfig {
@@ -383,6 +386,8 @@ impl Launcher {
     /// `cancel` while it waits ends the browser through its owner and returns once that owner has
     /// signalled and reaped it.
     async fn launch(&self, cancel: &CancellationToken) -> Result<Running, BrowserError> {
+        // Counted from here, so the spawn is within it.
+        let deadline = mixdog_rt::time::Instant::now() + LAUNCH_TIMEOUT;
         let launch = self.launches.fetch_add(1, Ordering::Relaxed);
         let config = self.config.clone();
         let rt = self.rt.clone();
@@ -445,6 +450,11 @@ impl Launcher {
                 BrowserError::Launch("render browser did not publish its DevTools endpoint".to_owned())
             }),
             () = cancel.cancelled() => Err(BrowserError::Stopped),
+            // Puppeteer's `launch` gives the endpoint 30 s (its `timeout` option) and fails with this text.
+            () = mixdog_rt::time::sleep_until(deadline) => Err(BrowserError::Launch(format!(
+                "Timed out after {} ms while waiting for the WS endpoint URL to appear in stdout!",
+                LAUNCH_TIMEOUT.as_millis()
+            ))),
         };
         match endpoint {
             Ok(ws) => Ok(Running {
@@ -611,6 +621,49 @@ mod tests {
             ChildExits::watch().unwrap(),
             IDLE,
         )
+    }
+
+    /// A browser that starts and never publishes an endpoint is given up on at Puppeteer's 30 s, with its text, and is ended;
+    /// the next request launches again.
+    #[tokio::test(start_paused = true)]
+    async fn a_browser_that_never_publishes_its_endpoint_fails_the_launch_at_thirty_seconds() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
+        let config = RenderBrowserConfig {
+            command: Some((
+                "node".into(),
+                vec![
+                    root.join("src/ext-host/test/silent-browser.mjs").into_os_string(),
+                    std::env::temp_dir().join("mixdog-exthost-silent-browser.pid").into_os_string(),
+                ],
+            )),
+            profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
+            no_sandbox: false,
+        };
+        let launches = Arc::new(AtomicU64::new(0));
+        let browser = start_with_idle(
+            config,
+            mixdog_rt::testing::tokens().spawn_io,
+            Handle::current(),
+            launches.clone(),
+            ChildExits::watch().unwrap(),
+            IDLE,
+        );
+        let asking = browser.clone();
+        let asked = tokio::spawn(async move { asking.endpoint().await });
+        // The launch counts itself, with its deadline taken, before it spawns anything: on this one-thread runtime
+        // each yield lets every ready task run, so the request reaches the launch before the clock moves.
+        while launches.load(Ordering::Relaxed) == 0 {
+            tokio::task::yield_now().await;
+        }
+        tokio::time::advance(LAUNCH_TIMEOUT - Duration::from_millis(1)).await;
+        assert!(!asked.is_finished(), "still waiting just short of the bound");
+        tokio::time::advance(Duration::from_millis(1)).await;
+        let error = asked.await.unwrap().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!"
+        );
+        browser.shutdown().await;
     }
 
     #[test]

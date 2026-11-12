@@ -10,11 +10,14 @@ pub mod compat;
 pub mod connect;
 pub mod cursor;
 pub mod devin;
+pub mod first_byte;
 pub(crate) mod flat_schema;
 pub mod custom;
 pub mod google;
 pub mod grok;
 pub mod hosted;
+#[cfg(test)]
+pub(crate) mod case_replay;
 #[cfg(test)]
 pub(crate) mod hosted_wire_tests;
 pub(crate) mod js_value;

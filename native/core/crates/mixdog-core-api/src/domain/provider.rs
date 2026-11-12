@@ -305,7 +305,7 @@ impl std::fmt::Debug for ToolExclusionSink {
 /// content: two identities always compare equal.
 #[derive(Clone, Default, Debug)]
 pub struct SendIdentity {
-    id: std::sync::Arc<std::sync::OnceLock<String>>,
+    id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     /// The wire a gateway's latest attempt of this send went out on: the send's own route (Node keeps it per send,
     /// `wire-route.mjs` `sendOnRoute`), so concurrent sends of one model on different wires never share it.
     wire: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
@@ -379,7 +379,13 @@ impl SendIdentity {
 
     /// The send's id, minted with `mint` by the first caller.
     pub fn get_or_mint(&self, mint: impl FnOnce() -> String) -> String {
-        self.id.get_or_init(mint).clone()
+        self.id.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_or_insert_with(mint).clone()
+    }
+
+    /// The send's id is minted anew by the next caller of [`Self::get_or_mint`]: a request the adapter makes of its own, as Node
+    /// calls `send` again (Grok's version gate).
+    pub fn remint(&self) {
+        *self.id.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     /// Records the wire an attempt of this send went out on.
@@ -1022,6 +1028,14 @@ pub enum DeliveryState {
     Accepted,
 }
 
+/// Where a WebSocket send failed (Node `wsFailurePhase`): before a socket was acquired (the acquire, the upgrade), or
+/// after it (the frame send or the stream itself).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WsPhase {
+    Handshake,
+    Stream,
+}
+
 /// The facts that end a link or stream (SPEC §4.9 cases 1–4).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TransportFault {
@@ -1052,6 +1066,26 @@ pub enum TransportFault {
     Io {
         os_code: Option<i32>,
     },
+}
+
+impl TransportFault {
+    /// The errno name Node gives the socket error of this fault (`error.code`): `ECONNRESET` for a reset,
+    /// and for a connect or I/O failure the name of its OS error: `ECONNREFUSED`, `ETIMEDOUT` or `EPIPE`.
+    /// The OS error is read through the platform's own mapping, so a Windows or a Unix number names the same code.
+    pub fn errno_name(&self) -> Option<&'static str> {
+        use std::io::ErrorKind as K;
+        match self {
+            Self::Reset => Some("ECONNRESET"),
+            Self::Connect { os_code: Some(code) } | Self::Io { os_code: Some(code) } => match std::io::Error::from_raw_os_error(*code).kind() {
+                K::ConnectionRefused => Some("ECONNREFUSED"),
+                K::TimedOut => Some("ETIMEDOUT"),
+                K::BrokenPipe => Some("EPIPE"),
+                K::ConnectionReset => Some("ECONNRESET"),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
 
 /// Classified once at the adapter boundary; downstream reads fields only.
@@ -1089,6 +1123,9 @@ pub struct ProviderError {
     /// The replay envelope of the items a cut stream had finished (Node `partialProviderReplay`), when the wire keeps
     /// one: the response builder folds it into the failed attempt's partial.
     pub partial_replay: Option<Box<ProviderReplay>>,
+    /// The calls a response cut by its length or a content filter held (Node `partialToolCalls` of the
+    /// `ProviderIncompleteError`): none was dispatched or will run, and the turn fails with this error.
+    pub partial_tool_calls: Vec<ToolCall>,
     /// A page the user must open to unblock the account (Antigravity
     /// `VALIDATION_REQUIRED`: the `google.rpc.Help` link, else
     /// `metadata.validation_url`, else `metadata.validation_link`). Read from
@@ -1126,6 +1163,9 @@ pub struct ProviderError {
     pub finish_reason: Option<Box<str>>,
     /// The window a stream watchdog of the call ended it in (Node `timeoutPhase`); `None` for every other failure.
     pub timeout_phase: Option<StreamTimeoutPhase>,
+    /// The failure came from a WebSocket send, and where (Node `wsFailurePhase`); the loop keeps such a failure
+    /// when a retry follows it, since an outage that ends later surfaces that one.
+    pub ws_phase: Option<WsPhase>,
 }
 
 /// The stream window a watchdog fired in (`TIMEOUT_PHASE`, `shared/provider-timeout-phase.mjs`).
@@ -1156,12 +1196,14 @@ impl ProviderError {
             partial_usage: None,
             partial_model: None,
             partial_replay: None,
+            partial_tool_calls: Vec::new(),
             verification_url: None,
             rejected_tool: None,
             account_blocked: false,
             unsafe_to_retry: false,
             timed_out: false,
             quota_limit: None,
+            ws_phase: None,
             notices: Vec::new(),
             finish_reason: None,
             timeout_phase: None,
@@ -1282,6 +1324,10 @@ pub trait ProviderAdapter: Send + Sync {
     /// cancelled it. Called by the loop once per group, before any other send; a provider that
     /// accounts sends writes what the group held back. Nothing to do by default.
     async fn settle_send(&self, _group: &str, _end: SendEnd) {}
+    /// The logical send `group` is over for good, however it ended (answer, error, cancel, the caller's future
+    /// dropped, a panic): let go what it holds that other sends wait for. Synchronous, so a drop outside any
+    /// runtime can call it. Required: a wrapper must forward it; a stateless adapter writes an explicit no-op.
+    fn release_send(&self, group: &str);
     /// The session was deleted (`__mixdogCloseProviderConnectionsForSession(id,
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
@@ -1300,6 +1346,12 @@ pub trait ProviderAdapter: Send + Sync {
     /// `provider.nativeDocuments`: `Some(false)` means the provider takes no document block of any
     /// kind, so every document variant is lowered to text. Unset by default.
     fn native_documents(&self) -> Option<bool> {
+        None
+    }
+    /// `instance.constructor.inputExcludesCache` where the instance's class is not told by its registered name: a
+    /// custom provider on the anthropic protocol is an `AnthropicProvider` subclass (`custom-provider.mjs:162`) and
+    /// inherits `true`. `None` leaves the answer to the name (`accounted::input_excludes_cache`).
+    fn input_excludes_cache(&self) -> Option<bool> {
         None
     }
     /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`

@@ -244,9 +244,9 @@ pub(crate) struct Start {
     pub recovery_wait: Duration,
     #[cfg(test)]
     pub lock_wait: Duration,
-    /// Holds a start between its admission and the spawn of `pg_ctl start`.
+    /// Holds a start between its admission and the spawn of `pg_ctl start`; it is told the port the start chose.
     #[cfg(test)]
-    pub before_spawn: Option<std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync>>,
+    pub before_spawn: Option<std::sync::Arc<dyn Fn(u16) -> futures::future::BoxFuture<'static, ()> + Send + Sync>>,
 }
 
 impl Start {
@@ -441,6 +441,21 @@ impl ShareDir {
     }
 }
 
+/// The `initdb` arguments. initdb flushes every file it writes (nine to fourteen seconds alone beside builds, two or three without),
+/// and sixteen clusters started at once queue on the same disk for minutes; where this process's own flushes are elided (a test
+/// run), initdb's, a child's, are too (`--no-sync`).
+fn initdb_args(data_dir: &Path, share: Option<&Path>, syncs_elided: bool) -> Vec<String> {
+    let mut args = vec!["-D".to_owned(), data_dir.to_string_lossy().into_owned()];
+    if let Some(path) = share {
+        args.extend(["-L".to_owned(), path.to_string_lossy().into_owned()]);
+    }
+    args.extend(["--auth-local=trust", "--no-locale", "-E", "UTF8", "-U", "postgres"].map(str::to_owned));
+    if syncs_elided {
+        args.push("--no-sync".to_owned());
+    }
+    args
+}
+
 impl std::fmt::Debug for PgCluster {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PgCluster").field("data_dir", &self.data_dir).field("port", &self.port).finish_non_exhaustive()
@@ -606,7 +621,12 @@ impl PgCluster {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
         ensure_scrub_conf(lane, &data_dir).await?;
-        let port = free_port(preferred_port).await?;
+        // A port that was free when `free_port` looked can be taken by another process before the postmaster binds it (another
+        // cluster starting on this machine): the start then fails with a bind error in the log and goes on from the next port.
+        let mut from = preferred_port;
+        'attempt: loop {
+        let port = free_port(from).await?;
+        let logged_before = fsio::read_to_string(lane, &log).await.map_or(0, |text| text.len());
         // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began (a cancelled start begins no
         // postmaster: nothing would own it). An admitted start the stop gives up on at 6 s goes on as Node's does.
         if cancel.is_cancelled() || !admit() {
@@ -614,7 +634,7 @@ impl PgCluster {
         }
         #[cfg(test)]
         if let Some(gate) = &start.before_spawn {
-            gate().await;
+            gate(port).await;
         }
         let args: Vec<String> = [
             "start".to_owned(),
@@ -653,6 +673,12 @@ impl PgCluster {
                     return Ok(Self { runtime, data_dir, port: winner, lane, processes });
                 }
                 let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
+                if log_text.get(logged_before..).is_some_and(|new| new.contains("could not create any TCP/IP sockets"))
+                    && port < preferred_port.saturating_add(PORT_SPAN)
+                {
+                    from = port + 1;
+                    continue 'attempt;
+                }
                 let detail = [error.message(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
                     .into_iter()
                     .filter(|part| !part.is_empty())
@@ -674,6 +700,7 @@ impl PgCluster {
             // A stop does not end this wait (Node's `startAndWaitReady` takes none): a postmaster that is coming up has not written its pid file yet, so a
             // stop now would miss it. It is waited for (30 s at most) and the caller, which sees the stop, stops it.
             mixdog_rt::time::sleep(READY_POLL).await;
+        }
         }
     }
 
@@ -711,11 +738,7 @@ impl PgCluster {
 
     async fn init(lane: DurabilityIo, processes: &Processes, runtime: &PgRuntime, data_dir: &Path, cancel: &CancellationToken) -> Result<()> {
         let share = ShareDir::prepare(lane, processes, runtime).await?;
-        let mut args = vec!["-D".to_owned(), data_dir.to_string_lossy().into_owned()];
-        if let Some(path) = share.path() {
-            args.extend(["-L".to_owned(), path.to_string_lossy().into_owned()]);
-        }
-        args.extend(["--auth-local=trust", "--no-locale", "-E", "UTF8", "-U", "postgres"].map(str::to_owned));
+        let args = initdb_args(data_dir, share.path(), mixdog_fsio::elide::syncs_elided());
         // No time limit, as in Node (`runChild` without `timeoutMs`); the cancel ends it.
         let result = runtime.run(processes, "initdb", &args, Duration::ZERO, Some(cancel)).await;
         share.release(lane).await;

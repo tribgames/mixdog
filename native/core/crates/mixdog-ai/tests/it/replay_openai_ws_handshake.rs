@@ -80,9 +80,15 @@ async fn replay(case: &Case) {
     // (`MIXDOG_OAI_TRANSPORT=ws-full`, no HTTP/SSE switch), its upgrade refused as recorded. The send's own upgrade
     // headers are the product's (the recorded ones were the recorder's) and are not compared.
     let product = Endpoint::start().await;
-    product.ws_script(events);
+    // A 401 upgrade is answered with a forced credential refresh (`forceRefresh`, `openai-oauth.mjs:285`) and one upgrade
+    // again: the token endpoint answers with the token the upgrade carried, and the refusal is scripted for both upgrades.
+    let refused_401 = props.iter().any(|(name, value)| name == "status" && matches!(value, Exact::Number(n) if *n == 401.0));
+    let upgrades = if refused_401 { 2 } else { 1 };
+    product.ws_script(&events.iter().cycle().take(events.len() * upgrades).cloned().collect::<Vec<_>>());
     let home = tempfile::tempdir().expect("a home");
     let token = case.input.try_get("accessToken").map_or("fixture-access-token", Exact::as_str);
+    let refresh = serde_json::json!({ "access_token": token, "expires_in": 3600 });
+    product.reply_with(vec![Exact::Object(vec![("status".into(), Exact::Number(200.0)), ("contentType".into(), Exact::String("application/json".into())), ("body".into(), Exact::String(refresh.to_string()))])]);
     let credential = serde_json::json!({ "access_token": token, "refresh_token": "r", "expires_at": 4_102_444_800_000_u64, "account_id": "acct-fixture" });
     std::fs::write(home.path().join("openai-oauth.json"), credential.to_string()).expect("the credential");
     let builder = crate::replay_world::builder(&product, home.path(), vec![("MIXDOG_OAI_TRANSPORT".into(), "ws-full".into())]).await;

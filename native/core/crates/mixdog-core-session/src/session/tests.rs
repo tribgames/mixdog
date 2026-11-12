@@ -1317,6 +1317,28 @@ async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
     assert_eq!(ran, 13);
 }
 
+/// `inheritToNewSession` carries before it persists the heir: a fork asked to compact whose compaction cannot run is
+/// refused and leaves no copy of the conversation behind.
+#[tokio::test(start_paused = true)]
+async fn a_refused_compacting_fork_leaves_no_heir() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
+    let source = ThreadId::from("sess_source");
+    directory.create_with_id(source.clone(), header, json!({})).await.expect("create the source");
+    let handle = directory.open_handle(&source, &CallContext::internal("test")).await.expect("open");
+    let rows = vec![json!({ "role": "user", "content": "work" }), json!({ "role": "assistant", "content": "done" })];
+    let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": rows }), op: None, ctx: CallContext::internal("test") };
+    handle.request(append).await.expect("append");
+    rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    *lock(&rig.inherit.budget) = Some(10_000);
+    rig.compaction.heir_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+    let refused = directory.request(request("thread/fork", json!({ "threadId": "sess_source", "compact": true, "opId": "op-fork" }), "op-fork")).await;
+    assert!(refused.is_err(), "{refused:?}");
+    for id in directory.loaded_ids().into_iter().filter(|id| *id != source) {
+        assert!(directory.stored_header(&id).await.is_none(), "the refused fork left {id:?}");
+    }
+}
 /// The reads that decide a workspace move, as Node answered them over committed and running-turn messages
 /// (`hasUserConversationMessage(session.messages)` of `refreshSessionWorkspaceContext`; the intent view of
 /// `worktree-intents.mjs`: committed or live): an idle session whose turn settled still has its conversation.
@@ -3875,7 +3897,9 @@ async fn a_scheduler_fire_replays_the_failed_turn_once() {
     host.materialize(&id).await.expect("loaded");
     // A generation that is not queued is stale at once.
     assert_eq!(host.fire(&id, entry.generation + 1).await, Ok(FireOutcome::Stale));
-    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+    // The fire answers `Busy` while `retry_blocked` holds (a turn, the quota settlement, a compaction, a wake, queued input):
+    // wait for the actor to publish that it does not.
+    eventually_on!(&[&handle.cell.stepped, &rig.quota_changed], || (!handle.cell.retry_blocked.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
     let outcome = host.fire(&id, entry.generation).await;
     assert_eq!(outcome, Ok(FireOutcome::Fired));
     assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "a repeat of the generation");
@@ -4681,7 +4705,27 @@ async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain
     marks.carry(&child.id, &parent.id);
     let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
     assert!(rig.sensitive.remember(grandchild.id.as_str(), &[fill]));
-    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped, &*rig.prompts_wrote], || held().is_empty().then_some(())).await;
+    // The files are read after the index holds every write acked so far: the rewrite's index rows are projected behind their ack and
+    // nothing signals the projection, so a probe woken only by the owners' steps and the prompt history read the index before it
+    // had them and then waited for a wake that never came.
+    super::testing::awaiting(
+        || format!("until no file holds the value: {:?}", held()),
+        async {
+            let wakes = [&parent.cell.stepped, &child.cell.stepped, &grandchild.cell.stepped, &*rig.prompts_wrote];
+            loop {
+                let mut waits: Vec<_> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
+                for wait in &mut waits {
+                    wait.as_mut().enable();
+                }
+                threads.projected().await;
+                if held().is_empty() {
+                    return;
+                }
+                futures::future::select_all(waits).await;
+            }
+        },
+    )
+    .await;
     assert!(all.iter().all(|h| idle(h)), "no turn ran for it");
     assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), CODE), "[redacted]", "the parent holds the mark");
 }

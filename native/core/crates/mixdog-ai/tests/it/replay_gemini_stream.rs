@@ -85,9 +85,8 @@ async fn consume(set: &CaseSet, id: &str) -> (Vec<StreamEvent>, Option<ProviderE
     decoder = decoder.with_clock(move || at);
     if let Some(guard) = case.calls.iter().find(|c| c.entry.ends_with("createGeminiTextLeakGuard")) {
         let options = &guard.args[0];
-        assert!(options.get("deferToolCalls").as_bool(), "{id}: the core's guard defers its calls");
         let names: HashSet<String> = options.get("knownToolNames").as_array().iter().map(|n| n.as_str().to_owned()).collect();
-        decoder = decoder.with_known_tools(names);
+        decoder = decoder.with_known_tools(names).with_deferred_calls(options.get("deferToolCalls").as_bool());
     }
     let recovered = decoder.recovered_calls();
     // `firstByteTimeoutMs` as handed in, else `GEMINI_FIRST_BYTE_TIMEOUT_MS` of the recorder's scrubbed environment.
@@ -137,7 +136,7 @@ pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Rep
 #[tokio::test(start_paused = true)]
 async fn every_case_consumes_as_nodes() {
     let set = CaseSet::load(SET);
-    assert_eq!(set.cases.len(), 20, "the recorded cases");
+    assert_eq!(set.cases.len(), 21, "the recorded cases");
     for case in &set.cases {
         let id = case.id.as_str();
         let (events, error, recovered) = consume(&set, id).await;

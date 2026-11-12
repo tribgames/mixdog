@@ -93,7 +93,11 @@ fn login_required(message: &str) -> ProviderError {
     err
 }
 
-type Refreshing = Shared<BoxFuture<'static, Result<Credential, ProviderError>>>;
+fn refresh_failed(cause: &str) -> String {
+    format!("OpenAI OAuth token refresh failed ({cause}). Re-authenticate via provider login.")
+}
+
+type Refreshing =Shared<BoxFuture<'static, Result<Credential, ProviderError>>>;
 
 struct Inner {
     file: CredentialFile,
@@ -170,13 +174,23 @@ impl Inner {
             }
             Err(error) => (None, Vec::new(), Some(error)),
         };
-        let json: Option<Value> = serde_json::from_slice(&body).ok();
+        // `res.json()` of a 2xx answer: UTF-8 decoded without its BOM, then `JSON.parse`.
+        let decoded = String::from_utf8_lossy(&body);
+        let text = decoded.strip_prefix('\u{feff}').unwrap_or(&decoded);
+        let json = status.filter(|s| (200..300).contains(s)).map(|_| mixdog_js::json_parse(text));
         let Some(tokens) = json
             .as_ref()
-            .filter(|_| status.is_some_and(|s| (200..300).contains(&s)))
-            .and_then(|v| v.get("access_token")?.as_str().map(|a| (v, a.to_owned())))
+            .and_then(|parsed| parsed.as_ref().ok())
+            .and_then(|v| v.get("access_token")?.as_str().filter(|a| !a.is_empty()).map(|a| (v, a.to_owned())))
         else {
-            return self.failed(&stored, status, &body, unanswered.as_ref());
+            // `json.access_token` of what `res.json()` gave: a body that is no JSON rejects with the parser's own
+            // message, `null` with the property read's, anything else without a token is `refresh returned null`.
+            let unusable = json.map(|parsed| match parsed {
+                Err(_) => mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| unreachable!("the parser refused a text V8 accepts")),
+                Ok(Value::Null) => "Cannot read properties of null (reading 'access_token')".to_owned(),
+                Ok(_) => "refresh returned null".to_owned(),
+            });
+            return self.failed(&stored, rejected.is_some(), status, &body, unanswered.as_ref(), unusable);
         };
         let (json, access_token) = tokens;
         let granted = |key: &str| json.get(key).and_then(Value::as_str).unwrap_or_default();
@@ -218,18 +232,26 @@ impl Inner {
     }
 
     /// A refresh that did not produce tokens. A dead grant needs a new login;
-    /// anything else coasts on the current token while it still has life.
+    /// anything else coasts on the current token while it still has life, unless `force` (the token was just rejected:
+    /// `reusableCurrentTokens`, `openai-oauth-tokens.mjs:306`).
     fn failed(
         &self,
         stored: &Stored,
+        force: bool,
         status: Option<u16>,
         body: &[u8],
         unanswered: Option<&ProviderError>,
+        unusable: Option<String>,
     ) -> Result<Credential, ProviderError> {
         match classify_refresh_failure(status, body) {
-            RefreshFailure::Definitive => Err(login_required("the ChatGPT login was revoked or expired")),
+            RefreshFailure::Definitive => {
+                // Node's confirmed refusal (`openai-oauth-tokens.mjs:252`), wrapped as it wraps every failure (`:354`).
+                let mut err = login_required(&refresh_failed(&format!("OpenAI OAuth token refresh {} (invalid_grant)", status.unwrap_or_default())));
+                err.status = status;
+                Err(err)
+            }
             verdict => {
-                if stored.usable_at(now_ms(), 0) {
+                if !force && stored.usable_at(now_ms(), 0) {
                     return Ok(stored.credential());
                 }
                 let kind = if verdict == RefreshFailure::Transient {
@@ -238,20 +260,18 @@ impl Inner {
                     ErrorKind::Auth
                 };
                 let mut err = ProviderError::new(kind, DeliveryState::NotSent);
-                err.status = status;
-                // A request that got no answer is worded by Node's wrapper (`openai-oauth-tokens.mjs:354`), over the
-                // timer's own text (`:276`, the bare-`setTimeout` abort) or the fetch's.
-                err.message = match unanswered {
-                    Some(fault) => {
-                        let cause = if fault.timed_out {
-                            format!("OpenAI OAuth token refresh timed out after {}ms", TOKEN_OPENAI.liveness.head_deadline().map_or(0, |wait| wait.as_millis()))
-                        } else {
-                            fault.message.clone()
-                        };
-                        format!("OpenAI OAuth token refresh failed ({cause}). Re-authenticate via provider login.")
+                // Node's wrapper (`openai-oauth-tokens.mjs:354`) words every failure; its cause is the timer's own
+                // text (`:276`, the bare-`setTimeout` abort) or the fetch's for a request that got no answer, and
+                // `refresh returned null` (`:258`, `:262`) for an answer that is no token: no status travels with it. A 2xx
+                // body that cannot be read as one says why (`unusable`).
+                let cause = match unanswered {
+                    Some(fault) if fault.timed_out => {
+                        format!("OpenAI OAuth token refresh timed out after {}ms", TOKEN_OPENAI.liveness.head_deadline().map_or(0, |wait| wait.as_millis()))
                     }
-                    None => "the ChatGPT token refresh failed".into(),
+                    Some(fault) => fault.message.clone(),
+                    None => unusable.unwrap_or_else(|| "refresh returned null".into()),
                 };
+                err.message = refresh_failed(&cause);
                 Err(err)
             }
         }

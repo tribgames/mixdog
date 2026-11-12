@@ -191,3 +191,118 @@ async fn a_relay_write_outside_nodes_relay_methods_changes_nothing() {
         value_write(&config, &params, true).await.unwrap_or_else(|error| panic!("{edit}: Node's relay wrote it: {error:?}"));
     }
 }
+
+/// Node's desktop settings writes (`record-desktop-setting-writes.mjs`, the set `desktop-setting-writes`): each call of the
+/// recording that reaches the core's `config/value/write` as the desktop's route sends it leaves the config file as the recorded
+/// bytes, raises the recorded announcements in the recorded order, and answers or refuses with the recorded text. What the
+/// window's handler refuses before the write (`ipc-validation.ts`) is not the core's to answer, and the Markdown view is a config
+/// key here where Node keeps it in the user settings file, so its stored value is compared with Node's answer instead of bytes.
+#[tokio::test]
+async fn the_desktops_setting_writes_leave_what_node_left() {
+    const STORE_REFUSALS: [&str; 3] = [
+        "Activity rail pins must be an array of supported destinations.",
+        "Desktop zoom is fixed at 100%.",
+        "Site permissions hold at most 300 exceptions. Remove some sites first.",
+    ];
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-setting-writes/golden.json")).unwrap();
+    let cases = golden["cases"].as_array().unwrap();
+    let mut groups: Vec<&str> = Vec::new();
+    for case in cases {
+        let group = case["group"].as_str().unwrap();
+        if !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
+    let mut compared = 0;
+    // Every difference, so one run names them all.
+    let mut differences: Vec<String> = Vec::new();
+    for group in groups {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("mixdog-config.json");
+        let mut seed = serde_json::to_string_pretty(&golden["seeds"][group]).unwrap();
+        seed.push('\n');
+        std::fs::write(&file, seed).unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(file.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        let announced = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let sink = announced.clone();
+        config.announce_to(Arc::new(move |method, params| {
+            assert_eq!(method, "ui/settings/changed");
+            sink.lock().unwrap().push(json!({ "name": "settings-changed", "value": params }));
+        }));
+        for case in cases.iter().filter(|case| case["group"] == group) {
+            let step = case["step"].as_array().unwrap();
+            let arg = |at: usize| step.get(at).cloned().unwrap_or(Value::Null);
+            let refusal = case["outcome"]["error"]["message"].as_str();
+            if refusal.is_some_and(|text| !STORE_REFUSALS.contains(&text)) {
+                continue;
+            }
+            // The route's request for the call (desktop-operation-route.ts), from the arguments the window's handler passed on.
+            let (path, value, mode, announce) = match step[0].as_str().unwrap() {
+                "updateSetting" => {
+                    let path = match arg(1).as_str().unwrap() {
+                        "autoClear" => "agent.autoClear.enabled".to_owned(),
+                        "autoCompact" => "agent.compaction.auto".to_owned(),
+                        key => format!("desktop.{key}"),
+                    };
+                    (path, json!(arg(2) == true), Value::Null, json!("desktop"))
+                }
+                "setNotificationVolume" => ("desktop.notificationVolume".into(), arg(1), Value::Null, json!("desktop")),
+                "setSessionRetention" => (format!("desktop.{}", arg(1).as_str().unwrap()), arg(2), Value::Null, json!("desktop")),
+                "setBrowserPermissions" => ("desktop.browserPermissions".into(), arg(1), Value::Null, json!("desktop")),
+                "setZoomFactor" => ("desktop.zoom".into(), json!((arg(1).as_f64().unwrap() * 100.0).round() / 100.0), Value::Null, Value::Null),
+                "updateActivityRailPins" => {
+                    let mode = if arg(2) == true { json!("initializeIfMissing") } else { Value::Null };
+                    ("desktop.activityRailPins".into(), arg(1), mode, Value::Null)
+                }
+                "writeMarkdownDefaultView" => ("desktop.editor.markdownDefaultView".into(), arg(1), Value::Null, Value::Null),
+                other => panic!("{other}"),
+            };
+            let label = format!("{group} {step:?}");
+            announced.lock().unwrap().clear();
+            let params = json!({ "opId": "op-1", "path": path, "value": value, "mode": mode, "announce": announce });
+            let outcome = value_write(&config, &params, false).await;
+            compared += 1;
+            if let Some(text) = refusal {
+                match outcome {
+                    Err(CoreError::InvalidParams { expected, .. }) if &*expected == text => {}
+                    other => differences.push(format!("{label}: Node refused with {text:?}, got {other:?}")),
+                }
+                continue;
+            }
+            let answer = match outcome {
+                Ok(answer) => answer,
+                Err(error) => {
+                    differences.push(format!("{label}: Node accepted it, got {error:?}"));
+                    continue;
+                }
+            };
+            let events: Vec<&Value> = case["events"].as_array().unwrap().iter().filter(|event| event["name"] != "activity-rail-pins-changed").collect();
+            let heard = announced.lock().unwrap().clone();
+            if heard.iter().collect::<Vec<_>>() != events {
+                differences.push(format!("{label}: announced {heard:?}, Node {events:?}"));
+            }
+            let bytes = std::fs::read_to_string(&file).unwrap();
+            let node_bytes = case["files"]["config"].as_str().unwrap();
+            match step[0].as_str().unwrap() {
+                "writeMarkdownDefaultView" => {
+                    if config.get(&path) != Some(case["outcome"]["ok"].clone()) {
+                        differences.push(format!("{label}: stored {:?}, Node answered {}", config.get(&path), case["outcome"]["ok"]));
+                    }
+                    continue;
+                }
+                "updateActivityRailPins" if config.get(&path).unwrap()["revision"] != case["second"]["pins"]["revision"] => {
+                    differences.push(format!("{label}: the pins' revision"));
+                }
+                "setZoomFactor" if answer["values"][0] != case["outcome"]["ok"] => differences.push(format!("{label}: the answer {answer}")),
+                _ => {}
+            }
+            if bytes != node_bytes {
+                differences.push(format!("{label}: the file\n  core {bytes:?}\n  node {node_bytes:?}"));
+            }
+        }
+    }
+    assert!(compared > 150, "the recording's store calls: {compared}");
+    assert!(differences.is_empty(), "{} differences from Node:\n{}", differences.len(), differences.join("\n"));
+}

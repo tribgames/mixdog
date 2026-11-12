@@ -78,6 +78,10 @@
       "effort": {
         "type": "string",
         "description": "Reasoning effort for an explicit model."
+      },
+      "fast": {
+        "type": "boolean",
+        "description": "Fast mode for an explicit model; needs model."
       }
     },
     "required": [

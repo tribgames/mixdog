@@ -18,9 +18,42 @@ use mixdog_protocol::ConnectionKind;
 
 use mixdog_core::run_host::late::Bound;
 
+use crate::lifecycle::CorePort;
+use crate::lifecycle::DiscoveryState;
+use crate::lifecycle::DrainNotice;
+use crate::lifecycle::Exiter;
 use crate::lifecycle::ClientKind;
 use crate::lifecycle::ConnectionGuard;
 use crate::lifecycle::Lifecycle;
+use crate::lifecycle::LifecycleConfig;
+use crate::lifecycle::Ports;
+use crate::lifecycle::Publication;
+use crate::lifecycle::Running;
+use crate::lifecycle::new_instance_id;
+
+/// The ports of [`LateLifecycle::bind_in_process`]: nothing to publish to, cancel or leave.
+struct Inert;
+
+impl CorePort for Inert {
+    fn drain_notice(&self, _: &DrainNotice) {}
+    fn health(&self, _: u64) {}
+    fn cancel_running(&self, _: &[Running]) {}
+    fn cut_new_tasks(&self) {}
+    fn release_decision(&self, _: u32) {}
+    fn final_barriers(&self) {}
+    fn close_connections(&self) {}
+    fn close_ext_host(&self) {}
+    fn close_data_handles(&self) {}
+}
+
+impl Publication for Inert {
+    fn publish(&self, _: &DiscoveryState) {}
+    fn withdraw(&self) {}
+}
+
+impl Exiter for Inert {
+    fn exit(&self, _: i32) {}
+}
 
 /// The bound lifecycle, and the open client connections it counts (Node's client registries: the core stops itself when the
 /// last one leaves, `maybeSelfShutdown`).
@@ -30,6 +63,14 @@ pub struct LateLifecycle(OnceLock<Arc<Lifecycle>>, Mutex<HashMap<ConnectionId, C
 impl LateLifecycle {
     pub fn bind(&self, lifecycle: Arc<Lifecycle>) -> Result<(), &'static str> {
         self.0.set(lifecycle).map_err(|_| "lifecycle")
+    }
+
+    /// The lifecycle of a core that serves no daemon (`mixdog exec` composes its core in its own process): it counts the calls in flight,
+    /// while nothing publishes, cancels, exits or withdraws on its behalf: the process ends when the exec does.
+    pub fn bind_in_process(&self) -> Result<(), &'static str> {
+        let ports = Ports { core: Arc::new(Inert), discovery: Arc::new(Inert), exiter: Arc::new(Inert) };
+        let config = LifecycleConfig { instance_id: new_instance_id(), version: env!("CARGO_PKG_VERSION").to_owned(), runtime_root: std::path::PathBuf::new() };
+        self.bind(Lifecycle::new(config, ports))
     }
 
     /// `None` before the bind: a startup bug (the listener accepts only after it), which each reader reports in its own words.

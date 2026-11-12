@@ -13,7 +13,7 @@
 
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
-use crate::transport::deadlines::MODEL_STREAM_FETCH;
+use crate::transport::deadlines::openai_http_response;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -42,6 +42,7 @@ use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
+use mixdog_core_api::domain::provider::WsPhase;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 use mixdog_rt::CpuBulk;
@@ -62,6 +63,7 @@ use super::effort_retry::without_effort_updates;
 use super::models::OpenAiModels;
 use super::delta;
 use super::delta::Chain;
+use super::hedge;
 use super::pool::Checkout;
 use super::pool::Compat;
 use super::pool::WsPool;
@@ -123,7 +125,7 @@ impl fmt::Debug for Credential {
 pub trait CredentialSource: Send + Sync {
     async fn current(&self) -> Result<Credential, ProviderError>;
     /// The server rejected `rejected` with a 401: reload the key or refresh
-    /// the token. `None` when there is nothing newer to try.
+    /// the token. `None` when the source still holds the rejected credential; the request is sent once more either way.
     async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError>;
 }
 
@@ -320,6 +322,8 @@ pub struct OpenAiAdapter {
     mode: TransportMode,
     models: OpenAiModels,
     compress_lane: CpuBulk,
+    /// `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`: Node reads it once, when the provider's modules load.
+    http_response_ms: f64,
 }
 
 /// The seams and sources an adapter runs on.
@@ -351,6 +355,7 @@ impl OpenAiAdapter {
         );
         // A socket's closing releases its hold on its turn's state.
         let pool = Arc::new(WsPool::with_events(links.context.clone()));
+        let http_response_ms = crate::providers::google::cache::policy::http_response_ms(|name| links.context.var(name));
         let adapter = Self {
             id,
             codec,
@@ -365,6 +370,7 @@ impl OpenAiAdapter {
             mode: TransportMode::default(),
             models,
             compress_lane: links.compress_lane,
+            http_response_ms,
         };
         // The provider's constructor warms the socket (`openai-oauth.mjs:106`).
         adapter.preconnect();
@@ -449,14 +455,15 @@ impl OpenAiAdapter {
         wire: WireRequest,
     ) -> Result<Opened, ProviderError> {
         let packed = self.compressed(&wire).await;
-        let mut response = self.http.send(packed.clone().unwrap_or_else(|| wire.clone()), MODEL_STREAM_FETCH).await?;
+        let exchange = openai_http_response(codec.route() != Route::ApiKey, self.http_response_ms);
+        let mut response = self.http.send(packed.clone().unwrap_or_else(|| wire.clone()), exchange).await?;
         // `resendIfEncodingRejected`: a 400/415 of a compressed request is drained and the same request sent plain;
         // the latch is set only when that plain request is accepted (the encoding was the cause).
         if packed.is_some() && matches!(response.status, 400 | 415) {
             let mut body = response.body;
             while body.next().await.is_some() {}
             drop(body);
-            response = self.http.send(wire, MODEL_STREAM_FETCH).await?;
+            response = self.http.send(wire, exchange).await?;
             if response.is_success() {
                 ZSTD_LATCHED.store(true, Ordering::Relaxed);
             }
@@ -491,11 +498,32 @@ impl OpenAiAdapter {
         };
         let mut checkout = self.pool.checkout(&key, &compat, shared, false).await;
         if checkout.socket.is_none() {
-            let handshake = ws_request(&wire)?;
-            let (socket, upgrade) = match self.dial.dial(handshake).await {
+            // One acquire is a hedged race of dial legs under the acquire deadline (`openHedged`).
+            ws_request(&wire)?;
+            let window = hedge::Window::from_settings(|name| self.context.var(name));
+            let dialed = match hedge::race(window, || async {
+                let handshake = ws_request(&wire).map_err(|_| ConnectError::Transport(TransportFault::Io { os_code: None }))?;
+                self.dial.dial(handshake).await
+            })
+            .await
+            {
+                hedge::Raced::Opened(connected) => Ok(connected),
+                hedge::Raced::Failed(error) => Err(error),
+                hedge::Raced::TimedOut => {
+                    let label = if self.codec.route() == Route::ApiKey { "OpenAI WS" } else { "OpenAI OAuth WS" };
+                    return Err(hedge::acquire_timeout(label, window));
+                }
+            };
+            let (socket, upgrade) = match dialed {
                 Ok(connected) => connected,
                 Err(ConnectError::Transport(fault)) => {
-                    return Err(ProviderError::transport(fault, DeliveryState::NotSent));
+                    let mut error = ProviderError::transport(fault, DeliveryState::NotSent);
+                    // `ws` reports a connection reset during the upgrade as the request's own error.
+                    if error.transport == Some(TransportFault::Reset) {
+                        error.code = Some("ECONNRESET".into());
+                        error.message = "socket hang up".into();
+                    }
+                    return Err(error);
                 }
                 Err(ConnectError::Proxy { code, message }) => {
                     // The network proxy policy or the proxy refused: nothing was sent.
@@ -539,7 +567,11 @@ impl OpenAiAdapter {
         socket
             .send(Message::text(text))
             .await
-            .map_err(|fault| ProviderError::transport(fault, DeliveryState::Ambiguous))?;
+            .map_err(|fault| {
+                let mut error = ProviderError::transport(fault, DeliveryState::Ambiguous);
+                error.ws_phase = Some(WsPhase::Stream);
+                error
+            })?;
         let owner = checkout.owner;
         let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request));
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
@@ -622,6 +654,7 @@ fn ws_request(wire: &WireRequest) -> Result<Request, ProviderError> {
 
 #[async_trait]
 impl ProviderAdapter for OpenAiAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -732,9 +765,12 @@ impl From<ProviderError> for Failed {
 }
 
 impl OpenAiAdapter {
-    /// A resend is a request of its own, which Node builds anew with a fresh `x-client-request-id`
-    /// (`openai-oauth-http-sse.mjs`, once per `sendViaHttpSse`).
-    fn renew_request_id(&self, wire: &mut WireRequest) {
+    /// A resend over HTTP is a request of its own, which Node builds anew with a fresh `x-client-request-id`
+    /// (`openai-oauth-http-sse.mjs`, once per `sendViaHttpSse`); the WebSocket's resend keeps its headers.
+    fn renew_request_id(&self, wire_kind: Wire, wire: &mut WireRequest) {
+        if wire_kind == Wire::Ws {
+            return;
+        }
         for (name, value) in &mut wire.headers {
             if name.eq_ignore_ascii_case("x-client-request-id") {
                 *value = self.context.request_id();
@@ -774,7 +810,11 @@ impl OpenAiAdapter {
             }
             let authorized = self.authorize(wire.clone(), &credential);
             let opened = match wire_kind {
-                Wire::Ws => self.open_ws(request, authorized, &credential).await?,
+                // The acquire and the upgrade are the handshake; a failure past the socket is stamped where it happens.
+                Wire::Ws => self.open_ws(request, authorized, &credential).await.map_err(|mut error| {
+                    error.ws_phase.get_or_insert(WsPhase::Handshake);
+                    error
+                })?,
                 Wire::Http => self.open_http(codec, request, authorized).await?,
             };
             let refused = matches!(opened, Opened::Rejected(_));
@@ -800,14 +840,14 @@ impl OpenAiAdapter {
                 }
                 if let Some(next) = self.credentials.after_rejection(&credential).await? {
                     credential = next;
-                    self.renew_request_id(&mut wire);
-                    continue;
                 }
+                self.renew_request_id(wire_kind, &mut wire);
+                continue;
             }
             if !stripped && let Some(next) = without_effort_updates(&wire, &rejected) {
                 stripped = true;
                 wire = next;
-                self.renew_request_id(&mut wire);
+                self.renew_request_id(wire_kind, &mut wire);
                 continue;
             }
             let mut err = codec.classify(&rejected);
@@ -823,6 +863,9 @@ impl OpenAiAdapter {
             }
             if rejected.status == Some(401) && refreshed && err.kind == ErrorKind::Auth {
                 err.reauth_required = true;
+            }
+            if wire_kind == Wire::Ws {
+                err.ws_phase = Some(if handshake { WsPhase::Handshake } else { WsPhase::Stream });
             }
             return Err(Failed { error: err, handshake });
         }
@@ -865,6 +908,8 @@ impl Source {
 
 struct ResponsesStream {
     source: Option<Source>,
+    /// The exchange runs on a WebSocket: a failure of it is a stream failure of that send (`wsFailurePhase`).
+    ws: bool,
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<StreamEvent>,
     failed: Option<ProviderError>,
@@ -904,7 +949,8 @@ fn frame_turn_state(unit: &[u8]) -> Option<String> {
 
 impl ResponsesStream {
     fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
-        Self { source: Some(source), decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None }
+        let ws = matches!(source, Source::Ws { .. });
+        Self { source: Some(source), ws, decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None }
     }
 
     /// Reads a WebSocket's first frame ahead of the consumer.
@@ -1014,7 +1060,10 @@ impl ModelStream for ResponsesStream {
             if let Some(event) = self.queue.pop_front() {
                 return Some(Ok(event));
             }
-            if let Some(err) = self.failed.take() {
+            if let Some(mut err) = self.failed.take() {
+                if self.ws {
+                    err.ws_phase = Some(WsPhase::Stream);
+                }
                 return Some(Err(err));
             }
             let source = self.source.as_mut()?;

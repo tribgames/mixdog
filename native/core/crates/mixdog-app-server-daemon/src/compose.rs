@@ -15,7 +15,7 @@ use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
 use mixdog_services::effort_judge::JudgeTiming;
 use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
-use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
+use mixdog_services::memory::embed::config::EmbedEnv;
 use mixdog_services::memory::embed::engine::EmbedConfig;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
 use mixdog_services::tidy::process::Processes;
@@ -277,20 +277,22 @@ pub struct Models {
 /// Graph sessions the embedder keeps so concurrent embeds do not queue on one another.
 const EMBED_SESSIONS: usize = 2;
 
-pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -> Result<Models, ComposeError> {
+pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime, processes: &Processes) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
+    let embed_env = EmbedEnv::from_process();
     let embeddings = match &ort_library {
         OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
         EmbedConfig {
-            model_id: DEFAULT_MODEL_ID.into(),
+            model_id: embed_env.model_id(),
             cache_dir: data_dir.join("models"),
             ort_library: library.clone(),
-            dtype: None,
+            dtype: embed_env.dtype.clone(),
             sessions: EMBED_SESSIONS,
             lane: tokens.cpu_bulk,
         },
         tick.clone(),
-        ))),
+        )
+        .with_compaction(mixdog_services::memory::embed::compress::compact_with(processes.clone())))),
         OrtRuntime::NoBinding => None,
     };
     let effort_judge = EffortJudgeModel::with_options(
@@ -449,6 +451,16 @@ impl ComposedCore {
 
     pub fn open_memory_in_background(&self) {
         self.real.open_memory_in_background();
+    }
+
+    pub fn restore_remote_intent(&self) {
+        self.real.restore_remote_intent();
+    }
+
+    /// After the stop: closes the core's SQLite files, for a process that removes the data directory and lives on (`mixdogd exec`).
+    /// The daemon never calls it; its process exit closes them.
+    pub fn close_data_files(&self) {
+        self.real.close_data_files();
     }
 
     /// The memory database handle, for the readiness test that makes a first use.
@@ -611,6 +623,8 @@ pub struct ComposeConfig {
     pub data_dir: PathBuf,
     /// The desktop profile folder (editor backups, `User/settings.json`).
     pub user_data_dir: PathBuf,
+    /// The runtime root (`discovery::runtime_root`): the channel remote intent lives there, as in Node.
+    pub runtime_root: PathBuf,
     pub js_runtime: JsRuntime,
     /// The ONNX Runtime shared library (install layout), or that the platform has no binding.
     pub ort_library: OrtRuntime,
@@ -655,12 +669,19 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
 pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
+    let ComposeConfig { data_dir, user_data_dir, runtime_root, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
-    let (state, _) = CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
+    let (state, _, set_aside) = CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
         .map_err(ComposeError::State)?;
+    // Node carries on with a state file it finds corrupt; so does the daemon, and says once what it kept.
+    if let Some((kept, why)) = &set_aside.file {
+        log.log(&format!("state/core.sqlite is not a usable database ({why}); kept as {}; started a new one", kept.display()));
+    }
+    if set_aside.project_rows > 0 {
+        log.log(&format!("{} unreadable project row(s) of state/core.sqlite kept in its meta table (corrupt:projects:<path>)", set_aside.project_rows));
+    }
     let feed_index = Arc::new(CoreScopedFeeds::new(
         FeedLimits { ring_bytes: APP_RING_BYTES, max_snapshot_bytes: MAX_SNAPSHOT_BYTES },
         tokens.cpu_interactive,
@@ -684,7 +705,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
-    let models = build_models(tokens, data_dir, ort_library)?;
+    let models = build_models(tokens, data_dir, ort_library, &tidy_processes)?;
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new(), catalog_http).await.map_err(ComposeError::Catalog)?;
@@ -723,6 +744,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     }
     let thread_gates = Arc::new(crate::late_seams::LateThreadGates::default());
     let sections = Arc::new(mixdog_core_base::state::SectionFeedState::new(app_feed.clone()));
+    let rebuild_into = set_aside.file.is_some().then(|| state.clone());
     let stop_reason: Arc<StopReasonCell> = Arc::default();
     let acquired = crate::acquired::Acquired::new(interrupt);
     let host_media = HostMedia::new(Limits::default().max_media_frame_bytes);
@@ -732,6 +754,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tokens: tokens.clone(),
         data_dir: data_dir.to_path_buf(),
         user_data_dir,
+        runtime_root,
         package_root: js_runtime.package_root.clone(),
         js_runtime,
         #[cfg(test)]
@@ -774,6 +797,18 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
             return Err(error);
         }
     };
+    // A new database after a set-aside gets back what the session catalog still records (Projects, rooms), before any client connects.
+    // The rebuild is best effort: the daemon runs without it, as Node runs with an empty registry.
+    if let Some(state) = rebuild_into {
+        match mixdog_store::state_rebuild::rebuild_projects(&state, &real.catalog_index).await {
+            Ok(count) => log.log(&format!("rebuilt {count} project row(s) from the sessions' recorded folders")),
+            Err(error) => log.log(&format!("rebuilding the project rows failed: {error}")),
+        }
+        match mixdog_core_rooms::rooms::rebuild::rebuild_rooms(&state, &real.catalog_index).await {
+            Ok(done) => log.log(&format!("rebuilt {} room(s) from their logs and member sessions; {} room log(s) had too little left", done.rooms, done.skipped)),
+            Err(error) => log.log(&format!("rebuilding the room rows failed: {error}")),
+        }
+    }
     // The stop procedure's first steps, in this order: the quota resume timer ends before the directory it resumes sessions on shuts down, then the directory.
     let resume_timer = real.resume_timer.clone();
     // Node's boot coordinator (`daemon.mjs:1129`): Goal recovery, then `startQuotaResume`, once a client is ready.
@@ -843,6 +878,8 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
 mod review_restart_tests;
 #[cfg(test)]
 mod office_startup_tests;
+#[cfg(test)]
+mod state_set_aside_tests;
 
 #[cfg(test)]
 mod tests {
@@ -860,6 +897,7 @@ mod tests {
         ComposeConfig {
             data_dir: data.to_path_buf(),
             user_data_dir: dir.join("userdata"),
+            runtime_root: dir.join("runtime"),
             js_runtime: crate::js_runtime::fixture(dir),
             ort_library: OrtRuntime::NoBinding,
             outgoing: mixdog_app_server::Outgoing::new(),
@@ -1057,6 +1095,29 @@ mod tests {
             .await
             .unwrap();
             assert!(requested_at_first_step.load(Ordering::SeqCst), "closing was already requested when the first budgeted step started");
+        });
+    }
+
+    /// A core composed for `mixdog exec` binds its in-process lifecycle before its first request: the request is counted and the daemon log
+    /// has no "admitted before the lifecycle was bound" line (Node's exec writes nothing of the kind). Unbound, the line is written.
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
+    fn an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle() {
+        crate::compose_test_support::in_child(module_path!(), "an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            let stop = tokio_util::sync::CancellationToken::new();
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
+            log.enable_file_logging();
+            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, stop)).await.unwrap();
+            core.late_lifecycle().bind_in_process().unwrap();
+            let before = core.late_lifecycle().get().unwrap().status().seq_of_snapshot;
+            let guard = core.request_started("thread/list", &serde_json::json!({}));
+            assert!(core.late_lifecycle().get().unwrap().status().seq_of_snapshot > before, "the request is counted by the lifecycle");
+            drop(guard);
+            core.flush_log().await;
+            // A log with no line in it was never created.
+            let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap_or_default();
+            assert!(!text.contains("admitted before the lifecycle was bound"), "{text}");
         });
     }
 

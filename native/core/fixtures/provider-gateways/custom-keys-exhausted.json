@@ -26,8 +26,8 @@
   ],
   "keyIds": [
     "default",
-    "349c69ad-2cda-422c-831b-79a39e48d80a",
-    "94c6d158-6dd0-434b-863d-d9cf27bd55c6"
+    "5c29841c-d77a-4a0d-8c18-9cc41e1b9a28",
+    "da270a73-3c42-4cb7-8fb8-6fece2676cb7"
   ],
   "pool": {
     "accounts": [
@@ -39,14 +39,14 @@
         "label": "Account 1"
       },
       {
-        "id": "349c69ad-2cda-422c-831b-79a39e48d80a",
+        "id": "5c29841c-d77a-4a0d-8c18-9cc41e1b9a28",
         "blockedUntil": 1794225900000,
         "blockedModel": "m1",
         "blockedQuota": true,
         "label": "Account 2"
       },
       {
-        "id": "94c6d158-6dd0-434b-863d-d9cf27bd55c6",
+        "id": "da270a73-3c42-4cb7-8fb8-6fece2676cb7",
         "blockedUntil": 1794225900000,
         "blockedModel": "m1",
         "blockedQuota": true,
@@ -63,6 +63,7 @@
       "model": "m1",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {
@@ -236,6 +237,7 @@
       "model": "m1",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [],
       "events": [],

@@ -16,6 +16,8 @@
     "NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)",
     "reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts",
     "result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)",
+    "the Sec-WebSocket-Key and x-client-request-id values of every `upgrade-request` event of the ws-* cases: random per connection, written as the markers <handshake-nonce> and <random:hex32> (lib/headers.mjs), the headers stay",
+    "the outage cases (the eleven with input.attempts) are sent by the public OpenAI provider (`OpenAIDirectProvider.send`, MIXDOG_OAI_TRANSPORT=ws-delta, api key `fixture-key`), not by `sendViaWebSocket` with a hand-made xAI auth: their requests are what a user turn sends. A replay compares, per case and in recorded order, every `upgrade-request` event (method, target, every header) and every `frame` event with dir client->server (its text); not compared: the server-side events (`upgrade-response`, `upgrade-refused`, `upgrade-reset`, `upgrade-left-unanswered`, `open`, `frame` server->client, `close-sent`, `closed`, `terminate`), which are the scripted answer the replay feeds, and `dial`, `stage`, `progress`, `text`, `agent-trace`, which are socket plumbing and Node-internal telemetry the Rust loop has no counterpart for",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -23,15 +25,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 345620,
+      "bytes": 627059,
       "path": "cases.json",
-      "sha256": "8346299cb5e7f30d4702c4402658bfe92a24122ac2b203697ef1d637dbafde33"
+      "sha256": "82f4491d687ca3dfba861a7dc2165ee5360c69afe093ddad39d6c59f107b07e9"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
@@ -108,6 +110,50 @@
       "level": "wire"
     },
     {
+      "id": "ws-reset-then-acquire-timeouts-surface-the-first-reset",
+      "level": "wire"
+    },
+    {
+      "id": "ws-drop-then-acquire-timeouts-surface-the-drop",
+      "level": "wire"
+    },
+    {
+      "id": "ws-reset-then-stream-drops-surface-the-last-remembered-drop-with-the-last-as-cause",
+      "level": "wire"
+    },
+    {
+      "id": "ws-stream-drops-surface-the-last-remembered-drop-with-the-last-as-cause",
+      "level": "wire"
+    },
+    {
+      "id": "ws-stream-drops-then-a-reset-surface-the-last-remembered-drop-with-the-reset-as-cause",
+      "level": "wire"
+    },
+    {
+      "id": "ws-drop-then-unclassified-refusal-surfaces-the-drop",
+      "level": "wire"
+    },
+    {
+      "id": "ws-reset-then-unclassified-refusal-surfaces-the-reset",
+      "level": "wire"
+    },
+    {
+      "id": "ws-reset-then-401-surfaces-the-401",
+      "level": "wire"
+    },
+    {
+      "id": "ws-drop-then-403-surfaces-the-403",
+      "level": "wire"
+    },
+    {
+      "id": "ws-drop-then-426-surfaces-the-426",
+      "level": "wire"
+    },
+    {
+      "id": "ws-reset-then-503-refusals-surface-the-first-reset",
+      "level": "wire"
+    },
+    {
       "id": "ws-retry-stage-carries-known-codes-never-failure-text",
       "level": "wire"
     },
@@ -143,12 +189,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs",
-  "recorderSha256": "64c3cea2c39b4b6b1d804579d8a270dbfb9e34e727c41422d52957af82f9de71",
+  "recorderSha256": "6435f67daec644cea28b5ff16a1f15f334e7d6a0e27da594d90bfe5796bf2fcf",
   "replay": "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-ws-send-attempts",
-  "totalBytes": 345620,
+  "totalBytes": 627059,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

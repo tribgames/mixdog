@@ -116,6 +116,8 @@ pub struct TurnPathParts {
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
     /// The hosted web search's usage registry, made by the composition: `SenderDeps.sinks` reports into the same Arc the runs register their turn in.
     pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    /// The sessions' result caches, made by the composition: the manual compaction (built before the path) resets them too.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -155,12 +157,11 @@ impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
             tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage,
+            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage, reuses,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
-        let reuses: Arc<super::result_reuse::LiveReuses> = Arc::default();
         let turn_settings: Arc<super::turn_settings::LateTurnSettings> = Arc::default();
         let contacts = Arc::new(ContactIds::new(agents));
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));

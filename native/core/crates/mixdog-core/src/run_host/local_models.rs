@@ -46,6 +46,10 @@ impl LocalModels for ManagedLocalModels {
         })
     }
 
+    fn runtime(&self) -> Arc<dyn mixdog_ai::providers::local::LocalRuntime> {
+        Arc::new(mixdog_services::local_provider::installed_models::ManagedRuntime(self.provider.clone()))
+    }
+
     fn runtime_tools(&self, model: &str) -> Option<bool> {
         self.provider.catalog.state.get(model).get("capabilities")?.get("tools")?.as_bool()
     }

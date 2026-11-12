@@ -107,7 +107,7 @@ fn usage(model: Option<&str>, input: u64, cached: u64, written: u64, output: u64
 }
 
 fn model_request() -> RpcNotification {
-    notif("thread/modelRequest/updated", json!({ "threadId": "t", "status": "started" }))
+    notif("thread/modelRequest/updated", json!({ "threadId": "t", "phase": "started" }))
 }
 
 fn completion(content: &str, status: &str) -> RpcNotification {
@@ -486,9 +486,9 @@ fn lifecycle_script() -> Vec<RpcNotification> {
         reasoning("inspect first"),
         usage(None, 11, 7, 3, 5),
         tool_started("call_1", "shell", call.clone()),
-        notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "started" })),
+        notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "started" })),
         tool_done("call_1", "shell", call, "ok\n", marks),
-        notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "completed", "iteration": 1, "calls": 1, "elapsedMs": 2 })),
+        notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "completed", "iteration": 1, "calls": 1, "durationMs": 2 })),
         completion("background task completed", "progress"),
         model_request(),
         assistant("done"),
@@ -513,7 +513,9 @@ async fn the_json_lifecycle_is_the_recorded_node_stream() {
     let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
 
     assert_eq!((code, sink.stderr()), (0, Vec::<String>::new()));
-    assert_eq!(sink.stdout().join(""), include_str!("../../tests/goldens/exec_json_lifecycle.jsonl"));
+    // The stream's thread id is the one the exec reserves for its session (`exec_<32 hex>`), as `exec-cli/json` records.
+    let stdout = regex::Regex::new("exec_[0-9a-f]{32}").unwrap().replace_all(&sink.stdout().join(""), "<thread>").into_owned();
+    assert_eq!(stdout, include_str!("../../tests/goldens/exec_json_lifecycle.jsonl"));
     // The credential is bound in process: the run reads the host's own file, no copy.
     let bound = launcher.captured.lock().unwrap().as_ref().unwrap().credential.clone();
     assert_eq!(bound, Some(dir.path().join("host-data").join("openai-oauth.json")));
@@ -606,7 +608,8 @@ async fn a_termination_signal_runs_the_shutdown_once_and_returns_its_code() {
     let (code, sink) = run_with(options(dir.path()), &launcher, dir.path(), signal).await;
 
     assert_eq!(code, 130);
-    assert_eq!(sink.stderr(), Vec::<String>::new());
+    // The turn the shutdown aborted fails with Node's session-closed text (`teardown.mjs`), as `exec-cli/ctrl-c` records.
+    assert_eq!(sink.stderr(), ["mixdog: Session \"sess_signal\" closed: runtime close (reason=SIGINT)\n"]);
     assert_eq!(*launcher.order.lock().unwrap(), ["close", "services"]);
     assert!(!launcher.root().exists());
 }
@@ -709,7 +712,7 @@ fn recorded_core_events(case: &Value) -> Vec<RpcNotification> {
         if calls.is_empty() {
             continue;
         }
-        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "started" })));
+        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "started" })));
         for (call, result) in calls.iter().zip(requests[index + 1]["toolResults"].as_array().unwrap()) {
             assert_eq!(result["tool_use_id"], call["id"]);
             let mut done = tool_done(call["id"].as_str().unwrap(), call["name"].as_str().unwrap(), call["input"].clone(), result["content"].as_str().unwrap(), marks.clone());
@@ -718,7 +721,7 @@ fn recorded_core_events(case: &Value) -> Vec<RpcNotification> {
             }
             events.push(done);
         }
-        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "completed", "iteration": index + 1, "calls": calls.len(), "elapsedMs": 0 })));
+        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "completed", "iteration": index + 1, "calls": calls.len(), "durationMs": 0 })));
     }
     events.push(turn_done("completed", None, requests.last().unwrap()["served"]["stopReason"].as_str(), None));
     events
@@ -742,10 +745,13 @@ async fn the_read_only_exec_is_what_node_recorded_for_every_case() {
         let launcher = FakeLauncher::new("sess_exec_readonly", vec![Turn::Events(recorded_core_events(&case))]);
         let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
 
+        // Node's runs here had a runtime that already carried an id, which its stream took; this core's session takes the
+        // id the stream reserved (`exec_<32 hex>`, as `exec-cli/json` records), pinned back to Node's for the comparison.
+        let reserved = regex::Regex::new("exec_[0-9a-f]{32}").unwrap();
         assert_eq!(code, case["code"], "{label}: exit code");
-        assert_eq!(sink.stdout().join(""), case["stdout"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stdout");
+        assert_eq!(reserved.replace_all(&sink.stdout().join(""), "sess_exec_readonly"), case["stdout"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stdout");
         assert_eq!(sink.stderr().join(""), case["stderr"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stderr");
-        let document: Value = serde_json::from_str(&std::fs::read_to_string(&usage_path).unwrap()).unwrap();
+        let document: Value = serde_json::from_str(&reserved.replace_all(&std::fs::read_to_string(&usage_path).unwrap(), "sess_exec_readonly")).unwrap();
         assert_eq!(document, case["usage"], "{label}: usage document");
         // The runtime options Node created the session with, whole (the mode is the one that differs).
         let calls = launcher.calls();

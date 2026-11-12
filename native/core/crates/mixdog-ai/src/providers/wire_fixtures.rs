@@ -110,7 +110,7 @@ fn node_replay(replay: &ProviderReplay) -> Value {
 }
 
 /// A stop reason as the provider spelled it (Node `stopReason`).
-fn stop_text(stop: &StopReason) -> String {
+pub(crate) fn stop_text(stop: &StopReason) -> String {
     match stop {
         StopReason::EndTurn => "end_turn".into(),
         StopReason::ToolUse => "tool_use".into(),
@@ -799,6 +799,7 @@ pub(crate) async fn built_on(
         home_dir: dir.path().to_path_buf(),
         io,
         gated_off: Arc::new(|_| false),
+        local: None,
     });
     let provider = input["provider"].as_str().expect("provider");
     let name = provider.strip_suffix("-adc").or_else(|| provider.strip_suffix("-express")).unwrap_or(provider);

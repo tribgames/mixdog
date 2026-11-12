@@ -293,10 +293,13 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
     ])
     .await;
     let cache = tempfile::tempdir().expect("cache");
-    let provider = EmbeddingProvider::new(embed_config_with(cache.path(), real_ort())).with_hub(server.base.clone());
+    let provider = Arc::new(EmbeddingProvider::new(embed_config_with(cache.path(), real_ort())).with_hub(server.base.clone()));
+    // Recall asks the provider through `RecallEmbedder`, as `MemoryStack` wires it (memory/boot.rs).
+    let recall = crate::memory::recall::readiness::RecallEmbedder::new(provider.clone(), false);
 
     assert!(!provider.is_installed().await.expect("reads"));
-    assert_eq!(provider.query_vector("staging cluster").await, None, "not installed is a defined state, not a wait");
+    let never = CancellationToken::new();
+    assert_eq!(recall.query_vector("staging cluster", &never).await.expect("not aborted"), None, "not installed is a defined state, not a wait");
 
     let (sink, log) = recorder();
     provider.install(Some(&sink), &CancellationToken::new()).await.expect("installs");
@@ -305,7 +308,7 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
     assert_eq!(server.hits(&format!("/{id}/resolve/main/onnx/model_quantized.onnx_data")), 1, "optional weights are asked for");
     assert!(!embed_install::installed(&embed_config(&cache.path().join("nowhere"))));
 
-    let vector = provider.query_vector("how do I restart the staging cluster").await.expect("vector");
+    let vector = recall.query_vector("how do I restart the staging cluster", &never).await.expect("not aborted").expect("vector");
     let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools/memory/embeddings/golden.json")).expect("golden");
     let want: Vec<f64> = golden["cases"][0]["vector"].as_array().expect("vector").iter().filter_map(|v| v.as_f64()).collect();
     let worst = vector.iter().zip(&want).map(|(a, b)| (f64::from(*a) - b).abs()).fold(0.0, f64::max);

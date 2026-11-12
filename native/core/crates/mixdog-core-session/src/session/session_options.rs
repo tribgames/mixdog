@@ -64,9 +64,14 @@ pub fn model_tool_allowlist(profile: ToolProfile) -> Option<&'static [&'static s
 /// The allowlist of the profile a thread was started under (`toolProfile` on its header), which fences the
 /// standalone tools (`filterModelToolsForProfile`); a caller's own `schemaAllowedTools` does not.
 pub fn header_profile_allowlist(header: &Header) -> Option<&'static [&'static str]> {
+    header_tool_profile(header).and_then(model_tool_allowlist)
+}
+
+/// The narrowed profile a thread was started under (`toolProfile` on its header); `None` for the interactive one.
+pub fn header_tool_profile(header: &Header) -> Option<ToolProfile> {
     match header.get("toolProfile").and_then(Value::as_str) {
-        Some("headless") => model_tool_allowlist(ToolProfile::Headless),
-        Some("heartbeat") => model_tool_allowlist(ToolProfile::Heartbeat),
+        Some("headless") => Some(ToolProfile::Headless),
+        Some("heartbeat") => Some(ToolProfile::Heartbeat),
         _ => None,
     }
 }

@@ -278,3 +278,13 @@ fn the_start_output_chooses_stderr_before_trimming_as_node() {
     output.stderr.lock().unwrap().clear();
     assert_eq!(output.text().as_deref(), Some("waiting for server to start...."));
 }
+
+/// A test run's clusters are made without initdb's flushes (the sixteen-at-once start of the suites queued on the disk for minutes);
+/// a production start keeps them.
+#[test]
+fn initdb_skips_its_flushes_exactly_where_this_process_elides_its_own() {
+    let data = Path::new("pgdata");
+    assert!(initdb_args(data, None, true).contains(&"--no-sync".to_owned()));
+    assert!(!initdb_args(data, None, false).contains(&"--no-sync".to_owned()));
+    assert_eq!(initdb_args(data, Some(Path::new("share")), false)[..4], ["-D", "pgdata", "-L", "share"]);
+}

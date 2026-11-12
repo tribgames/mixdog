@@ -15,6 +15,7 @@ use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::FirstResponseBudget;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -50,6 +51,9 @@ use super::watchdog::StreamWatch;
 use super::watchdog::Watchdogs;
 use super::redirect;
 use crate::catalog::ListingLookup;
+use crate::providers::first_byte::FirstByteSettings;
+use crate::providers::first_byte::vertex_flex_budget;
+use super::serving::Tier;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
@@ -86,6 +90,8 @@ pub struct GoogleAdapter {
     /// The credential values this adapter's requests were sent with (the key, the bearer token), so a refusal that
     /// echoes one is read with it redacted. Each is the value a request carried, kept after a refresh replaces it.
     carried: Mutex<Vec<String>>,
+    /// The first-byte windows and Antigravity's ladder, read from the environment as Node does.
+    first_byte: FirstByteSettings,
 }
 
 impl GoogleAdapter {
@@ -118,6 +124,7 @@ impl GoogleAdapter {
             preconnect: None,
             var: Arc::new(|name| std::env::var(name).ok()),
             carried: Mutex::default(),
+            first_byte: FirstByteSettings::process(),
         }
     }
 
@@ -147,6 +154,13 @@ impl GoogleAdapter {
             refusal.body = clean.into_bytes();
         }
         refusal
+    }
+
+    /// The first-byte settings of this adapter, when they are not the process environment's. The retry `policy` it was built
+    /// with must come from the same settings ([`super::policy::antigravity_with`]).
+    pub fn with_first_byte(mut self, settings: FirstByteSettings) -> Self {
+        self.first_byte = settings;
+        self
     }
 
     /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
@@ -412,6 +426,7 @@ struct Cached {
 
 #[async_trait]
 impl ProviderAdapter for GoogleAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -522,6 +537,23 @@ impl ProviderAdapter for GoogleAdapter {
         stream.after_tool_result =
             request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
         Ok(Box::new(stream))
+    }
+
+    /// `antigravityFirstResponseBudget(antigravityFirstBytePolicy(model || DEFAULT_ANTIGRAVITY_MODEL))`: the gateway
+    /// queues or thinks server-side, so a Pro-class model waits `MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` (300 s, clamped
+    /// to the provider ceiling) and a Flash-class one the shared 60 s, each on a doubling window with one first-byte retry;
+    /// a model without a Gemini family keeps the shared window on the ordinary ladder. The Gemini API states none; Vertex AI
+    /// states one for a Flex route only (`VertexAIProvider.firstResponseBudget`).
+    fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<FirstResponseBudget> {
+        match self.codec.target() {
+            Target::Gemini { .. } => None,
+            Target::Vertex { .. } => (Tier::requested(parameters) == Tier::Flex).then(vertex_flex_budget),
+            Target::Antigravity { .. } => {
+                let model = if model.is_empty() { models::DEFAULT_ANTIGRAVITY_MODEL } else { model };
+                let family = models::antigravity_family(&self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner), model);
+                Some(self.first_byte.antigravity_budget(&self.first_byte.antigravity_policy(family.as_deref())))
+            }
+        }
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

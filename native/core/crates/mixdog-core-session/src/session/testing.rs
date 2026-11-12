@@ -568,7 +568,19 @@ impl ThreadStore for MemStore {
         head: HeadRead,
         _window: WindowRead,
     ) -> Result<OpenedLog, CoreError> {
-        let records = *head.0.downcast::<Vec<(u64, Record)>>().expect("MemStore head");
+        let mut records = *head.0.downcast::<Vec<(u64, Record)>>().expect("MemStore head");
+        // An amended row opens as its amend body, as the real store's window reads it (`history_item`).
+        for at in 0..records.len() {
+            let Record::Amend(amend) = &records[at].1 else { continue };
+            let (iid, body) = (amend.iid.clone(), amend.body.clone());
+            for (_, record) in &mut records[..at] {
+                if let Record::Item(item) = record
+                    && item.iid.as_str() == iid.as_str()
+                {
+                    item.body = body.clone();
+                }
+            }
+        }
         let (header, control, log_id) = match records.first() {
             Some((_, Record::Session(session))) => (
                 match &session.header {
@@ -1425,12 +1437,20 @@ impl super::TaskWorkspace for FixedTaskWorkspace {
 pub struct RecordingPlace {
     pub projects: Vec<String>,
     pub entered: std::sync::Mutex<Vec<(String, Value, Option<Value>)>>,
+    /// The Projects marked used after an accepted new task, in order; `touch_error` makes that write fail.
+    pub touched: std::sync::Mutex<Vec<String>>,
+    pub touch_error: Option<String>,
 }
 
 #[async_trait::async_trait]
 impl super::NewThreadPlace for RecordingPlace {
     async fn projects(&self) -> Result<Vec<String>, String> {
         Ok(self.projects.clone())
+    }
+
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.touched.lock().expect("touched").push(path.to_owned());
+        self.touch_error.clone().map_or(Ok(()), Err)
     }
 
     async fn enter_worktree(
@@ -1595,6 +1615,8 @@ pub struct Rig {
     pub snapshots: Arc<TestSnapshots>,
     /// The notice events, in order.
     pub notices: Arc<TestNotices>,
+    /// The settings scopes announced to every client, in order.
+    pub settings_changes: Arc<TestSettingsChanges>,
     /// The real Goal runtime over the temp data dir.
     pub goals: mixdog_core_goal::goal::GoalRuntime,
     /// The session's todo list, and the background work it waits on, as a Goal continuation
@@ -1943,6 +1965,10 @@ impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
     }
 }
 
+/// The settings scopes announced to every client, in order.
+#[derive(Default)]
+pub struct TestSettingsChanges(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+
 /// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`,
 /// `offload-prune-blocked:<session>`.
 #[derive(Default)]
@@ -2034,6 +2060,7 @@ impl Rig {
             deletes: Arc::default(),
             snapshots: Arc::default(),
             notices: Arc::default(),
+            settings_changes: Arc::default(),
         }
     }
 
@@ -2089,6 +2116,13 @@ impl Rig {
             runtime_hooks: Arc::new(super::runtime_hooks::NoRuntimeHooks),
             snapshots: self.snapshots.clone(),
             notices: self.notices.clone(),
+            settings_changed: {
+                let changes = self.settings_changes.clone();
+                Arc::new(move |scope: &str| {
+                    lock(&changes.0).push(scope.to_owned());
+                    changes.1.notify_waiters();
+                })
+            },
             turn_review: Arc::new(mixdog_core_review::turn_review::testing::test_review(&self._data.path().join("turn-review"))),
             route_change: self.route_change.clone(),
             deletion: self.deletes.clone(),

@@ -14,7 +14,7 @@ export const START_CALLS: ReadonlySet<string> = new Set<StartCall>(['startTask',
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 /** `applyRemoteSessionState`: the id of the one session the remote channel serves, as the snapshots carry it. Node accepted
- *  an id of at most 256 characters that is a session id; the core's `hostState` key `remoteSession` is `{ sessionId }`, null while off. */
+ *  an id of at most 256 characters that is a session id; the core's `hostState` key `remoteSession` is `{ enabled, sessionId, cwd }`, its id null while off. */
 export function remoteSessionIdOf(state: unknown): string {
   const record = state && typeof state === 'object' ? (state as Record<string, unknown>) : {};
   const candidate = String(record.sessionId || '');

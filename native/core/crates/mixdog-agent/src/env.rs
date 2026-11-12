@@ -105,11 +105,11 @@ pub trait SteerSource: Send + Sync {
     async fn drain(&self, request: DrainRequest) -> Vec<SteerEntry>;
 }
 
-/// Explicit skill selection for typed steering input, run before the next
-/// provider snapshot.
+/// Explicit skill selection (`prepareExplicitSkills`) for the turn's own prompt (`initial`) and for typed
+/// steering input, run before the next provider snapshot. Answers the skills that loaded, in selection order.
 #[async_trait]
 pub trait SkillSelector: Send + Sync {
-    async fn select(&self, content: &Content, transcript: &mut Vec<AgentMessage>);
+    async fn select(&self, content: &Content, initial: bool, transcript: &mut Vec<AgentMessage>) -> Vec<String>;
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +367,19 @@ pub enum RunEvent {
     /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
     /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
     PartialToolRecovery(PartialToolRecovery),
+    /// `onProviderSendStarted` (`send-phase.mjs:183`): the loop sends the transcript, once per send whatever its retries.
+    ProviderSendStarted,
+    /// `onAssistantToolCallObserved` (`send-phase.mjs:140`): the provider streamed a complete tool call.
+    ToolCallObserved(ToolCall),
+    /// `onToolPhaseStarted` / `onToolPhaseCompleted` (`tool-phase.mjs:54`, `:95`): the batch's calls run once the
+    /// assistant message that carries them is committed, and are all settled.
+    ToolPhase(ToolPhase),
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum ToolPhase {
+    Started,
+    Completed { iteration: u32, calls: usize, elapsed_ms: u64 },
 }
 
 /// What `recoverPartialToolCalls` traces (`traceLoop(state, 'partial_tool_recovery', ...)`).
@@ -473,6 +486,11 @@ pub trait TranscriptSink: Send + Sync {
 
     /// Cancel-safe.
     async fn durable(&self, ticket: Ticket);
+
+    /// `recordAppliedSkills`: the skills a durable user message's turn loaded are stamped on its stored row
+    /// (`meta.transcript.appliedSkills`), where the live row, the persisted transcript and restore read them. A sink
+    /// with no stored rows has nothing to stamp.
+    async fn skills_applied(&self, _message: &AgentMessage, _names: &[String]) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -751,6 +769,9 @@ pub trait ResultReuse: Send + Sync {
     async fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &ToolOutput);
     /// A call ran: mutations and failures invalidate what they may have touched.
     async fn after_call(&self, call: &ToolCall, failed: bool);
+    /// Compaction replaced the transcript, so the tool results it held are no longer in context: a new read epoch
+    /// (`resetReadStateAfterCompaction`).
+    fn after_compaction(&self) {}
 }
 
 /// What a successful react call hit.
@@ -1147,6 +1168,9 @@ pub trait ToolFailureLog: Send + Sync {
     /// `recordAgentWatchdogAbort(ctx)`: the progress watchdog stopped the run's turn (`mixdog_trace::watchdog_abort_records`
     /// has the fields of `ctx`); the `stall_abort` rows join the same log.
     fn stall_abort(&self, ctx: serde_json::Map<String, serde_json::Value>);
+    /// `traceCacheBreak(record)`: a send changed what the provider's prompt cache holds (`mixdog_trace::cache_break_payload`
+    /// has the fields of `record`); the `cache_break` row joins the trace and its line goes to stderr.
+    fn cache_break(&self, _record: serde_json::Map<String, serde_json::Value>) {}
 }
 
 /// Everything a run borrows from its host.

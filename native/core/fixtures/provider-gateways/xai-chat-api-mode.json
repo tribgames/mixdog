@@ -12,6 +12,9 @@
       "model": "grok-4.3",
       "tools": [],
       "history": [],
+      "opts": {
+        "sessionId": "sess-xai"
+      },
       "sessionId": "sess-xai",
       "requests": [
         {

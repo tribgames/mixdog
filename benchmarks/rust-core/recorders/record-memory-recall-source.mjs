@@ -42,7 +42,9 @@ function handlers(rows = [root, member, raw]) {
         return { rows: selected.map((row) => ({ ...row })) };
       }
       if (sql.includes('id <> ALL')) return { rows: [] };
-      if (sql.includes('WHERE session_id = $1')) return { rows: [{ ...rootRow }, { ...rawRow }] };
+      // The session statements order `ts DESC, source_turn DESC NULLS LAST, id DESC` (query-handlers' session read): the
+      // stand-in answers in that order, as PostgreSQL does (the rows here have no source_turn).
+      if (sql.includes('WHERE session_id = $1')) return { rows: [rootRow, rawRow].sort((a, b) => b.ts - a.ts || b.id - a.id).map((row) => ({ ...row })) };
       return { rows: [] };
     },
     transaction: (run) => run(db),

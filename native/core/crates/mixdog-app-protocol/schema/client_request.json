@@ -7570,6 +7570,27 @@
       ],
       "type": "string"
     },
+    "ProxyAccountRouting": {
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "sessionAccountId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accountId",
+        "provider"
+      ],
+      "type": "object"
+    },
     "ProxyBinary": {
       "description": "A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it is never carried: the sender inlines the bytes (under its byte budget), and a reference that stays travels as `unavailable`.",
       "oneOf": [
@@ -7986,6 +8007,17 @@
     },
     "ProxyMessage": {
       "properties": {
+        "accountRouting": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyAccountRouting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The account that served this answer, as the server kept it from the run's `accountRouting` event (Node `providerMetadata.accountRouting`): the PC's pool reads it back from the history to keep the conversation on that account."
+        },
         "assistantBlocks": true,
         "cacheTier": {
           "anyOf": [
@@ -8090,6 +8122,11 @@
           ]
         },
         "fast": {
+          "type": "boolean"
+        },
+        "forkedTransportScope": {
+          "default": false,
+          "description": "The server forked this request from a session (a side question) and gave it a transport scope of its own (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and releases it when the request ends.",
           "type": "boolean"
         },
         "hostedTools": {

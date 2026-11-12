@@ -123,11 +123,13 @@ impl AccountingDeps {
     }
 }
 
-/// `instance.constructor.inputExcludesCache`, the one source of the usage convention: the adapter
-/// classes that report input without its cache reads and writes (`static inputExcludesCache = true`
-/// in anthropic.mjs, anthropic-oauth.mjs, devin.mjs, vertex-ai.mjs); every other class, custom
-/// providers included, reports input with the cache. The accounting, the context metrics and the
-/// model proxy's advertisement all read this function.
+/// `instance.constructor.inputExcludesCache`, the one source of the usage convention, for a registered
+/// name: the adapter classes that report input without its cache reads and writes (`static
+/// inputExcludesCache = true` in anthropic.mjs, anthropic-oauth.mjs, devin.mjs, vertex-ai.mjs); every
+/// other class reports input with the cache. A custom provider's class is its protocol's (the
+/// anthropic protocol extends `AnthropicProvider`, `custom-provider.mjs:162`), which a name cannot
+/// tell: its adapter states it ([`ProviderAdapter::input_excludes_cache`]), read first by the
+/// accounting and the model proxy's advertisement.
 pub fn input_excludes_cache(provider: &str) -> bool {
     matches!(provider, "anthropic" | "anthropic-oauth" | "devin-oauth" | "vertex-ai")
 }
@@ -210,7 +212,7 @@ impl AccountedAdapter {
             session_id: scope.session_id,
             owner_session_id: scope.owner_session_id,
             source_type: scope.source_type,
-            input_tokens_inclusive: !input_excludes_cache(provider),
+            input_tokens_inclusive: !self.inner.input_excludes_cache().unwrap_or_else(|| input_excludes_cache(provider)),
             request_service_tier: String::new(),
             account: Ok(String::new()),
             request_id: (deps.new_id)(),
@@ -272,6 +274,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn native_documents(&self) -> Option<bool> {
         self.inner.native_documents()
     }
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.inner.input_excludes_cache()
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }
@@ -295,7 +300,12 @@ impl ProviderAdapter for AccountedAdapter {
         self.accounted(request, true).await
     }
 
+    fn release_send(&self, group: &str) {
+        self.inner.release_send(group);
+    }
+
     async fn settle_send(&self, group: &str, end: SendEnd) {
+        self.inner.settle_send(group, end).await;
         let held = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
         let Some(Held { mut accounting, failed }) = held else { return };
         match end {

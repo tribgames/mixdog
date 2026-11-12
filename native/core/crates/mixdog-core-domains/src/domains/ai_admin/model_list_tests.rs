@@ -224,6 +224,7 @@ struct ListsLoad {
 
 #[async_trait]
 impl mixdog_core_api::domain::provider::ProviderAdapter for ListsLoad {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &mixdog_protocol::ProviderId {
         self.mock.id()
     }

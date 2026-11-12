@@ -254,6 +254,7 @@ pub async fn builder_identified(
         home_dir: home.to_path_buf(),
         io,
         gated_off: Arc::new(|_| false),
+        local: None,
     })
 }
 

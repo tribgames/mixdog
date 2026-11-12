@@ -460,6 +460,7 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for Dummy {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &ProviderId {
             &self.id
         }

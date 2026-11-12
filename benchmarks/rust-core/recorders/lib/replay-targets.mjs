@@ -35,6 +35,19 @@ export const REPLAY_TARGETS = {
     notPublic: ['describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private', 'anthropicQuotaError: mixdog-ai/src/providers/anthropic/errors.rs:103 `quota_error_text` is pub(super)'],
     missing: ['providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds'],
   },
+  'first-response-budgets': {
+    rust: [r('mixdog-ai/src/providers/first_byte.rs', 58, 'FirstByteSettings::from_env'), r('mixdog-ai/src/providers/first_byte.rs', 109, 'FirstByteSettings::antigravity_budget')],
+    missing: [],
+  },
+  'local-send-queue': {
+    rust: [r('mixdog-ai/src/providers/local/mod.rs', 150, 'RegisteredAdapter::new'), r('mixdog-services/src/local_provider/installed_models.rs', 40, 'ManagedRuntime')],
+    missing: [],
+  },
+  'corrupt-state-file-cases': {
+    rust: [r('mixdog-store/src/state.rs', 399, 'CoreState::open_or_set_aside'), r('mixdog-services/src/memory/cycles/ledger.rs', 73, 'Ledger::write')],
+    notPublic: [],
+    missing: ['a reader of memory-cycle-state.json (the statusline segment): Node-only, the core only writes the file'],
+  },
   'git-launch-cases': {
     rust: [r('mixdog-scm/src/git_launch.rs', 119, 'resolve_layout'), r('mixdog-scm/src/git_launch.rs', 207, 'launch_environment'), r('mixdog-scm/src/git_launch.rs', 267, 'launch_for'), r('mixdog-scm/src/git_launch.rs', 287, 'git_command'), r('mixdog-scm/src/git_launch.rs', 295, 'forget_missing'), r('mixdog-scm/src/git.rs', 90, 'start_git')],
     missing: ['startGitSync (the synchronous start with the same retry): no function'],
@@ -69,11 +82,11 @@ export const REPLAY_TARGETS = {
   },
   'model-proxy-host-cases': {
     rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references'), r('mixdog-core/src/run_host/model_proxy_pc.rs', 80, 'PcQuotaProbe'), r('mixdog-core/src/run_host/model_proxy_pc.rs', 250, 'PcProviderConfig')],
-    missing: ['the PC host (createModelProxyHost: claim, heartbeat and lease, abort of a claimed call, the request-event stream): mixdog-core/src/run_host/model_proxy_pc.rs holds the quota probe and the provider config reads only; request dispatch is the ProxyCall match at mixdog-core-domains/.../ai_admin/model_proxy.rs:917-930'],
+    missing: [],
   },
   'model-proxy-host-trust-cases': {
-    rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references')],
-    missing: ['the PC host (claims bounded by maxSnapshotEntries, in-flight byte limits, projected callbacks): no counterpart found'],
+    rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references'), r('mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs', 184, 'ModelProxyService::call', 'the `modelProxy/run` request: admission by payload size, then the run and its typed events')],
+    missing: [],
   },
   'project-recency-failure-cases': {
     rust: [r('mixdog-store/src/registry.rs', 282, 'add'), r('mixdog-store/src/registry.rs', 309, 'touch_selected'), r('mixdog-store/src/registry.rs', 335, 'remove'), r('mixdog-store/src/registry.rs', 354, 'rename')],
@@ -139,6 +152,19 @@ export const REPLAY_TARGETS = {
     notPublic: ['idle reclaim around a running shell job: actor.rs:162 IDLE_EVICT, :1233 arm_idle_evict, :1248 has_active("shell") (private)'],
     missing: ['the desktop SessionHost pane (the rows it publishes from the job watcher timers, the show / hide reload): no counterpart found'],
   },
+  'named-attachment-file-cases': {
+    rust: [r('mixdog-core/src/run_host/attachment_store.rs', 291, 'StoreFiles'), r('mixdog-core/src/run_host/attachment_reference.rs', 156, 'ReferencedMedia', 'attached_files_note, reference_part_with'), r('mixdog-core/src/run_host/attachment_reference.rs', 286, 'AttachedFile'), r('mixdog-core-session/src/session/transcript_rows.rs', 117, 'normalize_attachments')],
+    notPublic: ['the submission intake (materializePromptSubmission, attachmentsForIntake) is not replayed: its recorded output is the input of the core calls'],
+  },
+  'message-attachments-cases': {
+    rust: [r('mixdog-core-session/src/session/transcript_rows.rs', 117, 'normalize_attachments'), r('mixdog-core-session/src/session/transcript_rows.rs', 925, 'restore')],
+    notPublic: ['the persisted metadata writer and the submission intake (store.mjs) are not part of this replay: the recording gives the attachment list the intake produced, the replay starts from it'],
+  },
+  'task-notification-envelope-cases': {
+    rust: [r('mixdog-agent/src/agent_tool/board.rs', 255, 'render_agent_completion'), r('mixdog-agent/src/project.rs', 196, 'is_model_visible_tool_completion_wrapper'), r('mixdog-protocol/src/text_class.rs', 76, 'parse_task_notification'), r('mixdog-core-session/src/session/delivered.rs', 66, 'DeliveredCompletions')],
+    notPublic: ['mixdog-core-session/src/session/delivered.rs:28 `task_notification_id`, completions.rs `entry` and agent_registry/flow.rs `model_visible` are crate-internal: the replay is an in-crate test'],
+    missing: ['modelVisibleToolCompletionMessage of a legacy quoted wrapper (the core queues only the envelopes it renders itself)'],
+  },
   'slash-commands-cases': {
     missing: ['slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart', 'the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI'],
   },
@@ -151,6 +177,34 @@ export const REPLAY_TARGETS = {
   },
   'store-summary-workspace-cases': {
     rust: [r('mixdog-store/src/summary.rs', 107, 'workspace_summary')],
+  },
+  'cursor-client-version-cases': {
+    rust: [r('mixdog-ai/src/client_versions.rs', 511, 'ClientVersions', 'warm (client_versions.rs:608), cursor (client_versions.rs:592)')],
+  },
+  'file-has-data-cases': {
+    rust: [r('mixdog-services/src/local_provider/catalog.rs', 29, 'file_has_data'), r('mixdog-services/src/local_provider/catalog.rs', 42, 'exact_file')],
+  },
+  'skill-creator-validator-cases': {
+    rust: [r('mixdog-mcp/src/skills.rs', 218, 'collect_skills')],
+  },
+  'computer-error-recovery': {
+    rust: [r('mixdog-tools/src/desktop/computer_recovery.rs', 139, 'tool_error_recovery'), r('mixdog-tools/src/desktop/computer_recovery.rs', 144, 'format_tool_error'), r('mixdog-tools/src/desktop/computer.rs', 59, 'ComputerTool', 'the call: a failure of the host is worded by format_tool_error')],
+    missing: ['computerResultRecovery (a reply body with a structured code): the Rust backend answers its replies as text parts'],
+  },
+  'google-mcp': {
+    rust: [r('mixdog-mcp/src/google_mcp.rs', 639, 'answer'), r('mixdog-mcp/src/google_mcp.rs', 83, 'service'), r('mixdog-mcp/src/http.rs', 93, 'HttpTransport::with_google_fetch')],
+    notPublic: ['the sign-in flow (PKCE, loopback redirect) is replayed by the mcp-oauth sets; here the connector end is'],
+  },
+  'session-tool-output': {
+    rust: [r('mixdog-core/src/run_host/tool_pool/session_output.rs', 101, 'session_list_output'), r('mixdog-core/src/run_host/tool_pool/session_output.rs', 254, 'session_read_output'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 217, 'DirectorySessionPort::read', 'action read of control')],
+    missing: ['session action=list, send, create and bots are not served by the session port (control answers "not available in this runtime" for them): the list shape is replayed through session_list_output only'],
+  },
+  'session-control-cases': {
+    rust: [r('mixdog-core/src/run_host/tool_pool/session_port.rs', 1, 'DirectorySessionPort::control')],
+  },
+  'session-compact-cases': {
+    rust: [r('mixdog-tools/src/orch/session.rs', 204, 'SessionTool', 'the session tool: actions compact and fork'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 377, 'DirectorySessionPort::schedule_compact'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 381, 'DirectorySessionPort::fork'), r('mixdog-core-session/src/session/directory.rs', 459, 'SessionDirectory::schedule_compact_after_turn', 'the actor runs the scheduled compaction when the thread\'s turn settles')],
+    notPublic: ['the settle itself (mixdog-core-session/src/session/actor.rs run_ended) is private: a replay reaches it by running a turn on a SessionDirectory'],
   },
   'system-proxy-cases': {
     rust: [r('mixdog-app-server-daemon/src/system_proxy_claim.rs', 28, 'new'), r('mixdog-ai/src/netproxy/system.rs', 601, 'attach_resolver'), r('mixdog-ai/src/netproxy/system.rs', 354, 'route_from_chromium')],

@@ -89,7 +89,7 @@ impl SessionActor {
     /// (PreCompact behind its savings gate), a skipped result is the answer as it is, and any
     /// other runs PostCompact, re-marks the Goal reminder (`compaction`: the compaction dropped
     /// the Goal's tool results), re-arms the late tool announcements and answers the result.
-    fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
+    pub(super) fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
         if self.ui_busy() {
             return self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
         }
@@ -120,7 +120,7 @@ impl SessionActor {
     /// `autoClearRunning` to a running compaction, `draining` to the completions still waiting
     /// for their own turns, `quotaResumePending` to a Goal resume in flight, `pending` to the
     /// queue (`decisions.md`, "turn/retryFailed").
-    fn retry_blocked(&self) -> bool {
+    pub(super) fn retry_blocked(&self) -> bool {
         self.deleting
             || self.cell.closed.load(SeqCst)
             || self.quota.settlement.settling()
