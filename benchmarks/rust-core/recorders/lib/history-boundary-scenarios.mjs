@@ -15,6 +15,7 @@ const bytes = {
   capped: Buffer.from('pasted before the archive cap'),
   other: Buffer.from('another session attachment'),
   filler: Buffer.from('pasted into a segment of the cap test'),
+  kept: Buffer.from('pasted into the last segment of the cap test'),
 };
 const blobs = new Map(Object.values(bytes).map((buffer) => [sha(buffer), buffer]));
 const ids = Object.fromEntries(Object.entries(bytes).map(([key, buffer]) => [key, sha(buffer)]));
@@ -29,7 +30,11 @@ export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErr
   const conversation = (text, buffer, pad) => [sentMessage(text, buffer, pad), { role: 'assistant', content: `reply to ${text} ${'x'.repeat(pad)}` }, { role: 'user', content: `follow-up to ${text} ${'x'.repeat(pad)}` }, { role: 'assistant', content: `answer to ${text} ${'x'.repeat(pad)}` }];
   // The segments of the archive are written by the compaction's own capture (scheduleCompactionArchive, what the compaction runner calls
   // with the messages it dropped), the hide by the real clear (clearSessionMessages), the cap by the capture's own writer over its byte
-  // cap: s1's first segment holds the id the clear hides; after the clear three large segments follow, the first holding the id the cap drops, and a small last one the id that stays.
+  // cap. Each refusal has one cause and the others cannot produce it:
+  //  - s1 (cleared, never near the cap): one small segment holds the id the clear hides; the id is read right after the clear, before any later
+  //    compaction can rewrite the archive and drop the hidden segment, so only the hide can refuse it. A small segment after it then opens.
+  //  - s3 (never cleared): three large segments, the first holding the id the cap drops, and a small last one the id that stays; the cap is the
+  //    only thing that removes a segment of it.
   const CAP = 20_000;
   const compacted = async (session, messages) => {
     stampCompactionMessageIds(messages, session.id);
@@ -37,20 +42,6 @@ export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErr
     await flushCompactionArchiveWrites();
     await saveSessionAsync(session);
   };
-  const ready = (async () => {
-    storedRecord('s1', []);
-    const s1 = loadSession('s1');
-    await compacted(s1, conversation('cleared', bytes.cleared, 2_000));
-    await clearSessionMessages('s1');
-    const cleared = loadSession('s1');
-    await compacted(cleared, conversation('capped', bytes.capped, 2_000));
-    await compacted(cleared, conversation('filler one', bytes.filler, 2_000));
-    await compacted(cleared, conversation('filler two', bytes.filler, 2_000));
-    await compacted(cleared, conversation('visible', bytes.visible));    cleared.messages = [sentMessage('newest', bytes.live)];
-    await saveSessionAsync(cleared);
-    storedRecord('s2', [sentMessage('other session', bytes.other)]);
-    await releaseIdleSessionWriter('s1');
-  })();
   /** The host as the app wires it: the window it holds, the daemon's attachment history read, and the attachment store. */
   function hostFor(window = { items: [] }) {
     const historyReads = [];
@@ -71,15 +62,37 @@ export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErr
     registerSessionIpc({ handle: (channel, listener) => handlers.set(channel, listener), host, invokeDesktopOperation: async () => null });
     return handlers;
   };
+  const ready = (async () => {
+    storedRecord('s1', []);
+    const s1 = loadSession('s1');
+    await compacted(s1, conversation('cleared', bytes.cleared));
+    await clearSessionMessages('s1');
+    const atClear = await outcome(readSessionAttachment(hostFor(), 's1', ids.cleared));
+    const cleared = loadSession('s1');
+    await compacted(cleared, conversation('visible', bytes.visible));
+    cleared.messages = [sentMessage('newest', bytes.live)];
+    await saveSessionAsync(cleared);
+    storedRecord('s3', []);
+    const s3 = loadSession('s3');
+    await compacted(s3, conversation('capped', bytes.capped, 2_000));
+    await compacted(s3, conversation('filler one', bytes.filler, 2_000));
+    await compacted(s3, conversation('filler two', bytes.filler, 2_000));
+    await compacted(s3, conversation('kept', bytes.kept));
+    storedRecord('s2', [sentMessage('other session', bytes.other)]);
+    await releaseIdleSessionWriter('s1');
+    await releaseIdleSessionWriter('s3');
+    return { atClear };
+  })();
   return {
     'a compacted attachment opens; a cleared, capped, foreign or guessed id is refused': async () => {
-      await ready;
+      const { atClear } = await ready;
       const host = hostFor();
       return {
         visible: await outcome(readSessionAttachment(host, 's1', ids.visible)),
         live: await outcome(readSessionAttachment(host, 's1', ids.live)),
-        cleared: await outcome(readSessionAttachment(host, 's1', ids.cleared)),
-        capped: await outcome(readSessionAttachment(host, 's1', ids.capped)),
+        cleared: atClear,
+        capped: await outcome(readSessionAttachment(host, 's3', ids.capped)),
+        keptByCap: await outcome(readSessionAttachment(host, 's3', ids.kept)),
         otherSessionsId: await outcome(readSessionAttachment(host, 's1', ids.other)),
         visibleIdOfOtherSession: await outcome(readSessionAttachment(host, 's2', ids.visible)),
         guessed: await outcome(readSessionAttachment(host, 's1', sha(Buffer.from('guess')))),
@@ -87,6 +100,7 @@ export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErr
       };
     },
     'the stored history is read only when the held window does not name the id': async () => {
+      await ready;
       const host = hostFor({ items: [{ id: 'u', kind: 'user', attachments: [record(bytes.live, 'image.png')] }] });
       await readSessionAttachment(host, 's1', ids.live);
       const afterHeld = [...host.historyReads];

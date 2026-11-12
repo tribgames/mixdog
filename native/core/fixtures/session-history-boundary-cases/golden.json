@@ -21,6 +21,9 @@
           "refusedAs": "not-linked",
           "message": "This conversation has no such attachment."
         },
+        "keptByCap": {
+          "opened": "pasted into the last segment of the cap test"
+        },
         "otherSessionsId": {
           "refusedAs": "not-linked",
           "message": "This conversation has no such attachment."

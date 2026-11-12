@@ -10,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2424,
+      "bytes": 2525,
       "path": "golden.json",
-      "sha256": "86d5c115d656508b367e84f3de8df925bf6d5731016c60fc77490fe648167cbd"
+      "sha256": "dbbc0bdd85ad1eb9e8ac2bf4d5b534fa83a712b280b92d044ff044e06c042d49"
     }
   ],
   "inputs": [
@@ -30,7 +30,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/history-boundary-scenarios.mjs",
-      "sha256": "4327bb5dad28001bbbd3bf27bf82fcc42f15e4683c639a7b587cc5c2d5f020c1"
+      "sha256": "8eaf674ce7949c61653eaca11665c641a2b4e5dfc1b15f8087baa64c0a1fa563"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -88,6 +88,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-history-boundary-cases",
-  "totalBytes": 2424,
+  "totalBytes": 2525,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
