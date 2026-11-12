@@ -160,6 +160,12 @@ impl CredentialFile {
         &self.path
     }
 
+    /// The credentials this file's account holds now, as its provider read or wrote them: each is a credential the process
+    /// redacts from then on (`carried::keep`, the file naming the account).
+    pub fn keep(&self, values: &[&str]) {
+        super::carried::keep(&format!("file {}", self.path.display()), values);
+    }
+
     async fn read_job(&self) -> Probe<Document> {
         if self.remote_client {
             return Probe::Absent;

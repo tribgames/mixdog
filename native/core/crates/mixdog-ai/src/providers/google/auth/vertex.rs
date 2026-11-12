@@ -345,7 +345,13 @@ impl VertexAuth {
             }
         };
         let reply = self.post(TOKEN_URI, form_header, body, "Vertex AI token request").await?;
-        parse_token_grant(&reply, "Vertex AI token")
+        let token = parse_token_grant(&reply, "Vertex AI token")?;
+        let secret = match grant {
+            Grant::AuthorizedUser { client_secret, refresh_token, .. } => [client_secret.as_str(), refresh_token.as_str()],
+            Grant::ServiceAccount { private_key, .. } => [private_key.as_str(), ""],
+        };
+        crate::oauth::carried::keep(&format!("vertex {}", self.credential.identity), &[&token.access_token, secret[0], secret[1]]);
+        Ok(token)
     }
 
     async fn mint(&self) -> Result<Minted, ProviderError> {

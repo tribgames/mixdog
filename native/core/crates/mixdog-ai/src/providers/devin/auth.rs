@@ -78,6 +78,7 @@ impl SessionToken for FileSessionToken {
     async fn session_token(&self) -> Result<String, ProviderError> {
         match self.0.load::<StoredCredentials>().await {
             Probe::Present(credentials) => {
+                self.0.keep(&[&credentials.access_token, credentials.refresh_token.as_deref().unwrap_or_default()]);
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64);

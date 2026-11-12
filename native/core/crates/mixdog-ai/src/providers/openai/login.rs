@@ -196,6 +196,7 @@ impl PkceProvider for OpenAiLogin {
         let label = identity
             .as_ref()
             .and_then(|i| i.get("email")?.as_str().map(str::to_owned));
+        self.file.keep(&[access, refresh, text("id_token").unwrap_or_default()]);
         let mut stored = Map::new();
         stored.insert("access_token".into(), json!(access));
         stored.insert("refresh_token".into(), json!(refresh));

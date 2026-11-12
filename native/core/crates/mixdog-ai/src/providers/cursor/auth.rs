@@ -270,7 +270,10 @@ impl FileAccess {
 
     async fn stored(&self) -> Result<StoredTokens, ProviderError> {
         match self.file.load::<StoredTokens>().await {
-            Probe::Present(tokens) => Ok(tokens),
+            Probe::Present(tokens) => {
+                self.file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
+                Ok(tokens)
+            }
             Probe::Absent => Err(reauth("Cursor OAuth is not connected.")),
             Probe::Unreadable => Err(storage("the credential file cannot be read")),
         }
@@ -312,6 +315,7 @@ impl FileAccess {
                 return Err(error);
             }
         };
+        self.file.keep(&[&next.access_token, next.refresh_token.as_deref().unwrap_or(&refresh_token)]);
         let (access, refresh) = (latest.access_token.clone(), refresh_token);
         let published = self
             .file
