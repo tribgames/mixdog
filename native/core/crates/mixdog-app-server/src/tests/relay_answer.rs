@@ -14,6 +14,7 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::ServerRequestSink;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::OpId;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ops::OpScope;
 use mixdog_core_api::ops::OpStatus;
@@ -22,6 +23,8 @@ use mixdog_protocol::Origin;
 use serde_json::Value;
 use serde_json::json;
 
+use super::actor::ActorThread;
+use super::actor::ApprovalActor;
 use super::Client;
 use super::Rig;
 use super::VERSION;
@@ -236,6 +239,39 @@ async fn a_rejected_answer_told_to_a_phone_carries_no_secret_of_its_call() {
     assert_eq!((relay.len(), local.len()), (1, 1));
     assert!(!relay[0].contains(secret), "{}", relay[0]);
     assert!(local[0].contains(secret), "a local client is told whole: {}", local[0]);
+}
+
+/// A decision the thread's `decide` itself refuses (not `response_rejected`): the sender is told by an `error` notification, whole
+/// to a local client and, to a relay connection, without the text and the params it may not read.
+#[tokio::test(start_paused = true)]
+async fn a_decision_refused_by_decide_is_told_a_phone_without_the_secret_and_a_local_client_whole() {
+    let world = World::new();
+    let case = recorded("the relay keeps no outcome")["observed"].clone();
+    let secret = case["secret"].as_str().unwrap();
+    let thread = world.rig.core.mock.directory().insert(ThreadId::from("t1"));
+    let handle = Arc::new(ActorThread { thread, actor: ApprovalActor::new("t1", world.rig.outgoing.clone()) });
+    world.rig.core.load("t1", handle.clone());
+    let connect = |id: u64, origin: Origin| {
+        let client = world.rig.connect(id, origin);
+        client.initialize(VERSION, json!({ "approvalsInbox": true }));
+        client
+    };
+    let (phone, local) = (connect(2, Origin::Relay), connect(3, Origin::Local));
+    handle.actor.ask("ap1", "t1", &[], None);
+    handle.actor.refuse_with(core_error(&case["thrown"]));
+    phone.drain();
+    local.drain();
+    phone.send(json!({ "id": "ap1", "result": { "approved": true } }));
+    local.send(json!({ "id": "ap1", "result": { "approved": true } }));
+    let (told, whole) = (phone.drain(), local.drain());
+    assert_eq!((told.len(), whole.len()), (1, 1));
+    let (told, whole) = (told[0].body.clone(), whole[0].body.clone());
+    assert!(whole.to_string().contains(secret), "a local client is told whole: {whole}");
+    let mut expected = whole;
+    let error = expected["params"]["error"]["data"].as_object_mut().unwrap();
+    error.remove("message");
+    error.remove("detail");
+    assert_eq!(told, expected);
 }
 
 /// Node's relay is the only leg that redacts and whitelists: a desktop on the loopback is told the failure whole.
