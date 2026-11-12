@@ -28,7 +28,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -116,10 +116,26 @@
     "existsButNotPublicOnO1": [
       "idle reclaim around a running shell job: actor.rs:162 IDLE_EVICT, :1233 arm_idle_evict, :1248 has_active(\"shell\") (private)"
     ],
-    "missingOnO1": [
-      "the desktop SessionHost pane (the rows it publishes from the job watcher timers, the show / hide reload): no counterpart found"
-    ],
+    "missingOnO1": [],
+    "replayedBy": {
+      "a job started after reclaim and reload reaches the pane as stopped; a running job keeps its session loaded": "node benchmarks/rust-core/recorders/replay-shell-job-stop-lifecycle.mjs --mixdogd <exe> (a built mixdogd over its WebSocket listener, the desktop protocol client's sessionStateOf(..).shellJobs as the pane; the strip a loading session carries comes from SessionDeps.shell_strips, actor.rs SessionActor::new)"
+    },
+    "declared": {
+      "steps[].status": "Node's session-service counters (live, busy, watched, retained, projected, pendingViewerSessions): the desktop host's bookkeeping, shown to no user",
+      "steps[].paneRowCount": "how many pane rows Node's host published (its republish timer); the pane itself is compared",
+      "steps[].disposedSessions": "Node's runtime disposal log",
+      "steps[].runtimesCreated": "Node's runtime construction count",
+      "steps[3].started": "the in-process execShellCommand return value; the core's job reaches the user as its pane row",
+      "steps[].atMs": "the recorder's virtual clock",
+      "paneRows": "every pane row Node's host republished, including its timer repeats; the pane at each user step is compared (paneRows[0] when shown, then running, settled, lastPane)",
+      "timers": "Node's timer arming log",
+      "idleEvictMs": "the recorder's idle-evict setting"
+    },
     "normalised": {
+      "reclaim": "Node's `steps[1]`/`steps[4]` (live 0 and disposedSessions; live 1 and retained 1) are the host's session counters, which no core wire call shows. The core drops a thread when its last watcher leaves and nothing of it works, and keeps it while background work runs (mixdog-core-session tests.rs an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_context, agent_activity_tests.rs a_thread_nobody_watched_stays_while_its_background_work_runs); the replay checks the desktop holds no state of the hidden session, so the pane after showing it again is the load's strip (`a_strip_at_load_keeps_a_finished_job_within_its_retention_and_drops_it_after`, shell_jobs.rs).",
+      "jobId": "the recorder writes Node's minted job id as job_<ms>_000000; the core names a background job after its tool call (task-call_serve), mapped to the same placeholder",
+      "startedAt/finishedAt": "an instant: the core's ms number and Node's ISO string are both written <iso>",
+      "cwd": "the session folder is written <fixtureRoot>",
       "timersArmedOrder": {
         "evidence": "two interleavings seen over about 40 runs, about 1 run in 15 showing the second. At virtual 1200, after the session reload, four entries swap places among the same-instant entries: the first reads setTimeout 0, setTimeout 30000, (setTimeout 300 unchanged), setImmediate; the second reads setTimeout 30000, setImmediate, (setTimeout 300 unchanged), setTimeout 0. The diff of the two raw goldens is 4 lines added and 4 removed, all inside timers.armed; fired, advances, steps and paneRows are identical",
         "path": "$.cases[0].observed.timers.armed",
