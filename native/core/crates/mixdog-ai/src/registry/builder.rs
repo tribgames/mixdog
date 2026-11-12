@@ -101,6 +101,7 @@ use crate::providers::openai::config::ModelFactsSource;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::providers::openai::config::WireContext;
 use crate::providers::openai::oauth::OpenAiOAuth;
+use crate::providers::openai::switch::TransportMode;
 use crate::transport::BidiOpen;
 use crate::transport::HttpSend;
 use crate::transport::preconnect::Preconnect;
@@ -566,11 +567,25 @@ impl ApiKeySource for OpenCodeKey {
 /// `ws-full`, `ws-delta`, unset or unknown) is WebSocket-first, and the
 /// HTTP replay on a WebSocket failure is decided above the adapter.
 fn openai_transport(raw: Option<String>) -> TransportKind {
-    let v = raw.unwrap_or_default().trim().to_lowercase();
-    let v: String = v.split(|c: char| c.is_whitespace() || c == '_').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
-    match v.as_str() {
+    match openai_mode_token(raw).as_str() {
         "http-sse" | "httpsse" | "http" | "sse" | "http/sse" => TransportKind::Http1,
         _ => TransportKind::WebSocket,
+    }
+}
+
+/// `_normalizeTransportMode`: the setting trimmed, lower-cased, spaces and underscores collapsed to `-`.
+fn openai_mode_token(raw: Option<String>) -> String {
+    let v = raw.unwrap_or_default().trim().to_lowercase();
+    v.split(|c: char| c.is_whitespace() || c == '_').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-")
+}
+
+/// The pin `MIXDOG_OAI_TRANSPORT` puts on the WebSocket (`resolveResponsesTransportPolicy`): `ws-full` sends full
+/// frames, `ws-delta` delta frames, neither moves to HTTP/SSE; every other setting is `auto`.
+fn openai_mode(raw: Option<String>) -> TransportMode {
+    match openai_mode_token(raw).as_str() {
+        "ws-full" | "wsfull" | "full" | "ws" | "websocket-full" => TransportMode::WsFull,
+        "ws-delta" | "wsdelta" | "delta" | "websocket-delta" => TransportMode::WsDelta,
+        _ => TransportMode::Auto,
     }
 }
 
@@ -653,6 +668,7 @@ impl DefaultProviderBuilder {
         let context: Arc<dyn WireContext> = self.env.openai_context.clone();
         let facts = self.env.openai_facts.clone();
         let transport = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
+        let mode = openai_mode(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
         let (config, credentials): (OpenAiConfig, Arc<dyn CredentialSource>) = if name == "openai" {
             (
                 OpenAiConfig::api_key(flag(cfg, "store").unwrap_or(true), facts, context),
@@ -675,7 +691,8 @@ impl DefaultProviderBuilder {
                 context: self.env.openai_context.clone(),
                 listing: self.env.listing.clone(),
             },
-        )))
+        )
+        .with_mode(mode)))
     }
 
     fn compat_config(
@@ -785,10 +802,15 @@ impl DefaultProviderBuilder {
             .unwrap_or_default();
         let routing = RouteInputs { model_wires, catalog: None };
         let caches_model_info = profile.listing.caches_model_info;
+        // The provider config's `reasoningEffort` stands in for a turn that names none on the Chat and Responses wires.
+        // The Messages engines of DeepSeek, OpenCode Go and Command Code never read it (recorded: `config-effort-*`);
+        // OpenRouter's reads it through its own reasoning control, below.
+        let configured_effort = text(cfg, "reasoningEffort").map(str::to_owned);
         let account = Arc::new(
             CompatAdapter::new(codec, http.clone(), Some(key.clone()))
                 .with_routing(routing)
-                .with_listing_lookup(self.env.listing.clone()),
+                .with_listing_lookup(self.env.listing.clone())
+                .with_configured_effort(configured_effort.clone()),
         );
         if caches_model_info {
             self.declare(name, account.clone());
@@ -826,14 +848,23 @@ impl DefaultProviderBuilder {
                 // The routing slug stays on the wire; capabilities come from the Claude id it stands for (its catalog
                 // alias target first), and OpenRouter's reasoning control replaces the turn's effort.
                 let aliases = rows.clone();
+                let configured = configured_effort.clone();
                 let tune = move |config: &mut AnthropicConfig| {
                     let aliases = aliases.clone();
+                    let configured = configured.clone();
                     config.capability_model = Some(Arc::new(move |model: &str| {
                         let alias = aliases.cached_row(model).and_then(|row| row.get("aliasTarget").and_then(Value::as_str).map(str::to_owned));
                         Some(openrouter_capability_model(model, alias.as_deref()))
                     }));
-                    config.gateway_effort = Some(Arc::new(|request: &ModelRequest| {
-                        let reasoning = crate::providers::compat::chat::openrouter_reasoning(request)?;
+                    config.gateway_effort = Some(Arc::new(move |request: &ModelRequest| {
+                        let reasoning = match (&configured, &request.options.effort) {
+                            (Some(effort), None) => {
+                                let mut owned = request.clone();
+                                owned.options.effort = Some(effort.clone());
+                                crate::providers::compat::chat::openrouter_reasoning(&owned)?
+                            }
+                            _ => crate::providers::compat::chat::openrouter_reasoning(request)?,
+                        };
                         Some(if reasoning["enabled"] == false { "none".to_owned() } else { reasoning["effort"].as_str()?.to_owned() })
                     }));
                 };
@@ -856,7 +887,9 @@ impl DefaultProviderBuilder {
                         GatewayHttp::new(self.env.http.clone())
                             .moving_path("/v1beta/models/", "/v1/models/")
                             .plain_system_instruction()
-                            .with_headers(identifying.clone()),
+                            .with_headers(identifying.clone())
+                            // `originBoundFetch`: the Gemini engine never follows a redirect either.
+                            .refusing_redirects_as("opencode-go"),
                     );
                 let gemini = google::adapter::GoogleAdapter::new(
                     google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()),
@@ -1099,6 +1132,7 @@ impl DefaultProviderBuilder {
             self.env.http.clone(),
             self.env.google_traits.clone(),
             Box::new(now_ms_u64),
+            self.env.env.var("MIXDOG_ANTIGRAVITY_FC_MODE").as_deref(),
         )
         .await
         .map_err(|e| e.message)?;

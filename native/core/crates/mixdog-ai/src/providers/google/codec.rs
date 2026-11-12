@@ -74,6 +74,8 @@ pub struct GoogleCodec {
     provider: ProviderId,
     /// The Anthropic catalog's model capabilities, for Claude on Vertex AI ([`Self::with_claude_caps`]).
     claude_caps: CapsLookup,
+    /// Antigravity's default `functionCallingConfig.mode` ([Self::with_function_calling_mode]).
+    function_calling_mode: &'static str,
 }
 
 /// `encodeURIComponent` with `@` kept: a version suffix (`claude-…@default`)
@@ -134,6 +136,7 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("gemini"),
             claude_caps: Arc::new(|_| None),
+            function_calling_mode: "VALIDATED",
         }
     }
 
@@ -143,6 +146,7 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("vertex-ai"),
             claude_caps: Arc::new(|_| None),
+            function_calling_mode: "VALIDATED",
         }
     }
 
@@ -161,6 +165,7 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("antigravity-oauth"),
             claude_caps: Arc::new(|_| None),
+            function_calling_mode: "VALIDATED",
         }
     }
 
@@ -168,6 +173,17 @@ impl GoogleCodec {
     /// (`buildAnthropicApiRequest({ capabilityModel })`).
     pub fn with_claude_caps(mut self, caps: CapsLookup) -> Self {
         self.claude_caps = caps;
+        self
+    }
+
+    /// ntigravityFunctionCallingMode: MIXDOG_ANTIGRAVITY_FC_MODE (trimmed, upper-cased) when it names AUTO, ANY or
+    /// VALIDATED, else VALIDATED.
+    pub fn with_function_calling_mode(mut self, raw: Option<&str>) -> Self {
+        self.function_calling_mode = match raw.unwrap_or_default().trim().to_uppercase().as_str() {
+            "AUTO" => "AUTO",
+            "ANY" => "ANY",
+            _ => "VALIDATED",
+        };
         self
     }
 
@@ -213,7 +229,7 @@ impl GoogleCodec {
                 system_role: Some("user"),
                 family_gated: true,
                 replay_same_model: false,
-                default_tool_mode: Some("VALIDATED"),
+                default_tool_mode: Some(self.function_calling_mode),
                 ..base
             },
         }
@@ -466,5 +482,32 @@ impl GoogleCodec {
         })
         .with_known_tools(request_tool_names(request))
         .for_model(&request.model))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Traits;
+    impl ModelTraits for Traits {
+        fn is_gemini_family(&self, _: &str) -> bool {
+            true
+        }
+        fn thinking(&self, _: &str) -> crate::providers::google::traits::ThinkingControl {
+            crate::providers::google::traits::ThinkingControl::Unspecified
+        }
+    }
+
+    /// Node's `antigravityFunctionCallingMode` over `{}`, `any`, ` Auto ` and `bogus` (recorded from the Node tree).
+    #[test]
+    fn the_fc_mode_setting_names_the_default_tool_mode_as_node_does() {
+        let mode = |raw: Option<&str>| {
+            GoogleCodec::antigravity("o", "p", "2.19.1", Arc::new(Traits)).with_function_calling_mode(raw).dialect().default_tool_mode
+        };
+        assert_eq!(mode(None), Some("VALIDATED"));
+        assert_eq!(mode(Some("any")), Some("ANY"));
+        assert_eq!(mode(Some(" Auto ")), Some("AUTO"));
+        assert_eq!(mode(Some("bogus")), Some("VALIDATED"));
     }
 }

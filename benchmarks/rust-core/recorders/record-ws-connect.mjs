@@ -62,7 +62,8 @@ server.on('upgrade', (req, socket, head) => {
   upgradePorts.add(socket.remotePort);
   const n = ++seen;
   const action = script[n - 1] ?? 'stuck';
-  log.push({ t: since(), on: 'upgrade', conn: n, action });
+  // An upgrade is stamped with the instant its leg's dial began: it arrives in real I/O time, which the virtual clock may already have left.
+  log.push({ t: log.find((e) => e.on === 'dial' && e.port === socket.remotePort)?.t ?? since(), on: 'upgrade', conn: n, action });
   socket.on('close', () => log.push({ t: since(), on: 'closed', conn: n }));
   socket.on('error', () => {});
   if (action === 'open') {
@@ -134,9 +135,9 @@ for (const s of scenarios) {
   const entry = outcome?.ok ? await acquired : null;
   if (entry) pool.releaseWebSocket({ entry: entry.entry, poolKey: null, keep: false });
   await advanceTo(s.until + 1);
-  const legs = log.filter((e) => !(e.on === 'dial' && !upgradePorts.has(e.port)));
   let leg = 0;
-  const events = legs.map(({ port: _port, ...e }) => (e.on === 'dial' ? { ...e, conn: ++leg } : e));
+  // A dial that never asks to upgrade is not a leg. It is kept as its own kind of event so the recording shows it instead of hiding it (see the manifest: `events of kind background-dial`).
+  const events = log.map(({ port, ...e }) => (e.on !== 'dial' ? e : upgradePorts.has(port) ? { ...e, conn: ++leg } : { t: e.t, on: 'background-dial' }));
   writeJson(join(outDir, `${s.id}.json`), { id: s.id, auth: s.auth, script: s.script, until: s.until, events, outcome });
   console.log(`${s.id}: ${JSON.stringify(outcome)}`);
   recorded.push(s.id);
@@ -151,7 +152,7 @@ writeSetManifest(outDir, {
     clockStartMs: T0,
     exclusions: {
       'outcome.message of a transport failure (lone-leg-reset, reset-beside-a-stuck-leg)': 'the text is `ws`/libuv wording for the reset the recorder wrote; the core states the typed transport fault and its own words. The replay compares that the race ended, when, and with a transport (not status, not acquire-timeout) failure',
-      'dial events of a connection that never asks to upgrade': 'the Codex route warms its connection with a plain HTTP request on the first acquire (preconnect), which dials once without being a WebSocket leg; the core runs that warm-up on its HTTP client, apart from the dial, so only the legs are compared',
+      'events of kind background-dial': 'a dial that never asks to upgrade, once per process on the first Codex acquire. It is the live Codex CLI version lookup, a plain https GET to the npm registry: `codexVersionHeader()` / `codexClientVersionSync()` (codex-client-meta.mjs:28-33, :95) answer from the cache at once and only kick `ensureRefresh()` (npm-cli-version.mjs, `createRemoteVersionSource`), and the file says so: "A stale value kicks a background refresh; the handshake must never await a registry fetch". Nothing in `acquireWebSocket` / `openHedged` waits for it or shares its connection (`openLeg` dials through `createWsConnection` alone), so no leg, hedge instant or acquire end can move with it; it is the HTTP client of the version duty, which the core keeps outside the adapter (`registry::versioned`)',
       'events of kind upgrade': 'the server\'s view of a request arriving, in real I/O time after the dial; the dial events (the product asking for a connection, at the virtual time of the leg\'s start) are compared instead',
       'events of kind closed': 'the server\'s view of a closed connection. In Node a cancelled stuck leg (`socket.terminate()` before the upgrade) leaves its loopback connection open, the core drops the dial and closes it; the other closes follow the recorder\'s own release of the opened socket. Not compared: the replay compares the upgrades the server saw, when, and how the acquire ended',
       'events of kind opened': 'the server completing the upgrade; the same fact as the upgrade whose action is open',

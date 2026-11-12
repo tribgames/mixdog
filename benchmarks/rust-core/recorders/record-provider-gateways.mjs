@@ -311,6 +311,42 @@ const scenarios = [
       : ok(body())),
     sends: [send(model, { opts: { sessionId: 'sess-go' } })],
   })),
+  // The Gemini engine never follows a redirect (`originBoundFetch`): the 3xx is the send's error, whatever the Location.
+  {
+    id: 'opencode-go-gemini-redirect', provider: 'opencode-go-oauth',
+    setup: () => cred('opencode-go-oauth.json', { access_token: 'go-access', refresh_token: 'go-refresh', expires_at: FAR, account_id: 'acct-fixture', email: 'fixture@example.invalid' }),
+    config: { ...base }, prime: true,
+    reply: (rec) => (rec.method === 'GET'
+      ? { status: 200, contentType: 'application/json', body: j({ providers: { 'opencode-go': { settings: { baseURL: 'https://opencode.ai/inference/go/openai/v1' }, models: { 'gemini-3-pro': { name: 'gemini-3-pro', limit: { context: 128000, output: 8192 } } } } } }) }
+      : { status: 307, contentType: 'text/plain', headers: { location: 'https://evil.example/steal' }, body: '' }),
+    sends: [send('gemini-3-pro', { opts: { sessionId: 'sess-go' } })],
+  },
+  // The roster request of the key providers (the catalog refresh a running core makes), before a send.
+  ...[['xai-listing', 'xai', 'xai-fixture', 'grok-4.3', () => ok(responsesText())], ['deepseek-listing', 'deepseek', 'ds-fixture', 'deepseek-v4-pro', () => ok(chatText('The result is 42.'))]].map(([id, provider, apiKey, model, body]) => ({
+    id, provider, config: { ...base, apiKey }, prime: true,
+    reply: (rec) => (rec.method === 'GET'
+      ? { status: 200, contentType: 'application/json', body: j({ object: 'list', data: [{ id: model, object: 'model', created: 1760000000, owned_by: provider }, { id: `${model}-mini`, object: 'model', created: 1760000001, owned_by: provider }] }) }
+      : body()),
+    sends: [send(model)],
+  })),
+  // The provider config's `reasoningEffort` stands in for a turn that names none; the turn's own effort (even `none`) wins over it.
+  { id: 'config-effort-xai-responses', provider: 'xai', config: { ...base, apiKey: 'xai-fixture', reasoningEffort: 'low' }, reply: () => ok(responsesText()), sends: [send('grok-4.3'), send('grok-4.3', { opts: { effort: 'high' } }), send('grok-4.3', { opts: { effort: 'none' } })] },
+  { id: 'config-effort-deepseek-messages', provider: 'deepseek', config: { ...base, apiKey: 'ds-fixture', reasoningEffort: 'high' }, reply: () => ok(anthropicText()), sends: [send('deepseek-v4-pro', { tools: TOOLS })] },
+  ...[
+    ['config-effort-opencode-go-messages', 'opencode-go-oauth', () => cred('opencode-go-oauth.json', { access_token: 'go-access', refresh_token: 'go-refresh', expires_at: FAR, account_id: 'acct-fixture', email: 'fixture@example.invalid' }), 'minimax-m3', anthropicText,
+      (model) => ({ status: 200, contentType: 'application/json', body: j({ providers: { 'opencode-go': { settings: { baseURL: 'https://opencode.ai/inference/go/openai/v1' }, models: { [model]: { name: model, limit: { context: 128000, output: 8192 } } } } } }) })],
+    ['config-effort-command-code-messages', 'command-code-oauth', () => cred('command-code-oauth.json', { apiKey: 'cc-fixture', userId: 'u1', userName: 'fixture' }), 'claude-sonnet-4-6', anthropicText,
+      () => ({ status: 200, contentType: 'application/json', body: j({ data: [{ id: 'claude-sonnet-4-6', supported_endpoints: ['/v1/messages'] }] }) })],
+  ].map(([id, provider, setup, model, body, roster]) => ({
+    id, provider, setup, config: { ...base, reasoningEffort: 'low' }, prime: true,
+    reply: (rec) => (rec.method === 'GET' ? roster(model) : ok(body())),
+    sends: [send(model, { tools: TOOLS, opts: { sessionId: 'sess-effort' } })],
+  })),
+  { id: 'config-effort-deepseek-chat', provider: 'deepseek', config: { ...base, apiKey: 'ds-fixture', reasoningEffort: 'high' }, reply: () => ok(chatText('The result is 42.')), sends: [send('deepseek-v4-pro'), send('deepseek-v4-pro', { opts: { effort: 'low' } })] },
+  { id: 'config-effort-xai-chat', provider: 'xai', config: { ...base, apiKey: 'xai-fixture', apiMode: 'chat', reasoningEffort: 'low' }, reply: () => ok(chatText('The result is 42.')), sends: [send('grok-4.3', { opts: { sessionId: 'sess-xai' } }), send('grok-4.3', { opts: { sessionId: 'sess-xai', effort: 'high' } })] },
+  { id: 'config-effort-openrouter-messages', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: () => ok(anthropicText()), sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS }), send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high' } })] },
+  { id: 'config-effort-openrouter-responses', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'low' }, reply: (rec) => ok(rec.path.endsWith('/responses') ? responsesCost() : chatText('The result is 42.')), sends: [send('openai/gpt-5', { tools: TOOLS }), send('openai/gpt-5', { tools: TOOLS, opts: { effort: 'high' } })] },
+  { id: 'config-effort-openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture', reasoningEffort: 'medium' }, reply: () => ok(chatText('The result is 42.')), sends: [send('openrouter/auto', { tools: TOOLS }), send('openrouter/auto', { tools: TOOLS, opts: { effort: 'low' } })] },
   // Command Code: Claude answers on Messages even with no roster; the rest on Chat.
   // Command Code: the roster's declared endpoints pick the wire (read once, before the sends).
   ...[

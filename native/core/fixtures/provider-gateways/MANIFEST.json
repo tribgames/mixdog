@@ -1,7 +1,7 @@
 {
   "clockStartMs": 1794225600000,
   "command": "node benchmarks/rust-core/recorders/record-provider-gateways.mjs --tree <b6f tree>",
-  "fileCount": 33,
+  "fileCount": 45,
   "files": [
     {
       "bytes": 3940,
@@ -19,39 +19,84 @@
       "sha256": "9a3c83a01632209071d99e9fcd508bf6f960fc43748fce55e333058788f89df0"
     },
     {
+      "bytes": 4414,
+      "path": "config-effort-command-code-messages.json",
+      "sha256": "6b238d44c2c51bd0cec129c805dcd7913a7b4c0daa2507f95fb6e9436e8b8fd1"
+    },
+    {
+      "bytes": 6346,
+      "path": "config-effort-deepseek-chat.json",
+      "sha256": "e9c1e3cf4c2032a6de96b5d93a08b23dccd2124538290ef12727b54bbca99d67"
+    },
+    {
+      "bytes": 3649,
+      "path": "config-effort-deepseek-messages.json",
+      "sha256": "a5453481c0eb2632e570309f3c48ec331290cbca68e896b584f6cf62d7866341"
+    },
+    {
+      "bytes": 4455,
+      "path": "config-effort-opencode-go-messages.json",
+      "sha256": "73ba526c373b3ed8562ed0eb675768e6d1aad77495be11168707d2ff4bdd3165"
+    },
+    {
+      "bytes": 7022,
+      "path": "config-effort-openrouter-chat.json",
+      "sha256": "ab476995228732a8892f9ac66c38b981f00f8937541ac67f9607350e9b4092c3"
+    },
+    {
+      "bytes": 7542,
+      "path": "config-effort-openrouter-messages.json",
+      "sha256": "6f58659e2677b0dc6b4aea35c7aad75e37c77944ac4c3ba84e6b8bc1974d427f"
+    },
+    {
+      "bytes": 6357,
+      "path": "config-effort-openrouter-responses.json",
+      "sha256": "34e5ac4fb1b9b0dfa4cf87d090525d451d3a3b6391dbccf9bbe59ccda5e107c9"
+    },
+    {
+      "bytes": 6460,
+      "path": "config-effort-xai-chat.json",
+      "sha256": "59fd26d800705e8d51c2b8fee99925c2c9c78e7db0acd9ea460992418ca2a2ae"
+    },
+    {
+      "bytes": 11093,
+      "path": "config-effort-xai-responses.json",
+      "sha256": "fd2b1a8a1d6ba6b70a214a814fb5c3f35b5803978560a05b106ad164cf8017e7"
+    },
+    {
       "bytes": 3577,
       "path": "custom-keys-after-output.json",
-      "sha256": "bc87256515cbbc36a7a3bb38a1db143ac69786222e1b72969980c7f9dd7e7771"
+      "sha256": "9f87731ea7eaa0bd995cfc7abb8def6821b0e1ab3b592f2cd2aa818607837624"
     },
     {
       "bytes": 7804,
       "path": "custom-keys-anthropic-thinking.json",
-      "sha256": "cc7196830817018362b52f65f22c03bce6a0683e8e62ff42b5fc6e376e721cea"
+      "sha256": "41a517df919c9456e9681cd27d3954d13fd8021348f788dba424d581f00af27b"
     },
     {
       "bytes": 7876,
       "path": "custom-keys-exhausted.json",
-      "sha256": "d6391919ba09a06ef07d311fb4482d00086dc475bd41bfe3e1223f9f4001a998"
+      "sha256": "90595a9d29b1a0fcd1a28be6ed650cd7153de5085d1b4a9fa98a89ce729f90c2"
     },
     {
       "bytes": 2871,
       "path": "custom-keys-not-quota.json",
-      "sha256": "ec45a1feb94244dcb26dbfecdcbcef23e35a3828c3a2b2e8ee21513995fe1221"
+      "sha256": "31c1660ed5b51b4519e3448e09a3d2bda974407e3ac48543f24c5b86b13ec6b3"
     },
     {
       "bytes": 3613,
       "path": "custom-keys-reasoning-then-quota.json",
-      "sha256": "4434960fa8eb70df11308dc55018b8600ec78d2bda2336d8f5d002332bf86fa0"
+      "sha256": "91712198e4cd360f9c4de6b82eb043c523cd46463eb93d37c4364aad48eb9511"
     },
     {
       "bytes": 7974,
       "path": "custom-keys-reasoning.json",
-      "sha256": "ac65bef95dab084ade3b6a7f9e990d373fcf66319219a51b6d941903f6a57b62"
+      "sha256": "373f8ef938a29970149985a521493235fa61182bff0f27ca3eb97f643694471f"
     },
     {
       "bytes": 9555,
       "path": "custom-keys-switch.json",
-      "sha256": "8109db0b02210bfb040e5e45d463e57b6d50edda3755cbb22c52a417ada9c2e0"
+      "sha256": "00324a6ec0f4c1b47c5026d050b19eac8c88331be393f9e1aa2aad98b5c2fae2"
     },
     {
       "bytes": 5079,
@@ -62,6 +107,11 @@
       "bytes": 3160,
       "path": "deepseek-chat-toolless.json",
       "sha256": "90a879a88031cf68c3d9b22028bdd86b6e8fa7f3d46add77daf4147c9d5bb37f"
+    },
+    {
+      "bytes": 3909,
+      "path": "deepseek-listing.json",
+      "sha256": "b1ee721c3bf3b8a05346535197a4ff132d387e532134eded9ee45b3fb9b90ef0"
     },
     {
       "bytes": 3610,
@@ -82,6 +132,11 @@
       "bytes": 3944,
       "path": "opencode-go-chat.json",
       "sha256": "378954219047ec794d2a268e7c266b93cd6c5e428d68b15a1468199e3f293f6a"
+    },
+    {
+      "bytes": 2866,
+      "path": "opencode-go-gemini-redirect.json",
+      "sha256": "adbdf0589fa21c345bcdeacb9ffd334c7ac5e88726756bf838282c21183ec616"
     },
     {
       "bytes": 3537,
@@ -164,6 +219,11 @@
       "sha256": "a2da086f85bb54eca4196f20dba6898c35d8bdecb665e7e579cb472d78a689de"
     },
     {
+      "bytes": 4461,
+      "path": "xai-listing.json",
+      "sha256": "c4eee46b2d93bf4d5f51854fef2690f98cd301f5a414adac1b14f2e881d50b49"
+    },
+    {
       "bytes": 3744,
       "path": "xai-responses.json",
       "sha256": "370047e26c8899be6582e5edd427a92d0ae493df7e8b94385159a54c14d846f1"
@@ -202,7 +262,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
-  "recorderSha256": "478ec449422b2a146dfcd9754b5bdb4cd505773d837d11b40bb13657f4a551fa",
+  "recorderSha256": "0beaba49648bd0e2d758d821156ef756b83ce430a5fa2fe15e4c5c371e5d8b18",
   "replayExclusions": {
     "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
     "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",
@@ -221,6 +281,15 @@
     "command-code-chat",
     "command-code-messages",
     "command-code-responses",
+    "config-effort-command-code-messages",
+    "config-effort-deepseek-chat",
+    "config-effort-deepseek-messages",
+    "config-effort-opencode-go-messages",
+    "config-effort-openrouter-chat",
+    "config-effort-openrouter-messages",
+    "config-effort-openrouter-responses",
+    "config-effort-xai-chat",
+    "config-effort-xai-responses",
     "custom-keys-after-output",
     "custom-keys-anthropic-thinking",
     "custom-keys-exhausted",
@@ -230,11 +299,13 @@
     "custom-keys-switch",
     "custom-reasoning-replay",
     "deepseek-chat-toolless",
+    "deepseek-listing",
     "deepseek-messages-tools",
     "deepseek-pinned-toolless",
     "muse-responses",
     "opencode-go-chat",
     "opencode-go-gemini",
+    "opencode-go-gemini-redirect",
     "opencode-go-messages",
     "opencode-go-responses",
     "openrouter-alias-slug",
@@ -250,8 +321,9 @@
     "openrouter-responses",
     "openrouter-responses-reasoning",
     "xai-chat-api-mode",
+    "xai-listing",
     "xai-responses"
   ],
   "set": "provider-gateways",
-  "totalBytes": 175767
+  "totalBytes": 244341
 }

@@ -468,14 +468,23 @@ pub struct GatewayHttp {
     /// `originBoundFetch`: a model request never follows a redirect, any 3xx is the send's connection error, so the
     /// gateway's credential can only reach the gateway.
     refuse_redirects: bool,
+    /// The engine's own fetch refuses the redirect (no SDK between): the error is the guard's sentence under this
+    /// provider label, not a connection error.
+    refusal_label: Option<String>,
 }
 
 impl GatewayHttp {
     pub fn new(inner: Arc<dyn HttpSend>) -> Self {
-        Self { inner, mirror_key_as_bearer: false, path: None, headers: Vec::new(), plain_system_instruction: false, sdk: None, refuse_redirects: false }
+        Self { inner, mirror_key_as_bearer: false, path: None, headers: Vec::new(), plain_system_instruction: false, sdk: None, refuse_redirects: false, refusal_label: None }
     }
     pub fn refusing_redirects(mut self) -> Self {
         self.refuse_redirects = true;
+        self
+    }
+    /// `originBoundFetch(origin, fetch, label)` as the engine's own fetch: the guard's error reaches the caller as it is.
+    pub fn refusing_redirects_as(mut self, label: &str) -> Self {
+        self.refuse_redirects = true;
+        self.refusal_label = Some(label.to_owned());
         self
     }
     pub fn through_sdk(mut self, sdk: Sdk, defaults: &[(String, String)]) -> Self {
@@ -531,8 +540,14 @@ impl HttpSend for GatewayHttp {
         }
         let guarded = self.refuse_redirects && request.method == "POST";
         let exchange = if guarded { Exchange { redirect: crate::transport::Redirect::Manual, ..exchange } } else { exchange };
+        let host = request.url.split("://").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or_default().to_owned();
         let mut response = self.inner.send(request, exchange).await?;
         if guarded && (300..400).contains(&response.status) {
+            if let Some(label) = &self.refusal_label {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+                error.message = format!("[{label}] refusing to follow a redirect from {host}");
+                return Err(error);
+            }
             // The SDK reports the refused hop as a connection error caused by the guard.
             let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous);
             error.message = "Connection error.".into();

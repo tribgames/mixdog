@@ -596,6 +596,18 @@ scenarios! {
     openrouter_reasoning_control_applies_on_responses_as_on_chat => "openrouter-responses-reasoning",
     openrouter_messages_usage_keeps_the_cache_read_and_the_gateways_cost => "openrouter-messages-usage",
     the_messages_engine_never_follows_a_redirect => "openrouter-messages-redirect",
+    the_gemini_engine_never_follows_a_redirect => "opencode-go-gemini-redirect",
+    xai_asks_its_roster_as_nodes_listing_does => "xai-listing",
+    deepseek_asks_its_roster_as_nodes_listing_does => "deepseek-listing",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_xai_responses => "config-effort-xai-responses",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_xai_chat => "config-effort-xai-chat",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_deepseek_chat => "config-effort-deepseek-chat",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_chat => "config-effort-openrouter-chat",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_messages => "config-effort-openrouter-messages",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_responses => "config-effort-openrouter-responses",
+    the_configured_effort_is_not_read_by_the_deepseek_messages_engine => "config-effort-deepseek-messages",
+    the_configured_effort_is_not_read_by_the_opencode_go_messages_engine => "config-effort-opencode-go-messages",
+    the_configured_effort_is_not_read_by_the_command_code_messages_engine => "config-effort-command-code-messages",
 }
 
 /// The same answers with the whole body in one chunk: the events decoded before an in-band refusal still reach

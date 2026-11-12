@@ -499,7 +499,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: XAI_NO_EFFORT,
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::xai,
         }
     }
@@ -528,7 +528,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
-            listing: ListingRules::COMPAT,
+            listing: ListingRules { plain_fetch: true, ..ListingRules::COMPAT },
             retry: retry::deepseek,
         }
     }

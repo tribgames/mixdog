@@ -123,16 +123,22 @@ enum Dialed {
     Reset,
 }
 
-#[derive(Default)]
 struct Dial {
     script: Mutex<VecDeque<Dialed>>,
     sent: Arc<Mutex<Vec<String>>>,
     dials: Mutex<u32>,
+    /// The dials begun so far, as an event a test can wait for.
+    began: tokio::sync::watch::Sender<u32>,
 }
 
 impl Dial {
     fn with(script: Vec<Dialed>) -> Arc<Self> {
-        Arc::new(Self { script: Mutex::new(script.into()), ..Self::default() })
+        Arc::new(Self {
+            script: Mutex::new(script.into()),
+            sent: Arc::default(),
+            dials: Mutex::new(0),
+            began: tokio::sync::watch::channel(0).0,
+        })
     }
 }
 
@@ -143,6 +149,7 @@ impl WsDial for Dial {
         _: tokio_tungstenite::tungstenite::handshake::client::Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         *self.dials.lock().unwrap() += 1;
+        self.began.send_modify(|n| *n += 1);
         let next = self.script.lock().unwrap().pop_front().expect("a scripted dial");
         match next {
             Dialed::Stuck => std::future::pending().await,
@@ -405,47 +412,64 @@ async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
         // The recorded server leaves every connection it was not told about stuck.
         script.extend((script.len()..8).map(|_| Dialed::Stuck));
         let dial = Dial::with(script);
-        let adapter = adapter(node["auth"] == "openai-oauth", Arc::default(), dial.clone()).with_mode(TransportMode::WsDelta);
+        let adapter = Arc::new(adapter(node["auth"] == "openai-oauth", Arc::default(), dial.clone()).with_mode(TransportMode::WsDelta));
         let dials_node: Vec<u64> = node["events"].as_array().unwrap().iter().filter(|e| e["on"] == "dial").map(|e| e["t"].as_u64().unwrap()).collect();
         let want = &node["outcome"];
         let ends_at = want["t"].as_u64().unwrap();
-        // The clock moves only to the instants Node's recording names (a dial began, the acquire ended); the acquire is polled
-        // at each one, and the dials made by then are those Node had made.
+        // The acquire runs as a task of its own. When it completes is read as an event: its future resolving, stamped by the
+        // runtime's clock at that moment. The clock moves only by explicit advances, to the instants Node's recording names
+        // (a dial began, the acquire ended); at each one the dial Node made there is awaited as an event too.
+        let (done_tx, mut done_rx) = tokio::sync::oneshot::channel();
+        let started = tokio::time::Instant::now();
+        tokio::spawn({
+            let adapter = adapter.clone();
+            async move {
+                let outcome = adapter.attempt(request(vec![say(Role::User, "hi")])).await.map(|_| ());
+                let _ = done_tx.send((outcome, tokio::time::Instant::now()));
+            }
+        });
         let mut instants: Vec<u64> = dials_node.iter().copied().chain([ends_at]).collect();
         instants.sort_unstable();
         instants.dedup();
-        let mut acquire = Box::pin(adapter.attempt(request(vec![say(Role::User, "hi")])));
+        let mut began = dial.began.subscribe();
         let mut now = 0;
-        let mut outcome = None;
-        for at in instants {
+        for &at in &instants {
             tokio::time::advance(std::time::Duration::from_millis(at - now)).await;
             now = at;
-            let polled = futures::poll!(acquire.as_mut());
-            assert_eq!(
-                *dial.dials.lock().unwrap() as usize,
-                dials_node.iter().filter(|t| **t <= at).count(),
-                "{id}: the dials begun by {at} ms"
-            );
-            if let std::task::Poll::Ready(done) = polled {
-                outcome = Some(done);
-                break;
+            let want_dials = dials_node.iter().filter(|t| **t <= at).count() as u32;
+            // A lost wake-up shows as this wait running out its deadline (on the virtual clock) before the dial began.
+            tokio::time::timeout(std::time::Duration::from_millis(1), began.wait_for(|n| *n >= want_dials))
+                .await
+                .unwrap_or_else(|_| panic!("{id}: the dial Node began by {at} ms never began"))
+                .unwrap();
+            assert_eq!(*dial.dials.lock().unwrap(), want_dials, "{id}: the dials begun by {at} ms");
+            if at < ends_at {
+                assert!(
+                    matches!(done_rx.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)),
+                    "{id}: the acquire had already completed at {at} ms, before Node's {ends_at} ms"
+                );
             }
         }
-        let Some(outcome) = outcome else { panic!("{id}: the acquire had not ended by its recorded end, {ends_at} ms: a stuck upgrade is never replaced") };
-        assert_eq!(now, ends_at, "{id}: when the acquire ended");
+        let (outcome, completed_at) = tokio::time::timeout(std::time::Duration::from_millis(1), done_rx)
+            .await
+            .unwrap_or_else(|_| panic!("{id}: the acquire had not completed by its recorded end, {ends_at} ms: a stuck upgrade is never replaced"))
+            .unwrap();
+        assert_eq!((completed_at - started).as_millis() as u64, ends_at, "{id}: when the acquire completed");
+        assert_eq!(*dial.dials.lock().unwrap() as usize, dials_node.len(), "{id}: every dial of the acquire");
         match (outcome, want["ok"].as_bool().unwrap()) {
             (Ok(_), true) => {}
             (Err(error), false) => {
                 if want["code"] == "EWSACQUIRETIMEOUT" {
                     assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"), "{id}: the error's code");
                     assert_eq!(error.message, want["message"].as_str().unwrap(), "{id}: the acquire timeout's text");
+                } else if want["code"] == "ECONNRESET" {
+                    assert_eq!(error.code.as_deref(), Some("ECONNRESET"), "{id}: the reset's code");
+                    assert_eq!(error.message, want["message"].as_str().unwrap(), "{id}: the reset's text");
+                    assert_eq!(error.transport, Some(TransportFault::Reset), "{id}: a reset is a transport fault");
                 } else {
-                    assert_eq!(error.code, None, "{id}: only the acquire timeout carries a code");
+                    assert_eq!(error.code, None, "{id}: only the acquire timeout and a reset carry a code");
                 }
                 assert_eq!(error.status.map(u64::from), want["httpStatus"].as_u64(), "{id}: the status of an answered upgrade");
-                if want["code"] == "ECONNRESET" {
-                    assert_eq!(error.transport, Some(TransportFault::Reset), "{id}: a reset is a transport fault");
-                }
             }
             (Ok(_), false) => panic!("{id}: Node failed with {want}, Rust opened"),
             (Err(error), true) => panic!("{id}: Node opened, Rust failed: {error:?}"),

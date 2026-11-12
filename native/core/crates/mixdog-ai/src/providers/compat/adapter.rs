@@ -76,6 +76,9 @@ pub struct CompatAdapter {
     pub(super) roster_wires: ArcSwap<HashMap<String, Wire>>,
     /// The rows the last listing stored (`provider._enrichedModels`), which `getCachedModelInfo` answers.
     pub(super) rows: crate::catalog::RowStore,
+    /// The provider config's `reasoningEffort`: the effort of a send whose turn names none (`opts.effort ??
+    /// config.reasoningEffort`, on the Chat and Responses wires).
+    configured_effort: Option<String>,
 }
 
 /// What the router is told about a model that the profile cannot know: the
@@ -120,7 +123,14 @@ impl CompatAdapter {
             lookup: ListingLookup::new(),
             roster_wires: ArcSwap::from_pointee(HashMap::new()),
             rows: crate::catalog::RowStore::default(),
+            configured_effort: None,
         }
+    }
+
+    /// The provider config's `reasoningEffort`, kept for the sends whose turn names no effort.
+    pub fn with_configured_effort(mut self, effort: Option<String>) -> Self {
+        self.configured_effort = effort;
+        self
     }
 
     /// The handle the catalog service publishes its tables into.
@@ -202,6 +212,14 @@ impl CompatAdapter {
     /// One attempt of this provider's key and transport on another of its wires (`codec`): the gateway's
     /// Responses wire rides the same account as its Chat wire.
     pub async fn attempt_with(&self, codec: &dyn WireCodec, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let request = match &self.configured_effort {
+            Some(effort) if request.options.effort.is_none() => {
+                let mut owned = (*request).clone();
+                owned.options.effort = Some(effort.clone());
+                Arc::new(owned)
+            }
+            _ => request,
+        };
         let wire = codec.encode(&request)?;
         let mut key = match &self.key {
             Some(source) => Some(source.key().await?),

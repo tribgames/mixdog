@@ -544,7 +544,7 @@ fn clock() -> Box<dyn Fn() -> u64 + Send + Sync> {
 }
 
 async fn antigravity_adapter(http: Arc<Scripted>, store: Arc<MemoryStore>) -> super::adapter::GoogleAdapter {
-    super::antigravity(store, "2.19.1".into(), http, traits(), clock()).await.expect("adapter")
+    super::antigravity(store, "2.19.1".into(), http, traits(), clock(), None).await.expect("adapter")
 }
 
 async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<StreamEvent>, Option<ProviderError>) {

@@ -18,6 +18,7 @@ use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
+use mixdog_core_api::domain::provider::WsPhase;
 use mixdog_core_api::domain::retry::JitterSamples;
 use mixdog_core_api::domain::retry::RetryClass;
 use mixdog_core_api::domain::retry::RetryPolicy;
@@ -126,9 +127,18 @@ impl Drop for SendGroup {
     }
 }
 
-/// A failure of the WebSocket itself: a close, or the acquire's own timeout (`EWSACQUIRETIMEOUT`).
-fn is_ws_failure(error: &ProviderError) -> bool {
-    matches!(error.transport, Some(TransportFault::WsClose { .. })) || error.code.as_deref() == Some("EWSACQUIRETIMEOUT")
+/// `MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT`: the retries one WebSocket send spends, handshake and stream failures alike
+/// (the adapter's own switch to HTTP/SSE ends such a send earlier on a switchable route).
+const WS_RETRY_LIMIT: u32 = 5;
+
+/// `_mustSurfaceCurrentAttempt` (`openai-ws-send-attempts/policy.mjs`): a decision of the current attempt (auth, an
+/// upgrade or rate-limit answer, a 1009, a cancellation, a replay that is no longer safe) is never replaced by the
+/// outage's earlier failure.
+fn must_surface_current(error: &ProviderError, replay_safe: bool) -> bool {
+    matches!(error.status, Some(401 | 403 | 426 | 429))
+        || matches!(error.transport, Some(TransportFault::WsClose { code: Some(1009) }))
+        || error.unsafe_to_retry
+        || !replay_safe
 }
 
 /// The facts that end a stream after it started.
@@ -324,6 +334,7 @@ impl Run {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
                     self.first_ws_failure = None;
+                    self.ws_retries = 0;
                     self.image_strip_active = false;
                     self.image_strip_used = false;
                     if let Some(group) = self.send_group.take() {
@@ -594,9 +605,6 @@ impl Run {
             shown_chars,
             reasoning_shown,
         } = fail;
-        if is_ws_failure(&error) && self.first_ws_failure.is_none() {
-            self.first_ws_failure = Some(error.clone());
-        }
         // Parsed tool calls survive a cut stream: continuing is not replaying.
         // The calls resolve and run exactly once, and the next request carries
         // them forward. A half-streamed call is never one of them.
@@ -650,7 +658,6 @@ impl Run {
 
         let mut class = first_class(midstream);
         let mut spent: Vec<RetryState> = Vec::new();
-        let mut exhausted = false;
         let provider = Arc::clone(&self.provider);
         let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
         let committed = loop {
@@ -664,12 +671,13 @@ impl Run {
                 },
             );
             match decision.verdict {
+                // A WebSocket send's budget is its own: a spent one surfaces, whatever the loop's ladder would allow.
+                Verdict::Retry { .. } if error.ws_phase.is_some() && self.ws_retries >= WS_RETRY_LIMIT => break None,
                 Verdict::Retry { delay, reason, .. } => {
                     break Some((decision.next, Some((delay, reason)), None));
                 }
                 Verdict::Fallback { model } => break Some((decision.next, None, Some(model))),
                 Verdict::Exhausted => {
-                    exhausted = true;
                     spent.push(decision.next);
                     match escalate(class, &decide_on) {
                         Some(next) => class = next,
@@ -701,9 +709,10 @@ impl Run {
             for state in spent {
                 self.retry.store(state);
             }
-            // A spent WebSocket budget surfaces the outage's first failure (`exhausted()`, `firstAttemptError`).
+            // A WebSocket send that ends after a retry surfaces the failure that retry left behind (`firstAttemptError`:
+            // `resolveHandshakeFailure` / `resolveStreamFailure`), whether the budget is spent or the attempt is no retry's.
             let surfaced = match self.first_ws_failure.take() {
-                Some(first) if exhausted && is_ws_failure(&error) => first,
+                Some(first) if error.ws_phase.is_some() && !must_surface_current(&error, replay_safe) => first,
                 _ => error,
             };
             return self.surface(surfaced).await;
@@ -713,6 +722,16 @@ impl Run {
                 self.retry.store(state);
             }
             return self.surface(error).await;
+        }
+        // The retry about to start leaves its failure behind (`scheduleRetry`): a handshake failure only when none is
+        // kept yet (`remember: !state.firstAttemptError`), a stream failure always (`remember: true`).
+        match error.ws_phase {
+            Some(WsPhase::Stream) => self.first_ws_failure = Some(error.clone()),
+            Some(WsPhase::Handshake) if self.first_ws_failure.is_none() => self.first_ws_failure = Some(error.clone()),
+            _ => {}
+        }
+        if error.ws_phase.is_some() {
+            self.ws_retries += 1;
         }
         for state in spent {
             self.retry.store(state);
@@ -729,6 +748,7 @@ impl Run {
             self.model = model.clone();
             self.retry = RetryStates::new(&model);
             self.first_ws_failure = None;
+            self.ws_retries = 0;
             self.emit(RunEvent::Stage(Stage::ModelFallback { model }));
         }
         if let Some((delay, reason)) = wait {
@@ -842,6 +862,7 @@ impl Run {
         self.model = switch.model.clone();
         self.retry = RetryStates::new(&self.model);
         self.first_ws_failure = None;
+        self.ws_retries = 0;
         self.context_overflow_retry_used = false;
         self.baseline = None;
         self.emit(RunEvent::Stage(Stage::Notice {
