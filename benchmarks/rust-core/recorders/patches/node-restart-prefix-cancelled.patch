@@ -1,0 +1,24 @@
+diff --git a/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs b/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
+--- a/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
++++ b/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
+@@ -1,4 +1,10 @@
+ await _withRegisteredProviderForTestAsync('anthropic-oauth', provider, async () => {
++  // recoverkill: a process that recovers the stored session (the checkpoint merged into the loaded session, as
++  // _recoverTurnCheckpointDurably does before it saves) and is killed before the recovery is saved.
++  if (phase === 'recoverkill') {
++    const { loadSession } = await import('./store.mjs');
++    const { recoverTurnCheckpoint } = await import('./manager/turn-checkpoint.mjs');
++    recoverTurnCheckpoint(loadSession(sessionId));
++    writeFileSync(outFile, JSON.stringify({ sessionId, bodies, changes }));
++    process.stdout.write('READY\n');
++    return new Promise(() => {});
++  }
+   if (phase === 'resume') {
+@@ -1,3 +1,8 @@
+   sessionId = session.id;
++  // killrequestcancelled: the killrequest scenario, with the tool of call_2 really returning the text "Cancelled" (the
++  // PostToolUse hook's updatedToolOutput, the product's own override of a tool's result).
++  if (phase === 'killrequestcancelled') {
++    session.afterToolHook = async ({ toolCallId }) => (toolCallId === 'call_2' ? { updatedToolOutput: 'Cancelled' } : undefined);
++  }
+   if (phase !== 'idle') armCheckpointWatch();
