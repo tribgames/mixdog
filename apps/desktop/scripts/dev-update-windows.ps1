@@ -27,8 +27,9 @@
                   this script did not deploy last (a Node-core install
                   included), fall back to win-unpacked.
 
-  The core is built with cargo (`cargo build --release -p mixdog-cli`, in the
-  checkout that holds native\core) and staged by `stage-core.mjs --binary`;
+  The core is built with cargo (`cargo build --profile fast -p mixdog-cli`, in
+  the checkout that holds native\core: the profile compiled for the next edit;
+  the published build is `release`) and staged by `stage-core.mjs --binary`;
   a local deploy ships no server-cores (the SSH install needs the release
   build's other platforms).
 
@@ -611,7 +612,7 @@ $coreBuildRoot = if ($CoreBuildRoot) { $CoreBuildRoot } elseif ($env:MIXDOG_FAST
 
 function Get-BuiltCorePath {
     if ($CoreBinary) { return $CoreBinary }
-    return Join-Path $coreBuildRoot 'native\core\target\release\mixdogd.exe'
+    return Join-Path $coreBuildRoot 'native\core\target\fast\mixdogd.exe'
 }
 
 function Build-LocalCore {
@@ -623,18 +624,20 @@ function Build-LocalCore {
         if ($LASTEXITCODE -ne 0) { throw "The prebuilt core does not match the sources." }
         return $CoreBinary
     }
-    Write-Step 'building mixdogd (cargo build --release -p mixdog-cli)'
+    # The `fast` profile (native/core/Cargo.toml): a deploy to this PC is rebuilt after every edit, so it takes the
+    # profile compiled for the next edit. The fully optimised `release` build is the published one's (build:win).
+    Write-Step 'building mixdogd (cargo build --profile fast -p mixdog-cli)'
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed after planning.' }
     }
-    & cargo build --release --locked -p mixdog-cli --manifest-path (Join-Path $coreBuildRoot 'native\core\Cargo.toml')
+    & cargo build --profile fast --locked -p mixdog-cli --manifest-path (Join-Path $coreBuildRoot 'native\core\Cargo.toml')
     if ($LASTEXITCODE -ne 0) { throw "cargo build exited with $LASTEXITCODE" }
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed while building.' }
     }
-    $built = Join-Path $coreBuildRoot 'native\core\target\release\mixdogd.exe'
+    $built = Join-Path $coreBuildRoot 'native\core\target\fast\mixdogd.exe'
     if (-not (Test-Path -LiteralPath $built -PathType Leaf)) { throw "cargo did not produce $built" }
     return $built
 }
