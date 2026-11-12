@@ -201,8 +201,6 @@ export function coreInputs(root) {
     join(root, 'src', 'defaults', 'agents.json'),
     join(root, 'src', 'rules', 'agent'),
     join(root, 'src', 'runtime', 'agent', 'orchestrator', 'tools', 'graph-manifest.json'),
-    join(root, 'apps', 'desktop', 'scripts', 'stage-core.mjs'),
-    join(root, 'apps', 'desktop', 'scripts', 'core-layout.mjs'),
   ];
 }
 
