@@ -10,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 165276,
+      "bytes": 242319,
       "path": "golden.json",
-      "sha256": "491066388d57da30e0834163d86d10ca7c1c32b55e8c72e8492d3763c94984ad"
+      "sha256": "113d114683356c2f04fd443229d5ce83b000d0f897a02e242317cb273c5150e8"
     }
   ],
   "inputs": [
@@ -42,7 +42,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/remote-transcript-scenarios.mjs",
-      "sha256": "b8ac4be3a9b42e02a8bbc8733f2030ca4a600b67f56036c60aae23838e90e5cf"
+      "sha256": "be697176b2e3e861dd65d333368f286e183ffb4a1f3f57e19a2ade240a3d575d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
@@ -89,6 +89,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "remote-transcript-cases",
-  "totalBytes": 165276,
+  "totalBytes": 242319,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
