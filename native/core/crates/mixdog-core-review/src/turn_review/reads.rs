@@ -291,8 +291,7 @@ impl Inner {
         }
         let owner = clean(session_id).to_owned();
         let mut review = self.read_turn_review(&owner, summary).await;
-        let records = self.store.load_turn_change_records(&owner).await;
-        review.insert("historyTurns".into(), Value::from(records.len()));
+        review.insert("historyTurns".into(), Value::from(self.store.count_turn_change_records(&owner).await));
         review
     }
 

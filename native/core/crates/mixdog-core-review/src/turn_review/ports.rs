@@ -151,6 +151,20 @@ pub trait BlockingFs: ReadFs {
     fn remove_tree(&self, path: &Path) -> std::io::Result<()>;
     /// `mkdir(path, { recursive: true, mode: 0o700 })`.
     fn create_private_dir_all(&self, path: &Path) -> std::io::Result<()>;
+    /// Appends `bytes` to `path` (created when missing) and reads them back from where they were
+    /// written. Bytes that are not all there are cut away (the file returns to its prior size)
+    /// before the error is returned, so a later read never applies them and a partial line never
+    /// stays in the middle of the file.
+    fn append_verified(&self, path: &Path, bytes: &[u8]) -> std::io::Result<Appended>;
+}
+
+/// What [`BlockingFs::append_verified`] left in the file.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Appended {
+    /// The size the file had before the append.
+    pub prior_size: u64,
+    /// The file after it.
+    pub stamp: FileStamp,
 }
 
 pub type BlockingJob = Box<dyn FnOnce(&dyn BlockingFs) + Send>;
