@@ -152,7 +152,10 @@ impl DirInner {
             thread: id.clone(),
             input: ItemId::from(String::new()),
         };
-        let messages: Vec<Value> = context.read().await?.into_iter().map(|(_, message)| message).collect();
+        let messages: Vec<Value> = context.read().await?.into_iter().map(|(_, mut message)| {
+            mixdog_agent::interrupt::without_recovery_mark(&mut message);
+            message
+        }).collect();
         let start = usize::try_from(p.start).unwrap_or(usize::MAX);
         let rest = messages.get(start..).unwrap_or_default();
         let take = p.limit.map_or(rest.len(), |n| (n as usize).min(rest.len()));
