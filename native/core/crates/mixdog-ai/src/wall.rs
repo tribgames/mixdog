@@ -30,6 +30,12 @@ pub(crate) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
+/// [`now_ms`] for the replays' own clocks: the time a recording's frozen `Date.now` returned, moving with the paused clock.
+#[cfg(any(test, feature = "test-support"))]
+pub fn scripted_now_ms() -> u64 {
+    now_ms()
+}
+
 /// Fixes this scope's wall clock at `ms`; `None` puts back the system's.
 #[cfg(any(test, feature = "test-support"))]
 pub fn set(ms: Option<u64>) {

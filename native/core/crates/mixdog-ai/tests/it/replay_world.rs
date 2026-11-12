@@ -84,8 +84,9 @@ struct PausedPace;
 
 #[async_trait]
 impl Pace for PausedPace {
+    // The recording's `Date.now`: a credential that had expired when Node ran has expired here too.
     fn now_ms(&self) -> u64 {
-        0
+        mixdog_ai::wall::scripted_now_ms()
     }
     async fn wait(&self, duration: Duration) {
         tokio::time::sleep(duration).await;

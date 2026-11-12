@@ -455,19 +455,21 @@ impl Run {
         }
         let identity = request.options.send_identity.clone();
         // The projection is rebuilt from the transcript for every request.
+        // The provider's own `requesting` is delivered as its request goes out: the attempt may already be reading the
+        // response's first output when it returns, and the liveness clock starts at the request.
+        let deliver = |stage: &'static str, _payload: Option<serde_json::Value>| {
+            if stage == "requesting" {
+                self.emit(RunEvent::Stage(Stage::Requesting));
+            }
+        };
         let attempt = match &self.config.effort {
             Some(wiring) => {
                 let projection = wiring.route.project(&self.messages);
                 let adapter = Arc::clone(&wiring.adapter);
-                or_cancelled(&self.cancel, async move { adapter.attempt_with(request, projection).await }).await
+                identity.deliver_stages(or_cancelled(&self.cancel, async move { adapter.attempt_with(request, projection).await }), deliver).await
             }
-            None => or_cancelled(&self.cancel, provider.attempt(request)).await,
+            None => identity.deliver_stages(or_cancelled(&self.cancel, provider.attempt(request)), deliver).await,
         };
-        for stage in identity.take_stages() {
-            if stage == "requesting" {
-                self.emit(RunEvent::Stage(Stage::Requesting));
-            }
-        }
         let mut stream = match attempt {
             None => return Err(AgentError::Aborted),
             Some(Err(error)) => {
@@ -511,6 +513,8 @@ impl Run {
                 None => break,
                 Some(Err(error)) => {
                     self.show_notices(&error);
+                    // The stream is issued anew by the retry: the provider's once-per-ladder `requesting` is raised again.
+                    identity.reissue();
                     return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
                 }
                 Some(Ok(event)) => event,

@@ -1,6 +1,6 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
-  "command": "node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
+  "command": "node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
   "compare": "Serve each case's replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages and the stderr lines.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
@@ -22,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 179373,
+      "bytes": 233473,
       "path": "cases.json",
-      "sha256": "712a8a3c966e8ea2bacf7ab7ab98fcc968d1b5c090d4779904f33a83ad7b05f5"
+      "sha256": "fca49d0fe9384cc352ea2d3298666ba8557b907d51e341334f524450254268bf"
     }
   ],
   "inputs": [
@@ -76,6 +76,22 @@
     },
     {
       "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-429",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-stream-error",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-reissues-a-dropped-stream-and-raises-the-stage-again",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-falls-back-to-a-non-streaming-request",
+      "level": "wire"
+    },
+    {
+      "id": "xai-chat-raises-the-stage-again-after-a-key-reload",
       "level": "wire"
     },
     {
@@ -157,6 +173,26 @@
     {
       "id": "cursor-oversized-request-is-terminal",
       "level": "wire"
+    },
+    {
+      "id": "cursor-end-frame-error-redacts-an-opaque-credential",
+      "level": "wire"
+    },
+    {
+      "id": "cursor-token-exchange-redacts-an-opaque-credential",
+      "level": "wire"
+    },
+    {
+      "id": "gemini-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "antigravity-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "grok-oauth-redacts-an-opaque-credential-in-a-failed-refresh",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -166,7 +202,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
+    "files": 9140,
     "patches": [
       {
         "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch",
@@ -180,6 +216,23 @@
         "sha256": "c1ee0e633dbc863f7082757e377a2104ab5f3c99e824793a927972ce49e26ede"
       },
       {
+        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic.mjs",
+          "src/runtime/agent/orchestrator/providers/gemini.mjs",
+          "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-wire.mjs",
+          "src/runtime/agent/orchestrator/providers/cursor-auth.mjs",
+          "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs",
+          "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs"
+        ],
+        "sha256": "ec5517ec9dba1abf3a4d58e9f17e8121a7e1775668b4a17780f74e95f6ca04b4"
+      },
+      {
         "file": "benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
         "paths": [
           "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs"
@@ -191,20 +244,20 @@
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 6
+      "filesDifferingFromCommit": 17
     },
-    "srcSha256": "4138f92ee08d9dd29d965d192cc6c1f631553c573d33970015110aed715cccdf",
+    "srcSha256": "8bd96da30f52657070a35d304931019f323e197d3c75bd3ba09128105acfd75c",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "a2800ccfd7b14fb457969f29a71a0af865f39b5ffe82d68d5785b4d0a83cdaf6",
+  "recorderSha256": "69c973fdff8f1606c93cb98caa821e1440850d4a8bc2a6dd91016d25e850f171",
   "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 179373,
+  "totalBytes": 233473,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

@@ -6,10 +6,12 @@
 // openai-compat-chat-send.mjs:222) raise it and write their retry line; Vertex AI's Gemini models run the Gemini ladder by connection
 // (runGeminiStreamAttempts, vertex-ai.mjs:382) with no `onRetry`, so their stream retry raises none. The Gemini API's own ladder is
 // recorded in provider-gemini-send-retry.
-// The product is b6f10295a with two fixes of Node bugs applied (each also built into Rust): node-patches/node-fix-scrub-carried-credential.patch
-// (the refusal text is scrubbed of the credential the request carried, not only of token shapes) and node-patches/node-fix-cursor-end-frame-error.patch
-// (a Connect end frame carrying an error reaches the bridge as that error, not as the `aborted` its own cancel raises).
-//   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a with the patches applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch [--only <case>]
+// The product is b6f10295a with three fixes of Node bugs applied (each also built into Rust): node-patches/node-fix-scrub-carried-credential.patch
+// (the refusal text is scrubbed of the credential the request carried, not only of token shapes), node-patches/node-fix-scrub-echoed-credential.patch
+// (the same for an Anthropic stream's error event, a Gemini or Antigravity refusal, a Cursor end-frame error and token exchange, a Grok refresh refusal)
+// and node-patches/node-fix-cursor-end-frame-error.patch (a Connect end frame carrying an error reaches the bridge as that error, not as the
+// `aborted` its own cancel raises).
+//   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a with the patches applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch [--only <case>]
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
@@ -104,6 +106,8 @@ const json = (status, body, headers) => ({ status, contentType: 'application/jso
 const ADVICE = { 'retry-after': '2' };
 const anthropicError = (type, message) => ({ type: 'error', error: { type, message } });
 const openaiError = (type, message) => ({ error: { message, type } });
+// A 200 answer whose stream is one `error` event.
+const sse = (body) => ({ status: 200, contentType: 'text/event-stream', chunks: [`event: error\ndata: ${JSON.stringify(body)}\n\n`] });
 const cases = [
   [
     'anthropic-api-key-raises-the-stage',
@@ -130,6 +134,45 @@ const cases = [
     'claude',
     // A rate-limit refusal echoing the key is retried, so the retry line the ladder writes (it quotes the refusal's message) is recorded too.
     [json(429, anthropicError('rate_limit_error', 'the credential fixture-key is over its limit'), { 'retry-after': '30' }), json(400, anthropicError('invalid_request_error', 'bad field'))],
+  ],
+  [
+    'anthropic-api-key-redacts-an-opaque-credential-in-a-stream-error',
+    'src/runtime/agent/orchestrator/providers/anthropic-sse.mjs:100',
+    { provider: 'anthropic' },
+    () => new AnthropicProvider({ apiKey: 'fixture-key' }),
+    'claude',
+    // An error event of the stream that echoes the key the request carried inside ordinary message text: the error text carries it redacted.
+    [sse(anthropicError('invalid_request_error', 'the credential fixture-key was refused for this model'))],
+  ],
+  [
+    'anthropic-api-key-reissues-a-dropped-stream-and-raises-the-stage-again',
+    'src/runtime/agent/orchestrator/providers/anthropic.mjs:300',
+    { provider: 'anthropic' },
+    () => new AnthropicProvider({ apiKey: 'fixture-key' }),
+    'claude',
+    // The stream's first answer opens and ends before it shows anything or its message_stop: the stream is issued again, and each issue of it raises the stage; the second answer is refused as not retryable.
+    [
+      { status: 200, contentType: 'text/event-stream', chunks: [`event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model: 'claude', content: [], usage: { input_tokens: 1, output_tokens: 0 } } })}\n\n`] },
+      json(400, anthropicError('invalid_request_error', 'bad field')),
+    ],
+  ],
+  [
+    'anthropic-api-key-falls-back-to-a-non-streaming-request',
+    'src/runtime/agent/orchestrator/providers/anthropic-api-recovery.mjs:46',
+    { provider: 'anthropic' },
+    () => new AnthropicProvider({ apiKey: 'fixture-key' }),
+    'claude',
+    // A gateway that refuses the streaming endpoint with a 404: one non-streaming request, which raises the stage with its transport named; it is refused as not retryable.
+    [json(404, anthropicError('not_found_error', 'no such route')), json(400, anthropicError('invalid_request_error', 'bad field'))],
+  ],
+  [
+    'xai-chat-raises-the-stage-again-after-a-key-reload',
+    'src/runtime/agent/orchestrator/providers/openai-compat.mjs:171',
+    { provider: 'xai' },
+    () => new OpenAICompatProvider('xai', { apiKey: 'fixture-key', apiMode: 'chat', preconnect: false }),
+    'grok-4',
+    // A 401 re-reads the provider's key and runs the whole send again: its ladder raises the stage anew.
+    [json(401, openaiError('invalid_request_error', 'bad key')), json(400, openaiError('invalid_request_error', 'bad field'))],
   ],
   [
     'xai-responses-raises-the-stage',
@@ -176,6 +219,7 @@ const { AnthropicOAuthProvider } = await rec.P(`${P}anthropic-oauth.mjs`);
 const { OpenRouterProvider } = await rec.P(`${P}openrouter.mjs`);
 const { GrokOAuthProvider } = await rec.P(`${P}grok-oauth.mjs`);
 const { AntigravityOAuthProvider } = await rec.P(`${P}antigravity-oauth.mjs`);
+const { GeminiProvider } = await rec.P(`${P}gemini.mjs`);
 const { DevinOAuthProvider } = await rec.P(`${P}devin.mjs`);
 const { OpenCodeGoProvider } = await rec.P(`${P}opencode-go.mjs`);
 const { warmCatalogFromDisk } = await rec.P(`${P}model-catalog.mjs`);
@@ -350,6 +394,35 @@ const routes = [
     anthropicTokenGrant,
   ],
   [
+    'gemini-redacts-an-opaque-credential-in-a-400',
+    'src/runtime/agent/orchestrator/providers/gemini.mjs:194',
+    { provider: 'gemini', credentials: {} },
+    () => new GeminiProvider({ apiKey: 'fixture-key', preconnect: false }),
+    'gemini-2.5-pro',
+    // A refusal that echoes the key it was sent inside ordinary message text: the error text carries it redacted.
+    [json(400, geminiError(400, 'INVALID_ARGUMENT', 'the credential fixture-key was refused for this model'))],
+  ],
+  [
+    'antigravity-redacts-an-opaque-credential-in-a-400',
+    'src/runtime/agent/orchestrator/providers/antigravity-transport.mjs:55',
+    { provider: 'antigravity-oauth', credentials: { 'antigravity-oauth.json': { ...OAUTH, project_id: 'fixture-project' } } },
+    () => new AntigravityOAuthProvider({}),
+    'gemini-3-pro',
+    [json(400, geminiError(400, 'INVALID_ARGUMENT', 'the credential fixture-access-token was refused for this model'))],
+    (record) => (record.method === 'GET' ? json(200, { object: 'list', data: [] }) : undefined),
+  ],
+  [
+    'grok-oauth-redacts-an-opaque-credential-in-a-failed-refresh',
+    'src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs:335',
+    // The access token has expired and the token endpoint is the one the file names, so the send begins with a refresh.
+    { provider: 'grok-oauth', credentials: { 'grok-oauth.json': { ...OAUTH, expires_at: 1, token_endpoint: 'https://auth.x.ai/oauth2/token' } } },
+    () => new GrokOAuthProvider({}),
+    'grok-4',
+    [],
+    // The refresh is refused as a terminal grant error whose text echoes the refresh token it carried.
+    (record) => (record.path === '/oauth2/token' ? json(400, { error: 'invalid_grant', error_description: 'the credential fixture-refresh-token was refused for this account' }) : undefined),
+  ],
+  [
     'opencode-go-gemini-raises-the-ladder-stage',
     'src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141',
     { provider: 'opencode-go-oauth', credentials: { 'opencode-go-oauth.json': { ...OAUTH, access_token: 'fixture-key' } }, modelsDev: MODELS_DEV },
@@ -390,8 +463,33 @@ const routes = [
   cursorRoute,
   cursorEndFrameRoute,
   cursorTooLargeRoute,
+  [
+    'cursor-end-frame-error-redacts-an-opaque-credential',
+    'src/runtime/agent/orchestrator/providers/cursor-wire.mjs:465',
+    cursorRoute[2],
+    () => new CursorOAuthProvider({}),
+    'fixture-model',
+    // The server's error in the Connect end frame echoes the token the run was opened with, inside ordinary message text.
+    [cursorEndFrameError('invalid_argument', 'the credential fixture-access-token was refused for this model')],
+    cursorAux,
+    { sessionId: 'fixture-session' },
+  ],
+  [
+    'cursor-token-exchange-redacts-an-opaque-credential',
+    'src/runtime/agent/orchestrator/providers/cursor-auth.mjs:221',
+    // The access token has expired, so the send begins with an exchange of the refresh token, which the server refuses with text echoing it.
+    { ...cursorRoute[2], credentials: { 'cursor-oauth.json': { access_token: 'fixture-access-token', refresh_token: 'fixture-refresh-token', expires_at: 1 } } },
+    () => new CursorOAuthProvider({}),
+    'fixture-model',
+    [],
+    (record) => (record.path === '/auth/exchange_user_api_key' ? json(400, { error: 'the credential fixture-refresh-token was refused' }) : cursorAux(record)),
+    { sessionId: 'fixture-session' },
+  ],
 ];
-for (const [id, source, input, make, model, replies, aux, options] of routes) {
+// The refusal cases of the Gemini API, Antigravity and Grok go after the Cursor ones: Cursor's h2c streams leave the shared sockets as the cases before them left them.
+const AFTER_CURSOR = /^(gemini|antigravity|grok-oauth)-redacts|^grok-oauth-redacts/;
+const ordered = [...routes.filter(([id]) => !AFTER_CURSOR.test(id)), ...routes.filter(([id]) => AFTER_CURSOR.test(id))];
+for (const [id, source, input, make, model, replies, aux, options] of ordered) {
   await rec.run(id, source, input, async (ctx) => {
     caseStart = randomDrawn;
     uuidStart = uuidDrawn;
@@ -399,6 +497,8 @@ for (const [id, source, input, make, model, replies, aux, options] of routes) {
     for (const [name, value] of Object.entries(input.env ?? {})) process.env[name] = value;
     // The model listing is process state of the Cursor runtime: each Cursor case starts with none, as a replay's fresh process does.
     if (input.provider === 'cursor-oauth') (await rec.raw(`${P}cursor-wire-models.mjs`)).clearModelCache();
+    // The updater's manifest is read once per process and kept: each Antigravity case starts without it, as a replay's fresh process does.
+    if (input.provider === 'antigravity-oauth') (await rec.raw(`${P}antigravity-oauth-tokens.mjs`))._resetAntigravityVersionForTest();
     if (input.adcFile) process.env.GOOGLE_APPLICATION_CREDENTIALS = join(rec.dataDir, input.adcFile);
     if (input.modelsDev) {
       rec.write('modelsdev-catalog.json', JSON.stringify({ fetchedAt: 1, data: input.modelsDev }));

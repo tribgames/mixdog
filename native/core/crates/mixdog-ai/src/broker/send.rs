@@ -145,6 +145,8 @@ impl ModelBroker {
                 permit.report_rate_limit(failure.retry_after);
             }
             let (state, class) = if streamed {
+                // The stream is issued anew: a provider that raises `requesting` once per ladder raises it again.
+                send.request.options.send_identity.reissue();
                 if stages.ladder_by_connection {
                     // `runGeminiStreamAttempts`: each stream attempt opens under a fresh connection ladder.
                     request_state = RetryState::new(RetryClass::Request, model.clone());
@@ -159,7 +161,7 @@ impl ModelBroker {
             *state = decision.next;
             // `runGeminiStreamAttempts` marks every failure after its stream opened as its connection ladder's spent
             // one (`gemini-retry-policy.mjs:151`), whether or not the stream ladder re-issues it.
-            let exhausted = matches!(decision.verdict, Verdict::Exhausted) || (streamed && stages.ladder_by_connection);
+            let exhausted = matches!(decision.verdict, Verdict::Exhausted) || failure.recovery_exhausted || (streamed && stages.ladder_by_connection);
             let end = |permit: crate::admission::Permit, error: ProviderError| {
                 permit.finish(Outcome::Failure {
                     status: error.status,
@@ -169,11 +171,20 @@ impl ModelBroker {
             };
             match decision.verdict {
                 Verdict::Retry { delay, .. } => {
-                    let max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
+                    let mut max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
+                    let line = adapter.retry_line_of(&send.request);
+                    // The Anthropic API's mid-stream ladder counts retries (`retry 1/3`), where a refused request counts
+                    // the attempt about to run (`emitProviderRetryStage`).
+                    let midstream_ladder = streamed && line.as_ref().is_some_and(|line| line.style == RetryLineStyle::AnthropicApi);
+                    let mut attempt = attempt;
+                    if midstream_ladder {
+                        attempt -= 1;
+                        max -= 1;
+                    }
                     if stages.reconnecting {
                         sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
                     }
-                    if let Some(line) = adapter.retry_line_of(&send.request) {
+                    if let Some(line) = line {
                         // `lastErr?.message || lastErr?.code || 'transient error'`, then `retryDelayLabel(delayMs, delayReason)`.
                         let cause = [Some(failure.message.as_str()), failure.code.as_deref()]
                             .into_iter()
@@ -201,6 +212,17 @@ impl ModelBroker {
                                 mixdog_rt::node_stderr!("{} retry attempt {attempt}/{max} after {reason}, backoff {}ms{advised}", line.tag, delay.as_millis());
                             }
                             RetryLineStyle::Plain => mixdog_rt::node_stderr!("{} retry {attempt} after {cause}", line.tag),
+                            RetryLineStyle::AnthropicApi if midstream_ladder && failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream) => {
+                                mixdog_rt::node_stderr!("{} truncated stream — retry {attempt}/{max}", line.tag);
+                            }
+                            RetryLineStyle::AnthropicApi => {
+                                let wait = if failure.retry_after.is_some() {
+                                    format!(", delay {}ms (retry-after)", delay.as_millis())
+                                } else {
+                                    format!(", delay {}ms", delay.as_millis())
+                                };
+                                mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}{wait}", line.tag);
+                            }
                         }
                     }
                     if let Some(usage) = &failure.partial_usage {
@@ -260,15 +282,22 @@ impl ModelBroker {
         by_connection: bool,
         liveness: Option<&RunLiveness>,
     ) -> Result<(), Stop> {
-        let opened = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => return Err(Stop::Cancelled),
-            opened = adapter.attempt(request.clone()) => opened,
-        };
-        // The stages the adapter raised from inside the attempt come before whatever the attempt's end brings.
-        for stage in request.options.send_identity.take_stages() {
-            sink.stage(stage, None);
-        }
+        // The stages the adapter raises from inside the attempt are delivered as the request goes out, ahead of whatever
+        // the attempt's end brings.
+        let opened = request
+            .options
+            .send_identity
+            .deliver_stages(
+                async {
+                    tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => Err(Stop::Cancelled),
+                        opened = adapter.attempt(request.clone()) => Ok(opened),
+                    }
+                },
+                |stage, payload| sink.stage(stage, payload),
+            )
+            .await?;
         let stream = opened.map_err(Stop::Failed)?;
         if by_connection {
             // The stream opened: a failure from here on is the stream's, not the request's.

@@ -46,6 +46,7 @@ fn config(case: &Case, provider: &str) -> serde_json::Value {
         }
         "anthropic" => "AnthropicProvider",
         "anthropic-oauth" => "AnthropicOAuthProvider",
+        "gemini" => "GeminiProvider",
         "openrouter" => "OpenRouterProvider",
         "grok-oauth" => "GrokOAuthProvider",
         "antigravity-oauth" => "AntigravityOAuthProvider",
@@ -69,7 +70,16 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
         | "anthropic-api-key-redacts-an-opaque-credential-in-a-429"
         | "gateway-messages-raises-the-stage"
         | "vertex-maas-raises-the-stage" => (2, None),
-        "anthropic-api-key-redacts-an-opaque-credential-in-a-400" => (1, None),
+        "anthropic-api-key-redacts-an-opaque-credential-in-a-400"
+        | "anthropic-api-key-redacts-an-opaque-credential-in-a-stream-error"
+        | "cursor-end-frame-error-redacts-an-opaque-credential" => (1, None),
+        // Two requests of the SDK client and the one backoff sample of the stream's re-issue (the wait of 293 ms).
+        "anthropic-api-key-reissues-a-dropped-stream-and-raises-the-stage-again" => (3, Some((1, 1))),
+        "anthropic-api-key-falls-back-to-a-non-streaming-request" | "xai-chat-raises-the-stage-again-after-a-key-reload" => (2, None),
+        "gemini-redacts-an-opaque-credential-in-a-400"
+        | "antigravity-redacts-an-opaque-credential-in-a-400"
+        | "grok-oauth-redacts-an-opaque-credential-in-a-failed-refresh"
+        | "cursor-token-exchange-redacts-an-opaque-credential" => (0, None),
         "xai-responses-raises-the-stage" | "xai-chat-raises-the-stage" | "grok-oauth-raises-the-stage" => (3, Some((1, 1))),
         // Antigravity's capacity ladder draws the one jitter sample (antigravity-retry-policy.mjs:144).
         "antigravity-raises-the-stage" => (1, Some((0, 0))),
@@ -98,7 +108,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 23, "the recorded cases");
+    assert_eq!(set.cases.len(), 32, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,
@@ -141,7 +151,10 @@ async fn every_case_replays_as_nodes() {
             // completion id (`newCompletionId`, cursor-wire.mjs:328, the OpenAI-shaped stream Node wraps the run in: no
             // wire carries it and the Rust send has no such stream), then each run's request id. The third is not the Rust
             // send's draw.
-            uuid_draws.remove(2);
+            // (A send that ended before its run, on a refused token exchange, drew none of them.)
+            if uuid_draws.len() > 2 {
+                uuid_draws.remove(2);
+            }
         }
         mixdog_ai::random::script(uuid_draws);
         uuids_consumed += uuid_count;

@@ -712,6 +712,16 @@ enum Wire {
 }
 
 /// A failed attempt; `handshake` when the WebSocket upgrade itself was refused.
+/// `refusal` with the credential its request carried redacted from its body.
+fn scrub_refusal(mut refusal: ErrorResponse, credential: &Credential) -> ErrorResponse {
+    let text = String::from_utf8_lossy(&refusal.body);
+    let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &[&credential.bearer]);
+    if clean != text {
+        refusal.body = clean.into_bytes();
+    }
+    refusal
+}
+
 struct Failed {
     error: ProviderError,
     handshake: bool,
@@ -749,6 +759,9 @@ impl OpenAiAdapter {
                 },
                 Opened::Rejected(rejected) => rejected,
             };
+            // The credential this request carried is redacted from whatever the refusal echoes of it (the message, the
+            // body's error text), the upgrade rejection included.
+            let rejected = scrub_refusal(rejected, &credential);
             if rejected.status == Some(401) && !refreshed {
                 refreshed = true;
                 if let Some(next) = self.credentials.after_rejection(&credential).await? {

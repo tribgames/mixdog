@@ -240,11 +240,15 @@ impl CompatAdapter {
                 && let Some(source) = &self.key
             {
                 reloaded = true;
+                mixdog_rt::node_stderr!("[provider] Auth error, re-reading provider authentication...");
                 let next = source.reload().await?;
-                if key.as_deref() != Some(next.as_str()) {
+                // The send runs anew (`send`, openai-compat.mjs:171-182), on the reloaded key when it names one and
+                // the same key otherwise: its ladder raises `requesting` again.
+                request.options.send_identity.reissue();
+                if !next.is_empty() {
                     key = Some(next);
-                    continue;
                 }
+                continue;
             }
             return Err(err);
         }

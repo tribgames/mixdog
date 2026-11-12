@@ -153,11 +153,11 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
             // A JS class that names no more than an error: its typed meaning is compared through the error's other
             // fields (code, status, flags). A class not listed here fails the replay.
             "Error" | "TypeError" | "SyntaxError" | "StreamInterruptedError" | "MalformedStreamError" | "DevinWireError" | "CallerCancel"
-            | "ProviderTimeoutError" | "ProviderIncompleteError" => assert!(left.error.is_some(), "{what}: an error surfaced"),
+            | "ProviderTimeoutError" | "ProviderIncompleteError" | "AnthropicSseError" => assert!(left.error.is_some(), "{what}: an error surfaced"),
             other => panic!("{what}: no comparison for the error class {other}"),
         },
         // `sent_code`: the core's own code, `TRUNCATED_STREAM` for a cut stream that names none.
-        "code" | "providerErrorCode" | "type" => {
+        "code" | "providerErrorCode" | "providerErrorType" | "type" => {
             let sent = sent_code(left.error(field));
             assert_eq!((!sent.is_empty()).then_some(sent.as_str()), opt_str(value), "{what}: {mapping}");
         }
@@ -272,6 +272,8 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
                 assert_eq!(error.code.as_deref(), opt_str(value), "{what}: {mapping}");
             }
         }
+        // A refused refresh grant: the sign-in is over.
+        "isInvalidGrant" | "isTerminalRefresh" | "reauthRequired" => assert_eq!(left.error(field).reauth_required, opt_bool(value), "{what}: {mapping}"),
         "providerQuota" | "quotaExceeded" => assert_eq!(
             left.error(field).kind == mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted,
             opt_bool(value),

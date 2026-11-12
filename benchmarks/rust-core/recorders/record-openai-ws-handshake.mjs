@@ -35,4 +35,8 @@ const refusal429 = { status: 429, headers: [['retry-after', '30'], ['x-request-i
 await rec.run('unexpected-response-preserves-status-headers-body', `${SRC}:28`, { refusal: refusal429 }, () => handshake(refusal429));
 const refusal403 = { status: 403, headers: [['server', 'cloudflare']], bodyChunks: ['<html>blocked</html>'] };
 await rec.run('non-json-body-keeps-status-and-headers', `${SRC}:46`, { refusal: refusal403 }, () => handshake(refusal403));
+// A rejection that echoes the credential the upgrade carried inside ordinary message text: the error text and the kept body carry it redacted
+// (node-patches/node-fix-scrub-echoed-credential.patch).
+const refusalEcho = { status: 400, headers: [['x-request-id', 'req_2']], bodyChunks: [JSON.stringify({ error: { type: 'invalid_request_error', message: 'the credential fixture-access-token was refused for this account' } })] };
+await rec.run('unexpected-response-redacts-the-credential-it-echoes', `${SRC}:28`, { refusal: refusalEcho }, () => handshake(refusalEcho));
 await rec.finish();

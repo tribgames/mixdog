@@ -180,7 +180,7 @@ pub fn retry_policy() -> RetryPolicy {
     let row = RetryRow::single(RetrySchedule {
         max_retries: 5,
         backoff: Backoff::Ladder(vec![ms(250), ms(500), ms(1000), ms(2000), ms(2000)]),
-        jitter: Jitter::symmetric(0.2),
+        jitter: Jitter::symmetric_floored(0.2),
         advice: AdviceRule::honored_in_full(),
     });
     let mut policy = RetryPolicy::codex_default();
@@ -205,12 +205,15 @@ struct CursorStream {
     /// Resolves at the next client heartbeat; the core ticker owns the clock.
     heartbeat: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
     heartbeat_at: std::time::Instant,
+    /// The access token the run was opened with: a server error that echoes it is redacted.
+    secret: String,
 }
 
 impl CursorStream {
-    fn new(body: Box<dyn BodyStream>, sink: Arc<dyn FrameSink>, decoder: CursorDecoder) -> Self {
+    fn new(body: Box<dyn BodyStream>, sink: Arc<dyn FrameSink>, decoder: CursorDecoder, secret: String) -> Self {
         let heartbeat_at = std::time::Instant::now() + CLIENT_HEARTBEAT;
         Self {
+            secret,
             body,
             sink,
             decoder,
@@ -226,8 +229,9 @@ impl CursorStream {
         self.heartbeat = Box::pin(mixdog_rt::ticker().wait_until(self.heartbeat_at));
     }
 
-    fn fail(&mut self, err: ProviderError) {
+    fn fail(&mut self, mut err: ProviderError) {
         self.ended = true;
+        err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&self.secret]);
         self.queue.push_back(Err(err));
     }
 
@@ -479,7 +483,7 @@ impl CursorAdapter {
             let response = head.read_all().await?;
             return Err(codec.classify(&response));
         }
-        Ok(Box::new(CursorStream::new(head.body, sink, codec.cursor_decoder())))
+        Ok(Box::new(CursorStream::new(head.body, sink, codec.cursor_decoder(), token.to_owned())))
     }
 }
 

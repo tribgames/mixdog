@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -83,6 +84,9 @@ pub struct GoogleAdapter {
     preconnect: Option<Preconnect>,
     /// The process environment the stream windows resolve from (`resolveTimeoutMs`).
     var: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    /// The credential values this adapter's requests were sent with (the key, the bearer token), so a refusal that
+    /// echoes one is read with it redacted. Each is the value a request carried, kept after a refresh replaces it.
+    carried: Mutex<Vec<String>>,
 }
 
 impl GoogleAdapter {
@@ -114,7 +118,36 @@ impl GoogleAdapter {
             lookup: ListingLookup::new(),
             preconnect: None,
             var: Arc::new(|name| std::env::var(name).ok()),
+            carried: Mutex::default(),
         }
+    }
+
+    /// Remembers the credential `authorization` puts on a request: its header values, and a bearer's token itself.
+    fn note_carried(&self, authorization: &Authorization) {
+        let mut carried = self.carried.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (name, value) in &authorization.headers {
+            if !["authorization", "x-goog-api-key", "x-api-key", "api-key"].iter().any(|own| name.eq_ignore_ascii_case(own)) {
+                continue;
+            }
+            for secret in [value.as_str(), value.strip_prefix("Bearer ").unwrap_or(value)] {
+                if !secret.is_empty() && !carried.iter().any(|known| known == secret) {
+                    carried.push(secret.to_owned());
+                }
+            }
+        }
+    }
+
+    /// A refusal with the credentials this adapter's requests carried redacted from its body, so no message built from
+    /// it echoes one (a key or token a server repeats in its error text).
+    fn scrubbed(&self, mut refusal: ErrorResponse) -> ErrorResponse {
+        let carried = self.carried.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let secrets: Vec<&str> = carried.iter().map(String::as_str).collect();
+        let text = String::from_utf8_lossy(&refusal.body);
+        let clean = crate::oauth::scrub::scrub_oauth_secrets(&text, &secrets);
+        if clean != text {
+            refusal.body = clean.into_bytes();
+        }
+        refusal
     }
 
     /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
@@ -273,10 +306,12 @@ impl GoogleAdapter {
     async fn dispatch_on(&self, http: &dyn HttpSend, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
         let mut authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
+        self.note_carried(&authorization);
         let mut response = http.send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH).await?;
         if response.status == 401 && self.auth.rejected(&authorization).await {
             authorization = self.auth.authorize().await?;
             self.check_identity(&authorization)?;
+            self.note_carried(&authorization);
             response = http.send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH).await?;
         }
         Ok(response)
@@ -287,6 +322,7 @@ impl GoogleAdapter {
     async fn fetch_listing(&self, wire: &WireRequest) -> Result<Vec<u8>, ProviderError> {
         let authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
+        self.note_carried(&authorization);
         let response = self
             .http
             .send(Self::authorized(wire, &authorization), GEMINI_MODELS)
@@ -294,7 +330,7 @@ impl GoogleAdapter {
         let succeeded = response.is_success();
         let read = response.read_all().await?;
         if !succeeded {
-            return Err(self.codec.classify(&read));
+            return Err(self.codec.classify(&self.scrubbed(read)));
         }
         Ok(read.body)
     }
@@ -469,7 +505,7 @@ impl ProviderAdapter for GoogleAdapter {
         let mut wire = self.codec.wire(&request, &inner, None)?;
         wire.url = wire.url.replacen(":streamGenerateContent?alt=sse", ":generateContent", 1);
         let response = self.dispatch(&wire).await?;
-        let answered = response.read_all().await?;
+        let answered = self.scrubbed(response.read_all().await?);
         if !(200..300).contains(&answered.status.unwrap_or(0)) {
             return Err(self.codec.classify_for(&answered, &request, false));
         }
@@ -671,7 +707,7 @@ impl GoogleAdapter {
         }
         let Exchanged { response, queue, global } = sent;
         if !response.is_success() {
-            let rejected = response.read_all().await?;
+            let rejected = self.scrubbed(response.read_all().await?);
             return Err(self.codec.classify_for(&rejected, &request, global));
         }
         let watch = self.first_byte_window(&request).map(|(first_byte, idle_after_first_chunk)| StreamWatch {
