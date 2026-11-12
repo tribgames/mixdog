@@ -146,7 +146,7 @@ impl super::seams::SessionLog for HeldLog {
             let fails = lock(&self.marks.plan).as_mut().is_some_and(|plan| plan(self.id.as_str()));
             lock(&self.marks.seen).push((self.id.as_str().to_owned(), fails));
             if fails {
-                return Err(super::seams::BarrierError::Failed { io_kind: "EACCES".into() });
+                return Err(super::seams::BarrierError::failed("EACCES"));
             }
         }
         self.log.commit(lane, batch)
@@ -224,6 +224,9 @@ impl super::ThreadStore for HeldStore {
     fn create_log(&self, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, id: &ThreadId, session: &super::seams::CommitRecord) -> Result<(Box<dyn super::seams::SessionLog>, u64), super::seams::BarrierError> {
         let (log, ordinal) = self.store.create_log(lane, id, session)?;
         Ok((Box::new(HeldLog { log, id: id.clone(), mark: self.mark.clone(), marks: self.marks.clone() }), ordinal))
+    }
+    fn draft_write(&self, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        self.store.draft_write(lane, id, write)
     }
 }
 

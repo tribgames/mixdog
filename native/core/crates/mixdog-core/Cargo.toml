@@ -64,6 +64,9 @@ count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-c
 # `replay_access`). Refused in a release build (build.rs).
 test-support = ["mixdog-rt/test-support"]
 
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Threading"] }
+
 [dev-dependencies]
 mixdog-core = { path = ".", features = ["count-work", "test-support"] }
 bytes = { workspace = true }
@@ -83,7 +86,7 @@ tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-testkit = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util", "process"] }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
 mixdog-core-rooms = { workspace = true, features = ["test-support"] }

@@ -71,6 +71,7 @@ use super::seams::SessionLog;
 use super::seams::StoredOp;
 use super::seams::ThreadStore;
 use super::seams::WindowRead;
+use super::turn_draft::RunDraft;
 
 /// UI window rows read at open (P §5.3).
 const WINDOW_ROWS: usize = 200;
@@ -270,9 +271,14 @@ impl Projector {
 /// `AppendError::outcome()`: `NotApplied` → `Failed`, `Unknown` → `Indeterminate`.
 fn barrier(error: AppendError) -> BarrierError {
     let io_kind: Arc<str> = error.io_kind().into();
+    // What the disk said (`EIO: ...`), as Node's refusal names its save's error.
+    let cause: Arc<str> = match &error {
+        AppendError::BarrierFailed(e) | AppendError::Indeterminate(e) | AppendError::Refused(e) => e.source.to_string().into(),
+        _ => io_kind.clone(),
+    };
     match error.outcome() {
-        Outcome::NotApplied => BarrierError::Failed { io_kind },
-        Outcome::Unknown => BarrierError::Indeterminate { io_kind },
+        Outcome::NotApplied => BarrierError::Failed { io_kind, cause },
+        Outcome::Unknown => BarrierError::Indeterminate { io_kind, cause },
     }
 }
 
@@ -356,7 +362,7 @@ impl Drop for Rewriting {
 }
 
 fn writer_lost() -> BarrierError {
-    BarrierError::Indeterminate { io_kind: "writerLost".into() }
+    BarrierError::Indeterminate { io_kind: "writerLost".into(), cause: "writerLost".into() }
 }
 
 /// A test build's hold at a named point of a sensitive rewrite, run on the rewrite's own lane thread: `planned` once the plan
@@ -485,7 +491,7 @@ impl StoreLog {
         let mut replace = redaction.marks.rewriter(&redaction.thread);
         for (record, out) in batch.iter().zip(&mut encoded) {
             if let Some(next) = replace(record.record.as_ref()) {
-                *out = mixdog_store::encode::encode_record(next).map_err(|e| BarrierError::Failed { io_kind: format!("encode:{e}").into() })?;
+                *out = mixdog_store::encode::encode_record(next).map_err(|e| BarrierError::failed(&format!("encode:{e}")))?;
             }
         }
         Ok(encoded)
@@ -793,6 +799,42 @@ impl StoreThreads {
             });
         }
         Ok(levels)
+    }
+
+    /// The draft of the run `rid` that `started` begins: the `draft` records a log written before held, folded over every
+    /// frame from there to the log's end (a checkpoint between them does not carry it), then the run's draft file.
+    fn run_draft(&self, lane: &InLane<InteractiveIo>, dir: &Path, rid: &str, started: FramePos) -> Result<RunDraft, CoreError> {
+        let mut draft = RunDraft::default();
+        let mut landed = std::collections::HashSet::new();
+        let mut from = started;
+        loop {
+            let read = log::read_forward(lane, dir, from, 1 << 20).map_err(|e| internal("drafts", &e))?;
+            for (record, _, _) in &read.frames {
+                match record {
+                    Record::Draft(record) if record.rid.as_str() == rid => {
+                        if let Slot::Inline(body) = self.resolve(lane, &record.body)? {
+                            draft.apply(&body);
+                        }
+                    }
+                    Record::Item(item)
+                        if item.turn.as_ref().is_some_and(|turn| turn.as_str() == rid)
+                            && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant") =>
+                    {
+                        landed.insert(item.iid.as_str().to_owned());
+                        draft.message_committed();
+                    }
+                    _ => {}
+                }
+            }
+            match read.next {
+                log::ForwardEnd::More(next) => from = next,
+                log::ForwardEnd::Done { .. } => break,
+                log::ForwardEnd::Damaged(damage) => return Err(internal("drafts", &format!("{damage:?}"))),
+            }
+        }
+        let bodies = mixdog_store::draft_file::read(lane, dir, rid).map_err(|e| internal("drafts", &e))?;
+        draft.apply_file(&bodies, |iid| landed.contains(iid));
+        Ok(draft)
     }
 
     fn frame_at(
@@ -1118,6 +1160,7 @@ impl SensitiveMarksOf {
             Record::Op(op) => prompt_changed = self.text_redacted(session, op.detail.as_mut()),
             Record::Approval(approval) => prompt_changed = self.text_redacted(session, approval.body.as_mut()),
             Record::Queue(queue) => prompt_changed = self.text_redacted(session, queue.entry.as_mut()),
+            Record::Draft(draft) => prompt_changed = self.text_redacted(session, Some(&mut draft.body)),
             // No text: positions, ids, a provider and model id.
             Record::Rewind(_) | Record::ModelSwitch(_) => return (None, Vec::new()),
         }
@@ -1226,6 +1269,10 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
             }
         }
     }
+
+    fn redact_settled(&self, thread: &ThreadId, text: &str) -> String {
+        self.store.redact_settled_text(thread.as_str(), text)
+    }
 }
 
 /// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
@@ -1272,6 +1319,7 @@ struct Window {
     has_older: bool,
     prompts: Vec<String>,
     runs: Vec<(u64, mixdog_store::schema::record::RunRecord)>,
+    drafts: Vec<(String, RunDraft)>,
     approvals: Vec<(u64, mixdog_store::schema::record::ApprovalRecord)>,
     queue: Vec<(u64, mixdog_store::schema::record::QueueRecord)>,
 }
@@ -1341,6 +1389,7 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("prompts", &e))?;
         let dir = &opened.dir;
         let mut runs = Vec::new();
+        let mut drafts = Vec::new();
         for run in &fold.runs {
             let Record::Run(mut record) = self.frame_at(lane, id, dir, run.started)? else {
                 return Err(unexpected("run"));
@@ -1348,6 +1397,14 @@ impl ThreadStore for StoreThreads {
             if let Some(detail) = &record.detail {
                 record.detail = Some(self.resolve(lane, detail)?);
             }
+            let mut draft = self.run_draft(lane, dir, &run.rid, run.started)?;
+            // The run's input row is the row just before its start; past the window (a turn of many rows) it is read here.
+            if let Some(cursor) = cursor {
+                let before = mixdog_store::sqlite::PageCursor { level: 0, before: run.started.ordinal, ..cursor };
+                let (input, _) = self.index.history_page_on_lane(lane, &lineage, fold.base_cut, Some(before), 1).map_err(|e| internal("window", &e))?;
+                draft.input = input.into_iter().find(|row| row.turn.as_deref() == Some(run.rid.as_str())).map(|row| row.iid);
+            }
+            drafts.push((run.rid.clone(), draft));
             runs.push((run.started.ordinal, record));
         }
         let mut approvals = Vec::new();
@@ -1379,6 +1436,7 @@ impl ThreadStore for StoreThreads {
             has_older: cursor.is_some(),
             prompts,
             runs,
+            drafts,
             approvals,
             queue,
         })))
@@ -1415,6 +1473,7 @@ impl ThreadStore for StoreThreads {
             log_id: fold.log_id.clone(),
             next_ordinal: fold.next_ordinal,
             tail: Vec::new(),
+            drafts: read.drafts,
             append: AppendPosition(Box::new(opened)),
         })
     }
@@ -1680,15 +1739,12 @@ impl ThreadStore for StoreThreads {
     ) -> Result<Box<dyn SessionLog>, BarrierError> {
         let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
         self.wait(lane, self.index.mark_dirty(id.as_str()))
-            .map_err(|e| BarrierError::Failed {
-                io_kind: format!("index:{e}").into(),
-            })?;
+            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let writer = LogWriter::open(lane, opened, self.writer.clone()).map_err(|e| match e {
-            OpenAppendError::StoreDamaged(_) => BarrierError::Failed {
-                io_kind: "storeDamaged".into(),
-            },
+            OpenAppendError::StoreDamaged(_) => BarrierError::failed("storeDamaged"),
             OpenAppendError::Io(e) => BarrierError::Failed {
                 io_kind: e.op.to_string().into(),
+                cause: e.source.to_string().into(),
             },
         })?;
         Ok(self.store_log(id, writer))
@@ -1701,9 +1757,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         session: &CommitRecord,
     ) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
-        let failed = |kind: &str| BarrierError::Failed {
-            io_kind: kind.into(),
-        };
+        let failed = BarrierError::failed;
         let Record::Session(record) = session.record.as_ref() else {
             return Err(failed("notASession"));
         };
@@ -1729,9 +1783,7 @@ impl ThreadStore for StoreThreads {
             },
         );
         self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set))
-            .map_err(|e| BarrierError::Failed {
-                io_kind: format!("index:{e}").into(),
-            })?;
+            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let (writer, ack) = LogWriter::create(
             lane,
             &self.dir(id.as_str()),
@@ -1742,6 +1794,21 @@ impl ThreadStore for StoreThreads {
         let ordinal = ack.positions[0].ordinal;
         self.projector.send(ack.projection);
         Ok((self.store_log(id, writer), ordinal))
+    }
+
+    fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        use mixdog_store::draft_file;
+        use super::turn_draft::DraftWrite;
+        let dir = self.dir(id.as_str());
+        let done = match write {
+            DraftWrite::Append { rid, body } => draft_file::append(lane, &dir, rid, body),
+            DraftWrite::Replace { rid, body } => draft_file::replace(lane, &dir, rid, body),
+            DraftWrite::Remove { rid } => draft_file::remove(lane, &dir, rid),
+            DraftWrite::Sweep { open } => draft_file::list(lane, &dir).and_then(|rids| {
+                rids.iter().filter(|rid| !open.contains(rid)).try_for_each(|rid| draft_file::remove(lane, &dir, rid))
+            }),
+        };
+        done.map_err(|e| internal("draft", &e))
     }
 }
 

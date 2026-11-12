@@ -323,6 +323,8 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
+    /// Every barrier fails (rolled back) with this cause while it is set.
+    pub failing: Arc<Mutex<Option<Arc<str>>>>,
     /// The next barrier writes its records and then fails (a write whose sync failed: the records are in the log).
     pub fail_after_write: Arc<AtomicBool>,
     /// The next batch holding a record the predicate takes fails (`FailWhen`).
@@ -356,11 +358,26 @@ pub struct MemStore {
     pub title_gate: TitleGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
+    /// Each run's draft file, by thread and run: its bodies in order.
+    pub drafts: Mutex<std::collections::BTreeMap<(String, String), Vec<Value>>>,
     /// The record count of every batch that landed, in order: which records one group commit held.
     pub batches: Arc<Mutex<Vec<usize>>>,
 }
 
 impl MemStore {
+    /// Appends `record` to thread `id`'s log as a barrier would (a log an earlier build wrote).
+    pub fn append_record(&self, id: &ThreadId, record: Record) {
+        let log = self.log(id);
+        let mut log = lock(&log);
+        let next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        log.push((next, record));
+    }
+
+    /// The draft files of thread `id`: run id and bodies.
+    pub fn draft_files(&self, id: &ThreadId) -> Vec<(String, Vec<Value>)> {
+        lock(&self.drafts).iter().filter(|((thread, _), _)| thread == id.as_str()).map(|((_, rid), bodies)| (rid.clone(), bodies.clone())).collect()
+    }
+
     /// Holds the next batch that sets the title to `title` until the returned sender says go; `.0` wakes when it arrives.
     pub fn hold_title(&self, title: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
         let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
@@ -450,6 +467,7 @@ pub type FailWhen = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, bool)
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
+    failing: Arc<Mutex<Option<Arc<str>>>>,
     fail_after_write: Arc<AtomicBool>,
     fail_when: FailWhen,
     commit_gate: CommitGate,
@@ -472,9 +490,10 @@ impl SessionLog for MemLog {
             wait_for_release(&go, "the commit gate");
         }
         if self.fail_next.swap(false, Ordering::SeqCst) {
-            return Err(BarrierError::Failed {
-                io_kind: "test".into(),
-            });
+            return Err(BarrierError::failed("test"));
+        }
+        if let Some(cause) = lock(&self.failing).clone() {
+            return Err(BarrierError::Failed { io_kind: cause.clone(), cause });
         }
         let failing = {
             let mut when = lock(&self.fail_when);
@@ -482,7 +501,7 @@ impl SessionLog for MemLog {
             if hit { when.take().map(|(_, after_write)| after_write) } else { None }
         };
         if failing == Some(false) {
-            return Err(BarrierError::Failed { io_kind: "test".into() });
+            return Err(BarrierError::failed("test"));
         }
         if failing == Some(true) {
             self.fail_after_write.store(true, Ordering::SeqCst);
@@ -518,7 +537,7 @@ impl SessionLog for MemLog {
         lock(&self.batches).push(batch.len());
         self.committed.notify_waiters();
         if self.fail_after_write.swap(false, Ordering::SeqCst) {
-            return Err(BarrierError::Failed { io_kind: "test".into() });
+            return Err(BarrierError::failed("test"));
         }
         Ok(out)
     }
@@ -564,7 +583,7 @@ impl ThreadStore for MemStore {
     fn decode(
         &self,
         _lane: &InLane<CpuInteractive>,
-        _id: &ThreadId,
+        id: &ThreadId,
         head: HeadRead,
         _window: WindowRead,
     ) -> Result<OpenedLog, CoreError> {
@@ -592,6 +611,28 @@ impl ThreadStore for MemStore {
             ),
             _ => (Header::new(), false, String::new()),
         };
+        // Each draft file folded over the log's draft records of its run (the session's fold reads those from the tail).
+        let drafts = self
+            .draft_files(id)
+            .into_iter()
+            .map(|(rid, bodies)| {
+                let mut draft = super::turn_draft::RunDraft::default();
+                for (_, record) in &records {
+                    match record {
+                        Record::Draft(d) if d.rid.as_str() == rid => {
+                            if let Slot::Inline(body) = &d.body {
+                                draft.apply(body);
+                            }
+                        }
+                        Record::Item(item) if item.turn.as_ref().is_some_and(|t| t.as_str() == rid) && item.role.as_ref().is_some_and(|r| r.as_str() == "assistant") => draft.message_committed(),
+                        _ => {}
+                    }
+                }
+                let landed = |iid: &str| records.iter().any(|(_, record)| matches!(record, Record::Item(item) if item.iid.as_str() == iid));
+                draft.apply_file(&bodies, landed);
+                (rid, draft)
+            })
+            .collect();
         Ok(OpenedLog {
             header,
             control,
@@ -607,6 +648,7 @@ impl ThreadStore for MemStore {
             log_id,
             next_ordinal: records.last().map_or(0, |(ordinal, _)| ordinal + 1),
             tail: records,
+            drafts,
             append: AppendPosition(Box::new(())),
         })
     }
@@ -755,6 +797,7 @@ impl ThreadStore for MemStore {
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            failing: self.failing.clone(),
             fail_after_write: self.fail_after_write.clone(),
             fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
@@ -780,6 +823,7 @@ impl ThreadStore for MemStore {
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            failing: self.failing.clone(),
             fail_after_write: self.fail_after_write.clone(),
             fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
@@ -791,6 +835,21 @@ impl ThreadStore for MemStore {
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
         Ok((Box::new(log), ordinal))
+    }
+
+    fn draft_write(&self, _lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        use super::turn_draft::DraftWrite;
+        let thread = id.as_str().to_owned();
+        let mut drafts = lock(&self.drafts);
+        match write {
+            DraftWrite::Append { rid, body } => drafts.entry((thread, rid.clone())).or_default().push(body.clone()),
+            DraftWrite::Replace { rid, body } => drop(drafts.insert((thread, rid.clone()), vec![body.clone()])),
+            DraftWrite::Remove { rid } => drop(drafts.remove(&(thread, rid.clone()))),
+            DraftWrite::Sweep { open } => drafts.retain(|(t, rid), _| *t != thread || open.contains(rid)),
+        }
+        drop(drafts);
+        self.committed.notify_waiters();
+        Ok(())
     }
 
     /// Rewinds cut the lineage, as the real store reads it.
@@ -974,6 +1033,7 @@ impl ThreadStore for CallCounted {
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
         fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
         fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
+        fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
     }
 }
 
@@ -1146,12 +1206,48 @@ pub type Script =
 /// Runs whose body the test sets.
 pub struct ScriptRuns {
     pub script: Mutex<Script>,
+    /// The input row each crashed run was recovered with.
+    pub crashed: Mutex<Vec<Option<mixdog_core_api::ids::ItemId>>>,
+    /// The draft each crashed run was recovered with.
+    pub crashed_drafts: Mutex<Vec<super::turn_draft::RunDraft>>,
 }
 
 impl RunFactory for ScriptRuns {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
         let script = lock(&self.script).clone();
         script(run)
+    }
+
+    /// A scripted run commits rows the script chose; its crash leaves none unless it left no draft: the conversation
+    /// then restarts as Node's reconnect recovery leaves it (`recover_after_restart`). The run host's own finalization,
+    /// of a draft too, is `RunHostFactory`'s.
+    fn crashed(&self, run: super::seams::CrashedRun) -> super::seams::CrashedRows {
+        lock(&self.crashed).push(run.input.clone());
+        let undrafted = run.draft == super::turn_draft::RunDraft { input: run.draft.input.clone(), context_tokens: run.draft.context_tokens, ..Default::default() };
+        lock(&self.crashed_drafts).push(run.draft);
+        if !undrafted {
+            return super::seams::CrashedRows::default();
+        }
+        let bodies: Vec<Value> = run.context.iter().map(|(_, body)| body.clone()).collect();
+        let Ok(recovered) = mixdog_agent::interrupt::recover_after_restart(&bodies) else {
+            return super::seams::CrashedRows::default();
+        };
+        let (mut rows, mut replacement, mut changed) = (Vec::new(), Vec::new(), false);
+        for row in recovered {
+            match row {
+                mixdog_agent::interrupt::RecoveredRow::Kept { index, body } => {
+                    changed |= body != run.context[index].1;
+                    replacement.push((run.context[index].0.clone(), body));
+                }
+                mixdog_agent::interrupt::RecoveredRow::New { role, body } => {
+                    changed = true;
+                    let iid = super::run::new_item_id();
+                    replacement.push((iid.clone(), body.clone()));
+                    rows.push(super::run::ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: role != "user", body, prompt: None });
+                }
+            }
+        }
+        super::seams::CrashedRows { sealed: false, rows, context: changed.then_some(replacement), context_tokens: None }
     }
 }
 
@@ -2029,6 +2125,8 @@ impl Rig {
             _data: data,
             store,
             runs: Arc::new(ScriptRuns {
+                crashed: Mutex::default(),
+                crashed_drafts: Mutex::default(),
                 script: Mutex::new(idle),
             }),
             feeds: Arc::new(RecFeeds::default()),
