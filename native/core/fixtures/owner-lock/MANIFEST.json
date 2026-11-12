@@ -38,7 +38,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-owner-lock.mjs",
-  "recorderSha256": "abade9043e08843c28780b407aacf3374c1652f5742a1ecc9fdcc23b0d730f8e",
+  "recorderSha256": "6c144e68296e1448b65c24f7a65483fac18b2410cdb2bd8042ebf5d4a32fde1f",
   "set": "owner-lock",
   "totalBytes": 744
 }

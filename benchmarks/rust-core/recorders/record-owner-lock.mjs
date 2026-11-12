@@ -29,8 +29,19 @@ const recorder = 'benchmarks/rust-core/recorders/record-owner-lock.mjs';
 const lockModule = pathToFileURL(join(tree, 'src', 'standalone', 'daemon-owner-lock.mjs')).href;
 const { acquireDaemonOwnerLock, daemonOwnerLockPath } = await import(lockModule);
 
+// The one failure deadline of every wait on a child: a stuck contender fails the recording with a message naming what did not arrive.
+const DEADLINE_MS = 30_000;
+function within(promise, what) {
+  let timer;
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not arrive within ${DEADLINE_MS} ms`)), DEADLINE_MS);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 const roots = [];
 const children = [];
+const contenders = [];
 const dirOf = () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-owner-lock-rec-'));
   roots.push(root);
@@ -54,7 +65,7 @@ process.stdin.resume();`,
   );
   children.push(child);
   const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
-  const verdict = new Promise((resolve, reject) => {
+  const answer = new Promise((resolve, reject) => {
     let out = '';
     child.stdout.on('data', (chunk) => {
       out += chunk;
@@ -63,12 +74,18 @@ process.stdin.resume();`,
     });
     exited.then(({ code }) => reject(new Error(`a contender exited ${code} before answering`)));
   });
-  return { child, verdict, exited };
+  const started = {
+    child,
+    verdict: within(answer, `the verdict of the contender on ${lockPath}`),
+    exit: () => within(exited, `the exit of the contender on ${lockPath}`),
+  };
+  contenders.push(started);
+  return started;
 }
 
 const kill = async (c) => {
   c.child.kill('SIGKILL');
-  await c.exited;
+  await c.exit();
 };
 const heldCount = (verdicts) => verdicts.filter((v) => v.held).length;
 
@@ -137,8 +154,9 @@ try {
   }
 } finally {
   for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-  await Promise.all(children.map((child) => (child.exitCode !== null || child.signalCode !== null ? null : new Promise((resolve) => child.once('exit', resolve)))));
-  for (const root of roots) rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  // A child holds its lock file until it exits: the exit is the event that lets the directories go.
+  await Promise.all(contenders.map((c) => c.exit()));
+  for (const root of roots) rmSync(root, { recursive: true, force: true });
 }
 
 writeJson(join(stage, 'golden.json'), { platform: process.platform, ...golden });
