@@ -4,8 +4,15 @@
 //   node first-response-budgets-probe.mjs <tree>      (the environment is the process's own; prints the JSON)
 import { importFrom } from './common.mjs';
 
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 const tree = process.argv[2];
 const P = 'src/runtime/agent/orchestrator/providers/';
+// The real provider classes warm a connection to their host when they are constructed (`preconnect`): no connection leaves this process
+// (a global dispatcher that is not undici's own Agent is one `preconnect` steps aside for, and it refuses a request).
+const { Dispatcher, setGlobalDispatcher } = await import(pathToFileURL(join(tree, 'node_modules/undici/index.js')).href);
+setGlobalDispatcher(new (class NoNetwork extends Dispatcher { dispatch() { throw new Error('the probe allows no network connection'); } })());
 const { VertexAIProvider } = await importFrom(tree, `${P}vertex-ai.mjs`);
 const { OpenAICompatProvider } = await importFrom(tree, `${P}openai-compat.mjs`);
 const { MimoOAuthProvider } = await importFrom(tree, `${P}mimo-oauth.mjs`);
@@ -33,4 +40,44 @@ const antigravity = {};
 for (const model of ['', ...ANTIGRAVITY_MODELS.map((entry) => entry.id), 'not-a-listed-model']) {
   antigravity[model] = plain(AntigravityOAuthProvider.prototype.firstResponseBudget.call({}, model || undefined));
 }
-process.stdout.write(JSON.stringify({ vertex, compat, antigravity }));
+// The settings Node resolved from the environment, as its modules state them (each is a constant of its module, read as the module loads).
+const { PROVIDER_MAX_BEFORE_WARN_MS, PROVIDER_FIRST_BYTE_TIMEOUT_MS } = await importFrom(tree, 'src/runtime/agent/orchestrator/stall-policy.mjs');
+const { GEMINI_FIRST_BYTE_TIMEOUT_MS } = await importFrom(tree, `${P}gemini-stream.mjs`);
+const { ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS, ANTIGRAVITY_FIRST_BYTE_RETRIES, ANTIGRAVITY_RETRY } = await importFrom(tree, `${P}antigravity-retry-policy.mjs`);
+const settings = {
+  maxBeforeWarnMs: PROVIDER_MAX_BEFORE_WARN_MS, providerMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS, geminiMs: GEMINI_FIRST_BYTE_TIMEOUT_MS, antigravityProMs: ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS,
+  antigravityAttempts: ANTIGRAVITY_RETRY.maxAttempts, antigravityBackoffMs: [...ANTIGRAVITY_RETRY.backoffMs], antigravityFirstByteRetries: ANTIGRAVITY_FIRST_BYTE_RETRIES,
+};
+
+// Every provider the registry builds (registry.mjs PROVIDER_MODULES and the compat preset `xai`), as the registry constructs it, asked for its budget on
+// every route: each model below with no tier, the Flex tier and the Priority tier (`provider.firstResponseBudget?.(model, { modelParameters })`,
+// spawn-prep.mjs:81). A provider that states none answers null on every route.
+const MODULES = {
+  anthropic: ['anthropic.mjs', 'AnthropicProvider'], gemini: ['gemini.mjs', 'GeminiProvider'], 'vertex-ai': ['vertex-ai.mjs', 'VertexAIProvider'],
+  'openai-oauth': ['openai-oauth.mjs', 'OpenAIOAuthProvider'], 'anthropic-oauth': ['anthropic-oauth.mjs', 'AnthropicOAuthProvider'], 'grok-oauth': ['grok-oauth.mjs', 'GrokOAuthProvider'],
+  'muse-code-oauth': ['muse-code-oauth.mjs', 'MuseCodeOAuthProvider'], 'command-code-oauth': ['command-code-oauth.mjs', 'CommandCodeOAuthProvider'], 'mimo-oauth': ['mimo-oauth.mjs', 'MimoOAuthProvider'],
+  'cursor-oauth': ['cursor.mjs', 'CursorOAuthProvider'], 'devin-oauth': ['devin.mjs', 'DevinOAuthProvider'], 'antigravity-oauth': ['antigravity-oauth.mjs', 'AntigravityOAuthProvider'],
+  'cursor-api': ['cursor.mjs', 'CursorApiProvider'], openai: ['openai-ws.mjs', 'OpenAIDirectProvider'], 'mixdog-local': ['mixdog-local.mjs', 'MixdogLocalProvider'],
+  'opencode-go-oauth': ['opencode-go-oauth.mjs', 'OpenCodeGoOAuthProvider'], openrouter: ['openrouter.mjs', 'OpenRouterProvider'], deepseek: ['deepseek.mjs', 'DeepSeekProvider'],
+};
+const ROUTE_MODELS = ['', 'gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.1-pro', 'gemini-4-argon', 'claude-sonnet-4-6', 'gpt-oss-120b', 'not-a-listed-model'];
+const ROUTE_TIERS = [undefined, 'flex', 'priority'];
+// The entry every provider is built with (the replay builds the same).
+const ENTRY = { enabled: true, apiKey: 'k' };
+const table = {};
+for (const name of [...Object.keys(MODULES), 'xai']) {
+  let instance;
+  if (name === 'xai') instance = new OpenAICompatProvider(name, ENTRY);
+  else { const [file, exported] = MODULES[name]; instance = new (await importFrom(tree, `${P}${file}`))[exported](ENTRY); }
+  table[name] = {};
+  for (const model of ROUTE_MODELS) {
+    for (const tier of ROUTE_TIERS) table[name][`${model}|${tier ?? ''}`] = plain(instance.firstResponseBudget?.(model || undefined, { modelParameters: tier ? { serviceTier: tier } : undefined }));
+  }
+}
+
+// What the environment's later change does: nothing, the budgets were fixed as the modules loaded.
+const changedTo = { STALL_TIMEOUT_S: '100', MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS: '45000', MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS: '90000', MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS: '2', MIXDOG_ANTIGRAVITY_RETRY_BACKOFF_MS: '9,9', MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES: '0', MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS: '31000' };
+for (const [name, value] of Object.entries(changedTo)) process.env[name] = value;
+const afterEnvironmentChange = {};
+for (const model of ['', ...ANTIGRAVITY_MODELS.map((entry) => entry.id), 'not-a-listed-model']) afterEnvironmentChange[model] = plain(AntigravityOAuthProvider.prototype.firstResponseBudget.call({}, model || undefined));
+process.stdout.write(JSON.stringify({ vertex, compat, antigravity, settings, table, changedTo, afterEnvironmentChange }));

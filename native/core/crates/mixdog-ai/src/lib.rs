@@ -44,6 +44,7 @@ pub fn reset_process_state() {
     oauth::single_flight::reset();
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();
+    providers::first_byte::FirstByteSettings::reset_process();
     providers::grok::reset_process_state();
     providers::openai::adapter::reset_zstd_latch();
     providers::google::adapter::reset_announced();

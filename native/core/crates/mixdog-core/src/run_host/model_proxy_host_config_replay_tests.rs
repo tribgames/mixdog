@@ -202,6 +202,53 @@ async fn the_developer_gated_families_are_advertised_when_their_options_are_on()
     families_are_advertised_as_their_adapters_declare("all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on").await;
 }
 
+const BUDGETS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/first-response-budgets/golden.json");
+
+/// The whole table of first-response budgets (`first-response-budgets`, the case with no variable set): every provider the
+/// registry builds, on every route, as the registry's own adapter states it. The set of providers is compared both ways: the
+/// core's builder names (and `mixdog-local`, which the host's runtime serves) against Node's table, so a provider missing
+/// on either side fails before any budget is compared.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_provider_states_the_budget_node_states_on_every_route() {
+    let golden: Value = serde_json::from_str(&BUDGETS).unwrap();
+    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == "no variable is set").expect("the default environment is recorded");
+    let table = case["observed"]["budgets"]["table"].as_object().unwrap();
+    let mut core: Vec<String> = mixdog_ai::registry::builder::buildable_names().into_iter().map(str::to_owned).collect();
+    core.push("mixdog-local".to_owned());
+    core.sort();
+    let mut node: Vec<String> = table.keys().cloned().collect();
+    node.sort();
+    assert_eq!(core, node, "the providers the core builds and the providers of Node's table");
+
+    let developer = json!({ "antigravityOAuth": true, "cursorOAuth": true, "devinOAuth": true, "mimoOAuth": true });
+    // Vertex AI is built from a key (its express mode) as the other providers are from theirs; Node's class states its budget
+    // from no instance state, whatever its credential.
+    let available: Map<String, Value> = table
+        .keys()
+        .map(|name| (name.clone(), if name == "vertex-ai" { json!({ "enabled": true, "apiKey": "k", "authMode": "api-key" }) } else { json!({ "enabled": true, "apiKey": "k" }) }))
+        .collect();
+    let pc = pc_over(Value::Object(available), Arc::new(GatedAuth(developer.clone())), &[], developer, |_, plugin_data| sign_in(plugin_data)).await;
+    // The first read loads the registry with every enabled provider.
+    pc.answer().await;
+    let mut got = Map::new();
+    for (name, routes) in table {
+        let adapter = pc.config.adapter(name).await.unwrap_or_else(|| panic!("the core builds {name}"));
+        let stated: Map<String, Value> = routes
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|route| {
+                let (model, tier) = route.split_once('|').unwrap();
+                let parameters = (!tier.is_empty()).then(|| json!({ "serviceTier": tier }));
+                let budget = adapter.first_response_budget(model, parameters.as_ref());
+                (route.clone(), budget.map_or(Value::Null, |b| json!({ "transportMs": b.transport_ms, "semanticMs": b.semantic_ms })))
+            })
+            .collect();
+        got.insert(name.clone(), Value::Object(stated));
+    }
+    assert_eq!(Value::Object(got), Value::Object(table.clone()));
+}
+
 /// The vault of a PC that keeps every account it is asked for.
 #[derive(Default)]
 struct ReadLog {

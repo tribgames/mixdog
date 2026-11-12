@@ -31,6 +31,8 @@ pub struct FirstByteSettings {
     /// `PROVIDER_MAX_BEFORE_WARN_MS`: warn threshold less one 15 s tick (285 s at the defaults); no first-byte window is
     /// longer, so the provider times out before the watchdog warns.
     pub max_before_warn_ms: i64,
+    /// `PROVIDER_FIRST_BYTE_TIMEOUT_MS`: the shared window of every provider that sets none of its own.
+    pub provider_ms: i64,
     /// `GEMINI_FIRST_BYTE_TIMEOUT_MS`: the shared window (`PROVIDER_FIRST_BYTE_TIMEOUT_MS` unless its own variable is set).
     pub gemini_ms: i64,
     /// `ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS`: the Pro-class window.
@@ -43,6 +45,9 @@ pub struct FirstByteSettings {
     pub antigravity_first_byte_retries: u32,
 }
 
+/// [`FirstByteSettings::process`]'s value once it has read the environment.
+static AT_START: std::sync::Mutex<Option<FirstByteSettings>> = std::sync::Mutex::new(None);
+
 impl Default for FirstByteSettings {
     fn default() -> Self {
         Self::from_env(|_| None)
@@ -50,9 +55,22 @@ impl Default for FirstByteSettings {
 }
 
 impl FirstByteSettings {
-    /// The process environment.
+    /// The process environment as it was when this was first asked: Node reads every one of these variables once, as its
+    /// modules load (`stall-policy.mjs`, `gemini-stream.mjs`, `antigravity-retry-policy.mjs`), so a later change of the
+    /// environment moves no budget.
     pub fn process() -> Self {
-        Self::from_env(|name| std::env::var(name).ok())
+        Self::once(&AT_START, |name| std::env::var(name).ok())
+    }
+
+    /// The settings `cell` holds, read from `get` by the first caller only.
+    pub(crate) fn once(cell: &std::sync::Mutex<Option<Self>>, get: impl Fn(&str) -> Option<String>) -> Self {
+        cell.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_or_insert_with(|| Self::from_env(get)).clone()
+    }
+
+    /// The environment is read again by the next [`Self::process`], as a new process reads it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn reset_process() {
+        *AT_START.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Self {
@@ -81,6 +99,7 @@ impl FirstByteSettings {
             .unwrap_or_else(|| DEFAULT_ANTIGRAVITY_BACKOFF_MS.to_vec());
         Self {
             max_before_warn_ms: max as i64,
+            provider_ms: provider as i64,
             gemini_ms: gemini as i64,
             antigravity_pro_ms: pro as i64,
             antigravity_attempts: int("MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS", DEFAULT_ANTIGRAVITY_ATTEMPTS, 1, 6),

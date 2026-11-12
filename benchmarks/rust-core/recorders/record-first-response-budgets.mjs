@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // The first-response budget each provider states (`firstResponseBudget`, b6f10295a): Vertex AI (a Flex route only,
 // vertex-ai.mjs:227), the OpenAI-compatible family (openai-compat.mjs:111: Mimo's own window, the rest on the shared one),
-// Mimo (mimo-oauth.mjs:158) and Antigravity (antigravity-oauth.mjs:110, per model family). Each case is one environment:
+// Mimo (mimo-oauth.mjs:158) and Antigravity (antigravity-oauth.mjs:110, per model family), and the table of every provider the registry builds on
+// every route (`table`). Each case is one environment, and records the settings Node resolved from it (`settings`) and the Antigravity budgets
+// after the environment is changed once the modules have loaded (`afterEnvironmentChange`: the same, Node reads the variables as its modules load):
 // Node reads STALL_TIMEOUT_S, MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS, MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS and
 // MIXDOG_ANTIGRAVITY_{RETRY_MAX_ATTEMPTS,RETRY_BACKOFF_MS,FIRST_BYTE_RETRIES,FIRST_BYTE_TIMEOUT_MS} once, as its modules load
 // (stall-policy.mjs:24,69, gemini-stream.mjs:25, antigravity-retry-policy.mjs:74-96), so each case runs the probe
@@ -35,6 +37,24 @@ const ENVIRONMENTS = [
   ['blank and fractional values fall back; a backoff list with zero steps is read', { MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS: '2.5', MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES: ' ', MIXDOG_ANTIGRAVITY_RETRY_BACKOFF_MS: '0, 0 ,7000' }],
   ['more first-byte retries than the ladder has attempts', { MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS: '2', MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES: '5' }],
 ];
+
+// One table per variable: unset, below its lower bound, above its upper bound, unparsable and a valid value, each in an environment of its own.
+// (The bounds: the stall threshold is a positive integer of seconds; the windows are clamped to [30 s, the provider ceiling]; the attempts to 1-6 and
+// the first-byte retries to 0-5, integers; a backoff list is whole non-negative steps.)
+const PER_VARIABLE = {
+  STALL_TIMEOUT_S: ['0', '1000000', 'abc', '200'],
+  MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS: ['1000', '99999999', 'abc', '45000'],
+  MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS: ['1000', '99999999', 'abc', '90000'],
+  MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS: ['0', '9', 'abc', '3'],
+  MIXDOG_ANTIGRAVITY_RETRY_BACKOFF_MS: ['-1', '99999999999', '1,x', '500,1500'],
+  MIXDOG_ANTIGRAVITY_FIRST_BYTE_RETRIES: ['-3', '9', 'abc', '2'],
+  MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS: ['1000', '99999999', 'abc', '120000'],
+};
+for (const [variable, [below, above, unparsable, valid]] of Object.entries(PER_VARIABLE)) {
+  for (const [kind, value] of [['unset', undefined], ['below its lower bound', below], ['above its upper bound', above], ['unparsable', unparsable], ['a valid value', valid]]) {
+    ENVIRONMENTS.push([`${variable}: ${kind}`, value === undefined ? {} : { [variable]: value }]);
+  }
+}
 
 try {
   for (const [name, env] of ENVIRONMENTS) {

@@ -82,6 +82,22 @@ fn every_provider_states_the_budget_node_states_in_each_environment() {
         let settings = settings_of(&observed["env"]);
         let budgets = &observed["budgets"];
 
+        // What the environment resolves to, variable by variable (the recorded settings of Node's modules), whole.
+        let resolved = json!({
+            "maxBeforeWarnMs": settings.max_before_warn_ms, "providerMs": settings.provider_ms, "geminiMs": settings.gemini_ms, "antigravityProMs": settings.antigravity_pro_ms,
+            "antigravityAttempts": settings.antigravity_attempts, "antigravityBackoffMs": settings.antigravity_backoff_ms, "antigravityFirstByteRetries": settings.antigravity_first_byte_retries,
+        });
+        assert_eq!(resolved, budgets["settings"], "{name}: the settings the environment resolves to");
+
+        // Node reads the variables as its modules load: the environment changed afterwards moves no budget.
+        let cell = std::sync::Mutex::new(None);
+        let at_start = FirstByteSettings::once(&cell, |variable| observed["env"].get(variable).and_then(Value::as_str).map(str::to_owned));
+        let later = FirstByteSettings::once(&cell, |variable| budgets["changedTo"].get(variable).and_then(Value::as_str).map(str::to_owned));
+        assert_eq!(later, at_start, "{name}: a later change of the environment is not read");
+        let adapter = antigravity(&later);
+        let got: serde_json::Map<String, Value> = budgets["afterEnvironmentChange"].as_object().unwrap().keys().map(|model| (model.clone(), plain(adapter.first_response_budget(model, None)))).collect();
+        assert_eq!(Value::Object(got), budgets["afterEnvironmentChange"], "{name}: the Antigravity budgets after the environment changed");
+
         let vertex = super::vertex_express("k", Arc::new(Idle), Arc::new(CatalogGoogleTraits(Vec::new())));
         let ask = |parameters: Option<Value>| plain(vertex.first_response_budget("gemini-3.6-flash", parameters.as_ref()));
         let got = json!({
