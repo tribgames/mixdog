@@ -3,6 +3,7 @@
   "command": "node benchmarks/rust-core/recorders/record-ws-connect.mjs --tree <b6f tree>",
   "exclusions": {
     "MIXDOG_PROVIDER_WS_HEDGE_MS / MIXDOG_PROVIDER_WS_ACQUIRE_TIMEOUT_MS": "module-load constants of the Node tree; every scenario runs on the defaults (3000 ms hedge, 15000 ms acquire). The core reads the same settings through the adapter context and its tests use the defaults too",
+    "dial events of a connection that never asks to upgrade": "the Codex route warms its connection with a plain HTTP request on the first acquire (preconnect), which dials once without being a WebSocket leg; the core runs that warm-up on its HTTP client, apart from the dial, so only the legs are compared",
     "events of kind closed": "the server's view of a closed connection. In Node a cancelled stuck leg (`socket.terminate()` before the upgrade) leaves its loopback connection open, the core drops the dial and closes it; the other closes follow the recorder's own release of the opened socket. Not compared: the replay compares the upgrades the server saw, when, and how the acquire ended",
     "events of kind opened": "the server completing the upgrade; the same fact as the upgrade whose action is open",
     "events of kind upgrade": "the server's view of a request arriving, in real I/O time after the dial; the dial events (the product asking for a connection, at the virtual time of the leg's start) are compared instead",
@@ -75,7 +76,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-ws-connect.mjs",
-  "recorderSha256": "3ff18b94062e2f4250896f7248c00a7b8a0cbf234be927f070a8956fb15d68de",
+  "recorderSha256": "3a8fef46cd0135c11a4983c02cd1ea0fe05187b6a1a99e6220be5707beeb11ce",
   "scenarios": [
     "all-stuck",
     "all-stuck-oauth",

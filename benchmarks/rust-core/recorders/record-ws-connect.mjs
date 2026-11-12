@@ -151,6 +151,7 @@ writeSetManifest(outDir, {
     clockStartMs: T0,
     exclusions: {
       'outcome.message of a transport failure (lone-leg-reset, reset-beside-a-stuck-leg)': 'the text is `ws`/libuv wording for the reset the recorder wrote; the core states the typed transport fault and its own words. The replay compares that the race ended, when, and with a transport (not status, not acquire-timeout) failure',
+      'dial events of a connection that never asks to upgrade': 'the Codex route warms its connection with a plain HTTP request on the first acquire (preconnect), which dials once without being a WebSocket leg; the core runs that warm-up on its HTTP client, apart from the dial, so only the legs are compared',
       'events of kind upgrade': 'the server\'s view of a request arriving, in real I/O time after the dial; the dial events (the product asking for a connection, at the virtual time of the leg\'s start) are compared instead',
       'events of kind closed': 'the server\'s view of a closed connection. In Node a cancelled stuck leg (`socket.terminate()` before the upgrade) leaves its loopback connection open, the core drops the dial and closes it; the other closes follow the recorder\'s own release of the opened socket. Not compared: the replay compares the upgrades the server saw, when, and how the acquire ended',
       'events of kind opened': 'the server completing the upgrade; the same fact as the upgrade whose action is open',
