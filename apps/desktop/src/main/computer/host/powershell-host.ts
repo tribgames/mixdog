@@ -63,7 +63,7 @@ import { createInputPreflight } from './input-preflight';
 import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
 import type { BridgeServerHost } from './bridge-server-contract';
-import { answerPublicCommand, type BridgeAnswer } from './bridge-server-request';
+import type { BridgeAnswer } from './bridge-server-request';
 import { type ComputerExecutionPolicy, loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
 import { createSavedLoginVault } from './saved-login-vault';
@@ -381,7 +381,7 @@ export function createPowerShellComputerHost(
 
   return {
     readAuthorization: authorization.read,
-    answerBridgeCommand: (command, signal) => answerPublicCommand(bridgeHost, command, signal),
+    answerBridgeCommand: bridge.answerCommand,
     updateAuthorization: authorization.update,
     authorizationWindows: authorization.windows,
     readFailureDiagnostics: failureDiagnostics.read,
