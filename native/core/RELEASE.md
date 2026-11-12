@@ -1,4 +1,4 @@
-# mixdogd release build notes and K1 deletion list
+# mixdogd release build notes
 
 Owner: WP-INTEGRATE. Release version: the root `package.json` `version` (checked by
 `scripts/check-release-version.mjs`).
@@ -62,25 +62,3 @@ PATH (inside `^22.19.0 || >=24.0.0`; the `node-pin.json` version).
 5. Clippy: `cargo clippy -p mixdog-app-server-daemon --all-targets -- -D warnings`
 6. linux-x64 only: WP-INSTALL's `apps/desktop/src/main/ssh/remote-trimmed-bundle.slow.test.mjs`
    (`npm run test:slow -- remote-trimmed-bundle.slow` in `apps/desktop`) under the pinned Node.
-
-## K1 deletion list
-
-Removed together with the Node daemon and session runtime at K1; `main` ships them until then.
-
-- `apps/desktop/scripts/build-daemon.mjs`, `apps/desktop/scripts/remote-server-deps.mjs`, with
-  their references: the `build` and `build:fast` scripts in `apps/desktop/package.json`,
-  `build-daemon.test.mjs`, `daemon-bundle-electron.test.mjs`, `dev-fast-direct.mjs`,
-  `dev-update-windows.ps1`, `electron.vite.config.ts`, `docs/testing.md`.
-- Node phone-relay head-patch path (replaced by `thread/promptHistory/updated`):
-  - `apps/desktop/src/main/state-delta.ts`: `HEAD_PATCH_FIELDS`, `headListPatch`,
-    `applyHeadListPatch`, the `sl`/`lists` plumbing.
-  - The `promptHistoryPatch` hello negotiation in `remote-relay-clients.ts`,
-    `remote-relay-client-lifecycle.ts`, `remote-relay-session-state.ts`, `remote-view-sync.ts`,
-    `renderer/remote-shim-socket.ts`.
-  - Tests: `state-delta.test.mjs`, `remote-relay-transcript-paging.test.mjs`,
-    `remote-view-sync.test.mjs`, `remote-relay-read-answer.test.mjs`,
-    `remote-shim-socket.test.mjs`, `remote-e2ee-transport.test.mjs`.
-- Originals of the helpers whose only copy after K1 is `packages/protocol-client/src/rows/*.mjs`,
-  all under `src/runtime`: tool classification, result summaries, outcome code, the `restore.mjs`
-  merge helpers and `roomRowItem`. Delete each with the Node session runtime. Exact file paths
-  are to be listed against `packages/protocol-client/src/rows/` when K1 is cut.

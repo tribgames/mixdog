@@ -605,7 +605,7 @@ Installing it and enrolling a phone's controller key need admin rights, so each 
 moment when someone can approve it:
 
 - **Key delivery at pairing** (`renderer/remote-shim-pairing.ts`,
-  `shared/remote-controller-key.ts`, `main/remote-controller-keys.ts`). Once
+  `shared/remote-controller-key.ts`). Once
   an approved connection's E2EE channel is up, the phone makes this pairing's
   controller key (`ensureControllerKey`) and calls
   `deliverScreenControllerKey([publicKey])` over that channel. The PC's
@@ -613,8 +613,8 @@ moment when someone can approve it:
   channel. It binds the key to the relay credential that leg authenticated,
   never to a request field, and refuses a connection with no credential, a
   device whose unpair is recorded, or a value that isn't a P-256 point. The
-  key is kept with the paired-device record (`remote-client-cache.ts`,
-  `controllerKeys`) and goes with that device's confirmed unpair or a
+  key is kept with the paired-device record (`controllerKeys`)
+  and goes with that device's confirmed unpair or a
   reset. Nothing is elevated at pairing. Each accepted delivery (every
   connection delivers again) is announced to the desktop app as the
   `remote-controller-key-delivered` event, which enrolls it (below).
@@ -706,7 +706,7 @@ moment when someone can approve it:
 - **Every pairing removal in the service** (an unpair from any caller,
   Disconnect all's rotation, the recovery reset after lost revocation
   records) owes the removed phones' controller keys in `remote-clients.json`
-  (`owedAccessKeys`, `remote-client-cache.ts` `oweAccess`) before any pairing
+  (`owedAccessKeys`) before any pairing
   or key mapping goes: `queueRevoke`, `applied` and `clear` owe in the same
   write that unpairs or forgets a device, and rotation and recovery owe every
   mapped key first. A paired phone that delivers a different key (after
@@ -845,7 +845,7 @@ refused.
   connection, its E2EE channel must be established, the connection must not
   be revoked, and its credential must have no unpair in force (see "Unpair"
   below). The same check runs where the signal is
-  authorized (`screenAuthorized` in `remote-relay.ts`) and in the access it
+  authorized (`screen_authorized` in `native/core/crates/mixdog-remote/src/webrtc/relay.rs`) and in the access it
   pushes to the window. Unpaired or plaintext peers are refused.
 - **Visible on-PC indicator** while a phone views or controls, with a
   one-click stop (`ScreenIndicator`): the remote-control pill
@@ -952,7 +952,7 @@ process's set of screen sessions for the WebRTC host
 (`apps/desktop/src/main/browser/host.ts` resolves `kind: 'screen'` through
 it; Windows only):
 
-- **Access.** The service (`remote-relay.ts`) owns the relay connections. Its
+- **Access.** The service (`native/core/crates/mixdog-remote`) owns the relay connections. Its
   publisher (`screen-access-publisher.ts`) sends a client's
   `RemoteScreenAccess` (`epoch`, `revision`, `connection`, `paired`, `label`)
   over the window request `screenAccess`. Every decision is synchronous and
@@ -1172,15 +1172,6 @@ sources (Node's own type stripping can't, e.g. parameter properties):
   used after the relay confirmed it is refused; after a failed revoke a
   fresh reconnect of that credential is refused; once the record clears
   (confirmed or re-paired) only connections admitted after that get access.
-- `remote-relay-client-lifecycle.test.mjs`: an admitted connection is
-  announced at once with its credential; an approval announces the re-pair
-  before the approval is sent, and a denial or conflict announces none.
-- `remote-client-cache.test.mjs`: a re-pair withdraws only that queued
-  revocation, in effect before the write lands and after a reload.
-- `remote-revocation-reset.test.mjs` (the device service over a fake relay):
-  an unpair the relay refuses stays queued across a restart, the next
-  launch's relay leg retries it, and a confirmed revoke clears it; approving
-  that device again withdraws it.
 - `remote-webrtc/relay.test.mjs` (screen parts): a screen `ready` and the
   display list need access; out-of-order checks forward only the newer
   `ready`. Regression: a `ready` whose connection leaves during ICE while
