@@ -38,11 +38,8 @@ export function agentConnectorScenarios(m) {
           return { value: null };
         },
         readCapabilities: async (requests) => {
-          // The remote host's own pre-write comparison reads (remote-authority.ts) are not the call under test.
-          for (const request of requests) {
-            if (request.capability === 'getAgentConnectorPolicy' || request.capability === 'getAgentPermissions') continue;
-            hostCalls.push([request.capability, request.args, undefined]);
-          }
+          // Every read is recorded, the remote host's own pre-write policy and permission reads (remote-authority.ts) included.
+          for (const request of requests) hostCalls.push([request.capability, request.args, undefined]);
           return requests.map(() => ({ ok: true, value: null }));
         },
       };
@@ -50,19 +47,22 @@ export function agentConnectorScenarios(m) {
       const writes = [];
       for (const [capability, args] of Object.entries(WRITES)) {
         const desktop = requiredDesktopCapabilityRequest({ capability, args });
+        const start = hostCalls.length;
         await host.invokeCapability(desktop.capability, desktop.args, desktop.sessionId);
+        const phoneStart = hostCalls.length;
         await remote.invokeCapability([{ capability, args }]);
-        const [sent, sentArgs, sentSession] = hostCalls.at(-1);
-        // The phone's call is the desktop's plus the host's no-widen mark on the authority setters.
-        const marked = sentArgs.at(-1)?.noWiden === true;
-        writes.push({ capability, desktopCall: hostCalls.at(-2), phoneCall: [sent, marked ? sentArgs.slice(0, -1) : sentArgs, sentSession], noWidenMark: marked });
+        // Whole, in order: the desktop's call, then everything the phone's reached the host with (the pre-write reads and the call, with
+        // the host's no-widen mark on the authority setters).
+        writes.push({ capability, desktopCalls: hostCalls.slice(start, phoneStart), phoneCalls: hostCalls.slice(phoneStart) });
       }
       const reads = [];
       for (const [capability, args] of Object.entries(READS)) {
         const desktop = requiredDesktopCapabilityReadRequests([{ capability, args }]);
+        const start = hostCalls.length;
         await host.readCapabilities(desktop);
+        const phoneStart = hostCalls.length;
         await remote.readCapabilities([[{ capability, args }]]);
-        reads.push({ capability, desktopCall: hostCalls.at(-2), phoneCall: hostCalls.at(-1) });
+        reads.push({ capability, desktopCalls: hostCalls.slice(start, phoneStart), phoneCalls: hostCalls.slice(phoneStart) });
       }
       return { writes, reads };
     },

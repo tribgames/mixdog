@@ -111,227 +111,271 @@
         "writes": [
           {
             "capability": "setAgentConnectors",
-            "desktopCall": [
-              "setAgentConnectors",
+            "desktopCalls": [
               [
-                "github-watcher",
-                {
-                  "off": [
-                    "notion"
-                  ],
-                  "tools": {
-                    "github": {
-                      "create_issue": "disabled"
+                "setAgentConnectors",
+                [
+                  "github-watcher",
+                  {
+                    "off": [
+                      "notion"
+                    ],
+                    "tools": {
+                      "github": {
+                        "create_issue": "disabled"
+                      }
                     }
                   }
-                }
-              ],
-              {
-                "$exact": "undefined"
-              }
-            ],
-            "phoneCall": [
-              "setAgentConnectors",
-              [
-                "github-watcher",
+                ],
                 {
-                  "off": [
-                    "notion"
-                  ],
-                  "tools": {
-                    "github": {
-                      "create_issue": "disabled"
-                    }
-                  }
+                  "$exact": "undefined"
                 }
-              ],
-              {
-                "$exact": "undefined"
-              }
+              ]
             ],
-            "noWidenMark": true
+            "phoneCalls": [
+              [
+                "setAgentConnectors",
+                [
+                  "github-watcher",
+                  {
+                    "off": [
+                      "notion"
+                    ],
+                    "tools": {
+                      "github": {
+                        "create_issue": "disabled"
+                      }
+                    }
+                  },
+                  {
+                    "noWiden": true
+                  }
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
+            ]
           },
           {
             "capability": "setAgentConnectorEnabled",
-            "desktopCall": [
-              "setAgentConnectorEnabled",
+            "desktopCalls": [
               [
-                "github-watcher",
-                "notion",
-                false
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "setAgentConnectorEnabled",
+                [
+                  "github-watcher",
+                  "notion",
+                  false
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "setAgentConnectorEnabled",
+            "phoneCalls": [
               [
-                "github-watcher",
-                "notion",
-                false
-              ],
-              {
-                "$exact": "undefined"
-              }
-            ],
-            "noWidenMark": true
+                "setAgentConnectorEnabled",
+                [
+                  "github-watcher",
+                  "notion",
+                  false,
+                  {
+                    "noWiden": true
+                  }
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
+            ]
           },
           {
             "capability": "setAgentConnectorToolPermission",
-            "desktopCall": [
-              "setAgentConnectorToolPermission",
+            "desktopCalls": [
               [
-                "github-watcher",
-                "github",
-                "create_issue",
-                "needs_approval"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "setAgentConnectorToolPermission",
+                [
+                  "github-watcher",
+                  "github",
+                  "create_issue",
+                  "needs_approval"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "setAgentConnectorToolPermission",
+            "phoneCalls": [
               [
-                "github-watcher",
-                "github",
-                "create_issue",
-                "needs_approval"
-              ],
-              {
-                "$exact": "undefined"
-              }
-            ],
-            "noWidenMark": true
+                "setAgentConnectorToolPermission",
+                [
+                  "github-watcher",
+                  "github",
+                  "create_issue",
+                  "needs_approval",
+                  {
+                    "noWiden": true
+                  }
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
+            ]
           },
           {
             "capability": "setProjectConnectorEnabled",
-            "desktopCall": [
-              "setProjectConnectorEnabled",
+            "desktopCalls": [
               [
-                "C:\\work\\app",
-                "notion",
-                false
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "setProjectConnectorEnabled",
+                [
+                  "C:\\work\\app",
+                  "notion",
+                  false
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "setProjectConnectorEnabled",
+            "phoneCalls": [
               [
-                "C:\\work\\app",
-                "notion",
-                false
-              ],
-              {
-                "$exact": "undefined"
-              }
-            ],
-            "noWidenMark": true
+                "setProjectConnectorEnabled",
+                [
+                  "C:\\work\\app",
+                  "notion",
+                  false,
+                  {
+                    "noWiden": true
+                  }
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
+            ]
           }
         ],
         "reads": [
           {
             "capability": "getAgentConnectors",
-            "desktopCall": [
-              "getAgentConnectors",
+            "desktopCalls": [
               [
-                "github-watcher"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "getAgentConnectors",
+                [
+                  "github-watcher"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "getAgentConnectors",
+            "phoneCalls": [
               [
-                "github-watcher"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "getAgentConnectors",
+                [
+                  "github-watcher"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ]
           },
           {
             "capability": "getAgentConnectorTools",
-            "desktopCall": [
-              "getAgentConnectorTools",
+            "desktopCalls": [
               [
-                "github-watcher"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "getAgentConnectorTools",
+                [
+                  "github-watcher"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "getAgentConnectorTools",
+            "phoneCalls": [
               [
-                "github-watcher"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "getAgentConnectorTools",
+                [
+                  "github-watcher"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ]
           },
           {
             "capability": "listConnectors",
-            "desktopCall": [
-              "listConnectors",
-              [],
-              {
-                "$exact": "undefined"
-              }
+            "desktopCalls": [
+              [
+                "listConnectors",
+                [],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "listConnectors",
-              [],
-              {
-                "$exact": "undefined"
-              }
+            "phoneCalls": [
+              [
+                "listConnectors",
+                [],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ]
           },
           {
             "capability": "listConnectorTools",
-            "desktopCall": [
-              "listConnectorTools",
+            "desktopCalls": [
               [
-                "github"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "listConnectorTools",
+                [
+                  "github"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "listConnectorTools",
+            "phoneCalls": [
               [
-                "github"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "listConnectorTools",
+                [
+                  "github"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ]
           },
           {
             "capability": "getProjectConnectors",
-            "desktopCall": [
-              "getProjectConnectors",
+            "desktopCalls": [
               [
-                "C:\\work\\app"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "getProjectConnectors",
+                [
+                  "C:\\work\\app"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ],
-            "phoneCall": [
-              "getProjectConnectors",
+            "phoneCalls": [
               [
-                "C:\\work\\app"
-              ],
-              {
-                "$exact": "undefined"
-              }
+                "getProjectConnectors",
+                [
+                  "C:\\work\\app"
+                ],
+                {
+                  "$exact": "undefined"
+                }
+              ]
             ]
           }
         ]
