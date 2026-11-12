@@ -12,7 +12,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {},
@@ -25,7 +32,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -40,7 +49,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {},
@@ -55,7 +71,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -70,7 +88,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {},
@@ -85,7 +110,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -100,7 +127,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {},
@@ -115,7 +149,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -130,7 +166,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {},
@@ -145,7 +188,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -160,7 +205,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {},
@@ -175,7 +227,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -190,7 +244,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {},
@@ -205,7 +266,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -220,7 +283,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 4000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {},
@@ -235,7 +305,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {},
@@ -250,7 +327,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {},
@@ -265,7 +353,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {},
@@ -280,7 +375,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {},
@@ -295,7 +397,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {},
@@ -310,7 +419,18 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {},
@@ -325,7 +445,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {},
@@ -341,7 +468,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {},
@@ -357,7 +495,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {},
@@ -372,7 +517,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {},
@@ -387,7 +539,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -403,7 +557,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {},
@@ -419,7 +580,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {},
@@ -435,7 +598,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {},
@@ -451,7 +625,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -466,7 +647,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -481,7 +669,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -498,7 +688,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -515,7 +712,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -532,7 +731,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {
@@ -549,7 +755,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -566,7 +774,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -583,7 +798,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -600,7 +817,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {
@@ -617,7 +841,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -634,7 +860,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {
@@ -651,7 +884,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -668,7 +903,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {
@@ -685,7 +927,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -702,7 +946,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 4000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -719,7 +970,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -736,7 +994,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -753,7 +1022,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -770,7 +1046,18 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -787,7 +1074,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -804,7 +1098,18 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -821,7 +1126,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {
@@ -839,7 +1151,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {
@@ -857,7 +1180,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -874,7 +1204,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -891,7 +1228,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -909,7 +1248,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -927,7 +1273,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -945,7 +1293,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -963,7 +1322,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -978,7 +1344,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -993,7 +1361,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1010,7 +1380,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -1027,7 +1404,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1044,7 +1423,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {
@@ -1061,7 +1447,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1078,7 +1466,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -1095,7 +1490,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1112,7 +1509,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {
@@ -1129,7 +1533,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1146,7 +1552,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {
@@ -1163,7 +1576,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1180,7 +1595,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {
@@ -1197,7 +1619,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1214,7 +1638,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -1231,7 +1662,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -1248,7 +1686,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "timeout"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        }
+      ],
+      "holdEnd": "timeout",
+      "holdEndAt": 120000
     },
     {
       "env": {
@@ -1265,7 +1710,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -1282,7 +1734,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -1299,7 +1758,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -1316,7 +1782,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "timeout"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        }
+      ],
+      "holdEnd": "timeout",
+      "holdEndAt": 120000
     },
     {
       "env": {
@@ -1333,7 +1806,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {
@@ -1351,7 +1831,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {
@@ -1369,7 +1860,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -1386,7 +1884,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -1403,7 +1908,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1421,7 +1928,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -1439,7 +1953,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1457,7 +1973,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -1475,7 +2002,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -1490,7 +2024,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -1505,7 +2046,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1522,7 +2065,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -1539,7 +2089,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1556,7 +2108,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {
@@ -1573,7 +2132,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1590,7 +2151,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -1607,7 +2175,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1624,7 +2194,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {
@@ -1641,7 +2218,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1658,7 +2237,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {
@@ -1675,7 +2261,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1692,7 +2280,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {
@@ -1709,7 +2304,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1726,7 +2323,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 4000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -1743,7 +2347,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -1760,7 +2371,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -1777,7 +2399,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -1794,7 +2423,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -1811,7 +2447,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -1828,7 +2471,18 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -1845,7 +2499,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {
@@ -1863,7 +2524,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {
@@ -1881,7 +2553,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -1898,7 +2577,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -1915,7 +2601,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1933,7 +2621,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -1951,7 +2646,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -1969,7 +2666,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -1987,7 +2695,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -2002,7 +2717,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2017,7 +2739,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2034,7 +2758,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -2051,7 +2782,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2068,7 +2801,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {
@@ -2085,7 +2825,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2102,7 +2844,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -2119,7 +2868,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2136,7 +2887,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {
@@ -2153,7 +2911,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2170,7 +2930,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {
@@ -2187,7 +2954,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2204,7 +2973,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {
@@ -2221,7 +2997,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2238,7 +3016,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 4000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -2255,7 +3040,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -2272,7 +3064,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2289,7 +3092,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -2306,7 +3116,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2323,7 +3140,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2340,7 +3164,18 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2357,7 +3192,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {
@@ -2375,7 +3217,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {
@@ -2393,7 +3246,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -2410,7 +3270,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -2427,7 +3294,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2445,7 +3314,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -2463,7 +3339,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2481,7 +3359,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -2499,7 +3388,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -2514,7 +3410,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2529,7 +3432,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2546,7 +3451,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -2563,7 +3475,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2580,7 +3494,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {
@@ -2597,7 +3518,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2614,7 +3537,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -2631,7 +3561,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2648,7 +3580,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {
@@ -2665,7 +3604,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2682,7 +3623,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {
@@ -2699,7 +3647,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2716,7 +3666,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {
@@ -2733,7 +3690,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2750,7 +3709,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 4000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -2767,7 +3733,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -2784,7 +3757,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2801,7 +3785,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -2818,7 +3809,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2835,7 +3833,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2852,7 +3857,18 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -2869,7 +3885,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {
@@ -2887,7 +3910,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {
@@ -2905,7 +3939,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -2922,7 +3963,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -2939,7 +3987,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2957,7 +4007,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -2975,7 +4032,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -2993,7 +4052,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -3011,7 +4081,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -3026,7 +4103,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3041,7 +4125,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3058,7 +4144,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -3075,7 +4168,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3092,7 +4187,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {
@@ -3109,7 +4211,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3126,7 +4230,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -3143,7 +4254,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3160,7 +4273,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {
@@ -3177,7 +4297,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3194,7 +4316,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {
@@ -3211,7 +4340,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3228,7 +4359,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {
@@ -3245,7 +4383,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3262,7 +4402,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 4000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -3279,7 +4426,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -3296,7 +4450,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 200000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3313,7 +4478,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -3330,7 +4502,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3347,7 +4526,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3364,7 +4550,18 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 200000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3381,7 +4578,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {
@@ -3399,7 +4603,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 200000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {
@@ -3417,7 +4632,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -3434,7 +4656,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -3451,7 +4680,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3469,7 +4700,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -3487,7 +4725,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3505,7 +4745,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -3523,7 +4774,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -3538,7 +4796,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3553,7 +4818,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3570,7 +4837,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 20000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 20000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 20000
     },
     {
       "env": {
@@ -3587,7 +4861,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3604,7 +4880,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 5000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 5000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 5000
     },
     {
       "env": {
@@ -3621,7 +4904,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3638,7 +4923,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 300000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -3655,7 +4947,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3672,7 +4966,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 600000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 600000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 600000
     },
     {
       "env": {
@@ -3689,7 +4990,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3706,7 +5009,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 1000
     },
     {
       "env": {
@@ -3723,7 +5033,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3740,7 +5052,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 45000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 45000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 45000
     },
     {
       "env": {
@@ -3757,7 +5076,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3774,7 +5095,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 4000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -3791,7 +5119,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     },
     {
       "env": {
@@ -3808,7 +5143,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3825,7 +5171,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -3842,7 +5195,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3859,7 +5219,14 @@
         "backgroundDeadlineMs": 60000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3876,7 +5243,18 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 60000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 60000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 60000
     },
     {
       "env": {
@@ -3893,7 +5271,14 @@
         "backgroundDeadlineMs": 2147483647,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 2147483647
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 2147483647
     },
     {
       "env": {
@@ -3911,7 +5296,18 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 90000
       },
-      "holdEnd": "threshold"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 120000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 90000
+        }
+      ],
+      "holdEnd": "threshold",
+      "holdEndAt": 90000
     },
     {
       "env": {
@@ -3929,7 +5325,14 @@
         "backgroundDeadlineMs": 300000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 300000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 300000
     },
     {
       "env": {
@@ -3946,7 +5349,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -3963,7 +5373,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -3981,7 +5393,14 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -3999,7 +5418,9 @@
         "backgroundDeadlineMs": 0,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [],
+      "holdEnd": "none",
+      "holdEndAt": null
     },
     {
       "env": {
@@ -4017,7 +5438,18 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 1
       },
-      "holdEnd": "background"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        },
+        {
+          "timer": "autoBackground",
+          "delay": 1
+        }
+      ],
+      "holdEnd": "background",
+      "holdEndAt": 1
     },
     {
       "env": {
@@ -4035,7 +5467,14 @@
         "backgroundDeadlineMs": 4000,
         "autoBackgroundMs": 0
       },
-      "holdEnd": "enforce"
+      "armed": [
+        {
+          "timer": "timeout",
+          "delay": 4000
+        }
+      ],
+      "holdEnd": "enforce",
+      "holdEndAt": 4000
     }
   ]
 }

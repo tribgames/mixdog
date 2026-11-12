@@ -301,7 +301,7 @@ fn guarded_int(args: &JsonValue, key: &str) -> Result<Option<u64>, ToolError> {
             if key == "offset" {
                 "Error: list arg \"offset\" must be a non-negative integer (got number)".to_owned()
             } else {
-                format!("Error: list arg \"{name}\" must be >= 0 (0 means no cap); got {n}")
+                format!("Error: list arg \"{name}\" must be >= 0 (0 means no cap); got {}", mixdog_js::number_to_string(n))
             },
         ));
     }

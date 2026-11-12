@@ -5,7 +5,7 @@
 // One JSON per Rust module under native/core/fixtures/tools-untested/.
 //
 //   node benchmarks/rust-core/recorders/record-tools-untested.mjs --tree <exact export of b6f10295a with node_modules>
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { recorderProvenance } from './lib/provenance.mjs';
@@ -54,6 +54,28 @@ const notes = {};
 // ---- exec: the shell hold and run limit (bash-tool/deadline-plan.test.mjs) ----
 {
   const { planShellDeadlines } = await load(`${bt}/bash-tool/deadline-plan.mjs`);
+  const shellSource = readFileSync(join(tree, orch, 'tools/shell-command.mjs'), 'utf8');
+  const between = (from, to) => { const start = shellSource.indexOf(from); return shellSource.slice(start, shellSource.indexOf(to, start)); };
+  const armDeadlines = new Function('setTimeout', '_abortReasonIsInterrupt', 'treeKillForceSettle', `${between('const promotable =', '\n\n')};\n${between('function armDeadlines(', '\n}\n')}\n}\nreturn armDeadlines;`);
+  const observeDeadlines = (options) => {
+    let clock = 0;
+    const pending = [];
+    const run = { settled: false, autoBackgrounded: false, killed: false, child: { exitCode: null, signalCode: null } };
+    let holdEnd = 'none';
+    let holdEndAt = null;
+    const end = (what) => { if (holdEndAt === null) { holdEnd = what; holdEndAt = clock; } };
+    const fake = (fn, delay) => { const timer = { fn, at: clock + delay, delay, unref() {} }; pending.push(timer); return timer; };
+    armDeadlines(fake, () => false, () => end('enforce'))(run, { ...options, abortSignal: null }, ({ reason }) => { run.autoBackgrounded = true; end(reason); });
+    const armed = pending.map((timer) => ({ timer: timer === run.timer ? 'timeout' : timer === run.autoBgTimer ? 'autoBackground' : 'unknown', delay: timer.delay }));
+    // The clock moves only here, to the next due timer; the first one that promotes or ends the run decides.
+    while (holdEndAt === null && pending.length > 0) {
+      pending.sort((a, b) => a.at - b.at);
+      const next = pending.shift();
+      clock = next.at;
+      next.fn();
+    }
+    return { armed, holdEnd, holdEndAt };
+  };
   const envs = [{}, { MIXDOG_SHELL_AUTO_BACKGROUND_MS: '20000' }, { MIXDOG_SHELL_AUTO_BACKGROUND_MS: '0' }, { MIXDOG_SHELL_AUTO_BACKGROUND_MS: ' ' }, { MIXDOG_SHELL_AUTO_BACKGROUND_MS: '-5' }, { MIXDOG_SHELL_AUTO_BACKGROUND_MS: 'abc' }, { BASH_MAX_TIMEOUT_MS: '200000' }, { BASH_MAX_TIMEOUT_MS: '0' }];
   const argSets = [
     {}, { wait_ms: 20_000 }, { wait_ms: 5_000 }, { wait_ms: 300_000 }, { wait_ms: 5_000_000 }, { wait_ms: 10 }, { wait_ms: 45_000 },
@@ -69,13 +91,12 @@ const notes = {};
         Object.assign(process.env, env);
         const plan = planShellDeadlines({ args: input, backgroundOnTimeout });
         for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
-        // What the end of the hold does in the shell run (shell-command.mjs `armDeadlines`, :523-:556): the threshold timer is
-        // armed when autoBackgroundMs > 0 and below the (foreground) timeout, and promotes with the hold's reason; otherwise the
-        // timeout timer promotes ('timeout') when promoteAtTimeout, else the run is killed (the limit is enforced).
-        const { timeout, autoBackgroundMs, promoteAtTimeout } = plan;
-        const armed = autoBackgroundMs > 0 && (timeout <= 0 || autoBackgroundMs < timeout);
-        const holdEnd = armed ? (input.background === true ? 'background' : 'threshold') : timeout > 0 && promoteAtTimeout ? 'timeout' : 'enforce';
-        calls.push({ env, args: input, backgroundOnTimeout, plan, holdEnd });
+        // What the end of the hold does is decided by Node's own armDeadlines (shell-command.mjs, not exported: its text is taken
+        // from the tree and run here), called with the plan's values as bash-tool.mjs passes them, on a clock and timers this
+        // recorder owns: which timers it armed and with what delay, then the clock advanced to each due timer in turn until the
+        // run is promoted (the reason) or ended ('enforce').
+        const observed = observeDeadlines({ timeoutMs: plan.timeout, autoBackgroundMs: plan.autoBackgroundMs, autoBackgroundReason: input.background === true ? 'background' : 'threshold', backgroundOnTimeout: plan.promoteAtTimeout });
+        calls.push({ env, args: input, backgroundOnTimeout, plan, armed: observed.armed, holdEnd: observed.holdEnd, holdEndAt: observed.holdEndAt });
       }
     }
   }
@@ -424,6 +445,10 @@ const notes = {};
       { limit: -1 }, { limit: 1.5 }, { limit: 'x' }, { head_limit: null, limit: 'x' }, { head_limit: 'x', limit: 5 },
       { offset: null }, { offset: '95' }, { offset: '95.0' }, { offset: ' 95 ' }, { offset: '0' }, { offset: 0 },
       { offset: -1 }, { offset: '-1' }, { offset: 1.5 }, { offset: '1.5' }, { offset: 'x' }, { offset: '' }, { offset: true }, { offset: [1] },
+      // the refusal prints the number as JavaScript does: plain, exponent (1e21 and up, 1e-7 and below) and the neighbours of each
+      { head_limit: 1e21 }, { head_limit: -1e21 }, { head_limit: -1e100 }, { limit: -1e100 }, { head_limit: 1e-7 }, { head_limit: -1e-7 }, { head_limit: 0.1 }, { head_limit: -0.1 },
+      { head_limit: -0 }, { head_limit: -123456789012345680000 }, { head_limit: -999999999999999900000 }, { head_limit: -9007199254740993 }, { head_limit: -1e20 }, { head_limit: 1e20 },
+      { head_limit: '-1e100' }, { head_limit: '-100000000000000000000' }, { head_limit: '-1000000000000000000000' }, { head_limit: '-123456789012345678901234567890' },
       { offset: 'x', head_limit: 'y' }, { offset: '98', head_limit: '1' }, { offset: null, head_limit: null, limit: 2 },
     ].map((shape) => ({ path: '<ROOT>', hidden: true, ...shape })),
   ];
@@ -566,7 +591,8 @@ writeSetManifest(out, {
       'exec-hoist-long': 'the command text is not repeated in a plan that equals it (`<SAME>`, `<COMMAND>`): a 30 KB command would be stored three times; the replay compares the plan with the command it was given',
       'exec-env': `the skill launcher directory is the recording's data folder under the sandbox: stored as <LAUNCHER>`,
       'fs-markers': 'capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them',
-      'exec-deadline': 'holdEnd (what the end of the hold does) is compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches it; Node\'s timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job',
+      'fs-list-page': 'NaN and Infinity are not recorded as head_limit: JSON carries neither (a client\'s request cannot hold them) and the recording would store null, a different input',
+      'exec-deadline': 'holdEnd and holdEndAt come from Node\'s own armDeadlines (its text is taken from shell-command.mjs of the tree, which does not export it) run on timers and a clock the recorder owns and advances to each due timer; they are compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches it;Node\'s timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job',
       'agent-tool-call-ids': 'a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values; the same scenarios are recorded with separate values',
       'scm-locks': 'the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; each key is recorded whole with the key of the sandbox root (a checkout-dependent prefix) replaced by <ROOT>, and the replay writes the core\'s `/` separators for the recorded `\\`; the "rejected" outcome of an aborted wait is a list apart from the events, because the order of a promise\'s rejection handler against another task\'s start is a tick of Node\'s promise queue, not a behaviour',
     },
