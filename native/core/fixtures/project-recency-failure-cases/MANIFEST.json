@@ -9,7 +9,8 @@
     "$.cases[1].observed.runs[*].{result,retry}.snapshot.items": "the desktop host's transcript items of the session; the core answers the thread summary, which carries no transcript (owner: the host-side snapshot, desktop SessionHost)",
     "$.cases[1].observed.runs[*].{result,retry}.snapshot.queued": "the desktop host's queued submissions of the session; the core answers no queue in the thread summary (owner: the host-side snapshot, desktop SessionHost)",
     "$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteEnabled": "the desktop host's remote-control flag; the core's thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)",
-    "$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteSessionId": "the desktop host's remote session id; the core's thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)"
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteSessionId": "the desktop host's remote session id; the core's thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[1]": "the corrupt-registry cause: Node's registry is a text file (projects.json) that a damaged write leaves unparsable, so its recency write quarantines the bytes as projects.json.corrupt-<ts>, starts empty and succeeds as a no-op. The core's registry of record is typed SQLite state (state/core.sqlite; Catalog::touch), which no user machine can leave holding an unparsable registry row: its columns are written only through typed statements, and a file that is not that database stops the boot (mixdog-store sqlite.rs open_schema, DbError::Rebuild) instead of being replaced by an empty one. The one place the core reads projects.json is the migration and the Node-exact file registry (mixdog-store registry.rs), whose quarantine-and-start-empty is replayed by its own recording (owner: the storage format, SQLite vs registry file)"
   },
   "fileCount": 1,
   "files": [
@@ -113,7 +114,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-project-recency-failure-cases.mjs",
-  "recorderSha256": "e2ba6b50dec8c39edfa2ac2ee8c5ee6edea6b4302f6cafa30ef8e37bd231abc8",
+  "recorderSha256": "515c402ced2a856da268e5e1c7b1963c26c999fa1f8ebd3ad3d4351b4b62125e",
   "replay": {
     "compare": "mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside",
     "entry": "Drive these public items on o1: mixdog-store/src/registry.rs:282 add; mixdog-store/src/registry.rs:309 touch_selected; mixdog-store/src/registry.rs:335 remove; mixdog-store/src/registry.rs:354 rename; startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222).",
