@@ -279,6 +279,7 @@ export function toolPublishesPatch(item: TranscriptItem): boolean {
 
 /** Categories whose tools cannot write the worktree. Every other one (Patch,
  *  Shell and Git, which run arbitrary commands, an agent whose worker edits,
+ *  Visualize, whose capture and export write project files,
  *  MCP/Office/Tidy/Other tools) may, so a finished call of it re-reads. */
 const READ_ONLY_CATEGORIES = new Set([
   'Read',
@@ -290,7 +291,6 @@ const READ_ONLY_CATEGORIES = new Set([
   'Explore',
   'Setup',
   'Browser',
-  'Visualize',
 ]);
 
 export function toolMayChangeFiles(item: TranscriptItem): boolean {
