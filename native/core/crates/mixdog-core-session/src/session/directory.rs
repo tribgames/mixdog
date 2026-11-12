@@ -1613,6 +1613,12 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     for (index, (ordinal, item)) in log.window.into_iter().enumerate() {
         show_dividers(&mut state, index);
         apply(&mut state, ordinal, Record::Item(item));
+        if log.archived.contains(&ordinal) {
+            // The rows the record just showed: `archived` in their `ext` is what a client shows as 1.4.5's archived row.
+            for row in state.window.iter_mut().rev().take_while(|row| row.ordinal == Some(ordinal)) {
+                super::view::meta_mut(Arc::make_mut(&mut row.item)).ext.insert("archived".into(), serde_json::Value::Bool(true));
+            }
+        }
     }
     show_dividers(&mut state, usize::MAX);
     state.prompt_session = prompts;

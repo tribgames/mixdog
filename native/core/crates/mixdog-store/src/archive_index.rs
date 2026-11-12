@@ -16,16 +16,12 @@ use crate::compaction_view::{ArchiveRow, ArchivedRows, DropMode, Dropped, IdSets
 use crate::message_facets::Facets;
 use crate::sqlite::LineageLevel;
 
-/// The `compactions.silent` value of a compaction whose archive was lost (`CompactedRecord::lost`).
-pub(crate) const LOST: i64 = 2;
-
 #[derive(Clone, Copy)]
 struct Compaction {
     session_level: usize,
     ordinal: u64,
     boundary: u64,
     mode: DropMode,
-    lost: bool,
 }
 
 /// What the compactions took out of one row.
@@ -37,8 +33,6 @@ pub struct Verdict {
     pub text: bool,
     /// The calls of the row that left.
     pub calls: Vec<String>,
-    /// Every part of the row left with compactions whose archive was lost alone.
-    pub hidden: bool,
 }
 
 /// The oldest live message row of lineage level `k` (below its range end and `bound`, live
@@ -109,7 +103,7 @@ impl<'a> Compactions<'a> {
             let asof = level.end.map_or(i64::MAX, clamp);
             let bound = if j > 0 { level.end.into_iter().chain(self.cut).min().map_or(i64::MAX, clamp) } else { i64::MAX };
             let mut stmt = self.c.prepare_cached(
-                "SELECT ordinal, boundary, drop_mode, silent FROM compactions WHERE session = ?1 AND ordinal < ?3
+                "SELECT ordinal, boundary, drop_mode FROM compactions WHERE session = ?1 AND ordinal < ?3
                  AND (superseded_rev IS NULL OR superseded_rev >= ?2) ORDER BY ordinal",
             )?;
             let rows = stmt.query_map(params![level.session, asof, bound], |r| {
@@ -118,7 +112,6 @@ impl<'a> Compactions<'a> {
                     ordinal: r.get::<_, i64>(0)? as u64,
                     boundary: r.get::<_, i64>(1)? as u64,
                     mode: DropMode::from_db(r.get(2)?).unwrap_or(DropMode::All),
-                    lost: r.get::<_, i64>(3)? == LOST,
                 })
             })?;
             self.levels[j] = Some(rows.collect::<Result<_, _>>()?);
@@ -128,18 +121,6 @@ impl<'a> Compactions<'a> {
 
     /// The verdict for the model message row `iid` at `ordinal` of lineage level `level`.
     pub fn verdict(&mut self, level: usize, ordinal: u64, iid: &str, facets: &Facets) -> rusqlite::Result<Verdict> {
-        let mut verdict = self.verdict_of(level, ordinal, iid, facets, false)?;
-        // Only a lineage holding a compaction whose archive was lost is asked again, over those alone.
-        let mut lost = false;
-        for j in 0..=level {
-            lost |= self.level(j)?.iter().any(|comp| comp.lost);
-        }
-        verdict.hidden = verdict.archived && lost && self.verdict_of(level, ordinal, iid, facets, true)?.archived;
-        Ok(verdict)
-    }
-
-    /// `verdict` over every compaction, or over those whose archive was lost.
-    fn verdict_of(&mut self, level: usize, ordinal: u64, iid: &str, facets: &Facets, only_lost: bool) -> rusqlite::Result<Verdict> {
         let parts = facets.rows(iid);
         let mut text = false;
         let mut calls = vec![false; parts.calls.len()];
@@ -148,7 +129,7 @@ impl<'a> Compactions<'a> {
         let mut all: Vec<Compaction> = Vec::new();
         for j in 0..=level {
             for comp in self.level(j)? {
-                if (j == level && comp.ordinal <= ordinal) || (only_lost && !comp.lost) {
+                if j == level && comp.ordinal <= ordinal {
                     continue;
                 }
                 match comp.mode {
@@ -210,6 +191,6 @@ impl<'a> Compactions<'a> {
         let archived = (parts.text.is_none() || text) && calls.iter().all(|d| *d);
         let dropped_calls =
             facets.calls.iter().zip(&calls).filter(|(_, d)| **d).map(|(id, _)| id.clone()).collect();
-        Ok(Verdict { archived, text, calls: dropped_calls, hidden: false })
+        Ok(Verdict { archived, text, calls: dropped_calls })
     }
 }

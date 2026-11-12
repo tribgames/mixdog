@@ -592,6 +592,7 @@ impl ThreadStore for MemStore {
             approvals: Vec::new(),
             queue: Vec::new(),
             window: Vec::new(),
+            archived: Vec::new(),
             dividers: Vec::new(),
             has_older: false,
             prompts: Vec::new(),
