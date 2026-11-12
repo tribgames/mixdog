@@ -96,11 +96,18 @@ impl UsageProbe for NoProbe {
     async fn measure(&self, _: &str, _: &str, _: bool) {}
 }
 
-struct TestEnv(HashMap<String, String>);
+/// The process environment of the world; a test may change a variable between steps.
+pub(super) struct TestEnv(Mutex<HashMap<String, String>>);
+
+impl TestEnv {
+    pub(super) fn set(&self, name: &str, value: &str) {
+        self.0.lock().unwrap().insert(name.to_owned(), value.to_owned());
+    }
+}
 
 impl Environment for TestEnv {
     fn var(&self, name: &str) -> Option<String> {
-        self.0.get(name).cloned()
+        self.0.lock().unwrap().get(name).cloned()
     }
 }
 
@@ -130,6 +137,7 @@ impl ModelTraits for Traits {
 
 pub(super) struct World {
     pub(super) admin: Arc<CustomAdmin>,
+    pub(super) env: Arc<TestEnv>,
     config: Config,
     vault: Arc<TestVault>,
     accounts: AccountStore,
@@ -160,7 +168,8 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
         .await
         .unwrap();
     let vault = Arc::new(TestVault::default());
-    let env: Arc<dyn Environment> = Arc::new(TestEnv(env));
+    let test_env = Arc::new(TestEnv(Mutex::new(env)));
+    let env: Arc<dyn Environment> = test_env.clone();
     let keys = ApiKeyStore::new(vault.clone(), env.clone(), false);
     let accounts = AccountStore::new(dir.path().join("accounts"), io());
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
@@ -205,7 +214,7 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
     };
     let host = CustomHost::new(config.clone(), vault.clone(), keys, accounts.clone(), builder, env, seams);
     let refresh = Arc::new(CountingRefresh::default());
-    World { admin: CustomAdmin::new(host, refresh.clone()), config, vault, accounts, refresh, log, _dir: dir }
+    World { admin: CustomAdmin::new(host, refresh.clone()), env: test_env, config, vault, accounts, refresh, log, _dir: dir }
 }
 
 /// `text` with each `$name` replaced by its bound id (`direction` in) or each id by its name.
