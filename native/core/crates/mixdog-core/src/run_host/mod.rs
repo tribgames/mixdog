@@ -22,6 +22,8 @@ pub mod fixture_fs;
 #[cfg(test)]
 mod mixy_presence_replay_tests;
 #[cfg(test)]
+mod media_wire_table;
+#[cfg(test)]
 mod process_tests;
 #[cfg(test)]
 mod migrated_fixture;
@@ -34,6 +36,7 @@ pub mod tool_surface;
 pub mod mcp_fold;
 pub mod rearm;
 pub mod manual_compaction;
+pub mod prompt_intake;
 pub mod route_surface;
 pub mod resume_tools;
 pub mod session_tools;

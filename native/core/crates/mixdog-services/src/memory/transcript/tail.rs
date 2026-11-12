@@ -85,6 +85,7 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
     let mut boundary = Position { bytes: tail.bytes, line_index: tail.line_index, generation: tail.generation };
     let mut index = tail.line_index;
     let mut count = 0;
+    let mut inserts = 0;
     let base = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     for (raw, consumed) in complete_lines(&tail.text) {
         // A crash leaves NULs where data never reached disk, and the writer resumes after them.
@@ -117,6 +118,10 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
                     &[&ts, &row.role, &row.content, &reference, &uuid, &turn, &project_id, &row.time_source],
                 )
                 .await;
+            inserts += 1;
+            // The kill-point matrix of a restart (`memory/tests/jobs.rs`): the process dies after its n-th insert
+            // returned, before the position is saved. A no-op without the `kill-points` feature.
+            mixdog_workspace::killpoint::hit(&format!("memory-transcript-insert:{inserts}"));
             match inserted {
                 Ok(n) if n > 0 => count += 1,
                 Ok(_) => {}

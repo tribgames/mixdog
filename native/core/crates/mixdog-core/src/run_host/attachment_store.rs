@@ -8,15 +8,19 @@
 //! All ports are built over ONE `BlobStore` (its GC pins live in memory, so a second instance
 //! would not see the first one's pins).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_agent::compact::blob_reads::{BlobReads, StoreUnavailable, StoreWork};
+use mixdog_core_api::domain::ext::{DocumentText, PdfCounts, PdfIntake};
 // The waiting form: these reads and writes carry a user's or an agent's message; a full lane is waited out, never
 // answered as a store that is unavailable.
 use mixdog_core_base::support::on_lane_wait as on_lane;
+use mixdog_protocol::ThreadId;
 use mixdog_protocol::message_class::user_text::{Blobs, ReadError};
 use mixdog_rt::{DurabilityIo, InLane, InteractiveIo, LaneTokens};
 use mixdog_statefile::IoLane;
@@ -25,7 +29,7 @@ use mixdog_store::schema::bounded::Digest;
 use tokio_util::sync::CancellationToken;
 
 use super::attachment_reference::{AttachmentFiles, InvalidReference, OriginalFile, StoredFile};
-use super::media::{AttachmentFacts, StoredFacts};
+use super::media::{AttachmentFacts, StoredFacts, MAX_PDF_BYTES};
 
 /// The store digest of a reference (`/^[a-f0-9]{64}$/`, `attachmentPath`); `None` for anything else.
 fn digest_of_reference(reference: &str) -> Option<Digest> {
@@ -94,17 +98,52 @@ impl BlobReads for StoreBlobs {
 }
 
 /// What the attachment store records of a stored file: the size of its blob on disk
-/// (`attachmentBlobSize`, a `stat`). Page and text-layer counts and image sizes are on the part in
-/// Node, not in the store, so they stay `None`. A blob that is not there, or a reference off the
-/// pattern, has no facts.
+/// (`attachmentBlobSize`, a `stat`) and, for a PDF, the page and text-layer counts Node's intake
+/// (`preparePromptSubmissionForProvider`) records on the part: the extension host's inspector over
+/// the same bytes, counted once per blob (a reference names its bytes). Image sizes stay `None`. A
+/// blob that is not there, or a reference off the pattern, has no facts.
 pub struct StoreFacts {
     blobs: BlobStore,
     interactive: InteractiveIo,
+    docs: Option<Arc<dyn DocumentText>>,
+    counted: Mutex<HashMap<String, Option<PdfCounts>>>,
 }
+
+/// The extension host queues work by thread; the store's counting is no session's.
+const COUNTING_THREAD: &str = "attachment-facts";
+const COUNTED_CAP: usize = 1024;
 
 impl StoreFacts {
     pub fn new(blobs: BlobStore, tokens: &LaneTokens) -> Self {
-        Self { blobs, interactive: tokens.interactive_io }
+        Self { blobs, interactive: tokens.interactive_io, docs: None, counted: Mutex::new(HashMap::new()) }
+    }
+
+    /// Counts each stored PDF's pages and text layer with `docs`.
+    pub fn with_documents(self, docs: Arc<dyn DocumentText>) -> Self {
+        Self { docs: Some(docs), ..self }
+    }
+
+    /// A stored PDF's counts, `None` for any other blob or one the inspector rejects.
+    async fn pdf_counts(&self, reference: &str, path: PathBuf) -> Option<PdfCounts> {
+        let docs = self.docs.as_ref()?;
+        if let Some(known) = self.counted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(reference) {
+            return *known;
+        }
+        let bytes = on_lane(self.interactive, &CancellationToken::new(), move |lane| mixdog_statefile::read_range(lane, &path, 0, MAX_PDF_BYTES as usize)).await.ok()?.ok()?;
+        let counts = if bytes.starts_with(b"%PDF-") {
+            match docs.pdf_counts(&ThreadId::from(COUNTING_THREAD), &STANDARD.encode(&bytes)).await.ok()? {
+                PdfIntake::Counts(counts) => Some(counts),
+                PdfIntake::Rejected(_) => None,
+            }
+        } else {
+            None
+        };
+        let mut counted = self.counted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if counted.len() >= COUNTED_CAP {
+            counted.clear();
+        }
+        counted.insert(reference.to_owned(), counts);
+        counts
     }
 }
 
@@ -112,8 +151,16 @@ impl StoreFacts {
 impl AttachmentFacts for StoreFacts {
     async fn facts(&self, reference: &str) -> Option<StoredFacts> {
         let path = self.blobs.path(&digest_of_reference(reference)?);
-        let size = on_lane(self.interactive, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &path).map(|meta| meta.len())).await.ok()?.ok()?;
-        Some(StoredFacts { size_bytes: size, ..StoredFacts::default() })
+        let stat = path.clone();
+        let size = on_lane(self.interactive, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &stat).map(|meta| meta.len())).await.ok()?.ok()?;
+        let counts = self.pdf_counts(reference, path).await;
+        Some(StoredFacts {
+            size_bytes: size,
+            page_count: counts.map(|c| c.page_count).filter(|pages| *pages > 0),
+            text_pages: counts.map(|c| c.text_pages),
+            text_chars: counts.map(|c| c.text_chars),
+            ..StoredFacts::default()
+        })
     }
 }
 

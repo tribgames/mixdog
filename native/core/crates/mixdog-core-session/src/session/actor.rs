@@ -1476,6 +1476,7 @@ impl SessionActor {
             None => self.cell.close(),
         }
         self.deleting = true;
+        self.cell.abort_compaction(abort);
         (self.delete_closed, self.delete_mark, self.delete_marked) = (Some(closed), Some(mark), Some(marked));
         if let Some(run) = &self.run {
             // The deleted session leaves the approvals list now, not when its turn ends.
@@ -2781,7 +2782,7 @@ impl SessionActor {
         let t = &self.id;
         match section {
             Section::Runtime(_) | Section::ProgressHint(_) | Section::SpinnerQuiet(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
-            Section::Route(_) => note("thread/route/updated", t, self.acked.route()),
+            Section::Route(_) | Section::TurnEffort(_) => note("thread/route/updated", t, self.acked.route()),
             Section::Context(_) => note("thread/context/updated", t, self.acked.context()),
             Section::Todo(v) => note("thread/todo/updated", t, v),
             Section::Goal(Some(v)) => Note::new(
@@ -3373,6 +3374,7 @@ impl SessionActor {
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
                 self.cell.close();
+                self.cell.abort_compaction(&mixdog_agent::cancel::Abort::runtime_close(self.id.as_str(), "cli-exit"));
                 // Node's exit drain: what a failed write left is written once more, in accept order.
                 self.shutting_down = true;
                 self.retry_due |= self.outbox.awaits_retry();
@@ -4336,6 +4338,8 @@ impl SessionActor {
     fn on_producer(&mut self, msg: ProducerMsg) {
         match msg {
             ProducerMsg::Section(Section::Context(context)) => self.on_context_section(context),
+            // Node publishes a route value only when it changed (`local-session-runtime.mjs` `publishChanged`).
+            ProducerMsg::Section(Section::TurnEffort(effort)) if effort == self.acked.route().turn_effort => {}
             ProducerMsg::Section(section) => self.accept_view(Change::Section(section), Vec::new()),
             ProducerMsg::ItemStarted { turn, item } => {
                 if !self.active(&turn) {
@@ -6843,6 +6847,7 @@ impl SessionActor {
             cancel: token,
             signal: cancel.clone(),
             review: review.clone(),
+            transcripts: self.deps.transcripts.clone(),
         });
         let ctl = self.cell.ctl_tx.clone();
         mixdog_rt::spawn("session-run", TaskClass::Work, async move {

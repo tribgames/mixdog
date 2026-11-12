@@ -64,6 +64,7 @@ pub struct RunSettings {
     pub step_auto_effort: Option<mixdog_agent::step_effort::StepAutoEffort>,
     pub text_only: Option<mixdog_agent::text_only::TextOnlyInput>,
     pub attachments: Option<Arc<dyn mixdog_agent::attachments::AttachmentText>>,
+    pub file_text: Option<Arc<dyn mixdog_agent::text_only::MediaText>>,
     pub model_max_output_tokens: Option<u32>,
 }
 
@@ -661,6 +662,7 @@ impl RunParts for HostRunParts {
         config.step_auto_effort = step_auto_effort;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
+        config.file_text = settings.file_text;
         config.slot = input.slot;
         // `loop-state.mjs`: a compaction between turns parked a one-shot intent; the turn's first send takes it and the record
         // drops it.

@@ -5,7 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [features]
-# For other crates' replays: the scheduler's call recorder (`Scheduler::record_calls`).
+# Test-only: for other crates' replays, the scheduler's call recorder (`Scheduler::record_calls`) and the effort judge over a
+# recorded step distribution (`effort_judge::judge::StepProbs`). No normal build enables it; a release build with it fails
+# (build.rs).
 test-support = []
 
 [lints]
@@ -108,3 +110,4 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-services = { path = ".", features = ["test-support"] }
 fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
+mixdog-exthost = { workspace = true, features = ["test-support"] }

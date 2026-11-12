@@ -8,6 +8,17 @@ type FireReply = oneshot::Sender<Result<super::super::quota_resume_scheduler::Fi
 
 use super::super::quota_lane::failure_text as error_text;
 
+/// A manual compaction's answer to its actor. A session closed, deleted or shut down under the compaction has no actor
+/// left to take it: the compaction's result (Node returns it after the close) goes straight to the request waiting for it.
+fn answer(jobs: &mpsc::UnboundedSender<JobDone>, job: JobDone) {
+    let Err(mpsc::error::SendError(job)) = jobs.send(job) else { return };
+    match job {
+        JobDone::Replied { tx, result, .. } => drop(tx.send(result.map(Reply::Value))),
+        JobDone::Compacted { tx, result, .. } => drop(tx.send(Ok(Reply::Value(result)))),
+        _ => {}
+    }
+}
+
 impl SessionActor {
     /// Routes one of [`super::super::turn_ops::is_actor_method`].
     pub(super) fn turn_op(&mut self, req: CoreRequest, tx: Waiter) -> Result<(), (CoreError, Waiter)> {
@@ -109,20 +120,22 @@ impl SessionActor {
         let (trigger, require_reduction) = super::super::turn_ops::compact_trigger(options.as_ref());
         let recover = options.as_ref().and_then(|options| options.get("recoverAgent")) == Some(&Value::Bool(true));
         let (compaction, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
+        let cancel = mixdog_agent::cancel::Cancel::new();
+        *self.cell.compaction_cancel.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cancel.clone());
         tokio::spawn(async move {
-            let result = match compaction.compact(&thread, trigger, require_reduction).await {
+            let result = match compaction.compact(&thread, trigger, require_reduction, &cancel).await {
                 Ok(result) => result.unwrap_or(Value::Null),
                 Err(error) => {
                     let _ = jobs.send(JobDone::CompactionEnded);
-                    return drop(jobs.send(JobDone::Replied { op, tx, result: Err(error) }));
+                    return answer(&jobs, JobDone::Replied { op, tx, result: Err(error) });
                 }
             };
             if mixdog_core_goal::goal::js::truthy(result.get("skipped")) {
                 let _ = jobs.send(JobDone::CompactionEnded);
-                return drop(jobs.send(JobDone::Replied { op, tx, result: Ok(result) }));
+                return answer(&jobs, JobDone::Replied { op, tx, result: Ok(result) });
             }
             compaction.post_compact(&thread, trigger).await;
-            let _ = jobs.send(JobDone::Compacted { op, tx, result, recover });
+            answer(&jobs, JobDone::Compacted { op, tx, result, recover });
         });
     }
 

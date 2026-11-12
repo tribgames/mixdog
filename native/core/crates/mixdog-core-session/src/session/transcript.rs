@@ -130,6 +130,8 @@ pub(super) use self::transcript_response::has_body;
 pub use self::transcript_convert::live_end;
 pub(super) use self::transcript_convert::displayed_id;
 pub(super) use self::transcript_convert::position_of_id;
+pub(super) use self::transcript_convert::Ctx as RowCtx;
+pub(super) use self::transcript_convert::item_of as row_item;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the
 /// `item.body` the store holds for it (the `Value` read back at load, or the body the run

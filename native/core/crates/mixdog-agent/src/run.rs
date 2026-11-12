@@ -81,6 +81,9 @@ pub struct RunConfig {
     pub text_only: Option<crate::text_only::TextOnlyInput>,
     /// Resolves stored text-attachment references to their text in each request.
     pub attachments: Option<std::sync::Arc<dyn crate::attachments::AttachmentText>>,
+    /// Extracts the text a route that takes no native PDF (or no document at all) and every route's Office files
+    /// are sent as; used on the routes that are not text-only.
+    pub file_text: Option<std::sync::Arc<dyn crate::text_only::MediaText>>,
     /// The admitted slot of an agent job: handed back around each provider request.
     pub slot: Option<std::sync::Arc<dyn crate::env::Yielder>>,
     /// The turn's signal with the reason its source aborted it with (see [`crate::cancel`]): the
@@ -123,6 +126,7 @@ impl RunConfig {
             step_auto_effort: None,
             text_only: None,
             attachments: None,
+            file_text: None,
             slot: None,
             signal: None,
             retry_529: true,
@@ -457,9 +461,9 @@ pub struct Run {
     /// The tool surface frozen for the requests of this run (`fixedProviderToolSurface`): the first request
     /// takes the session's tools, later ones keep its eager prefix and adopt changed MCP definitions.
     pub(crate) fixed_surface: Option<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
-    /// The latest turn's images are left out of every request until a send
-    /// succeeds.
-    pub(crate) image_strip_active: bool,
+    /// The images an image-strip retry leaves out of every request until a
+    /// send succeeds (`state.imageStrip`).
+    pub(crate) image_strip: Option<crate::recovery::ImageStrip>,
     pub(crate) image_strip_used: bool,
     pub(crate) replay_repair_used: bool,
     pub(crate) tool_schema_drop_used: bool,
@@ -589,7 +593,7 @@ impl Run {
             last_reminder: None,
             dropped_tools: std::collections::HashMap::new(),
             fixed_surface: None,
-            image_strip_active: false,
+            image_strip: None,
             image_strip_used: false,
             replay_repair_used: false,
             tool_schema_drop_used: false,
@@ -683,6 +687,8 @@ impl Run {
 
     /// The loop. Completion, cancellation and terminal failures end it.
     pub async fn run(mut self) -> Result<RunOutput, RunFailure> {
+        let seeded = self.config.effort.as_ref().and_then(|wiring| wiring.route.seed.as_ref()).map(|seed| seed.effort.clone());
+        self.emit(RunEvent::TurnEffort(seeded));
         match self.drive().await {
             Ok(()) => Ok(self.finish()),
             Err(error) => Err(RunFailure {

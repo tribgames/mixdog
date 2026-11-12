@@ -61,6 +61,8 @@ pub trait AutoEffortSource: Send + Sync {
 pub struct SettingsSources {
     pub wiring: Arc<dyn HopWiring>,
     pub attachments: Arc<dyn AttachmentText>,
+    /// The media layer of a session (`updated`: its row), whose extraction every route's files are lowered through.
+    pub media: Option<Arc<dyn Fn(&Value) -> Arc<dyn mixdog_agent::text_only::MediaText> + Send + Sync>>,
     pub heartbeats: Arc<dyn HeartbeatMarks>,
     pub ceilings: Arc<dyn OutputCeilingSource>,
     pub auto_effort: Arc<dyn AutoEffortSource>,
@@ -119,6 +121,11 @@ pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &T
         base.limits
     };
     base.attachments = Some(sources.attachments.clone());
+    base.file_text = sources.media.as_ref().map(|media| media(&Value::Object({
+        let mut row = serde_json::Map::new();
+        row.insert("id".into(), Value::String(turn.thread.as_str().to_owned()));
+        row
+    })));
 
     // The request's reserve is what the tools sent cost (`estimateRequestReserveTokens`); no provider adds native tools.
     if let Some(compact) = base.compact.as_mut() {
@@ -220,12 +227,13 @@ mod tests {
             step_auto_effort: None,
             text_only: None,
             attachments: None,
+            file_text: None,
             model_max_output_tokens: None,
         }
     }
 
     fn sources(heartbeat: &'static str) -> SettingsSources {
-        SettingsSources { wiring: Arc::new(Wiring), attachments: Arc::new(NoText), heartbeats: Arc::new(Marks(heartbeat)), ceilings: Arc::new(Ceilings), auto_effort: Arc::new(Auto) }
+        SettingsSources { wiring: Arc::new(Wiring), attachments: Arc::new(NoText), media: None, heartbeats: Arc::new(Marks(heartbeat)), ceilings: Arc::new(Ceilings), auto_effort: Arc::new(Auto) }
     }
 
     #[test]

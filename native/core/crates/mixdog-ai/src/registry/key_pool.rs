@@ -412,6 +412,12 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn input_excludes_cache(&self) -> Option<bool> {
         self.pool.primary.input_excludes_cache()
     }
+    async fn media_support(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::MediaSupport {
+        self.pool.primary.media_support(request).await
+    }
+    async fn takes_vision(&self, request: &ModelRequest) -> bool {
+        self.pool.primary.takes_vision(request).await
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
         self.pool.primary.first_response_budget(model, parameters)
     }

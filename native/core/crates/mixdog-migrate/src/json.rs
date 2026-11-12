@@ -39,6 +39,70 @@ pub fn parse_source(text: &[u8]) -> Result<Parsed, String> {
     })
 }
 
+/// Whether the top-level object of `text` names one key twice (`hasUniqueTopLevelKeys`,
+/// `lifecycle-scan.mjs`): a parse keeps the last copy, where 1.4.5 found the record unreadable.
+/// Keys compare as JSON decodes them, in UTF-16 code units before any surrogate substitution:
+/// `"a"` and `"\u0061"` are one key, `"\ud800"` and `"\ud801"` two.
+pub fn repeats_a_top_level_key(text: &[u8]) -> bool {
+    let (fixed, _) = replace_lone_surrogates(text);
+    if !serde_json::from_slice::<Value>(&fixed).is_ok_and(|v| v.is_object()) {
+        return false;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let (mut depth, mut i) = (0usize, 0usize);
+    while i < text.len() {
+        match text[i] {
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            b'"' => {
+                let start = i + 1;
+                i = start;
+                while text[i] != b'"' {
+                    i += if text[i] == b'\\' { 2 } else { 1 };
+                }
+                let raw = &text[start..i];
+                let next = text[i + 1..].iter().find(|b| !b.is_ascii_whitespace());
+                if depth == 1 && next == Some(&b':') && !seen.insert(utf16_key(raw)) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
+/// A JSON string body decoded to UTF-16 code units, as `JSON.parse` keeps it.
+fn utf16_key(raw: &[u8]) -> Vec<u16> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < raw.len() {
+        let run = raw[i..].iter().position(|&b| b == b'\\').map_or(raw.len(), |p| i + p);
+        out.extend(String::from_utf8_lossy(&raw[i..run]).encode_utf16());
+        if run == raw.len() {
+            break;
+        }
+        let unit = match raw[run + 1] {
+            b'u' => {
+                let hex = std::str::from_utf8(&raw[run + 2..run + 6]).unwrap_or("0");
+                i = run + 6;
+                out.push(u16::from_str_radix(hex, 16).unwrap_or(0));
+                continue;
+            }
+            b'b' => 0x08,
+            b'f' => 0x0c,
+            b'n' => 0x0a,
+            b'r' => 0x0d,
+            b't' => 0x09,
+            other => u16::from(other),
+        };
+        out.push(unit);
+        i = run + 2;
+    }
+    out
+}
+
 /// `value` with every object's keys in sorted order, whatever map type serde_json uses.
 pub fn canonical(value: &Value) -> Value {
     match value {

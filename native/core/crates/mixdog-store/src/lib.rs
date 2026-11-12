@@ -1,5 +1,6 @@
 pub mod agent_mode;
 mod archive_index;
+pub mod archived_agent;
 pub mod blobs;
 pub mod compaction_view;
 pub mod context;

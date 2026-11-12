@@ -342,6 +342,7 @@ impl ConfigSeams for ConfigRunSeams {
             step_auto_effort: None,
             text_only: None,
             attachments: None,
+            file_text: None,
             model_max_output_tokens: None,
         }
     }

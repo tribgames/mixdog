@@ -624,6 +624,7 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
         [
             "amends",
             "approvals",
+            "archived_agents",
             "blob_refs",
             "compaction_dropped",
             "compactions",

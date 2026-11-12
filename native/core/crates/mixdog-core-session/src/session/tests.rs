@@ -4500,7 +4500,7 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     subscribe(&handle);
     handle.cell.unsubscribed();
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    // The decision is made where the session unloads, before anything is spawned.
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
 }
 

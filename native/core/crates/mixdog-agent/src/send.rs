@@ -281,8 +281,8 @@ impl Run {
         options.max_output_tokens_override = self.max_output_override.take().or(options.max_output_tokens_override);
         let messages = if self.unprojected {
             self.messages.iter().map(AgentMessage::wire).collect()
-        } else if self.image_strip_active {
-            crate::project::project_for_wire(&crate::recovery::without_latest_images(&self.messages))
+        } else if let Some(strip) = &self.image_strip {
+            crate::project::project_for_wire(&crate::recovery::with_images_stripped(&self.messages, strip))
         } else {
             crate::project::project_for_wire(&self.messages)
         };
@@ -341,12 +341,17 @@ impl Run {
                     self.first_ws_failure = None;
                     self.ws_retries = 0;
                     self.settle_prefix(&response);
-                    if self.image_strip_active
-                        && let Some(sent) = self.last_request.clone()
-                    {
-                        self.trace_image_strip_rebaseline(&sent);
+                    // `settleImageStrip`: a confirmed rejection of one image is
+                    // healed out of the transcript, so later turns never send it again; any other
+                    // strip was held for the replay alone and the cache break is traced.
+                    if let Some(strip) = self.image_strip.take() {
+                        if strip.persist {
+                            self.messages = crate::recovery::with_images_stripped(&self.messages, &strip);
+                            self.env.sink.replace(&self.messages, &crate::env::Rewrite::default());
+                        } else if let Some(sent) = self.last_request.clone() {
+                            self.trace_image_strip_rebaseline(&sent);
+                        }
                     }
-                    self.image_strip_active = false;
                     self.image_strip_used = false;
                     if let Some(group) = self.send_group.take() {
                         group.complete();
@@ -536,6 +541,29 @@ impl Run {
                 let resolved = or_cancelled(&self.cancel, crate::attachments::resolve_text_attachments(messages, resolver.as_ref()))
                     .await
                     .ok_or(AgentError::Aborted)?;
+                let resolved = match resolved {
+                    // A text-only route reads and lowers its stored files itself.
+                    Ok(messages) if self.config.text_only.is_none() => {
+                        // The engine this request goes to says what it takes as a document (a gateway's Messages
+                        // engine differs from its Chat wire).
+                        let support = self.provider.media_support(&request).await;
+                        let takes_vision = self.provider.takes_vision(&request).await;
+                        let resolved = or_cancelled(
+                            &self.cancel,
+                            crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf, takes_vision),
+                        )
+                        .await
+                        .ok_or(AgentError::Aborted)?;
+                        // `preparePdfTextForProvider`, and the text of an Office file, for every provider.
+                        match (resolved, self.config.file_text.clone()) {
+                            (Ok(messages), Some(media)) => or_cancelled(&self.cancel, media.prepare_for_route(messages, support))
+                                .await
+                                .ok_or(AgentError::Aborted)?,
+                            (resolved, _) => resolved,
+                        }
+                    }
+                    other => other,
+                };
                 match resolved {
                     Ok(messages) => {
                         built.messages = messages;
@@ -962,14 +990,13 @@ impl Run {
             }
             // An image the provider refuses: replay once without the latest
             // turn's images, only when no tool ran and nothing was shown.
-            ErrorKind::ImageRejected
-                if !self.image_strip_used
-                    && replay_safe
-                    && partial.tool_calls.is_empty()
-                    && crate::recovery::latest_turn_has_images(&self.messages) =>
+            _ if !self.image_strip_used
+                && replay_safe
+                && partial.tool_calls.is_empty()
+                && crate::recovery::is_image_processing_error(error) =>
             {
+                self.image_strip = Some(crate::recovery::latest_turn_strip(&self.messages, error)?);
                 self.image_strip_used = true;
-                self.image_strip_active = true;
                 self.emit(RunEvent::Stage(Stage::Reconnecting {
                     attempt: 1,
                     max: 3,

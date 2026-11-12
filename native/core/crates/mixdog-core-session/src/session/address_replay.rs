@@ -205,6 +205,9 @@ impl super::ThreadStore for HeldStore {
             read.await
         })
     }
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        self.store.archived_agent_parents(child)
+    }
     fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
         self.store.copies_of(id)
     }
