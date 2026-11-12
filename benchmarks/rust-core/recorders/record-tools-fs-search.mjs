@@ -1061,6 +1061,78 @@ const SCENARIOS = [
       ],
     }];
   })(),
+  // gaps-tools 1122g review: the public `list` with `depth` (list-tool.mjs `listRequest`: `Math.min(Math.max(parseInt(depth ?? 1) || 1, 1), 10)`),
+  // which lists rows below the first level as paths relative to the listed folder. A deep list is a `--files --directories` request
+  // to the search server (`tryNativeDeepListRows`), so it is a broad search; the first-level list is not.
+  ...(() => {
+    const stamp = '2026-01-02T03:04:05Z';
+    const dirs = ['src', 'src/lib', 'src/lib/deep', 'src/lib/deep/deeper', 'src/.hidden', 'src/lib-x', 'docs', 'docs/img', 'node_modules', 'node_modules/pkg'];
+    return [{
+      name: 'list-depth',
+      files: {
+        'README.md': '# readme\n',
+        'Zed.txt': 'z\n',
+        'a.txt': 'a\n',
+        'B_1.txt': 'b1\n',
+        'b-2.txt': 'b2\n',
+        '10.txt': 'ten\n',
+        '2.txt': 'two\n',
+        '.env': 'SECRET=1\n',
+        'src/a.ts': 'export const a = 1;\nexport const b = 2;\n',
+        'src/lib.ts': 'lib\n',
+        'src/lib/b.ts': 'b\n',
+        'src/lib-x/y.ts': 'y\n',
+        'src/lib/deep/c.ts': 'c\n',
+        'src/lib/deep/deeper/d.ts': 'd\n',
+        'src/.hidden/h.txt': 'h\n',
+        'src/.dot.ts': 'dot\n',
+        'docs/guide.md': 'guide\n',
+        'docs/img/logo.txt': 'logo\n',
+        'node_modules/pkg/index.js': 'x\n',
+      },
+      mtimes: Object.fromEntries(dirs.map((d) => [d, stamp])),
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+      calls: [
+        { tool: 'list', input: { path: '.', depth: 1 } },
+        { tool: 'list', input: { path: '.', depth: 2 } },
+        { tool: 'list', input: { path: '.', depth: 3 } },
+        { tool: 'list', input: { path: '.', depth: 10 } },
+        { tool: 'list', input: { path: '.', depth: 2, hidden: true } },
+        { tool: 'list', input: { path: '.', depth: 3, hidden: true } },
+        { tool: 'list', input: { path: '.', depth: 2, meta: true } },
+        { tool: 'list', input: { path: 'src', depth: 2 } },
+        { tool: 'list', input: { path: 'src', depth: 3 } },
+        { tool: 'list', input: { path: 'src', depth: 3, meta: true, hidden: true } },
+        { tool: 'list', input: { depth: 2 } },
+        { tool: 'list', input: { path: '.', depth: 3, limit: 5 } },
+        { tool: 'list', input: { path: '.', depth: 3, limit: 5, offset: 5 } },
+        { tool: 'list', input: { path: '.', depth: 3, limit: 5, offset: 100 } },
+        { tool: 'list', input: { path: '.', depth: 3, limit: 0 } },
+        { tool: 'list', input: { path: 'docs/img', depth: 2 } },
+        { tool: 'list', input: { path: 'docs/guide.md', depth: 2 } },
+        { tool: 'list', input: { path: 'nope', depth: 2 } },
+        { tool: 'list', input: { path: 'node_modules', depth: 3 } },
+        { tool: 'list', input: { path: '.', depth: 0 } },
+        { tool: 'list', input: { path: '.', depth: -3 } },
+        { tool: 'list', input: { path: '.', depth: 11 } },
+        { tool: 'list', input: { path: '.', depth: '2' } },
+        { tool: 'list', input: { path: '.', depth: 2.7 } },
+        { tool: 'list', input: { path: '.', depth: 'x' } },
+        { tool: 'list', input: { path: '.', depth: null } },
+      ],
+    }, {
+      // The cap of 50,000 rows (`LIST_ABSOLUTE_CAP`): `bulk` writes 50,001 files, so a deep list is cut and says so.
+      name: 'list-depth-past-cap',
+      files: { 'zz/last-one.txt': '' },
+      bulk: { dir: 'f', count: 50_000, ext: '.txt' },
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+      calls: [
+        { tool: 'list', input: { path: '.', depth: 2, limit: 3 } },
+        { tool: 'list', input: { path: 'f', depth: 2, limit: 3, offset: 49_990 } },
+        { tool: 'list', input: { path: 'f', depth: 1, limit: 3 } },
+      ],
+    }];
+  })(),
   // The real server's queue filled by a burst (`recordBurst`): 9 searches held in the open of a file under an oplock
   // (8 at once, MIXDOG_SEARCH_SERVER_MAX_INFLIGHT, and the interactive reserve: serve_search/config.rs:139-160), then
   // 2,060 greps, which the queue (2,048, config.rs:162-169) takes or refuses; then the holds are released.
@@ -1101,6 +1173,7 @@ const SCENARIOS = [
   ...(() => {
     const warm = { standin: true, env: { MIXDOG_SEARCH_CANCEL_GRACE_MS: '1000' }, files: { 't/a.ts': 'needle one\n', 'u/d.ts': 'needle four\n' }, warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }] };
     const hold = { start: 'holder', call: { tool: 'glob', input: { pattern: '*.ts', path: 't' } }, until: 'server' };
+    const fanout = { tool: 'grep', input: { pattern: ['needle', 'other'], path: 't', context: 0 } };
     const wait = (name, query, path, extra = {}) => ({ start: name, call: { tool: 'find', input: { query, path } }, until: 'queued', ...extra });
     return [
       // The waiter is refused once its wait (the search's 17.5 s budget) has passed; the holder meets its own deadline.
@@ -1113,6 +1186,27 @@ const SCENARIOS = [
       { name: 'search-admission-holder-cancelled', ...warm, admission: [{ ...hold, cancellable: true }, wait('waiter', 'a', 't'), { script: 'observe' }, { abort: 'holder' }, { settle: 'holder' }, { settle: 'waiter' }] },
       // A search that is not broad (a grep of one pattern) passes a held gate; the waiter behind it still waits.
       { name: 'search-admission-point-search-passes', ...warm, admission: [hold, wait('waiter', 'a', 't'), { script: 'observe' }, { start: 'point', call: { tool: 'grep', input: { pattern: 'needle', path: 't' } }, until: 'answered' }, { tick: 17_500 }, { settle: 'holder' }, { settle: 'waiter' }] },
+      // gaps-tools 1122g review: a grep of several patterns sends its prefilter and its combined scan as bulk searches (grep-pattern-fanout.mjs
+      // `bulkHint`), which wait for their turn as a find does. The fan-out's input as the saturated scenario sends it.
+      // The combined scan is refused once its wait is over; the prefilter, the next bulk search the call makes, takes the free gate, and the
+      // per-pattern greps that follow are not broad. The server answers from the start of the wait (`observe`), so what the call goes on to ask
+      // of it is answered, as the searches that reached it (`requests`) show.
+      { name: 'search-admission-grep-fanout-refused', ...warm, admission: [hold, wait('waiter', 'a', 't', { call: fanout }), { script: 'observe' }, { tick: 17_500 }, { settle: 'holder' }, { settle: 'waiter' }] },
+      // The holder's end admits the combined scan with what its wait left of its budget; the server answers it.
+      { name: 'search-admission-grep-fanout-admitted', ...warm, admission: [hold, { tick: 5_000 }, wait('waiter', 'a', 't', { call: fanout }), { script: 'observe' }, { tick: 12_500 }, { settle: 'holder' }, { settle: 'waiter' }] },
+      // Two sessions with two searches each behind a held gate: the gate admits them by turns, session by session
+      // (owner-fair-gate.mjs, fair-call-scheduler.mjs), not in arrival order. Each search is a `find` of its own name, and the order they were
+      // answered in (`answeredOrder`) is the order they were admitted in, one at a time.
+      { name: 'search-admission-two-owners', ...warm, files: { 't/a.ts': 'needle one\n', 'u/d.ts': 'needle four\n', 'u/e.ts': 'e\n', 'u/f.ts': 'f\n', 'u/g.ts': 'g\n' }, admission: [{ ...hold, cancellable: true, owner: 'H' }, wait('A0', 'a', 't', { owner: 'A' }), wait('A1', 'd', 'u', { owner: 'A' }), wait('B2', 'e', 'u', { owner: 'B' }), wait('B3', 'f', 'u', { owner: 'B' }), { script: 'observe' }, { abort: 'holder' }, { settle: 'holder' }, { settle: 'A0' }, { settle: 'A1' }, { settle: 'B2' }, { settle: 'B3' }] },
+      // A list below the first level is a broad search (a `--files --directories` request): it waits as a find does, and one refused (past its wait) is
+      // answered by Node's own walk of the folder, which leaves a noise folder out altogether where the search server lists it as an entry. A list of
+      // the first level is not broad.
+      { name: 'search-admission-list-deep-refused', ...warm, files: { 't/a.ts': 'needle one\n', 'u/d.ts': 'needle four\n', 'u/sub/e.ts': 'e\n', 'node_modules/p/i.js': 'i\n' }, admission: [hold, { start: 'shallow', call: { tool: 'list', input: { path: '.', depth: 1 } }, until: 'answered' }, { start: 'deep', call: { tool: 'list', input: { path: '.', depth: 2 } }, until: 'queued' }, { script: 'observe' }, { tick: 17_500 }, { settle: 'holder' }, { settle: 'deep' }] },
+      // The holder's end admits the deep list, which the search server answers.
+      { name: 'search-admission-list-deep-admitted', ...warm, files: { 't/a.ts': 'needle one\n', 'u/d.ts': 'needle four\n', 'u/sub/e.ts': 'e\n', 'node_modules/p/i.js': 'i\n' }, admission: [hold, { tick: 5_000 }, { start: 'deep', call: { tool: 'list', input: { path: '.', depth: 2 } }, until: 'queued' }, { script: 'observe' }, { tick: 12_500 }, { settle: 'holder' }, { settle: 'deep' }] },
+      // What a waiter admitted at the end of its wait reports as its local-search telemetry (the trace row's `local_search`): a glob that waited
+      // 12.5 s of its 17.5 s.
+      { name: 'search-admission-waiter-telemetry', ...warm, admission: [hold, { tick: 5_000 }, { start: 'waiter', call: { tool: 'glob', input: { pattern: '*.ts', path: 'u' } }, until: 'queued', telemetry: true }, { script: 'observe' }, { tick: 12_500 }, { settle: 'holder' }, { settle: 'waiter' }] },
     ];
   })(),
   // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
@@ -1467,6 +1561,8 @@ async function recordAdmission(scenario, standin, runOf, outcomeOf, scrub, gates
   const requests = () => standin.count('request') - base;
   const calls = new Map();
   const steps = [];
+  // The calls in the order they were answered: the order the gate admitted them in, as it admits one search at a time.
+  const answeredOrder = [];
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
   try {
     for (const step of scenario.admission) {
@@ -1475,11 +1571,15 @@ async function recordAdmission(scenario, standin, runOf, outcomeOf, scrub, gates
         const entry = { abort, answer: null };
         const gatedBefore = gated;
         const requestsBefore = requests();
-        entry.done = runOf(step.call, abort ? { signal: abort.signal } : {})().then(
+        const telemetry = step.telemetry ? {} : undefined;
+        entry.done = runOf(step.call, { ...(abort ? { signal: abort.signal } : {}), ...(step.owner ? { owner: step.owner } : {}), ...(telemetry ? { telemetry } : {}) })().then(
           (raw) => outcomeOf(raw, step.call.tool),
           (error) => ({ thrown: scrub(String(error?.message ?? error)) }),
         ).then((answer) => {
+          // Every duration is the recording machine's real time (the gate and the search timings read the clock Node's mock does not move).
+          if (telemetry) answer.telemetry = Object.fromEntries(Object.entries(telemetry).map(([key, value]) => [key, key.endsWith('_ms') ? '<ms>' : value]));
           entry.answer = answer;
+          answeredOrder.push(step.start);
           standin.poke();
           return answer;
         });
@@ -1509,7 +1609,7 @@ async function recordAdmission(scenario, standin, runOf, outcomeOf, scrub, gates
   } finally {
     mock.timers.reset();
   }
-  return { admission: steps };
+  return { admission: steps, answeredOrder };
 }
 
 // A free drive letter standing for `dir`; released when this process exits.
@@ -1581,9 +1681,15 @@ if (process.argv[2] === '--child') {
   const cwd = scenario.cwd ? join(toolRoot, scenario.cwd) : toolRoot;
   const standin = scenario.standin ? await startStandin(process.env.MIXDOG_GRAPH_BIN) : null;
   // A call as it runs, its input's `<ROOT>` and `<ROOTW>` spelled out (warmups' too).
-  const runOf = (call, options = {}) => {
+  // `owner`: the session the call runs for (the runtime's tool-execution owner, which the broad-search gate rotates by);
+  // `telemetry`: the object the call's local-search telemetry is written to (what the trace row's `local_search` holds).
+  const { runWithToolExecutionOwner } = await imp('src/runtime/shared/tool-execution-owner.mjs');
+  const { runWithLocalSearchTelemetry } = await imp('src/runtime/agent/orchestrator/tools/builtin/local-search-telemetry.mjs');
+  const runOf = (call, { owner, telemetry, ...options } = {}) => {
     const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(toolRoot).slice(1, -1)));
-    return () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd, options));
+    const run = () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd, options));
+    const owned = owner ? () => runWithToolExecutionOwner(owner, run) : run;
+    return telemetry ? () => runWithLocalSearchTelemetry(telemetry, owned) : owned;
   };
   // Unrecorded calls first: the search server's first start can miss Node's 1 s readiness bound (SERVER_READY_TIMEOUT_MS),
   // and a code graph's first build Node's 20 s bound, cold-start artefacts of a loaded recording machine, not answers. A
@@ -1803,7 +1909,8 @@ try {
           'the answers of a scenario\'s warmup calls (they start the search server; the replay runs them too and ignores them)',
           'in a stand-in call\'s `compare` (the real server\'s answer to each request beside the stand-in\'s, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call\'s comparisons, which are stored sorted, as its concurrent requests reach the server in any order',
           'a comparison of the stand-in\'s saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal\'s fields as server.rs writes them, the scheduler telemetry taken from the real server\'s answer to the same request; search-queue-burst fills the real server\'s queue and records its refusals and answer order',
-          'search-admission-*: a call Node ended with an exception for its cancel (`thrown`: "This operation was aborted", a waiter\'s abort reason, and "operation aborted", a running search\'s) is a call whose cancel the core answers as its Cancelled outcome: the text of an abort exception is Node\'s runtime\'s, and the core\'s runtime states a cancel as its own outcome; the replay compares the outcome\'s kind, not that text. The search server of these scenarios is a stand-in (lib/search-server-standin.mjs, silent until a step sets `observe`), and the searches that reached it are counted (`requests`); the core\'s counterpart counts the walks and text searches that reached its file service',
+          'search-admission-*: a call Node ended with an exception for its cancel (`thrown`) is compared as a call the core answers as its Cancelled outcome (`Error: tool call cancelled`), not by the exception\'s text, because no model reads that text. Which of Node\'s two texts a call throws depends on the tool, not on whether the call waited or ran: find rethrows the abort reason of the signal it was given (a bare `abort()`: "This operation was aborted"; fair-call-scheduler/queue-item.mjs `abortError`), while glob, grep and list wait on a shared flight that throws "operation aborted" (cache-layers.mjs `inFlightAbortError`, reached through scoped-search-flight.mjs); both are the tool called outside a turn, as the recorder calls it. In a turn the call runs inside `runReadOnlyIoWithDeadline` (session/loop/tool-exec/read-only-deadline.mjs), which rejects with the turn\'s own abort reason (a `SessionClosedError`: `Session "<id>" closed: ...`), so neither text is ever the call\'s answer there; the batch drops its remaining results when the turn is aborted (tool-batch.mjs `throwIfAborted`), and what the next turn\'s model reads of a call that was cancelled is that session text, kept from the eager entry\'s early notify (eager-dispatch/entry.mjs `notifyEarlyResult`, manager/turn-interruption.mjs `appendObservedTurnOutput`), or `Cancelled` (`INTERRUPTED_TOOL_RESULT`) for a call with none: texts of the session layer, which the file tools do not state.The search server of these scenarios is a stand-in (lib/search-server-standin.mjs, silent until a step sets `observe`), and the searches that reached it are counted (`requests`); the core\'s counterpart counts the walks and text searches that reached its file service',
+          'search-admission-*, what is not replayed: the gate\'s queue limits (256 waiting in all, a session\'s share of them, `queue is full` and `queue rebalanced`: hundreds of calls to arrange, not recorded); that a free gate admits a call at the next turn of Node\'s loop, so two sessions\' calls that arrive in the same turn are served by the rotation, where the core\'s first arrival takes the free gate; the admission Node tells to the call that handed the turn over (search-admission-waiter-telemetry records that the waiter reports none: `broad_admissions` and `broad_admission_wait_ms` are absent from its telemetry and count in the holder\'s, `broad_admissions` 2 there; the core leaves them out of the waiter\'s and does not add them to the holder\'s, whose answer is a failure here); every duration in a telemetry is the recording machine\'s own time (`<ms>`, compared as a number)',
           'search-cancel-stalled `helpers`: the greps whose aborted requests make Node end the server a call\'s request waits at (twice per request), recorded and not replayed; the core has no server to end: it answers a search on a volume where 8 reads were given up at once with the answer Node gives a call its ended servers rejected twice (the same answer, sooner, without the wait): when made, when admitted from the queue, or before its walk or a file open would read on that volume (a volume by the filesystem\'s identity: on Windows the volume GUID of the path\'s volume mount point, through junctions; on Unix the mount\'s device, a mount point below the root its own volume); Node has no answer for one stalled subtree, as a stalled read stalls its whole request, so the whole search gets that answer; the given-up threads one volume holds stay within 8 - 1 plus the searches that run at once (80 with the defaults: 8 + 1 interactive + 64 local walks), the searches already reading on the volume when it reached 8 being given up too; a refusal is by the root\'s volume as it is now: one fixed by the root\'s text (no junction, mounted folder, link, subst or mapped drive between) is refused at once, any other search is admitted and refused once its producer told its root\'s volume afresh, so a junction retargeted to a healthy volume is served; a stall while a root\'s volume is told is charged to that root\'s telling, which only searches of that root are admitted by; and the process as a whole holds at most 24 given-up threads (three volumes\' worth) before every search, on any volume, gets that answer, which keeps the given-up threads of the process within 24 - 1 plus the searches that run at once (23 + 8 + 1 + 64 = 96 with the defaults); at 24 stranded threads every search is refused: this protects the process, and Node\'s server would be dead in that state',
         ],
       },
