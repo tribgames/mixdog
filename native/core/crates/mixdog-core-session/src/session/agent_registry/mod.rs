@@ -1794,6 +1794,8 @@ async fn persist_owed(patcher: &dyn ThreadState, keeper: &KeptRows, reported: &m
             mixdog_rt::time::sleep(*delay).await;
         }
     }
+    // Node's `reportFailure`: one report per round that ends refused.
+    tracing::warn!(error = last.as_deref().unwrap_or_default(), "[agent-index] {} unpersisted write(s) kept queued after retries", owed.len());
     for item in owed.iter() {
         item.marks.iter().for_each(|mark| reported.failed(*mark, last.as_deref().unwrap_or_default()));
     }
@@ -1819,23 +1821,26 @@ impl StoreWorkers {
             // queue requeues a failed batch (`index-write-queue.mjs:231-245`).
             let mut owed: Vec<Owed> = Vec::new();
             loop {
-                let op = if owed.is_empty() {
-                    rx.recv().await
+                let mut incoming = Vec::new();
+                // The retry timer starts a round of its own, which a flush arriving during it joins.
+                let mut timed = false;
+                if owed.is_empty() {
+                    let Some(op) = rx.recv().await else { break };
+                    incoming.push(op);
                 } else {
                     tokio::select! {
-                        op = rx.recv() => op,
-                        () = mixdog_rt::time::sleep(KEPT_RETRY_AFTER) => {
-                            persist_owed(&*patcher, &keeper, &reported, &mut owed).await;
-                            continue;
+                        op = rx.recv() => {
+                            let Some(op) = op else { break };
+                            incoming.push(op);
                         }
+                        () = mixdog_rt::time::sleep(KEPT_RETRY_AFTER) => timed = true,
                     }
-                };
-                let Some(op) = op else { break };
+                }
                 // One round puts what is owed, as Node's job persists a batch. What arrives during the round: a flush waits
                 // for that job and rejects with its failure; writes join the next batch, which a failed job leaves to the
                 // retry timer (a held lock is not hammered), a successful one starts at once.
-                let mut incoming = vec![op];
-                while !incoming.is_empty() {
+                while timed || !incoming.is_empty() {
+                    timed = false;
                     let mut flushes = Vec::new();
                     for op in incoming.drain(..) {
                         match op {
