@@ -1,0 +1,25 @@
+{
+  "name": "output_limit_escalation_transport_retry",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "escalated": 128000,
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [],
+      "stopReason": "max_tokens"
+    },
+    {
+      "throw": "malformed_function_call"
+    },
+    {
+      "content": "done",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

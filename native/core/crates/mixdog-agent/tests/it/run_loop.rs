@@ -2238,16 +2238,26 @@ fn golden_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent")
 }
 
-async fn replay(scenario: &JsonValue) -> (JsonValue, JsonValue, JsonValue) {
+async fn replay(scenario: &JsonValue) -> (JsonValue, JsonValue, JsonValue, JsonValue) {
     let entries = scenario["script"].as_array().unwrap();
     let copies = if scenario["repeatLast"].as_bool() == Some(true) { 8 } else { 1 };
     let mut script = Vec::new();
     for (i, entry) in entries.iter().enumerate() {
         let n = if i + 1 == entries.len() { copies } else { 1 };
         for _ in 0..n {
+            // A send Node's provider throws as Gemini does for a cut function call: the decoder's transient `malformed_function_call`.
+            if entry["throw"] == "malformed_function_call" {
+                let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+                error.code = Some("malformed_function_call".into());
+                script.push(Attempt::Reject(error));
+                continue;
+            }
             let mut steps = Vec::new();
             let content = entry["content"].as_str().unwrap_or("");
-            if !content.is_empty() {
+            // A reply that names its deltas streams them one by one (their join is its content).
+            if let Some(deltas) = entry["deltas"].as_array() {
+                steps.extend(deltas.iter().map(|d| text(d.as_str().unwrap())));
+            } else if !content.is_empty() {
                 steps.push(text(content));
             }
             for c in entry["toolCalls"].as_array().into_iter().flatten() {
@@ -2320,7 +2330,9 @@ async fn replay(scenario: &JsonValue) -> (JsonValue, JsonValue, JsonValue) {
             })
         })
         .collect();
-    (JsonValue::Array(transcript), result, JsonValue::Array(requests))
+    // What the turn's text-delta hook was handed, in order (compared when the scenario records it).
+    let deltas: Vec<JsonValue> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::TextDelta(chunk) = e { Some(json!(chunk)) } else { None }).collect();
+    (JsonValue::Array(transcript), result, JsonValue::Array(requests), JsonValue::Array(deltas))
 }
 
 #[tokio::test]
@@ -2337,10 +2349,13 @@ async fn rust_loop_matches_the_recorded_node_transcripts() {
             serde_json::from_str(&std::fs::read_to_string(dir.join(format!("scenarios/{name}.json"))).unwrap()).unwrap();
         let golden: JsonValue =
             serde_json::from_str(&std::fs::read_to_string(dir.join(format!("golden/{name}.json"))).unwrap()).unwrap();
-        let (transcript, result, requests) = replay(&scenario).await;
+        let (transcript, result, requests, deltas) = replay(&scenario).await;
         assert_eq!(transcript, golden["messages"], "{name}: transcript");
         assert_eq!(result, golden["result"], "{name}: result");
         assert_eq!(requests, golden["requests"], "{name}: requests");
+        if scenario["captureDeltas"] == true {
+            assert_eq!(deltas, golden["deltas"], "{name}: text deltas");
+        }
     }
 }
 

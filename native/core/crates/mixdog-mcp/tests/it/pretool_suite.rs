@@ -122,3 +122,42 @@ async fn the_pre_tool_decision_matches_node_for_every_recorded_hook_output() {
         hub.close_all().await;
     }
 }
+
+/// The rules of a hooks file saved and removed while a session is open reach its very next call (`fixtures/hook-rules/golden.json`,
+/// from `benchmarks/rust-core/recorders/record-hook-rules.mjs`): after each edit the hooks file Node's live bus wrote is the file the
+/// core reads, and every call's decision (action and reason, or none) is the one Node's gate returned.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rule_saved_or_removed_while_a_session_is_open_decides_its_next_call_as_node_does() {
+    let golden: Value = serde_json::from_str(&mixdog_testkit::fixture!("../../fixtures/hook-rules/golden.json")).unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), None, None, None);
+    let hook = BusPreToolHook::new(bus, Arc::new(|_: &ThreadId| HookCommon::default()));
+    let thread = ThreadId::from("sess_resumed");
+    for (n, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
+        if step["op"] != "call" {
+            std::fs::write(dir.path().join("hooks.json"), step["file"].to_string()).unwrap();
+            continue;
+        }
+        let args = json!({});
+        let call_id = ToolCallId::from(format!("call-{n}"));
+        let tool = step["tool"].as_str().unwrap();
+        let got = hook.pre_tool(&HookCall { call_id: &call_id, thread_id: &thread, name: tool, args: &args, cwd: dir.path() }).await.unwrap();
+        let expected = &step["decision"];
+        match (got, expected.is_null()) {
+            (None, true) => {}
+            (Some(d), true) if d.action == HookAction::Allow && d.name.is_none() && d.args.is_none() => {}
+            (Some(d), false) => {
+                let action = match d.action {
+                    HookAction::Deny => "deny",
+                    HookAction::Ask => "ask",
+                    HookAction::Rewrite => "modify",
+                    HookAction::Allow => "allow",
+                };
+                assert_eq!(action, expected["action"], "step {n} ({tool}): action");
+                assert_eq!(d.reason.as_deref(), expected["reason"].as_str(), "step {n} ({tool}): reason");
+            }
+            (got, _) => panic!("step {n} ({tool}): got {got:?}, Node decided {expected}"),
+        }
+    }
+}

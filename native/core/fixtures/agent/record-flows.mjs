@@ -302,6 +302,9 @@ const spawnScenarios = [
   { name: 'a_failing_session_creation_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, createThrows: 'boom', steps: [] },
   { name: 'a_job_cancelled_before_it_starts_runs_nothing', args: { agent: 'worker', prompt: 'p', tag: 't' }, cancel: 'before', steps: [{ return: { content: 'never' } }] },
   { name: 'a_job_cancelled_during_prep_closes_the_prepared_session', args: { agent: 'worker', prompt: 'p', tag: 't' }, cancel: 'during-prep', steps: [{ return: { content: 'never' } }] },
+  // A running turn is cancelled (agent close / agent-tree cancel): the owner hears once, as cancelled, with what the turn had said (job-task spawn-flow.test.mjs).
+  { name: 'a_running_turn_cancelled_reports_its_partial_output_once', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'half of the review' }, { cancelTask: 'cancelled by agent close' }, { say: 'late words' }, { return: { content: 'late' } }] },
+  { name: 'a_running_turn_cancelled_without_output_sends_the_header_only_notice', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ cancelTask: 'cancelled by agent close' }, { return: { content: '' } }] },
   { name: 'a_respawn_is_marked', args: { agent: 'worker', prompt: 'p', tag: 't' }, respawned: true, steps: [{ return: { content: 'ok' } }] },
   { name: 'an_abnormal_finish_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ return: { content: '', termination: 'empty' } }] },
   { name: 'a_throwing_turn_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ throw: { message: 'turn broke' } }] },
@@ -354,6 +357,7 @@ function newSpawnWorld(scenario) {
         else if (step.return) return turnResult(step.return);
         else if (step.throw) throw new Error(step.throw.message);
         else if (step.say !== undefined) session.messages.push({ role: 'assistant', content: step.say });
+        else if (step.cancelTask !== undefined) bg.cancelBackgroundTask(job.taskId, step.cancelTask);
         else if (step.stall !== undefined) {
           if (scenario.shellJobs) reapStalledTurn();
           const error = new AgentStallAbortError(step.stall);

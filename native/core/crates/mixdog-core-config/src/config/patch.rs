@@ -227,6 +227,9 @@ const PROVIDER_EPHEMERAL_KEYS: [&str; 4] = ["apiKey", "enabled", "baseURL", "cre
 pub fn stored_form(config: &Doc) -> Doc {
     let mut routes = config.clone();
     super::agent_routes::canonicalize(&mut routes);
+    // `canonicalizeAgentStorage` also names the stored form of the auto-clear, compaction and module sections (their aliases of
+    // one setting, `thresholdMs` for `idleMs`, `enabled` for `auto`): two configs that state one setting differently are no edit.
+    super::separation::canonicalize_sections(&mut routes);
     let mut next = Doc::new();
     next.insert("providers".into(), Value::Object(slim_providers(routes.get("providers"))));
     next.insert("mcpServers".into(), config.get("mcpServers").filter(|v| v.is_object()).cloned().unwrap_or_else(|| Value::Object(Doc::new())));
@@ -273,7 +276,7 @@ pub fn stored_form(config: &Doc) -> Doc {
             if let Some(shell) = canonical_shell(config.get(key)) {
                 next.insert(key.into(), Value::Object(shell));
             }
-        } else if let Some(value) = config.get(key) {
+        } else if let Some(value) = if matches!(key, "autoClear" | "compaction" | "modules") { routes.get(key) } else { config.get(key) } {
             // Node stores `config.update || {}`, `onboarding || {}` and `recap || {}`.
             if is_truthy(value) {
                 next.insert(key.into(), value.clone());

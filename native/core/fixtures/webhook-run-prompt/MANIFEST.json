@@ -1,0 +1,48 @@
+{
+  "cases": 9,
+  "command": "node benchmarks/rust-core/recorders/record-webhook-run-prompt.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8341,
+      "path": "golden.json",
+      "sha256": "5244f3056486505e14409029ba974158ef73512ce2cbf25718a64eb9f3d088bf"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per case: its input, the headers shown, the whole prompt, the selection text, the label",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-webhook-run-prompt.mjs",
+  "recorderSha256": "7f6da5ab57b30837a278eb0b104fbea5e9bf3de2017b51972ff47ac02be18512",
+  "set": "webhook-run-prompt",
+  "syntheticInputs": [
+    "the instructions, headers and bodies: those of explicit-skills-sources.test.mjs and the fence, header and label rules they exercise"
+  ],
+  "totalBytes": 8341
+}

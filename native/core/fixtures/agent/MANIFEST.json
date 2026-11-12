@@ -1,6 +1,6 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 84,
+  "fileCount": 92,
   "files": [
     {
       "bytes": 47880,
@@ -133,9 +133,9 @@
       "sha256": "aa000941a85ba2d4c750bfe0a823fa9f002bd00272cbd829cd317b1c9883f668"
     },
     {
-      "bytes": 236488,
+      "bytes": 248988,
       "path": "flows/spawn.json",
-      "sha256": "6966a1311f174b4dc96debd8e521813c42a984b0761aac4492876d14f6f2382c"
+      "sha256": "3e61d4ffebc878887ff351b7aa359de4a237c43de08c69c23526db8e5c74b52c"
     },
     {
       "bytes": 1549,
@@ -161,6 +161,11 @@
       "bytes": 2113,
       "path": "golden/output_limit_escalation.json",
       "sha256": "54b566ce41e874b656b617a40b6f52a1b6b7a74c229dc2c6951f475b4ad10f6a"
+    },
+    {
+      "bytes": 1088,
+      "path": "golden/output_limit_escalation_transport_retry.json",
+      "sha256": "33ea561369e93a2b742aeebe6f4cf5c389ebd53c44b93293ee2faa13b623c689"
     },
     {
       "bytes": 5904,
@@ -208,6 +213,11 @@
       "sha256": "c6a32cc714495b73a268e568df57c70fdfbb09c21ddbb021fb52457e7ee69144"
     },
     {
+      "bytes": 1785,
+      "path": "golden/text_deltas_reach_the_hook.json",
+      "sha256": "666fe9f06cd5e1459d19510928c6988a02b03b31ff1874b935df2c41b5ff953a"
+    },
+    {
       "bytes": 1688,
       "path": "golden/tool_round.json",
       "sha256": "0d0fa91a6cdf5475597731fd77ad8560fb310f34afb301c41f60bcfd5b42772b"
@@ -221,6 +231,16 @@
       "bytes": 2126,
       "path": "golden/two_calls_in_order.json",
       "sha256": "b55f817a87376a756d52278433c26e46dfe8329be6362e2a3deb55e74dfed9df"
+    },
+    {
+      "bytes": 418085,
+      "path": "golden/uncapped_failing_rounds.json",
+      "sha256": "63a086b3ef063e8227d41f672ba7aac60bb9ee4e831495dcba2a482bb7579f8c"
+    },
+    {
+      "bytes": 283355,
+      "path": "golden/uncapped_replayed_rounds.json",
+      "sha256": "799cc464ba9157eaf7fc4ea8b27699c5cc269d6f3de73084744d8f8194a8984c"
     },
     {
       "bytes": 1815,
@@ -278,9 +298,9 @@
       "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
     },
     {
-      "bytes": 53896,
+      "bytes": 54640,
       "path": "record-flows.mjs",
-      "sha256": "ade9033f43a22515d1367e8aa22c09a9935e9ac2770503ed166de9b22ef86379"
+      "sha256": "3184cd861ae119fd92be2685d8e745a580a6dec9547e4407e9ba3e53f71b27b5"
     },
     {
       "bytes": 25624,
@@ -303,9 +323,9 @@
       "sha256": "3fd2167dd6f0eb3af7aaed49e2af9de6a3fd46033041e1597d7e8f1d2221fac6"
     },
     {
-      "bytes": 9711,
+      "bytes": 12208,
       "path": "record.mjs",
-      "sha256": "9add1b170dbdbdc6e43622c78235dafc9739a0489f62e6f7ba5b8098344eeadd"
+      "sha256": "4301fdf6836751bc546ddd5195e597ad990945c334ead29c243c0fba1f0a9524"
     },
     {
       "bytes": 311,
@@ -331,6 +351,11 @@
       "bytes": 422,
       "path": "scenarios/output_limit_escalation.json",
       "sha256": "5d164889559bf4a4ac5d440e4ac8fd8505f58058d98818000cb15de988288e6b"
+    },
+    {
+      "bytes": 410,
+      "path": "scenarios/output_limit_escalation_transport_retry.json",
+      "sha256": "74ffc88aebdbb086073d84e109ace069b7fc5f375edf358123fb5df351188ade"
     },
     {
       "bytes": 482,
@@ -378,6 +403,11 @@
       "sha256": "e7a805b4ff44cb0ec7c6688e2fb1d0628957f76fcd6dd3bde6a9c7e9373ca95b"
     },
     {
+      "bytes": 624,
+      "path": "scenarios/text_deltas_reach_the_hook.json",
+      "sha256": "6ca05b9c5924b28d03fa2ee8ef97a0ba2c1084655845b3bb89b5fb47e346da2a"
+    },
+    {
       "bytes": 444,
       "path": "scenarios/tool_round.json",
       "sha256": "5156bf4432d9f1c0378cc446f5c45d4a39c6b61fee965ce475a909880b92531a"
@@ -391,6 +421,16 @@
       "bytes": 563,
       "path": "scenarios/two_calls_in_order.json",
       "sha256": "e4207709010afbe0e0fa4621f3aa7b4fbeca267d480f949da58041c62f44168a"
+    },
+    {
+      "bytes": 10882,
+      "path": "scenarios/uncapped_failing_rounds.json",
+      "sha256": "bb95cfa0d14440a9edeab6aa27ae64f4ec7746efcb812418cf545ee4ae71df46"
+    },
+    {
+      "bytes": 10838,
+      "path": "scenarios/uncapped_replayed_rounds.json",
+      "sha256": "3135e96d607389e2894a6cd7aaa36b685e6e2e75382b37d5b44f77bc0971aa70"
     },
     {
       "bytes": 458,
@@ -432,15 +472,14 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "exact": true,
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "closestCommit": "ab38b2561a68ac5e819e8206d8bf5406e105616e",
+      "commitFilesMissingFromTree": 266,
+      "exact": false,
+      "filesDifferingFromCommit": 248
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -449,5 +488,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 4229097
+  "totalBytes": 4971905
 }

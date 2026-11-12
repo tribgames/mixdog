@@ -820,7 +820,7 @@ impl ChannelAdmin {
             .last_payload(&id)
             .await?
             .ok_or_else(|| format!("webhook \"{id}\" has not received a payload yet"))?;
-        let headers: std::collections::BTreeMap<String, String> = payload["headers"]
+        let headers: indexmap::IndexMap<String, String> = payload["headers"]
             .as_object()
             .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect())
             .unwrap_or_default();
@@ -836,7 +836,7 @@ impl ChannelAdmin {
                     executor_agent_id: endpoint.executor_agent_id.clone().filter(|e| !e.is_empty()),
                     cwd: endpoint.cwd.clone().filter(|c| !c.is_empty()),
                     attachments: endpoint.attachments.clone(),
-                    event: webhook_event_summary(&headers, &body),
+                    event: webhook_event_summary(|n| headers.get(n), &body),
                     prompt: run.prompt,
                     skill_selection: run.skill_selection,
                 },

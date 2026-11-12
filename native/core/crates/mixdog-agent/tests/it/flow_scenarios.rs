@@ -195,6 +195,9 @@ impl Sess {
                 return Err(TurnError::new(s(error, "message")));
             } else if let Some(text) = step.get("say").and_then(Value::as_str) {
                 lock(&self.0.messages).push(Some(text.to_owned()));
+            } else if let Some(reason) = step.get("cancelTask").and_then(Value::as_str) {
+                let id = self.0.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).unwrap();
+                self.0.board.cancel(&id, reason, CancelNotice::Default);
             } else if let Some(message) = step.get("stall").and_then(Value::as_str) {
                 // A stop by the progress watchdog: its sentence, and the handoff the abort carried, if any.
                 return Err(TurnError {

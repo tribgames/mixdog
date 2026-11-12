@@ -1,0 +1,58 @@
+{
+  "cases": 6,
+  "command": "node benchmarks/rust-core/recorders/record-agent-stale-rows.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "rows of the Lead pool (agent \"lead\")": "Node leaves them out of the index file whenever the file is written again (its worker rows are projected without them), so no recorded list holds one; the core keeps the Lead's own row in its session header (agent_registry/lead_row.rs), which no pass removes, so a replay leaves them out of the list it compares",
+    "sort order of workers and tombstoned": "the index file is a map; both lists are sorted by text before they are compared",
+    "the count of config loads": "Node counts how often its reaper loads the config; the core reads its config from memory and has no load to count"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 12161,
+      "path": "golden.json",
+      "sha256": "9736ffac476767e48a7db3a0f1452a150157eae5f6a16b1096c6a293b0d11327"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per scenario: its rows, config, manager facts and scan sessions, the ids the index still holds, every tombstone as tag:sessionId, the scan verdicts",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-stale-rows.mjs",
+  "recorderSha256": "e6d984234248162c62d3dbd1da549af31fad56be33b9e1724e8520f8d78aa39f",
+  "set": "agent-stale-rows",
+  "syntheticInputs": [
+    "the worker rows and the scan sessions: the rows and sessions of terminal-reaper/stale-rows.test.mjs, every stamp an offset from the fixed clock",
+    "the session manager: answers only the in-flight, pending-message and runtime-stage facts a scenario names, no session record"
+  ],
+  "totalBytes": 12161
+}
