@@ -196,8 +196,7 @@ try {
     const created = await op('room/create', { input: { name: 'Room One', members: [made.botOne, made.botTwo] } });
     made.room = created.roomId;
     made.roomLog = created.sessionId;
-    // Observed in 2 of 5 runs: `thread/list` right after the `room/create` reply omits the room and its `thread/started` edge follows later.
-  }, (rows) => rows.has(made.roomLog));
+  });
   // The core retires the home after the delete's reply, as Node's host does (`void retireAgentHomes`, session-host-lifecycle.ts:1171): the
   // step ends when the home row says it was retired and the room has dropped the bot.
   await step('agent-delete', () => op('agent/deleteAgentDefinition', { agentId: made.botOne }), (rows) => rows.get(made.botOneHome)?.agentDeleted === true && !rows.get(made.roomLog)?.agentRoom?.members.includes(made.botOne));
