@@ -154,7 +154,7 @@ const NON_PERSISTENT: [&str; 3] = ["running", "pending", "queued"];
 /// `<task-notification>` envelope persists as it is; a completion the model must not see (or one
 /// still running) yields nothing. The core's producers render envelopes only, so the legacy
 /// wrapper forms Node still converts never reach here.
-fn model_visible(text: &str, meta: &Value) -> Option<String> {
+pub(crate) fn model_visible(text: &str, meta: &Value) -> Option<String> {
     let message = mixdog_js::js_trim(text);
     if message.is_empty() || meta.get("model_visible") == Some(&Value::Bool(false)) {
         return None;
@@ -286,6 +286,15 @@ fn replay_item_text(item: &Value) -> String {
     }
 }
 
+/// The result a worker's turn hands its owner, with the worker's sensitive values as the marker (its own context keeps
+/// them; the report leaves the session).
+fn report_redacted(marks: &dyn crate::session::seams::SensitiveMarks, worker: &ThreadId, result: &TurnResult) -> TurnResult {
+    let mut out = result.clone();
+    out.content = marks.redact_text(worker, &out.content);
+    out.report_content = out.report_content.map(|text| marks.redact_text(worker, &text));
+    out
+}
+
 /// `providerReplayText(replay)`: the visible text of a replay envelope's items.
 fn provider_replay_text(replay: Option<&Value>) -> String {
     let items = replay.and_then(|replay| replay.get("items")).and_then(Value::as_array);
@@ -351,17 +360,29 @@ impl TurnSessions for SessionTurns {
         self.messages(session_id).await.len()
     }
 
+    /// The rows a stopped turn's handoff is read from, with the worker's sensitive values as the marker: the handoff leaves
+    /// the session.
     async fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText> {
+        let (marks, worker) = (self.directory.deps().sensitive.clone(), ThreadId::from(clean_str(session_id).as_str()));
         self.messages(session_id)
             .await
             .into_iter()
             .skip(start)
             .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
             .map(|message| AssistantText {
-                content: assistant_message_text(message.get("content")),
-                replay: provider_replay_text(message.get("providerReplay")),
+                content: marks.redact_text(&worker, &assistant_message_text(message.get("content"))),
+                replay: marks.redact_text(&worker, &provider_replay_text(message.get("providerReplay"))),
             })
             .collect()
+    }
+
+    fn carry_marks(&self, session_id: &str, owner_session_id: &str) {
+        let (worker, owner) = (ThreadId::from(clean_str(session_id).as_str()), ThreadId::from(clean_str(owner_session_id).as_str()));
+        self.directory.deps().sensitive.carry(&worker, &owner);
+    }
+
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        self.directory.deps().sensitive.redact_text(&ThreadId::from(clean_str(session_id).as_str()), text)
     }
 
     /// `notDoneReport(session)` over the todo list of the loaded session's latest acked header
@@ -422,12 +443,19 @@ impl SessionTurns {
             options: Some(SubmitOptions { client_submission_id: Some(submission).filter(|id| !id.is_empty()), ..SubmitOptions::default() }),
         };
         self.admitted(thread.as_str(), epoch)?;
+        // The report and the failure leave the worker for its owner: the worker's sensitive values as the marker.
+        let marks = self.directory.deps().sensitive.clone();
+        let mut hooks = request.hooks;
+        if let Some(terminal) = hooks.on_terminal_result.take() {
+            let (marks, worker) = (marks.clone(), thread.clone());
+            hooks.on_terminal_result = Some(Arc::new(move |result: &TurnResult| terminal(&report_redacted(&*marks, &worker, result))));
+        }
         let (done, outcome) = oneshot::channel();
         *handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()) = Some(AgentStart {
             content: handoff_content(&request.prompt, &request.attachments),
             turn: AgentTurn {
                 kind: request.kind,
-                hooks: request.hooks,
+                hooks,
                 slot: request.slot,
                 context: request.context,
                 skill_selection: request.skill_selection,
@@ -460,8 +488,8 @@ impl SessionTurns {
             Err(error) => return Err(unstarted(format!("the turn did not start: {error:?}"))),
         }
         match outcome.await {
-            Ok(RunOutcome::Completed(result)) => Ok(*result),
-            Ok(RunOutcome::Failed(error)) => Err(TurnError::new(error.message)),
+            Ok(RunOutcome::Completed(result)) => Ok(report_redacted(&*marks, &thread, &result)),
+            Ok(RunOutcome::Failed(error)) => Err(TurnError::new(marks.redact_text(&thread, &error.message))),
             Ok(RunOutcome::Interrupted) => Err(TurnError::new("The turn was interrupted")),
             Err(_) => Err(TurnError::new(format!("agent session {} closed during its turn", request.session_id))),
         }
@@ -652,6 +680,64 @@ mod tests {
         assert_eq!(*released.0.lock().unwrap(), [format!("{} agent-turn-complete", handle.id)]);
     }
 
+    /// A worker's report leaves the worker: a value it marked sensitive is the marker in the result its owner gets, in the
+    /// terminal hook's copy and in the rows a stopped turn's handoff is read from; carried, the value is the owner's too.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_workers_report_reaches_its_owner_with_the_workers_sensitive_values_as_the_marker() {
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
+        use crate::session::tests::start_thread;
+        const CODE: &str = "482913";
+
+        let rig = crate::session::testing::Rig::new();
+        rig.set_script(Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+                assert!(run.context.remember_sensitive(&[fill]));
+                let text = format!("filled {CODE}");
+                let reply = crate::session::ItemCommit {
+                    iid: mixdog_core_api::ids::ItemId::from("a-1"),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "assistant", "content": text }),
+                    prompt: None,
+                };
+                run.port.commit_item(reply).await.expect("commit");
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: text.clone(), report_content: Some(text), iterations: 1, ..Default::default() }))
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let (worker, owner) = (start_thread(&directory).await, start_thread(&directory).await);
+        let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())));
+        let heard: Arc<Mutex<Vec<TurnResult>>> = Arc::default();
+        let sink = heard.clone();
+        let request = TurnRequest {
+            kind: TurnKind::Spawn,
+            session_id: worker.id.as_str().to_owned(),
+            prompt: "sign in".into(),
+            attachments: Vec::new(),
+            context: None,
+            cwd: String::new(),
+            skill_selection: None,
+            hooks: TurnHooks {
+                submission_id: "sub-1".into(),
+                notify: Arc::new(|_, _| true),
+                on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
+                on_terminal_result: Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.clone()))),
+            },
+            slot: None,
+        };
+        turns.carry_marks(worker.id.as_str(), owner.id.as_str());
+        let result = turns.run_turn(request).await.expect("turn");
+        let marked = "filled [redacted]";
+        assert_eq!((result.content.as_str(), result.report_content.as_deref()), (marked, Some(marked)));
+        let terminal = heard.lock().unwrap().clone();
+        assert_eq!(terminal.iter().map(|r| (r.content.as_str(), r.report_content.as_deref())).collect::<Vec<_>>(), [(marked, Some(marked))]);
+        assert_eq!(turns.assistant_texts(worker.id.as_str(), 1).await, [AssistantText { content: marked.into(), replay: String::new() }]);
+        assert_eq!(rig.sensitive.redact_text(owner.id.as_str(), CODE), "[redacted]", "the owner holds the worker's mark");
+    }
+
     /// A worker's turn asked of a session that is busy is refused, and the entry it queued is taken
     /// off the queue again: left there it would run later with nobody waiting for it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -837,7 +923,7 @@ mod tests {
         // The body of the same execution replaces its preview on the tail card.
         eventually_on!(&[&handle.cell.stepped], || has_body().then_some(())).await;
         directory.finished(&handle.id, "agent", "t1", "completed", body.to_owned()).await;
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(cards(), 1, "one card for the execution; its body shows once");
     }
 }

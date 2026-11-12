@@ -1,17 +1,29 @@
 //! The executors behind [`Backend`] (RL §3, §7.1, §12.2, §13; SPEC R47).
 //!
-//! | Executor | Threads | Priority |
-//! |---|---|---|
-//! | RT-C (tokio) | 2 | above normal |
-//! | RT-W (tokio) | cores − 2, min 2 | normal |
-//! | cpu-interactive | max(2, cores/4), queue 8 | above normal |
-//! | cpu-bulk | max(1, cores − 2 − k), queue 64 | below normal |
-//! | io-interactive | 4, queue 16 | normal |
-//! | io-durability | 4, queue 256 | normal |
-//! | io-maintenance | 2, queue 256 | below normal |
-//! | io-spawn | 2, queue 64 | normal |
-//! | io-pty | one thread per job, 64 live per core | normal |
-//! | control / computer / webrtc-media / sqlite-writer | one thread per token spawn | above / normal / below / normal |
+//! | Executor | Threads (most alive, wedged replacements included) | Room / far bound | Priority |
+//! |---|---|---|---|
+//! | cpu-interactive | max(2, cores/4) fixed (2x) | 8 / 512 | above normal |
+//! | cpu-bulk | max(1, cores − 2 − k) fixed (2x) | 64 / 1024 | below normal |
+//! | io-interactive | 4 warm, up to 64 (68) | 16 / 512 | normal |
+//! | io-durability | 4 warm, up to 16 (20) | 256 / 1024 | normal |
+//! | io-maintenance | 2 warm, up to 8 (10) | 256 / 1024 | below normal |
+//! | io-spawn | 4 warm, up to 32 (36) | 64 / 1024 | normal |
+//! | io-pty | one thread per job, 64 live per core | 0 / 1024 | normal |
+//!
+//! RT-C is 2 tokio threads (above normal), RT-W cores − 2, min 2 (normal); control / computer /
+//! webrtc-media / sqlite-writer / effort-judge threads are one per token spawn (above / normal /
+//! below / normal / normal).
+//!
+//! Every lane has one FIFO queue in arrival order. The room is how many queued jobs a
+//! `submit_wait` caller lets ahead of its own before it is admitted (the lane's queue size before
+//! the queues waited: its producers pace themselves there); the far bound counts every job the lane
+//! holds, admitted or waiting, and only there is a submission refused ("overloaded: <lane>").
+//! One entry holds its job's closure and result sender (what the caller captured, the job's
+//! input) plus, for a waiting caller, one ticket (an `Arc` of an atomic and a `Notify`).
+//! A pooled lane's most threads alive is `max_threads + threads`: healthy workers up to
+//! `max_threads`, plus replacements for wedged ones up to that total, both decided in one place
+//! (`pool.rs` `Watch::start_worker`). Every lane thread has a 2 MiB stack (`pool.rs`
+//! `LANE_STACK`).
 //!
 //! [`boot`] builds the executors, installs them and returns the process's tokens.
 
@@ -64,11 +76,12 @@ const LANES: [LaneKind; 7] = [
     LaneKind::PtyIo,
 ];
 
-const THREAD_KINDS: [ThreadKind; 4] = [
+const THREAD_KINDS: [ThreadKind; 5] = [
     ThreadKind::Control,
     ThreadKind::Computer,
     ThreadKind::WebrtcMedia,
     ThreadKind::SqliteWriter,
+    ThreadKind::EffortJudge,
 ];
 
 fn lane_index(kind: LaneKind) -> usize {
@@ -89,6 +102,7 @@ fn thread_index(kind: ThreadKind) -> usize {
         ThreadKind::Computer => 1,
         ThreadKind::WebrtcMedia => 2,
         ThreadKind::SqliteWriter => 3,
+        ThreadKind::EffortJudge => 4,
     }
 }
 
@@ -119,7 +133,9 @@ const fn lane_priority(kind: LaneKind) -> Priority {
 ///   group-commit batch (`session/durability.rs`, at most `batch_bytes`); fsync on stalled
 ///   storage is the hang this catches. 15x the lock wait. Multi-file jobs report progress.
 /// - io-spawn 30 s: one process creation plus job-object setup (`mixdog-spawn manager.rs`
-///   `launch_process`), milliseconds; headroom for a first-run virus scan.
+///   `launch_process`), or one filesystem call of a shell call's start (`mixdog-tools exec`:
+///   log files, scratch and launcher directories, program lookup), milliseconds; headroom for
+///   a first-run virus scan.
 /// - cpu-bulk and io-maintenance 10 min: jobs here are loops that report progress (repo
 ///   walks, blob census per shard); the longest unreported step is one recursive delete of a
 ///   session scratch or tool-result tree (`session/purge.rs` `remove_all`), assumed at most
@@ -136,11 +152,13 @@ const fn lane_lease(kind: LaneKind) -> Duration {
 }
 
 /// OS priority of each dedicated-thread kind: the management listener answers while the async
-/// runtimes stall (above normal); video encoders yield to everything (below normal).
+/// runtimes stall (above normal); video encoders yield to everything (below normal). The effort
+/// judge runs at normal priority as Node's judge worker does: a judgment that waits behind bulk work
+/// misses its 500 ms deadline.
 const fn thread_priority(kind: ThreadKind) -> Priority {
     match kind {
         ThreadKind::Control => Priority::AboveNormal,
-        ThreadKind::Computer | ThreadKind::SqliteWriter => Priority::Normal,
+        ThreadKind::Computer | ThreadKind::SqliteWriter | ThreadKind::EffortJudge => Priority::Normal,
         ThreadKind::WebrtcMedia => Priority::BelowNormal,
     }
 }
@@ -151,11 +169,32 @@ const WORK_PRIORITY: Priority = Priority::Normal;
 /// Size of one pooled lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PoolParams {
-    /// Worker threads, all started at boot.
+    /// Warm worker threads, all started at boot.
     pub threads: usize,
-    /// Queue capacity: a full queue answers `LaneFull` at once.
+    /// Most worker threads: above `threads` the lane grows while every thread is busy and work
+    /// waits, and a grown thread ends after [`IDLE_GROWN`] idle. Equal to `threads`: a fixed lane.
+    pub max_threads: usize,
+    /// Queued jobs a `submit_wait` caller lets ahead of its own before it is admitted.
+    pub room: usize,
+    /// The queue's far bound, on every job it holds (admitted or waiting): jobs wait in the queue
+    /// for a thread, and only a queue holding this many answers `LaneFull` (overloaded).
     pub queue: usize,
 }
+
+impl PoolParams {
+    /// A lane of `threads` workers, never more.
+    pub const fn fixed(threads: usize, room: usize, queue: usize) -> Self {
+        Self { threads, max_threads: threads, room, queue }
+    }
+}
+
+/// How long a thread an elastic lane grew stays idle before it ends.
+pub const IDLE_GROWN: Duration = Duration::from_secs(30);
+
+/// Node's call-lane bounds (`session-transport/call-lanes.mjs`): the interactive lane refuses at
+/// 512 waiting, the normal lane at 1,024.
+const NODE_INTERACTIVE_QUEUE: usize = 512;
+const NODE_NORMAL_QUEUE: usize = 1024;
 
 /// Executor sizes. [`RtConfig::for_cores`] gives the RL §3 table for a machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -179,30 +218,34 @@ impl RtConfig {
         Self {
             control_threads: 2,
             work_threads: cores.saturating_sub(2).max(2),
-            cpu_interactive: PoolParams {
-                threads: interactive_cpu,
-                queue: 8,
-            },
-            cpu_bulk: PoolParams {
-                threads: cores.saturating_sub(2 + interactive_cpu).max(1),
-                queue: 64,
-            },
-            interactive_io: PoolParams {
-                threads: 4,
-                queue: 16,
-            },
-            durability_io: PoolParams {
-                threads: 4,
-                queue: 256,
-            },
-            maintenance_io: PoolParams {
-                threads: 2,
-                queue: 256,
-            },
-            spawn_io: PoolParams {
-                threads: 2,
-                queue: 64,
-            },
+            // CPU lanes stay fixed: the processor is their limit, so more threads only contend.
+            // Their queues wait like the others' (Node's interactive and normal bounds).
+            cpu_interactive: PoolParams::fixed(interactive_cpu, 8, NODE_INTERACTIVE_QUEUE),
+            cpu_bulk: PoolParams::fixed(cores.saturating_sub(2 + interactive_cpu).max(1), 64, NODE_NORMAL_QUEUE),
+            // IO lanes are elastic: a thread blocked on a file or a pipe uses no processor, so a
+            // fixed count only queues unrelated work behind a slow file. A thread costs its stack
+            // (2 MiB reserved, tens of KiB committed); all four caps grown is 120 threads above the
+            // warm 14, 240 MiB reserved.
+            // Request reads: 64, one per live process the manager admits (`limits.maxProcesses`),
+            // so a read behind every live shell still gets a thread. Node's interactive bound.
+            interactive_io: PoolParams { threads: 4, max_threads: 64, room: 16, queue: NODE_INTERACTIVE_QUEUE },
+            // Writes and fsyncs: 16, half a disk's command queue (SATA NCQ and an NVMe queue's
+            // usual depth are 32), leaving the rest to other processes; more concurrent fsyncs
+            // only lengthen each.
+            durability_io: PoolParams { threads: 4, max_threads: 16, room: 256, queue: NODE_NORMAL_QUEUE },
+            // Background loops only (walks, censuses, deletes, searches), below normal priority:
+            // the lease table allows one job minutes, and no tool call's start or output waits
+            // here. A low cap of 8 keeps walks from flooding the disk.
+            maintenance_io: PoolParams { threads: 2, max_threads: 8, room: 256, queue: NODE_NORMAL_QUEUE },
+            // Every shell call's start: a few single filesystem calls and one process creation,
+            // milliseconds each, so 4 warm threads serve a burst. The lease table's slow case (a
+            // first-run scan) may hold a thread for seconds; the lane then grows. A shell call's start steps run one after another (the
+            // program probe, hoisted script, scratch and launcher directories, PATH lookup, then
+            // the spawn; its log files are made on the job's io-pty writer), so a call has at most
+            // one io-spawn job in flight: 30 agents x 8 parallel calls = 240 jobs. The lane grows
+            // to 32 threads when a scan stalls the warm 4, and 240 starts wait far below the
+            // queue's bound (Node's normal 1,024).
+            spawn_io: PoolParams { threads: 4, max_threads: 32, room: 64, queue: NODE_NORMAL_QUEUE },
             pty_max_live: 64 * cores,
         }
     }
@@ -226,32 +269,43 @@ pub struct Executors {
     work_runtime: Option<Runtime>,
     lanes: Vec<LaneExec>,
     tasks: TaskRegistry,
-    threads_entered: [AtomicU64; 4],
+    threads_entered: [AtomicU64; THREAD_KINDS.len()],
     priority_failures: Arc<AtomicU64>,
 }
 
 impl Executors {
     pub fn start(config: RtConfig) -> io::Result<Self> {
         let priority_failures = Arc::new(AtomicU64::new(0));
-        let control_runtime = runtime(
-            "mixdog-rt-c",
-            config.control_threads,
-            CONTROL_PRIORITY,
-            &priority_failures,
-        )?;
-        let work_runtime = runtime(
-            "mixdog-rt-w",
-            config.work_threads,
-            WORK_PRIORITY,
-            &priority_failures,
-        )?;
+        #[cfg(feature = "virtual-clock")]
+        let virtual_runtimes = if crate::virtual_clock::requested() {
+            let on = |priority: Priority| {
+                let failures = priority_failures.clone();
+                move || apply_priority(priority, &failures)
+            };
+            Some(crate::virtual_clock::start(on(CONTROL_PRIORITY), on(WORK_PRIORITY))?)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "virtual-clock"))]
+        let virtual_runtimes: Option<(Handle, Handle)> = None;
+        let (control, work, control_runtime, work_runtime) = match virtual_runtimes {
+            Some((control, work)) => (control, work, None, None),
+            None => {
+                let control_runtime = runtime("mixdog-rt-c", config.control_threads, CONTROL_PRIORITY, &priority_failures)?;
+                let work_runtime = runtime("mixdog-rt-w", config.work_threads, WORK_PRIORITY, &priority_failures)?;
+                (control_runtime.handle().clone(), work_runtime.handle().clone(), Some(control_runtime), Some(work_runtime))
+            }
+        };
         let pooled = |kind: LaneKind, params: PoolParams| {
             LaneExec::pooled(
                 kind,
                 lane_priority(kind),
                 params.threads,
+                params.max_threads,
+                params.room,
                 params.queue,
                 lane_lease(kind),
+                IDLE_GROWN,
                 &priority_failures,
             )
         };
@@ -266,15 +320,16 @@ impl Executors {
                 LaneKind::PtyIo,
                 lane_priority(LaneKind::PtyIo),
                 config.pty_max_live,
+                NODE_NORMAL_QUEUE,
                 &priority_failures,
             )?,
         ];
         debug_assert!(LANES.iter().all(|k| lanes[lane_index(*k)].kind() == *k));
         Ok(Self {
-            control: control_runtime.handle().clone(),
-            work: work_runtime.handle().clone(),
-            control_runtime: Some(control_runtime),
-            work_runtime: Some(work_runtime),
+            control,
+            work,
+            control_runtime,
+            work_runtime,
             lanes,
             tasks: TaskRegistry::new(),
             threads_entered: std::array::from_fn(|_| AtomicU64::new(0)),
@@ -347,7 +402,25 @@ impl Backend for Executors {
     }
 
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        #[cfg(feature = "virtual-clock")]
+        let job = crate::virtual_clock::counted(job);
         self.lanes[lane_index(job.lane())].submit(job)
+    }
+
+    fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        #[cfg(feature = "virtual-clock")]
+        let job = crate::virtual_clock::counted(job);
+        self.lanes[lane_index(job.lane())].try_submit(job)
+    }
+
+    fn enter(&self, job: QueuedJob) -> Result<crate::Entered, QueuedJob> {
+        #[cfg(feature = "virtual-clock")]
+        let job = crate::virtual_clock::counted(job);
+        Ok(self.lanes[lane_index(job.lane())].enter(job))
+    }
+
+    fn withdraw(&self, lane: LaneKind, ticket: &crate::Ticket) -> bool {
+        self.lanes[lane_index(lane)].withdraw(ticket)
     }
 
     fn enter_thread(&self, kind: ThreadKind) {
@@ -453,6 +526,6 @@ impl std::error::Error for BootError {}
 /// together with the handle for diagnostics.
 pub fn boot(config: RtConfig) -> Result<(Arc<Executors>, LaneTokens), BootError> {
     let executors = Arc::new(Executors::start(config).map_err(BootError::Start)?);
-    let tokens = crate::install(executors.clone()).map_err(BootError::AlreadyInstalled)?;
+    let tokens = crate::install_backend(executors.clone()).map_err(BootError::AlreadyInstalled)?;
     Ok((executors, tokens))
 }

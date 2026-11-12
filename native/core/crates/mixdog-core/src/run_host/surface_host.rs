@@ -161,13 +161,14 @@ impl ToolSurfaceHost for HubSurfaceHost {
 /// a read that cannot run is the error.
 #[async_trait]
 pub trait FeatureDenied: Send + Sync + 'static {
-    async fn denied(&self) -> Result<Vec<String>, String>;
+    /// The gates for `session` (its own tool profile), or for the runtime when there is no session yet.
+    async fn denied(&self, session: Option<&Header>) -> Result<Vec<String>, String>;
 }
 
 #[async_trait]
 impl FeatureDenied for RunWorkflowSurface {
-    async fn denied(&self) -> Result<Vec<String>, String> {
-        self.feature_denied().await.map_err(String::from)
+    async fn denied(&self, session: Option<&Header>) -> Result<Vec<String>, String> {
+        self.feature_denied(session).await.map_err(String::from)
     }
 }
 
@@ -330,7 +331,7 @@ impl LeadSurfaceHost {
             s.mcp.tools(Some(&runtime_scope), &s.cwd),
             &Resolve { tool_spec: Some(&spec), model: &model, skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] },
         );
-        let feature_denied = s.feature_denied.denied().await?;
+        let feature_denied = s.feature_denied.denied(None).await?;
         // With no session the Lead is a coding Lead (`agentMode` false), so the delegatable agents
         // are never counted.
         let inputs = SurfaceInputs { session: None, profile_allowed: None, feature_denied: &feature_denied, delegatable_agents: &|| 0 };
@@ -418,7 +419,7 @@ impl LeadSurfaceHost {
             prompt = Some(composed);
         }
         // `reconcileSession`: a surface already brought to these gates and these prompt settings stays.
-        let gates = self.gates(&s.feature_denied.denied().await?);
+        let gates = self.gates(&s.feature_denied.denied(Some(header)).await?);
         let settings = prompt.as_ref().and_then(|composed| composed.prompt_settings.get("revision")).and_then(Value::as_str).unwrap_or_default().to_owned();
         let key = Applied { gates, settings };
         if self.applied_to(thread).as_ref() == Some(&key) && !truthy(header.get("promptSettingsRecheck")) {
@@ -437,7 +438,7 @@ impl LeadSurfaceHost {
         let map = session.as_object_mut().expect("session object");
         map.shift_remove("messages");
         // `stageToolAvailability` last, on the session as rebuilt: a gate that moved meanwhile.
-        let feature_denied = s.feature_denied.denied().await?;
+        let feature_denied = s.feature_denied.denied(Some(header)).await?;
         let candidates = if missing_definitions(map, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, header).await? };
         stage_tool_availability(map, &feature_denied, &candidates, s.clock.now_ms());
         Ok((header_diff(header, map), Some(key)))
@@ -540,7 +541,7 @@ impl LeadSurfaceHost {
             }
             let mut moved = None;
             if tools {
-                let feature_denied = s.feature_denied.denied().await.map_err(|message| failed("tools", message))?;
+                let feature_denied = s.feature_denied.denied(Some(&header)).await.map_err(|message| failed("tools", message))?;
                 let candidates = if missing_definitions(&next, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, &header).await.map_err(|message| failed("tools", message))? };
                 moved = stage_tool_availability(&mut next, &feature_denied, &candidates, s.clock.now_ms());
             }
@@ -602,8 +603,8 @@ impl TurnSettings for LeadSurfaceHost {
         let described = |error: CoreError| format!("{error:?}");
         let s = &self.sources;
         // `applied?.gates === gates`: a thread already brought to the live gate list is not staged again.
-        let gates = self.gates(&s.feature_denied.denied().await?);
         let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
+        let gates = self.gates(&s.feature_denied.denied(Some(&header)).await?);
         let identity = header.get("promptIdentity").is_some_and(Value::is_object);
         if !conversation && identity {
             self.settle_empty(thread).await.map_err(described)?;
@@ -903,7 +904,7 @@ impl LeadSurfaceHost {
         let mut denied = strings(header.get("disallowedTools"));
         // `createSession`'s `disallowedTools: [...callerDisallowedTools, ...featureDisallowedTools()]`: the gates as they
         // stand now, so a tool a setting switches off is in neither the schema, the deferred pool nor the announced set.
-        let feature_denied = s.feature_denied.denied().await?;
+        let feature_denied = s.feature_denied.denied(Some(header)).await?;
         for name in &feature_denied {
             if !denied.contains(name) {
                 denied.push(name.clone());
@@ -1026,4 +1027,4 @@ fn land_prompt(session: &mut Value, mut composed: SessionPrompt, model: &str) ->
     Ok(())
 }
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

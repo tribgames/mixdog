@@ -24,6 +24,7 @@ use mixdog_core_api::domain::provider::{
 };
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
+use serde_json::Value;
 
 use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid};
 
@@ -122,11 +123,13 @@ impl AccountingDeps {
     }
 }
 
-/// `instance.constructor.inputExcludesCache`, the one source of the usage convention: the adapter
-/// classes that report input without its cache reads and writes (`static inputExcludesCache = true`
-/// in anthropic.mjs, anthropic-oauth.mjs, devin.mjs, vertex-ai.mjs); every other class, custom
-/// providers included, reports input with the cache. The accounting, the context metrics and the
-/// model proxy's advertisement all read this function.
+/// `instance.constructor.inputExcludesCache`, the one source of the usage convention, for a registered
+/// name: the adapter classes that report input without its cache reads and writes (`static
+/// inputExcludesCache = true` in anthropic.mjs, anthropic-oauth.mjs, devin.mjs, vertex-ai.mjs); every
+/// other class reports input with the cache. A custom provider's class is its protocol's (the
+/// anthropic protocol extends `AnthropicProvider`, `custom-provider.mjs:162`), which a name cannot
+/// tell: its adapter states it ([`ProviderAdapter::input_excludes_cache`]), read first by the
+/// accounting and the model proxy's advertisement.
 pub fn input_excludes_cache(provider: &str) -> bool {
     matches!(provider, "anthropic" | "anthropic-oauth" | "devin-oauth" | "vertex-ai")
 }
@@ -189,7 +192,7 @@ impl AccountedAdapter {
             session_id: scope.session_id,
             owner_session_id: scope.owner_session_id,
             source_type: scope.source_type,
-            input_tokens_inclusive: !input_excludes_cache(provider),
+            input_tokens_inclusive: !self.inner.input_excludes_cache().unwrap_or_else(|| input_excludes_cache(provider)),
             request_service_tier: String::new(),
             account: Ok(String::new()),
             request_id: (deps.new_id)(),
@@ -211,6 +214,9 @@ impl ProviderAdapter for AccountedAdapter {
     }
     fn retry_policy(&self) -> &RetryPolicy {
         self.inner.retry_policy()
+    }
+    fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
+        self.inner.retry_policy_for(model)
     }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.inner.keepalive()
@@ -236,6 +242,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn native_documents(&self) -> Option<bool> {
         self.inner.native_documents()
     }
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.inner.input_excludes_cache()
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }
@@ -246,9 +255,10 @@ impl ProviderAdapter for AccountedAdapter {
         match self.inner.attempt(request).await {
             Ok(stream) => Ok(Box::new(AccountedStream {
                 inner: stream,
-                open: Some(Open { accounting, usage: None, served: None }),
+                open: Some(Open { accounting, usage: None, served: None, fallback: false, response_id: None, output_at: None }),
                 group,
                 now: Arc::clone(&self.deps.now),
+                wire_left: None,
             })),
             Err(error) => {
                 fail(accounting, group, error.clone()).await;
@@ -257,7 +267,12 @@ impl ProviderAdapter for AccountedAdapter {
         }
     }
 
+    fn release_send(&self, group: &str) {
+        self.inner.release_send(group);
+    }
+
     async fn settle_send(&self, group: &str, end: SendEnd) {
+        self.inner.settle_send(group, end).await;
         let held = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
         let Some(Held { mut accounting, failed }) = held else { return };
         match end {
@@ -296,6 +311,12 @@ struct Open {
     usage: Option<Usage>,
     /// The model the stream named as the one that answered (`StreamEvent::ServedModel`).
     served: Option<String>,
+    /// The stream reported a server-side fallback (`providerMetadata.anthropicFallbacks`, usage-accounting.mjs:121).
+    fallback: bool,
+    /// The provider's id for the response (`result.responseId`, usage-accounting.mjs:130, :158).
+    response_id: Option<String>,
+    /// When the model began its output ([`StreamEvent::OutputStarted`], Node's `firstOutputAt`).
+    output_at: Option<i64>,
 }
 
 struct AccountedStream {
@@ -304,6 +325,16 @@ struct AccountedStream {
     open: Option<Open>,
     group: Option<(String, Groups)>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    /// Told when the wire's terminal event is in, before the row is written ([`ModelStream::on_wire_left`]).
+    wire_left: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl AccountedStream {
+    fn leave_wire(&self) {
+        if let Some(left) = &self.wire_left {
+            left();
+        }
+    }
 }
 
 #[async_trait]
@@ -321,27 +352,48 @@ impl ModelStream for AccountedStream {
                 open.served = Some(model.clone());
                 Some(Ok(StreamEvent::ServedModel(model)))
             }
+            Some(Ok(StreamEvent::ProviderMetadata(metadata))) => {
+                open.fallback = metadata.get("anthropicFallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
+                Some(Ok(StreamEvent::ProviderMetadata(metadata)))
+            }
+            Some(Ok(StreamEvent::ResponseId(id))) => {
+                open.response_id = Some(id.clone());
+                Some(Ok(StreamEvent::ResponseId(id)))
+            }
+            Some(Ok(StreamEvent::OutputStarted)) => {
+                open.output_at.get_or_insert_with(|| (self.now)());
+                Some(Ok(StreamEvent::OutputStarted))
+            }
             Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms })) => {
                 let open = self.open.take()?;
+                let ended = (self.now)();
                 let done = Completed {
                     facts: open.usage.as_ref().map(Facts::from),
                     model: open.served.clone(),
+                    fallback: open.fallback,
+                    response_id: open.response_id.clone(),
                     pricing_model: pricing_model.clone(),
-                    stream_ended_at: (self.now)(),
+                    // The generation window: from the output's start to the stream's end (`generationWindow`,
+                    // generation-window.mjs:9).
+                    generation_ms: open.output_at.map(|at| (ended - at) as f64),
+                    stream_ended_at: ended,
                     ..Completed::default()
                 };
+                self.leave_wire();
                 let recorded = open.accounting.finish(Outcome::Completed(done)).await;
                 Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms: recorded.request_ms.or(request_ms) }))
             }
             Some(Ok(event)) => Some(Ok(event)),
             Some(Err(error)) => {
                 let open = self.open.take()?;
+                self.leave_wire();
                 fail(open.accounting, self.group.take(), error.clone()).await;
                 Some(Err(error))
             }
             None => {
                 // A stream may only end with its terminal event: the consumer fails it the same way.
                 let open = self.open.take()?;
+                self.leave_wire();
                 let error = ProviderError::transport(TransportFault::TruncatedStream, self.inner.delivery());
                 fail(open.accounting, self.group.take(), error).await;
                 None
@@ -351,6 +403,12 @@ impl ModelStream for AccountedStream {
 
     fn delivery(&self) -> DeliveryState {
         self.inner.delivery()
+    }
+
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        // The stream it wraps may await after the wire too (the key pool binding its serving key).
+        self.inner.on_wire_left(Arc::clone(&left));
+        self.wire_left = Some(left);
     }
 }
 

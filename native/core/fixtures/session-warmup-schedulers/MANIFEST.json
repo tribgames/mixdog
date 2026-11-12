@@ -1,0 +1,68 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-warmup-schedulers.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "entry": "Ran src/session-runtime/warmup-schedulers.mjs createWarmupSchedulers (with warmup/timer-arm.mjs, provider-warmups.mjs, catalog-warmup.mjs, statusline-usage-warmup.mjs) with the test file's scripted dependencies on node:test's mock clock (setTimeout) that the recorder advances only by recorded tick steps. Did not run the real provider registry, keychain, model catalog or statusline usage fetch.",
+  "exclusions": [
+    "a yield step waits on the event it stands for: every scripted async dependency a scheduler job called (awaitKeychainPrewarm, ensureProvidersReady, cachedProviderSetup, warmCatalogsInBackground) has settled and the caller's continuation after it has run (tracked two promise hops after the settle), so a job that calls a further dependency is waited on too; a dependency blocked on a gate the recorder has not yet resolved does not count. No event-loop turn is counted; 10 s real-timer deadline",
+    "event meta ms (a measured elapsed time of the provider init, e.g. providers:init:ready) -> <elapsed ms>",
+    "the closing-while-keychain-pending cases (85, 97) and the idle-loop cases are recorded as steps; no value is normalised",
+    "the dependency call `warmProviderModelCache` is recorded as `warms` (its options), `warmCatalogsInBackground` as `catalogRuns`; bootProfile events as `events`"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 49519,
+      "path": "recording.json",
+      "sha256": "76f2ee13539b658680c71bb6c4e4d80971ea6b09a6089e528cceb133e6cd5328"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2e2a95456d03c0523f4eeb39d178d501e9e904447b0e1201e25bd7bd5990a285"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "3bbd21f382d6762424a1305dc976f5babc2a6836cd631d6fce898125c61240cb"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-warmup-schedulers.mjs",
+  "recorderSha256": "6fdc09baa91a3b4b2a63fe61d8d67f14ea2434d919f2e5328e07b1dbe77023c8",
+  "replay": "mixdog-app-server-daemon src/warmup_schedulers_replay.rs, one test per case. Node's createWarmupSchedulers is the daemon's five warm-ups, each driven through the call the runtime makes: scheduleProviderWarmup = ai_admin provider_warmup.rs ProviderWarmup::start, scheduleProviderModelWarmup = model_warmup.rs ModelWarmup::start, scheduleProviderSetupWarmup(0) = setup_host.rs SetupWarmup::schedule(0), scheduleModelCatalogWarmup = catalog.rs arm_first_warm, scheduleStatuslineUsageWarmup / refreshStatuslineUsageAfterTurn = statusline_warmup.rs StatuslineWarmup::start / turn_settled, wakeDeferredWarmups = the wake of prewarm_world.rs WarmupSignals (catalog, models, statusline, providers). The recorded delay argument 0 is each warm-up's configured delay (its env delay 0); isFirstTurnCompleted() true is the first turn settled (first_turn_settled) before the warm-ups are bound, so it arms nothing. The scripted dependencies are the warm-ups' ports (ProviderInit, ModelCacheWarm, UsagePrep + StatuslineSink, ProviderSetup, CatalogRefresh) and the runtime's gates and marks (WarmupGates, WarmupMarks: bootProfile, timer slots armed with their delay, jobs started and ended). An async dependency resolves at the next yield step, a gated one at the yield after its gate opened; time is the paused tokio clock moved only by the tick steps. Every row (calls, events, warms, catalog runs, timer slots, timers armed this step) is compared whole, in order.",
+  "set": "session-warmup-schedulers",
+  "testFile": "src/session-runtime/warmup-schedulers.test.mjs",
+  "totalBytes": 49519
+}

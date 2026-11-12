@@ -1,0 +1,106 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-provider-env-switches.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai tests/it/openai_env_switches.rs (HTTP bodies and headers of the OAuth provider), registry/builder/tests.rs (the WebSocket frames of the transport switch), providers/google/codec.rs tests (the Antigravity request): per case, the requests of each send compared whole with the recording.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs OpenAIOAuthProvider#send (HTTP/SSE), openai-ws.mjs OpenAIDirectProvider#send (WebSocket), antigravity-oauth.mjs AntigravityOAuthProvider#send",
+  "exclusions": [
+    "the Sec-WebSocket-Key and x-client-request-id values of every `upgrade-request` event: random per connection, written as the markers <handshake-nonce> and <random:hex32> (lib/headers.mjs), the headers stay. The x-client-request-id of an HTTP request is a seeded draw of the recorder's deterministic world and is kept as sent; a replay supplies its own id and compares the two as <random:hex32>",
+    "HTTP cases: the answer the endpoint gives is scripted (one completed Responses stream, one Gemini stream); the sends only exist to put their request on the wire, and what the provider returned is not recorded",
+    "HTTP cases: the GET requests in `requests` (the provider's background catalog refreshes: its models list, the price table, the Antigravity manifest) are recorded but not compared, and their position among the POSTs is a race; a replay compares the POST requests in recorded order, one per setting",
+    "HTTP cases: the request headers the Node HTTP client adds under the product's own (host, connection, accept-language, sec-fetch-mode, accept-encoding, content-length) are recorded and not compared: the Rust transport adds its own",
+    "HTTP cases: the OAuth provider's User-Agent carries the recording host's OS and architecture; a replay builds its client identity from the recorded value",
+    "oai-transport-ws: the events of the case in `result.events` (setting markers, the upgrade requests, every frame both ways, closes); a replay compares per setting the upgrade requests and the client->server frames in recorded order; the server side is its script, the Sec-WebSocket-* headers, Connection, Upgrade and Host are the WebSocket client library's and are not compared",
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 219711,
+      "path": "cases.json",
+      "sha256": "0071126b261a33257d9dc16fb8ecdbeec2ed5f7137151f88e3651a807c5cc48f"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "oai-stateless-http",
+      "level": "wire"
+    },
+    {
+      "id": "oai-disable-reasoning-replay",
+      "level": "wire"
+    },
+    {
+      "id": "antigravity-fc-mode",
+      "level": "wire"
+    },
+    {
+      "id": "oai-transport-ws",
+      "level": "wire"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-env-switches.mjs",
+  "recorderSha256": "aa97b15456f2339cacf33eb95f44078f5eac42c9224deb96ef057b73b5ad17ec",
+  "replay": "Rust: OpenAiCodec::encode, the OpenAI adapter over a scripted dial, GoogleCodec::encode.",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
+  "set": "provider-env-switches",
+  "totalBytes": 219711,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

@@ -110,7 +110,8 @@ impl Tool for EditTool {
             return Err(invalid("new_string", "same_as_old", SAME_STRINGS));
         }
         let replace_all = replace_all_arg(&args);
-        let raw = arg_str(&args, "file_path").or_else(|| arg_str(&args, "path")).ok_or_else(|| {
+        // An empty target is no target (Node tests the argument's truthiness); a blank one is the cwd.
+        let raw = arg_str(&args, "file_path").filter(|p| !p.is_empty()).or_else(|| arg_str(&args, "path").filter(|p| !p.is_empty())).ok_or_else(|| {
             invalid(
                 "file_path",
                 "required",
@@ -171,11 +172,17 @@ impl Tool for EditTool {
             }
             return Ok(committed_edit(ctx, &abs, Some(bytes), after, text_output(format!("Updated {shown} (filled empty file)"))).await);
         }
-        let (old, new) = dialect(&content, is_markdown(&abs), old.to_owned(), new.to_owned(), replace_all);
+        // Dialect normalization is skipped for a same-anchor batch member: its occurrence count is bound to the original
+        // old_string (`adaptStrReplace`).
+        let occupation = ctx.options.edit_occurrence.map(|o| o.expected);
+        let (old, new) = match occupation {
+            Some(_) => (old.to_owned(), new.to_owned()),
+            None => dialect(&content, is_markdown(&abs), old.to_owned(), new.to_owned(), replace_all),
+        };
         if old == new {
             return Err(invalid("new_string", "same_as_old", SAME_STRINGS));
         }
-        let (next, applied) = apply(&content, &old, &new, replace_all, codec.encoding == Encoding::Utf8)?;
+        let (next, applied) = apply(&content, &old, &new, replace_all, codec.encoding == Encoding::Utf8, occupation)?;
         let after = encode_text(&next, codec);
         write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::ContentEquals(bytes.clone())).await?;
         if let Some(state) = &self.state {

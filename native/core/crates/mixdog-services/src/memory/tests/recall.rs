@@ -18,8 +18,8 @@ use crate::memory::recall::{QueryEmbedder, Recall, RecallDeps};
 use crate::memory::schema::ensure_memory_schema;
 use crate::memory::tests::support::TestPg;
 
-pub(super) const SEED: &str = include_str!("../../../../../fixtures/tools/memory/recall/seed.json");
-pub(super) const CASES: &str = include_str!("../../../../../fixtures/tools/memory/recall/cases.json");
+pub(super) const SEED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/recall/seed.json");
+pub(super) const CASES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/recall/cases.json");
 
 type Param<'a> = &'a (dyn ToSql + Sync);
 
@@ -85,12 +85,13 @@ pub(super) async fn load_seed(db: &Db, seed: &Value) {
     }
 }
 
+/// The provider as the product's recall asks it: through `RecallEmbedder` (memory/boot.rs), its bounded cold wait.
 pub(super) struct Provider(pub(super) Arc<EmbeddingProvider>);
 
 #[async_trait]
 impl QueryEmbedder for Provider {
-    async fn query_vector(&self, text: &str) -> Option<Vec<f32>> {
-        self.0.query_vector(text).await
+    async fn query_vector(&self, text: &str, cancel: &tokio_util::sync::CancellationToken) -> crate::memory::error::Result<Option<Vec<f32>>> {
+        crate::memory::recall::readiness::RecallEmbedder::new(self.0.clone(), false).query_vector(text, cancel).await
     }
 }
 
@@ -107,8 +108,8 @@ fn first_difference(expected: &str, got: &str) -> String {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME), the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn recall_matches_recorded_goldens() {
-    let seed: Value = serde_json::from_str(SEED).expect("seed");
-    let cases: Vec<Value> = serde_json::from_str(CASES).expect("cases");
+    let seed: Value = serde_json::from_str(&SEED).expect("seed");
+    let cases: Vec<Value> = serde_json::from_str(&CASES).expect("cases");
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &serde_json::json!({ "model": "Xenova/multilingual-e5-small" })).await.expect("schema");
@@ -138,8 +139,8 @@ async fn recall_matches_recorded_goldens() {
     for case in &cases {
         let name = case["name"].as_str().expect("name");
         let outcome = match case["tool"].as_str() {
-            Some("search_memories") => recall.search_memories(&case["args"]).await,
-            _ => recall.recall(&case["args"]).await,
+            Some("search_memories") => recall.search_memories(&case["args"], &tokio_util::sync::CancellationToken::new()).await,
+            _ => recall.recall_cancellable(&case["args"], &tokio_util::sync::CancellationToken::new()).await,
         };
         let expected = case["text"].as_str().expect("text");
         if outcome.text != expected {

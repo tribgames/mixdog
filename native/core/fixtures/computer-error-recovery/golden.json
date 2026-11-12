@@ -1,0 +1,2448 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "computer_background_cleanup_unconfirmed",
+      "input": {
+        "code": "computer_background_cleanup_unconfirmed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_background_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+          },
+          "text": "Error: computer_background_cleanup_unconfirmed: private window details\nRecovery: The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_background_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+          },
+          "text": "Error: computer_background_cleanup_unconfirmed: private window details\nRecovery: The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_background_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+          },
+          "text": "Error: computer_background_cleanup_unconfirmed: private window details\nRecovery: The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_background_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+          },
+          "text": "Error: computer_background_cleanup_unconfirmed: private window details\nRecovery: The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."
+        }
+      ]
+    },
+    {
+      "case": "ambiguous_window_target",
+      "input": {
+        "code": "ambiguous_window_target"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "ambiguous_window_target",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: ambiguous_window_target: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "ambiguous_window_target",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: ambiguous_window_target: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "ambiguous_window_target",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: ambiguous_window_target: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "ambiguous_window_target",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: ambiguous_window_target: private window details\nRecovery: List windows and retry with one current exact window_id."
+        }
+      ]
+    },
+    {
+      "case": "window_stale",
+      "input": {
+        "code": "window_stale"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "window_stale",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_stale: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "window_stale",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_stale: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "window_stale",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_stale: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "window_stale",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_stale: private window details\nRecovery: List windows and retry with one current exact window_id."
+        }
+      ]
+    },
+    {
+      "case": "window_target_not_found",
+      "input": {
+        "code": "window_target_not_found"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "window_target_not_found",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_target_not_found: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "window_target_not_found",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_target_not_found: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "window_target_not_found",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_target_not_found: private window details\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "window_target_not_found",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_target_not_found: private window details\nRecovery: List windows and retry with one current exact window_id."
+        }
+      ]
+    },
+    {
+      "case": "stale_frame",
+      "input": {
+        "code": "stale_frame"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "stale_frame",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_frame: private window details\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "stale_frame",
+            "next": "capture",
+            "guidance": "Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_frame: private window details\nRecovery: Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "stale_frame",
+            "next": "capture",
+            "guidance": "Capture the exact target window again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_frame: private window details\nRecovery: Capture the exact target window again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "stale_frame",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x2 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_frame: private window details\nRecovery: Capture window hwnd:0x2 again and use only the fresh ref, OCR mark, or frame_id."
+        }
+      ]
+    },
+    {
+      "case": "stale_target",
+      "input": {
+        "code": "stale_target"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "stale_target",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_target: private window details\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "stale_target",
+            "next": "capture",
+            "guidance": "Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_target: private window details\nRecovery: Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "stale_target",
+            "next": "capture",
+            "guidance": "Capture the exact target window again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_target: private window details\nRecovery: Capture the exact target window again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "stale_target",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x2 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: stale_target: private window details\nRecovery: Capture window hwnd:0x2 again and use only the fresh ref, OCR mark, or frame_id."
+        }
+      ]
+    },
+    {
+      "case": "target_mismatch",
+      "input": {
+        "code": "target_mismatch"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "target_mismatch",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: target_mismatch: private window details\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "target_mismatch",
+            "next": "capture",
+            "guidance": "Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: target_mismatch: private window details\nRecovery: Capture app \"Notepad\" again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "target_mismatch",
+            "next": "capture",
+            "guidance": "Capture the exact target window again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: target_mismatch: private window details\nRecovery: Capture the exact target window again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "target_mismatch",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x2 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: target_mismatch: private window details\nRecovery: Capture window hwnd:0x2 again and use only the fresh ref, OCR mark, or frame_id."
+        }
+      ]
+    },
+    {
+      "case": "computer_target_available_recapture_required",
+      "input": {
+        "code": "computer_target_available_recapture_required"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_target_available_recapture_required",
+            "next": "capture",
+            "guidance": "The target lease is now available. Capture window hwnd:0x1 again before issuing any input."
+          },
+          "text": "Error: computer_target_available_recapture_required: private window details\nRecovery: The target lease is now available. Capture window hwnd:0x1 again before issuing any input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_target_available_recapture_required",
+            "next": "capture",
+            "guidance": "The target lease is now available. Capture app \"Notepad\" again before issuing any input."
+          },
+          "text": "Error: computer_target_available_recapture_required: private window details\nRecovery: The target lease is now available. Capture app \"Notepad\" again before issuing any input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_target_available_recapture_required",
+            "next": "capture",
+            "guidance": "The target lease is now available. Capture the exact target window again before issuing any input."
+          },
+          "text": "Error: computer_target_available_recapture_required: private window details\nRecovery: The target lease is now available. Capture the exact target window again before issuing any input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_target_available_recapture_required",
+            "next": "capture",
+            "guidance": "The target lease is now available. Capture window hwnd:0x2 again before issuing any input."
+          },
+          "text": "Error: computer_target_available_recapture_required: private window details\nRecovery: The target lease is now available. Capture window hwnd:0x2 again before issuing any input."
+        }
+      ]
+    },
+    {
+      "case": "computer_foreground_available_recapture_required",
+      "input": {
+        "code": "computer_foreground_available_recapture_required"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_foreground_available_recapture_required",
+            "next": "capture",
+            "guidance": "The foreground lane is now available. Capture window hwnd:0x1 again before issuing any input."
+          },
+          "text": "Error: computer_foreground_available_recapture_required: private window details\nRecovery: The foreground lane is now available. Capture window hwnd:0x1 again before issuing any input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_foreground_available_recapture_required",
+            "next": "capture",
+            "guidance": "The foreground lane is now available. Capture app \"Notepad\" again before issuing any input."
+          },
+          "text": "Error: computer_foreground_available_recapture_required: private window details\nRecovery: The foreground lane is now available. Capture app \"Notepad\" again before issuing any input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_foreground_available_recapture_required",
+            "next": "capture",
+            "guidance": "The foreground lane is now available. Capture the exact target window again before issuing any input."
+          },
+          "text": "Error: computer_foreground_available_recapture_required: private window details\nRecovery: The foreground lane is now available. Capture the exact target window again before issuing any input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_foreground_available_recapture_required",
+            "next": "capture",
+            "guidance": "The foreground lane is now available. Capture window hwnd:0x2 again before issuing any input."
+          },
+          "text": "Error: computer_foreground_available_recapture_required: private window details\nRecovery: The foreground lane is now available. Capture window hwnd:0x2 again before issuing any input."
+        }
+      ]
+    },
+    {
+      "case": "computer_target_in_use",
+      "input": {
+        "code": "computer_target_in_use"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_target_in_use",
+            "next": "capture",
+            "guidance": "Another session owns window hwnd:0x1. Do not retry the stale action; wait for its lease to release, then capture fresh state."
+          },
+          "text": "Error: computer_target_in_use: private window details\nRecovery: Another session owns window hwnd:0x1. Do not retry the stale action; wait for its lease to release, then capture fresh state."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_target_in_use",
+            "next": "capture",
+            "guidance": "Another session owns app \"Notepad\". Do not retry the stale action; wait for its lease to release, then capture fresh state."
+          },
+          "text": "Error: computer_target_in_use: private window details\nRecovery: Another session owns app \"Notepad\". Do not retry the stale action; wait for its lease to release, then capture fresh state."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_target_in_use",
+            "next": "capture",
+            "guidance": "Another session owns the exact target window. Do not retry the stale action; wait for its lease to release, then capture fresh state."
+          },
+          "text": "Error: computer_target_in_use: private window details\nRecovery: Another session owns the exact target window. Do not retry the stale action; wait for its lease to release, then capture fresh state."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_target_in_use",
+            "next": "capture",
+            "guidance": "Another session owns window hwnd:0x2. Do not retry the stale action; wait for its lease to release, then capture fresh state."
+          },
+          "text": "Error: computer_target_in_use: private window details\nRecovery: Another session owns window hwnd:0x2. Do not retry the stale action; wait for its lease to release, then capture fresh state."
+        }
+      ]
+    },
+    {
+      "case": "computer_user_control_active",
+      "input": {
+        "code": "computer_user_control_active"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_user_control_active",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_control_active: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_user_control_active",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_control_active: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_user_control_active",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_control_active: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_user_control_active",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_control_active: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        }
+      ]
+    },
+    {
+      "case": "computer_user_takeover",
+      "input": {
+        "code": "computer_user_takeover"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_user_takeover",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_takeover: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_user_takeover",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_takeover: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_user_takeover",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_takeover: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_user_takeover",
+            "next": "wait_for_user",
+            "guidance": "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+          },
+          "text": "Error: computer_user_takeover: private window details\nRecovery: Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. A foreground action the user's input interrupts yields only that agent (see the user_input_active reply); an explicit Pause/Stop or uncertain cleanup pauses every agent and needs the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input."
+        }
+      ]
+    },
+    {
+      "case": "user_input_active",
+      "input": {
+        "code": "user_input_active"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "user_input_active",
+            "next": "capture",
+            "guidance": "The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture window hwnd:0x1 again before any further input, and never replay the interrupted input, which may have been partly delivered."
+          },
+          "text": "Error: user_input_active: private window details\nRecovery: The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture window hwnd:0x1 again before any further input, and never replay the interrupted input, which may have been partly delivered."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "user_input_active",
+            "next": "capture",
+            "guidance": "The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture app \"Notepad\" again before any further input, and never replay the interrupted input, which may have been partly delivered."
+          },
+          "text": "Error: user_input_active: private window details\nRecovery: The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture app \"Notepad\" again before any further input, and never replay the interrupted input, which may have been partly delivered."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "user_input_active",
+            "next": "capture",
+            "guidance": "The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture the exact target window again before any further input, and never replay the interrupted input, which may have been partly delivered."
+          },
+          "text": "Error: user_input_active: private window details\nRecovery: The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture the exact target window again before any further input, and never replay the interrupted input, which may have been partly delivered."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "user_input_active",
+            "next": "capture",
+            "guidance": "The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture window hwnd:0x2 again before any further input, and never replay the interrupted input, which may have been partly delivered."
+          },
+          "text": "Error: user_input_active: private window details\nRecovery: The user's own input interrupted this background action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture window hwnd:0x2 again before any further input, and never replay the interrupted input, which may have been partly delivered."
+        }
+      ]
+    },
+    {
+      "case": "input_recovery_unconfirmed",
+      "input": {
+        "code": "input_recovery_unconfirmed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "input_recovery_unconfirmed",
+            "next": "wait_for_user",
+            "guidance": "The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+          },
+          "text": "Error: input_recovery_unconfirmed: private window details\nRecovery: The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "input_recovery_unconfirmed",
+            "next": "wait_for_user",
+            "guidance": "The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+          },
+          "text": "Error: input_recovery_unconfirmed: private window details\nRecovery: The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "input_recovery_unconfirmed",
+            "next": "wait_for_user",
+            "guidance": "The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+          },
+          "text": "Error: input_recovery_unconfirmed: private window details\nRecovery: The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "input_recovery_unconfirmed",
+            "next": "wait_for_user",
+            "guidance": "The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+          },
+          "text": "Error: input_recovery_unconfirmed: private window details\nRecovery: The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input."
+        }
+      ]
+    },
+    {
+      "case": "input_observation_unavailable",
+      "input": {
+        "code": "input_observation_unavailable"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "input_observation_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: input_observation_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "input_observation_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: input_observation_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "input_observation_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: input_observation_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "input_observation_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: input_observation_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        }
+      ]
+    },
+    {
+      "case": "computer_cursor_unavailable",
+      "input": {
+        "code": "computer_cursor_unavailable"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_cursor_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: computer_cursor_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_cursor_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: computer_cursor_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_cursor_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: computer_cursor_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_cursor_unavailable",
+            "next": "diagnose",
+            "guidance": "Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+          },
+          "text": "Error: computer_cursor_unavailable: private window details\nRecovery: Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active."
+        }
+      ]
+    },
+    {
+      "case": "computer_cleanup_pending",
+      "input": {
+        "code": "computer_cleanup_pending"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_cleanup_pending",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_cleanup_pending: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_cleanup_pending",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_cleanup_pending: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_cleanup_pending",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_cleanup_pending: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_cleanup_pending",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_cleanup_pending: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        }
+      ]
+    },
+    {
+      "case": "computer_abort_cleanup_unconfirmed",
+      "input": {
+        "code": "computer_abort_cleanup_unconfirmed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_abort_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_abort_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_abort_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_abort_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_abort_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_abort_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_abort_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: computer_abort_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        }
+      ]
+    },
+    {
+      "case": "input_cleanup_unconfirmed",
+      "input": {
+        "code": "input_cleanup_unconfirmed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "input_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: input_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "input_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: input_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "input_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: input_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "input_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: input_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        }
+      ]
+    },
+    {
+      "case": "privileged_worker_cleanup_unconfirmed",
+      "input": {
+        "code": "privileged_worker_cleanup_unconfirmed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "privileged_worker_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: privileged_worker_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "privileged_worker_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: privileged_worker_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "privileged_worker_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: privileged_worker_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "privileged_worker_cleanup_unconfirmed",
+            "next": "user",
+            "guidance": "Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+          },
+          "text": "Error: privileged_worker_cleanup_unconfirmed: private window details\nRecovery: Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required."
+        }
+      ]
+    },
+    {
+      "case": "foreground_input_not_ready",
+      "input": {
+        "code": "foreground_input_not_ready"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "foreground_input_not_ready",
+            "next": "capture",
+            "guidance": "No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture window hwnd:0x1 again, or send this action through background delivery when it supports one."
+          },
+          "text": "Error: foreground_input_not_ready: private window details\nRecovery: No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture window hwnd:0x1 again, or send this action through background delivery when it supports one."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "foreground_input_not_ready",
+            "next": "capture",
+            "guidance": "No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture app \"Notepad\" again, or send this action through background delivery when it supports one."
+          },
+          "text": "Error: foreground_input_not_ready: private window details\nRecovery: No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture app \"Notepad\" again, or send this action through background delivery when it supports one."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "foreground_input_not_ready",
+            "next": "capture",
+            "guidance": "No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture the exact target window again, or send this action through background delivery when it supports one."
+          },
+          "text": "Error: foreground_input_not_ready: private window details\nRecovery: No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture the exact target window again, or send this action through background delivery when it supports one."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "foreground_input_not_ready",
+            "next": "capture",
+            "guidance": "No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture window hwnd:0x2 again, or send this action through background delivery when it supports one."
+          },
+          "text": "Error: foreground_input_not_ready: private window details\nRecovery: No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture window hwnd:0x2 again, or send this action through background delivery when it supports one."
+        }
+      ]
+    },
+    {
+      "case": "saved_login_refused",
+      "input": {
+        "code": "saved_login_refused"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_refused",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_refused: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_refused",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_refused: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "saved_login_refused",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_refused: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_refused",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_refused: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        }
+      ]
+    },
+    {
+      "case": "saved_login_changed",
+      "input": {
+        "code": "saved_login_changed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_changed",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_changed: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_changed",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_changed: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "saved_login_changed",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_changed: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_changed",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_changed: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        }
+      ]
+    },
+    {
+      "case": "saved_login_unavailable",
+      "input": {
+        "code": "saved_login_unavailable"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_unavailable",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_unavailable: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_unavailable",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_unavailable: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "saved_login_unavailable",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_unavailable: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_unavailable",
+            "next": "handoff_user",
+            "guidance": "Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+          },
+          "text": "Error: saved_login_unavailable: private window details\nRecovery: Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise hand the secret to the user with handoff_user (kind \"secret\", surface \"computer\"). Never type the secret yourself or try another window or field to get past the check."
+        }
+      ]
+    },
+    {
+      "case": "saved_login_unconfirmed",
+      "input": {
+        "code": "saved_login_unconfirmed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_unconfirmed",
+            "next": "handoff_user",
+            "guidance": "The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+          },
+          "text": "Error: saved_login_unconfirmed: private window details\nRecovery: The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_unconfirmed",
+            "next": "handoff_user",
+            "guidance": "The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+          },
+          "text": "Error: saved_login_unconfirmed: private window details\nRecovery: The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "saved_login_unconfirmed",
+            "next": "handoff_user",
+            "guidance": "The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+          },
+          "text": "Error: saved_login_unconfirmed: private window details\nRecovery: The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "saved_login_unconfirmed",
+            "next": "handoff_user",
+            "guidance": "The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+          },
+          "text": "Error: saved_login_unconfirmed: private window details\nRecovery: The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; hand the step to the user with handoff_user (kind \"takeover\", surface \"computer\", need \"sign_in\") to check the field and finish signing in."
+        }
+      ]
+    },
+    {
+      "case": "computer_command_timeout",
+      "input": {
+        "code": "computer_command_timeout"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "computer_command_timeout",
+            "next": "diagnose",
+            "guidance": "The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture window hwnd:0x1 and inspect the effect before issuing any new input."
+          },
+          "text": "Error: computer_command_timeout: private window details\nRecovery: The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture window hwnd:0x1 and inspect the effect before issuing any new input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "computer_command_timeout",
+            "next": "diagnose",
+            "guidance": "The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture app \"Notepad\" and inspect the effect before issuing any new input."
+          },
+          "text": "Error: computer_command_timeout: private window details\nRecovery: The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture app \"Notepad\" and inspect the effect before issuing any new input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "computer_command_timeout",
+            "next": "diagnose",
+            "guidance": "The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture the exact target window and inspect the effect before issuing any new input."
+          },
+          "text": "Error: computer_command_timeout: private window details\nRecovery: The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture the exact target window and inspect the effect before issuing any new input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "computer_command_timeout",
+            "next": "capture",
+            "guidance": "The read exceeded its bounded budget and sent no input, so no cleanup or user-control guard applies. Capture window hwnd:0x2 with mode=\"state\" or \"som\": pixels and OCR stay usable while that window's accessibility provider is slow."
+          },
+          "text": "Error: computer_command_timeout: private window details\nRecovery: The read exceeded its bounded budget and sent no input, so no cleanup or user-control guard applies. Capture window hwnd:0x2 with mode=\"state\" or \"som\": pixels and OCR stay usable while that window's accessibility provider is slow."
+        }
+      ]
+    },
+    {
+      "case": "menu_path_not_found",
+      "input": {
+        "code": "menu_path_not_found"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "menu_path_not_found",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_path_not_found: private window details\nRecovery: Capture window hwnd:0x1 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "menu_path_not_found",
+            "next": "capture",
+            "guidance": "Capture app \"Notepad\" again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_path_not_found: private window details\nRecovery: Capture app \"Notepad\" again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "menu_path_not_found",
+            "next": "capture",
+            "guidance": "Capture the exact target window again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_path_not_found: private window details\nRecovery: Capture the exact target window again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "menu_path_not_found",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x2 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_path_not_found: private window details\nRecovery: Capture window hwnd:0x2 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        }
+      ]
+    },
+    {
+      "case": "menu_item_disabled",
+      "input": {
+        "code": "menu_item_disabled"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "menu_item_disabled",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_item_disabled: private window details\nRecovery: Capture window hwnd:0x1 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "menu_item_disabled",
+            "next": "capture",
+            "guidance": "Capture app \"Notepad\" again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_item_disabled: private window details\nRecovery: Capture app \"Notepad\" again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "menu_item_disabled",
+            "next": "capture",
+            "guidance": "Capture the exact target window again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_item_disabled: private window details\nRecovery: Capture the exact target window again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "menu_item_disabled",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x2 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+          },
+          "text": "Error: menu_item_disabled: private window details\nRecovery: Capture window hwnd:0x2 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged."
+        }
+      ]
+    },
+    {
+      "case": "foreground_changed",
+      "input": {
+        "code": "foreground_changed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "foreground_changed",
+            "next": "user",
+            "guidance": "Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+          },
+          "text": "Error: foreground_changed: private window details\nRecovery: Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "foreground_changed",
+            "next": "user",
+            "guidance": "Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+          },
+          "text": "Error: foreground_changed: private window details\nRecovery: Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "foreground_changed",
+            "next": "user",
+            "guidance": "Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+          },
+          "text": "Error: foreground_changed: private window details\nRecovery: Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "foreground_changed",
+            "next": "user",
+            "guidance": "Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+          },
+          "text": "Error: foreground_changed: private window details\nRecovery: Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available."
+        }
+      ]
+    },
+    {
+      "case": "foreground_unavailable",
+      "input": {
+        "code": "foreground_unavailable"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "foreground_unavailable",
+            "next": "user",
+            "guidance": "The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate window hwnd:0x1, or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+          },
+          "text": "Error: foreground_unavailable: private window details\nRecovery: The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate window hwnd:0x1, or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "foreground_unavailable",
+            "next": "user",
+            "guidance": "The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate app \"Notepad\", or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+          },
+          "text": "Error: foreground_unavailable: private window details\nRecovery: The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate app \"Notepad\", or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "foreground_unavailable",
+            "next": "user",
+            "guidance": "The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate the exact target window, or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+          },
+          "text": "Error: foreground_unavailable: private window details\nRecovery: The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate the exact target window, or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "foreground_unavailable",
+            "next": "user",
+            "guidance": "The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate window hwnd:0x2, or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+          },
+          "text": "Error: foreground_unavailable: private window details\nRecovery: The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate window hwnd:0x2, or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture."
+        }
+      ]
+    },
+    {
+      "case": "background_unsupported",
+      "input": {
+        "code": "background_unsupported"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "background_unsupported",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_unsupported: private window details\nRecovery: Capture window hwnd:0x1 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "background_unsupported",
+            "next": "capture",
+            "guidance": "Capture app \"Notepad\" and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_unsupported: private window details\nRecovery: Capture app \"Notepad\" and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "background_unsupported",
+            "next": "capture",
+            "guidance": "Capture the exact target window and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_unsupported: private window details\nRecovery: Capture the exact target window and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "background_unsupported",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x2 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_unsupported: private window details\nRecovery: Capture window hwnd:0x2 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        }
+      ]
+    },
+    {
+      "case": "background_input_failed",
+      "input": {
+        "code": "background_input_failed"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "background_input_failed",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_input_failed: private window details\nRecovery: Capture window hwnd:0x1 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "background_input_failed",
+            "next": "capture",
+            "guidance": "Capture app \"Notepad\" and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_input_failed: private window details\nRecovery: Capture app \"Notepad\" and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "background_input_failed",
+            "next": "capture",
+            "guidance": "Capture the exact target window and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_input_failed: private window details\nRecovery: Capture the exact target window and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "background_input_failed",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x2 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+          },
+          "text": "Error: background_input_failed: private window details\nRecovery: Capture window hwnd:0x2 and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input."
+        }
+      ]
+    },
+    {
+      "case": "pixel_unavailable",
+      "input": {
+        "code": "pixel_unavailable"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "pixel_unavailable",
+            "next": "capture",
+            "guidance": "Recapture window hwnd:0x1; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: pixel_unavailable: private window details\nRecovery: Recapture window hwnd:0x1; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "pixel_unavailable",
+            "next": "capture",
+            "guidance": "Recapture app \"Notepad\"; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: pixel_unavailable: private window details\nRecovery: Recapture app \"Notepad\"; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "pixel_unavailable",
+            "next": "capture",
+            "guidance": "Recapture the exact target window; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: pixel_unavailable: private window details\nRecovery: Recapture the exact target window; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "pixel_unavailable",
+            "next": "capture",
+            "guidance": "Recapture window hwnd:0x2; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: pixel_unavailable: private window details\nRecovery: Recapture window hwnd:0x2; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        }
+      ]
+    },
+    {
+      "case": "observation_unavailable",
+      "input": {
+        "code": "observation_unavailable"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": {
+            "code": "observation_unavailable",
+            "next": "capture",
+            "guidance": "Recapture window hwnd:0x1; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: observation_unavailable: private window details\nRecovery: Recapture window hwnd:0x1; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": {
+            "code": "observation_unavailable",
+            "next": "capture",
+            "guidance": "Recapture app \"Notepad\"; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: observation_unavailable: private window details\nRecovery: Recapture app \"Notepad\"; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": {
+            "code": "observation_unavailable",
+            "next": "capture",
+            "guidance": "Recapture the exact target window; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: observation_unavailable: private window details\nRecovery: Recapture the exact target window; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": {
+            "code": "observation_unavailable",
+            "next": "capture",
+            "guidance": "Recapture window hwnd:0x2; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+          },
+          "text": "Error: observation_unavailable: private window details\nRecovery: Recapture window hwnd:0x2; do not use coordinates until a fresh frame reports pixel_status=\"available\"."
+        }
+      ]
+    },
+    {
+      "case": "capture_withheld",
+      "input": {
+        "code": "capture_withheld"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": null,
+          "text": "Error: capture_withheld: private window details"
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": null,
+          "text": "Error: capture_withheld: private window details"
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": null,
+          "text": "Error: capture_withheld: private window details"
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": null,
+          "text": "Error: capture_withheld: private window details"
+        }
+      ]
+    },
+    {
+      "case": "Unknown_Code",
+      "input": {
+        "code": "Unknown_Code"
+      },
+      "observed": [
+        {
+          "label": "a window",
+          "args": {
+            "action": "act",
+            "input": {
+              "window_id": "hwnd:0x1"
+            }
+          },
+          "recovery": null,
+          "text": "Error: Unknown_Code: private window details"
+        },
+        {
+          "label": "an app",
+          "args": {
+            "action": "act",
+            "input": {
+              "app": "Notepad"
+            }
+          },
+          "recovery": null,
+          "text": "Error: Unknown_Code: private window details"
+        },
+        {
+          "label": "no target",
+          "args": {
+            "action": "act"
+          },
+          "recovery": null,
+          "text": "Error: Unknown_Code: private window details"
+        },
+        {
+          "label": "a read of a window",
+          "args": {
+            "action": "capture",
+            "input": {
+              "window_id": "hwnd:0x2"
+            }
+          },
+          "recovery": null,
+          "text": "Error: Unknown_Code: private window details"
+        }
+      ]
+    },
+    {
+      "case": "separators, prefixes and codeless sentences",
+      "input": {},
+      "observed": [
+        {
+          "message": "Error: target_mismatch|private window details",
+          "recovery": {
+            "code": "target_mismatch",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: Error: target_mismatch|private window details\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "message": "Error:   target_mismatch: x",
+          "recovery": {
+            "code": "target_mismatch",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: Error:   target_mismatch: x\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "message": "error: target_mismatch: x",
+          "recovery": {
+            "code": "target_mismatch",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: error: target_mismatch: x\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "message": "ERROR: Window_Stale: gone",
+          "recovery": {
+            "code": "window_stale",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: ERROR: Window_Stale: gone\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "message": "window_id is stale",
+          "recovery": {
+            "code": "window_stale",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: window_id is stale\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "message": "the window is stale now",
+          "recovery": {
+            "code": "window_stale",
+            "next": "list",
+            "guidance": "List windows and retry with one current exact window_id."
+          },
+          "text": "Error: the window is stale now\nRecovery: List windows and retry with one current exact window_id."
+        },
+        {
+          "message": "take a fresh capture first, then act",
+          "recovery": {
+            "code": "stale_frame",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: take a fresh capture first, then act\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "message": "unknown frame_id frame-1",
+          "recovery": {
+            "code": "stale_frame",
+            "next": "capture",
+            "guidance": "Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+          },
+          "text": "Error: unknown frame_id frame-1\nRecovery: Capture window hwnd:0x1 again and use only the fresh ref, OCR mark, or frame_id."
+        },
+        {
+          "message": "fresh capture\nfirst",
+          "recovery": null,
+          "text": "Error: fresh capture\nfirst"
+        },
+        {
+          "message": "unstructured private text",
+          "recovery": null,
+          "text": "Error: unstructured private text"
+        },
+        {
+          "message": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: private",
+          "recovery": null,
+          "text": "Error: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: private"
+        },
+        {
+          "message": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: private",
+          "recovery": null,
+          "text": "Error: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: private"
+        },
+        {
+          "message": "1abc: x",
+          "recovery": null,
+          "text": "Error: 1abc: x"
+        },
+        {
+          "message": "abc def: x",
+          "recovery": null,
+          "text": "Error: abc def: x"
+        },
+        {
+          "message": "",
+          "recovery": null,
+          "text": "Error: computer bridge request failed"
+        },
+        {
+          "message": "   ",
+          "recovery": null,
+          "text": "Error:    "
+        },
+        {
+          "message": ": nothing",
+          "recovery": null,
+          "text": "Error: : nothing"
+        }
+      ]
+    },
+    {
+      "case": "a missing message",
+      "input": {},
+      "observed": {
+        "empty": "Error: computer bridge request failed",
+        "none": "Error: computer bridge request failed",
+        "nullish": "Error: computer bridge request failed"
+      }
+    }
+  ]
+}

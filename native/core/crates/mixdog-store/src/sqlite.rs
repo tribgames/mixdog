@@ -91,7 +91,9 @@ pub enum DbError {
     #[error("index writer stopped")]
     Stopped,
     /// The read lane's queue is full; the caller retries or reports busy.
-    #[error("read lane full")]
+    /// A lane refused the job as overloaded (its queue at the far bound, or no healthy worker);
+    /// below that bound the job waits for a thread.
+    #[error("overloaded: lane")]
     LaneFull,
     /// The history changed (a rewind) since the cursor was issued.
     #[error("history cursor is stale")]
@@ -101,7 +103,7 @@ pub enum DbError {
 pub(crate) fn open_connection(path: &Path) -> Result<Connection, DbError> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "FULL")?;
+    conn.pragma_update(None, "synchronous", crate::fsio::sqlite_synchronous())?;
     conn.pragma_update(None, "wal_autocheckpoint", 0)?;
     conn.pragma_update(None, "foreign_keys", "OFF")?;
     conn.busy_timeout(std::time::Duration::ZERO)?;
@@ -129,8 +131,36 @@ pub(crate) fn open_schema(path: &Path, ddl: &str, app_id: i32, user_version: i32
     Ok(conn)
 }
 
-fn open_writer(path: &Path) -> Result<Connection, DbError> {
-    open_schema(path, INDEX_DDL, INDEX_APPLICATION_ID, INDEX_USER_VERSION)
+/// How long [`truncate_wal`] lets SQLite's busy handler wait for the readers of older WAL frames.
+const TRUNCATE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `wal_checkpoint(TRUNCATE)`: every WAL frame into the database, then the WAL emptied. A reader's snapshot holds
+/// the frames it may still read, so SQLite's busy handler waits for those readers (each read job is one bounded
+/// query), up to [`TRUNCATE_WAIT`]; the connection's own zero timeout is put back after.
+fn truncate_wal(conn: &Connection) -> Result<(), String> {
+    conn.busy_timeout(TRUNCATE_WAIT).map_err(|e| e.to_string())?;
+    let busy = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0));
+    conn.busy_timeout(std::time::Duration::ZERO).map_err(|e| e.to_string())?;
+    match busy.map_err(|e| e.to_string())? {
+        0 => Ok(()),
+        _ => Err(format!("the index WAL stayed in use by readers for {} s; it is truncated at the next attempt", TRUNCATE_WAIT.as_secs())),
+    }
+}
+
+/// The writer overwrites what it deletes (`secure_delete`): a row a sensitive rewrite replaces leaves no readable page.
+/// Measured on a turn's index writes (one transaction: session row, 8 message rows, the search row replaced), its cost
+/// was within the run-to-run noise (median 0.163-0.175 ms per turn either way).
+fn open_writer(path: &Path, ddl: &str) -> Result<Connection, DbError> {
+    let conn = open_schema(path, ddl, INDEX_APPLICATION_ID, INDEX_USER_VERSION)?;
+    conn.pragma_update(None, "secure_delete", "ON").map_err(|e| DbError::Write(e.to_string()))?;
+    Ok(conn)
+}
+
+/// The DDL the runtime builds an index with: a fresh generation (odd, so never the migration's 0) on top of the
+/// schema, because a reader may hold a revision of the index this one replaces (this process's registry across a
+/// reopen, or another process); the migration's index is built before any reader and keeps the DDL's fixed 0.
+fn runtime_ddl() -> String {
+    format!("{INDEX_DDL}\nUPDATE worker_revision SET gen = (random() & 0x7fffffffffffffff) | 1;")
 }
 
 /// The index database of a data dir.
@@ -138,7 +168,7 @@ pub const INDEX_FILE: &str = "index/store.sqlite";
 
 /// Whether an open of the index failed because of the file itself: another identity, or
 /// bytes SQLite cannot read as a database.
-fn needs_rebuild(e: &DbError) -> bool {
+pub(crate) fn needs_rebuild(e: &DbError) -> bool {
     match e {
         DbError::Rebuild(_) => true,
         DbError::Sqlite(e) => matches!(
@@ -159,7 +189,7 @@ fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path) -> Result<()
     crate::fsio::create_dir_durable(dir).map_err(|e| failed(e.to_string()))?;
     crate::fsio::sweep_tmp_unlaned(dir).map_err(|e| failed(e.to_string()))?;
     let staged = crate::fsio::tmp_path(path);
-    project_index(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?).map_err(failed)?;
+    project_into(data, &staged, &session_ids(&data.join("sessions")).map_err(failed)?, &runtime_ddl()).map_err(failed)?;
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut side = path.as_os_str().to_owned();
         side.push(suffix);
@@ -311,6 +341,17 @@ pub enum DirtyMark {
     Clear,
 }
 
+/// [`SqliteStore::offload_referencers`].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct OffloadReferencers {
+    pub sessions: Vec<String>,
+    pub unreadable: Option<String>,
+    /// A copy still being made: the copy and the session it copies.
+    pub copying: Option<(String, String)>,
+    /// The sessions whose set is unknown, with the ordinal each is projected to.
+    pub unknown: Vec<(String, i64)>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
     Ok,
@@ -340,7 +381,10 @@ const PURGEABLE_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
     AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id) LIMIT 1";
 
 /// The tables holding a session's rows, with their keys: a purge step deletes by key.
-const PURGE_TABLES: [(&str, &str); 14] = [
+const PURGE_TABLES: [(&str, &str); 17] = [
+    ("offload_refs", "source, session"),
+    ("offload_known", "session"),
+    ("offload_marks", "session"),
     ("history", "session, ordinal"),
     ("model_switches", "session, ordinal"),
     ("amends", "session, ordinal"),
@@ -448,6 +492,7 @@ fn upsert_edge(
     labels: &PlaceholderLabels,
     watch: bool,
 ) -> rusqlite::Result<(usize, Option<RowEdge>)> {
+    write_offload_refs(tx, head)?;
     // A fork whose inherited state is still being computed keeps its row until it is done.
     if crate::message_index::has_pending_view(tx, &head.session)? {
         return Ok((0, None));
@@ -466,6 +511,52 @@ fn upsert_edge(
     let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted, user_name: row.user_name.clone() };
     let edge = (watch && before.as_ref() != Some(&after)).then(|| RowEdge { id: row.id.clone(), before, after });
     Ok((row.summary.len(), edge))
+}
+
+/// The session's reference set and copy mark as its header holds them now (`offload_sources`). A header holding a set
+/// makes the session known under the present rules and its set the rows; one holding none, or one of earlier rules
+/// (whose rows join), leaves it unknown but for a scan of its transcript at the ordinal it is projected to under the
+/// present rules (`offload_known`), and leaves the rows it had (a set only grows).
+fn write_offload_refs(tx: &Transaction<'_>, head: &CatalogHead) -> rusqlite::Result<()> {
+    use crate::offload_sources as sets;
+    tx.prepare_cached("DELETE FROM offload_marks WHERE session = ?1")?.execute([&head.session])?;
+    if let Some((source, boot)) = sets::mark(&head.header) {
+        tx.prepare_cached("INSERT INTO offload_marks (session, source, boot) VALUES (?1, ?2, ?3)")?.execute(params![head.session, source, boot])?;
+    }
+    if sets::holds_set(&head.header) {
+        tx.prepare_cached("DELETE FROM offload_refs WHERE session = ?1")?.execute([&head.session])?;
+        for source in sets::sources(&head.header) {
+            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
+        }
+        tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, NULL, ?2) ON CONFLICT(session) DO UPDATE SET ordinal = NULL, rules = excluded.rules")?
+            .execute(params![head.session, sets::RULES])?;
+    } else {
+        for source in sets::sources(&head.header) {
+            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
+        }
+        tx.prepare_cached("DELETE FROM offload_known WHERE session = ?1 AND ordinal IS NULL")?.execute([&head.session])?;
+    }
+    Ok(())
+}
+
+/// A scan of the transcript of `session`, a session whose header holds no set under the present rules, at `ordinal`:
+/// its `sources` join its rows and it is known at that ordinal under those rules, unless it was projected past it
+/// meanwhile (or gained a set) - then the next prune scans it again.
+fn record_offload_scan(tx: &Transaction<'_>, session: &str, ordinal: i64, sources: &[String]) -> rusqlite::Result<()> {
+    use crate::offload_sources as sets;
+    let current: Option<i64> = tx.prepare_cached("SELECT projected_ordinal FROM sessions WHERE id = ?1")?.query_row([session], |r| r.get(0)).optional()?;
+    let from_header: bool = tx
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM offload_known WHERE session = ?1 AND ordinal IS NULL AND rules = ?2)")?
+        .query_row(params![session, sets::RULES], |r| r.get(0))?;
+    if current != Some(ordinal) || from_header {
+        return Ok(());
+    }
+    for source in sources {
+        tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(source), session])?;
+    }
+    tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, ?2, ?3) ON CONFLICT(session) DO UPDATE SET ordinal = excluded.ordinal, rules = excluded.rules")?
+        .execute(params![session, ordinal, sets::RULES])?;
+    Ok(())
 }
 
 fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &PlaceholderLabels) -> rusqlite::Result<()> {
@@ -517,6 +608,16 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
 
 type Ack = oneshot::Sender<Result<(), DbError>>;
 
+/// A session whose log a sensitive rewrite replaced (`log_rewrite`'s step 6): its rows to rebuild under `<data>/sessions`,
+/// then the blobs the old log named and the new one does not, deleted once no row names them (`blobs` holds the pins).
+pub struct Rewritten {
+    pub data: PathBuf,
+    pub session: String,
+    pub dirty: DirtyMark,
+    pub superseded: Vec<Digest>,
+    pub blobs: crate::blobs::BlobStore,
+}
+
 enum Command {
     Upsert { head: Box<CatalogHead>, dirty: DirtyMark, ack: Option<Ack> },
     MarkDirty { session: String, ack: Ack },
@@ -524,8 +625,11 @@ enum Command {
     Delete { session: String, ack: Ack },
     Project { projection: Projection, ack: Option<Ack> },
     Labels { labels: PlaceholderLabels, ack: Ack },
+    OffloadScan { session: String, ordinal: i64, sources: Vec<String>, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
+    /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
+    Reproject { rewrite: Rewritten, ack: Ack },
     /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
     /// written clean (`reconcile`). Answered on a channel the lane job blocks on.
     Reconcile {
@@ -535,19 +639,12 @@ enum Command {
         ack: mpsc::Sender<Result<(), DbError>>,
     },
     /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
-    #[cfg(any(test, feature = "test-support"))]
     Close,
 }
 
 impl Command {
-    #[cfg(any(test, feature = "test-support"))]
     fn closes(&self) -> bool {
         matches!(self, Command::Close)
-    }
-
-    #[cfg(not(any(test, feature = "test-support")))]
-    fn closes(&self) -> bool {
-        false
     }
 }
 
@@ -578,6 +675,8 @@ struct Writer {
     views: bool,
     /// Deleted sessions whose rows go in maintenance steps, oldest request first.
     purges: VecDeque<(String, Ack)>,
+    /// Sessions whose rows are rebuilt from a rewritten log, once the projections queued before are in.
+    reprojects: VecDeque<(Rewritten, Ack, u64)>,
     seq: u64,
     /// Rows per append transaction and per maintenance step (tests shrink them).
     append_rows: usize,
@@ -653,7 +752,7 @@ fn send(acks: Vec<Ack>, result: &Result<(), String>) {
 
 impl Writer {
     fn start(path: &Path) -> Result<Writer, DbError> {
-        let conn = open_writer(path)?;
+        let conn = open_writer(path, &runtime_ddl())?;
         let stored: Option<String> = conn
             .query_row("SELECT value FROM meta WHERE key = ?1", [LABELS_KEY], |r| r.get(0))
             .optional()?;
@@ -683,6 +782,7 @@ impl Writer {
             waiting: HashMap::new(),
             views,
             purges: VecDeque::new(),
+            reprojects: VecDeque::new(),
             seq: 0,
             append_rows: APPEND_ROWS,
             step_rows: STEP_ROWS,
@@ -715,6 +815,7 @@ impl Writer {
                 self.projections.push_back(Pending { projection, next: 0, ack, seq });
             }
             Command::Purge { session, ack } => self.purges.push_back((session, ack)),
+            Command::Reproject { rewrite, ack } => self.reprojects.push_back((rewrite, ack, seq)),
             other => self.small.push_back(other),
         }
     }
@@ -726,6 +827,51 @@ impl Writer {
             && !self.refold
             && !self.views
             && self.purges.is_empty()
+            && self.reprojects.is_empty()
+    }
+
+    /// The rows of `session` rebuilt from its log, as a rebuild projects them (`project_session`), after its log was
+    /// rewritten to take a value out (`log_rewrite`): the old rows go with the writer's `secure_delete`, so their content
+    /// is overwritten in the pages that held it, and the WAL is checkpointed and truncated after, so no older page image
+    /// of them is left in it either. Then each superseded blob no row names any more is deleted (`log_rewrite`'s step 6).
+    fn reproject(&mut self, rewrite: &Rewritten) -> Result<(), String> {
+        let Rewritten { data, session, dirty, superseded, blobs } = rewrite;
+        let (data, session, dirty) = (data.as_path(), session.as_str(), *dirty);
+        let labels = self.labels.clone();
+        let rows = (|| -> Result<(), String> {
+            while !self.purge_rows(session).map_err(|e| e.to_string())? {}
+            let dir = data.join("sessions").join(session);
+            let mut fold = None;
+            let damage = project_session(&mut self.conn, &dir, &crate::blobs::BlobStore::new(data), &mut fold, None)?
+                .err()
+                .map(|(error, at)| damage_text(&dir, at, &error));
+            let head = fold.as_ref().map_or_else(|| unreadable_head(session), CatalogHead::of);
+            let tx = self.conn.transaction().map_err(|e| e.to_string())?;
+            upsert(&tx, &head, dirty, &labels).map_err(|e| e.to_string())?;
+            if let Some(damage) = damage {
+                set_status_on(&tx, session, SessionStatus::Damaged, Some(&damage)).map_err(|e| e.to_string())?;
+            }
+            tx.commit().map_err(|e| e.to_string())
+        })();
+        // A fork view over these rows settles in the maintenance steps.
+        self.views = true;
+        rows.and_then(|()| truncate_wal(&self.conn))?;
+        for digest in superseded {
+            blobs.remove_unreferenced(digest, &mut |d| blob_referenced_on(&self.conn, d)).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// Every queued rebuild, once no projection is queued before it. Projections queued after it (other threads' writes go on
+    /// meanwhile) do not hold it back: the log's own reads wait on the rebuild.
+    fn reproject_step(&mut self) {
+        while let Some(&(_, _, seq)) = self.reprojects.front()
+            && self.projections.front().is_none_or(|pending| pending.seq > seq)
+        {
+            let (rewrite, ack, _) = self.reprojects.pop_front().expect("the front rebuild");
+            let result = self.reproject(&rewrite);
+            let _ = ack.send(result.map_err(DbError::Write));
+        }
     }
 
     /// One bounded step of purging `session`'s index rows: at most `step_rows` deletions,
@@ -865,6 +1011,7 @@ impl Writer {
                 self.view_step();
             }
             self.purge_step();
+            self.reproject_step();
         }
     }
 
@@ -913,9 +1060,16 @@ impl Writer {
                         self.refold = true;
                         acks.push(ack);
                     }
-                    #[cfg(any(test, feature = "test-support"))]
+                    Command::OffloadScan { session, ordinal, sources, ack } => {
+                        record_offload_scan(&tx, &session, ordinal, &sources)?;
+                        acks.push(ack);
+                    }
                     Command::Close => unreachable!("the writer stops before it queues a close"),
-                    Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } | Command::Reconcile { .. } => {
+                    Command::Upsert { .. }
+                    | Command::Project { .. }
+                    | Command::Purge { .. }
+                    | Command::Reproject { .. }
+                    | Command::Reconcile { .. } => {
                         unreachable!("queued separately")
                     }
                 }
@@ -1350,7 +1504,6 @@ struct Shared {
     gate: gate::Gate,
     rows: RowSinkCell,
     /// The writer thread, joined by [`SqliteStore::close`].
-    #[cfg(any(test, feature = "test-support"))]
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
@@ -1462,6 +1615,11 @@ impl SqliteStore {
         read_lane: InteractiveIo,
         data: &Path,
     ) -> Result<SqliteStore, DbError> {
+        // A log rewrite a stop cut short is settled first (`log_rewrite`'s step table); one past its swap gets its rows
+        // rebuilt and its superseded blobs deleted below, before any session opens. No writer exists yet, so a store
+        // of its own holds every pin there is (none).
+        let blobs = crate::blobs::BlobStore::new(data);
+        let rewritten = crate::log_rewrite::recover(lane, data, &crate::log::OsIo, &blobs).map_err(|e| DbError::Write(e.to_string()))?;
         let incomplete = remove_incomplete_dirs(lane, &data.join("sessions"))?;
         let path = data.join(INDEX_FILE);
         let path = path.as_path();
@@ -1477,6 +1635,13 @@ impl SqliteStore {
             }
         };
         writer.boot_purge(lane, data, &incomplete)?;
+        for session in rewritten {
+            crate::log_rewrite::finish(lane, data, &session, &mut |superseded| {
+                let rewrite = Rewritten { data: data.to_path_buf(), session: session.clone(), dirty: DirtyMark::Clear, superseded, blobs: blobs.clone() };
+                writer.reproject(&rewrite)
+            })
+            .map_err(|e| DbError::Write(e.to_string()))?;
+        }
         let dirty: Vec<String> = writer
             .conn
             .prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?
@@ -1487,15 +1652,12 @@ impl SqliteStore {
         let handle = thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
             .map_err(|e| DbError::Write(e.to_string()))?;
-        #[cfg(not(any(test, feature = "test-support")))]
-        drop(handle);
         let (gate, reconciler) = gate::Gate::new(ReadPool::new(path, read_lane), sender, !dirty.is_empty());
         let store = SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 gate,
                 rows,
-                #[cfg(any(test, feature = "test-support"))]
                 writer: Mutex::new(Some(handle)),
             }),
         };
@@ -1529,10 +1691,9 @@ impl SqliteStore {
         self.shared.gate.waiters()
     }
 
-    /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
-    /// its connection closes, and the read pool's idle connections close, so the database files can be removed while other
-    /// handles still exist. Returns once the writer thread has ended.
-    #[cfg(any(test, feature = "test-support"))]
+    /// The writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and its connection
+    /// closes, and the read pool's idle connections close, so the database files can be removed while other handles still exist
+    /// (a test's teardown; the exec's private root after its core stopped). Returns once the writer thread has ended.
     pub fn close(&self) {
         self.shared.gate.close(|| {
             let handle = self.shared.writer.lock().expect("writer handle").take();
@@ -1577,6 +1738,12 @@ impl SqliteStore {
     /// The projection of a barrier; resolves when every frame is committed.
     pub async fn project(&self, projection: Projection) -> Result<(), DbError> {
         self.ask(|ack| Command::Project { projection, ack: Some(ack) }).await
+    }
+
+    /// The rows of `session` (under `<data>/sessions`) rebuilt from its rewritten log, the replaced rows overwritten in
+    /// the database and gone from the WAL, then its superseded blobs no row names deleted; resolves once that is done.
+    pub async fn reproject(&self, rewrite: Rewritten) -> Result<(), DbError> {
+        self.ask(|ack| Command::Reproject { rewrite, ack }).await
     }
 
     /// The UI language changed: placeholder titles refold in maintenance steps.
@@ -1731,6 +1898,50 @@ impl SqliteStore {
         .await
     }
 
+    /// What the index knows of the sessions that may name the sidecars of session `own` (no session log is opened):
+    /// the sessions whose reference set names it, in id order, a deleted one and `own` left out; the first session it
+    /// holds as not readable (`status` other than `ok`); a copy whose set names it that the process of boot `boot` is
+    /// still making; and every other listed session whose set is unknown (its header holds none and no scan of its
+    /// transcript is current), with the ordinal it is projected to.
+    pub async fn offload_referencers(&self, own: &str, boot: &str) -> Result<OffloadReferencers, DbError> {
+        let (own, boot) = (own.to_owned(), boot.to_owned());
+        let segment = crate::offload_sources::segment_key(&crate::offload_sources::safe_segment(&own));
+        self.read(move |c| {
+            let unreadable: Option<String> =
+                c.prepare_cached("SELECT id FROM sessions WHERE deleted = 0 AND status <> 'ok' ORDER BY id LIMIT 1")?.query_row([], |r| r.get(0)).optional()?;
+            let mut rows = c.prepare_cached(
+                "SELECT r.session FROM offload_refs r LEFT JOIN sessions s ON s.id = r.session
+                 WHERE r.source = ?1 AND r.session <> ?2 AND coalesce(s.deleted, 0) = 0 ORDER BY r.session",
+            )?;
+            let sessions = rows.query_map(params![segment, own], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+            let copying = c
+                .prepare_cached(
+                    "SELECT m.session, m.source FROM offload_marks m JOIN offload_refs r ON r.session = m.session AND r.source = ?1
+                     WHERE m.boot = ?2 AND m.session <> ?3 ORDER BY m.session LIMIT 1",
+                )?
+                .query_row(params![segment, boot, own], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .optional()?;
+            let mut rows = c.prepare_cached(
+                "SELECT s.id, s.projected_ordinal FROM sessions s LEFT JOIN offload_known k ON k.session = s.id
+                 WHERE s.deleted = 0 AND s.status = 'ok' AND s.log_id <> '' AND s.id <> ?1
+                   AND (k.session IS NULL OR k.rules <> ?2 OR (k.ordinal IS NOT NULL AND k.ordinal <> s.projected_ordinal))
+                 ORDER BY s.id",
+            )?;
+            let unknown = rows
+                .query_map(params![own, crate::offload_sources::RULES], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(OffloadReferencers { sessions, unreadable, copying, unknown })
+        })
+        .await
+    }
+
+    /// Stores what a scan of the transcript of `session` (a session whose header holds no set) at `ordinal` names
+    /// (`record_offload_scan`).
+    pub async fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> Result<(), DbError> {
+        let session = session.to_owned();
+        self.ask(|ack| Command::OffloadScan { session, ordinal, sources, ack }).await
+    }
+
     /// The raw header `title` of a session (1.4.5 `readStoredSessionMetadata`'s
     /// `session.title || null`); `None` when it has none, is not listed or was deleted.
     pub async fn title(&self, session: &str) -> Result<Option<String>, DbError> {
@@ -1807,6 +2018,93 @@ impl SqliteStore {
             Ok(rows.collect::<Result<_, _>>()?)
         })
         .await
+    }
+
+    /// The worker index the agent registry loads, from the revision it holds (`None`: none yet): the revision now and
+    /// every session written since, with the sessions in `also` read again whatever their revision; every listed session
+    /// when `since` is `None` or a revision this index never reached. The revision and the rows are one read transaction,
+    /// so they are one committed state, whichever connection or process wrote it (FORMAT.md §8.2 worker index revision).
+    pub async fn worker_index_since(&self, since: Option<(u64, u64)>, also: Vec<String>) -> Result<crate::worker::WorkerIndexRead, DbError> {
+        use crate::worker::IndexedSession;
+        self.read(move |c| {
+            let tx = c.unchecked_transaction()?;
+            let (revision, floor, generation) = tx.query_row(crate::worker::REVISION_SQL, [], |r| {
+                Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64))
+            })?;
+            let row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<IndexedSession> {
+                let worker = match r.get::<_, Option<String>>(2)? {
+                    Some(text) => Some(serde_json::from_str(&text).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+                    })?),
+                    None => None,
+                };
+                let summary: Option<String> = r.get(4)?;
+                let agent = match summary {
+                    Some(summary) => Some((r.get(3)?, summary)),
+                    None => None,
+                };
+                Ok(IndexedSession { session: r.get(0)?, created_at: r.get(1)?, worker, agent })
+            };
+            let full = since.is_none_or(|(held, rev)| held != generation || rev > revision || rev < floor);
+            let mut sessions: Vec<IndexedSession> = Vec::new();
+            if full {
+                let mut stmt = tx.prepare_cached(crate::worker::INDEXED_ALL_SQL)?;
+                sessions = stmt.query_map([], row)?.collect::<Result<_, _>>()?;
+            } else {
+                let since = since.map_or(0, |(_, rev)| rev) as i64;
+                let mut at: HashMap<String, usize> = HashMap::new();
+                let mut put = |sessions: &mut Vec<IndexedSession>, s: IndexedSession| match at.get(&s.session) {
+                    Some(&i) => sessions[i] = s,
+                    None => {
+                        at.insert(s.session.clone(), sessions.len());
+                        sessions.push(s);
+                    }
+                };
+                let gone = |id: String| IndexedSession { session: id, created_at: None, worker: None, agent: None };
+                let removed: Vec<String> =
+                    tx.prepare_cached(crate::worker::REMOVED_SINCE_SQL)?.query_map([since], |r| r.get(0))?.collect::<Result<_, _>>()?;
+                for id in removed {
+                    put(&mut sessions, gone(id));
+                }
+                let changed: Vec<IndexedSession> =
+                    tx.prepare_cached(crate::worker::INDEXED_SINCE_SQL)?.query_map([since], row)?.collect::<Result<_, _>>()?;
+                for s in changed {
+                    put(&mut sessions, s);
+                }
+                for id in also {
+                    if sessions.iter().any(|s| s.session == id) {
+                        continue;
+                    }
+                    let found = tx.prepare_cached(crate::worker::INDEXED_ONE_SQL)?.query_row([&id], row).optional()?;
+                    put(&mut sessions, found.unwrap_or_else(|| gone(id)));
+                }
+            }
+            Ok(crate::worker::WorkerIndexRead { revision, generation, full, sessions })
+        })
+        .await
+    }
+
+    /// Test support: `session`'s `worker` map replaced (`None`: removed) by a connection of its own, committed as another
+    /// process writing the index would.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_worker_elsewhere(&self, session: &str, worker: Option<&serde_json::Map<String, serde_json::Value>>) {
+        let mut header = serde_json::Map::new();
+        if let Some(map) = worker {
+            header.insert("worker".into(), serde_json::Value::Object(map.clone()));
+        }
+        let keys = crate::worker::WorkerKeys::of(&header);
+        let conn = Connection::open(&self.shared.path).expect("the index opens");
+        conn.execute(
+            "UPDATE sessions SET worker = ?1, worker_tag = ?2, worker_owner = ?3, worker_host_pid = ?4 WHERE id = ?5",
+            params![
+                keys.as_ref().map(|k| &k.map),
+                keys.as_ref().map(|k| &k.tag),
+                keys.as_ref().and_then(|k| k.owner.as_ref()),
+                keys.as_ref().and_then(|k| k.host_pid),
+                session
+            ],
+        )
+        .expect("the other connection's write");
     }
 
     /// The newest session `owner` ran under `tag` (1.4.5 `lastTagSession`, open or closed),
@@ -1976,7 +2274,12 @@ pub fn project_index(
     db: &Path,
     sessions: &[String],
 ) -> Result<(), String> {
-    let mut conn = open_writer(db).map_err(|e| e.to_string())?;
+    project_into(data, db, sessions, INDEX_DDL)
+}
+
+/// [`project_index`] with the DDL the new database is created by (the generation it sets).
+fn project_into(data: &Path, db: &Path, sessions: &[String], ddl: &str) -> Result<(), String> {
+    let mut conn = open_writer(db, ddl).map_err(|e| e.to_string())?;
     let blobs = crate::blobs::BlobStore::new(data);
     let mut heads = Vec::new();
     for id in sessions {
@@ -2615,11 +2918,9 @@ pub(crate) struct ReadPool {
     path: PathBuf,
     lane: InteractiveIo,
     conns: Mutex<Vec<Connection>>,
-    /// Test support only: `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a
-    /// connection until that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in
-    /// flight and no read opens a connection after it returned. A release build has no close: its pool keeps its connections until
-    /// the last owner of the store drops it.
-    #[cfg(any(test, feature = "test-support"))]
+    /// `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a connection until
+    /// that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in flight and no read
+    /// opens a connection after it returned. A pool nobody closes keeps its connections until the last owner of the store drops it.
     closed: std::sync::RwLock<bool>,
 }
 
@@ -2629,14 +2930,12 @@ impl ReadPool {
             path: path.to_path_buf(),
             lane,
             conns: Mutex::new(Vec::new()),
-            #[cfg(any(test, feature = "test-support"))]
             closed: std::sync::RwLock::new(false),
         })
     }
 
-    /// Test support only (a test's data folder closes its databases before it is removed): waits for the reads in flight, closes
-    /// every pooled connection, and makes every later read fail as the stopped writer does.
-    #[cfg(any(test, feature = "test-support"))]
+    /// Waits for the reads in flight, closes every pooled connection, and makes every later read fail as the stopped writer
+    /// does (a test's data folder, and the exec's private root, are removed while the process lives on).
     pub(crate) fn close(&self) {
         let mut closed = self.closed.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *closed = true;
@@ -2644,9 +2943,7 @@ impl ReadPool {
     }
 
     pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
-        #[cfg(any(test, feature = "test-support"))]
         let closed = self.closed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-        #[cfg(any(test, feature = "test-support"))]
         if *closed {
             return Err(DbError::Stopped);
         }

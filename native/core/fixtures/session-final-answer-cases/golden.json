@@ -1,0 +1,152 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a stored completed session restores the exact answer identity for notifications",
+      "observed": {
+        "restored": [
+          {
+            "itemLimit": "Infinity",
+            "answer": {
+              "id": "hist_stored_2_2",
+              "at": 2000,
+              "status": "done",
+              "text": "Background answer"
+            }
+          },
+          {
+            "itemLimit": "2",
+            "answer": {
+              "id": "hist_stored_2_2",
+              "at": 2000,
+              "status": "done",
+              "text": "Background answer"
+            }
+          }
+        ],
+        "failed": {
+          "id": "hist_session_2_2",
+          "at": 2000,
+          "status": "failed",
+          "text": ""
+        },
+        "lastFinalAssistantId": null
+      }
+    },
+    {
+      "case": "the completion identifies its final assistant, not user text, progress or tools",
+      "observed": {
+        "id": "turn-1",
+        "at": 2000,
+        "status": "done",
+        "text": "This is the final answer."
+      }
+    },
+    {
+      "case": "late, streaming, missing and older answers stay pending",
+      "observed": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "case": "the same wording is still a new answer when another turn produces it",
+      "observed": {
+        "id": "new-turn",
+        "at": 2000,
+        "status": "done",
+        "text": "Done"
+      }
+    },
+    {
+      "case": "a turn answered by a reaction alone is done with nothing to read; an unmarked empty turn stays pending",
+      "observed": {
+        "reactionOnly": {
+          "id": "turn",
+          "at": 2000,
+          "status": "done",
+          "text": "",
+          "reacted": true
+        },
+        "unmarked": null,
+        "besideReply": {
+          "id": "turn",
+          "at": 2000,
+          "status": "done",
+          "text": "Congrats!"
+        }
+      }
+    },
+    {
+      "case": "a stopped turn without a final reply is not announced as an answer",
+      "observed": {
+        "id": "failed-turn",
+        "at": 2000,
+        "status": "failed",
+        "text": ""
+      }
+    },
+    {
+      "case": "the host reads the requested session without selecting it or publishing its state",
+      "observed": {
+        "reads": [
+          [
+            "background-session",
+            false,
+            false,
+            {
+              "$exact": "undefined"
+            },
+            false,
+            {
+              "$exact": "undefined"
+            }
+          ]
+        ],
+        "result": {
+          "id": "turn",
+          "at": 2000,
+          "status": "done",
+          "text": "Background session answer"
+        }
+      }
+    },
+    {
+      "case": "the host passes the abort signal to the session read and tags a missing session",
+      "observed": {
+        "missingOutcome": {
+          "rejected": true,
+          "same": true,
+          "code": "SESSION_NOT_AVAILABLE",
+          "missingSession": true
+        },
+        "codeIsNotAvailable": true,
+        "signalPassedToRead": true,
+        "readArgsBeforeSignal": [
+          "gone-session",
+          false,
+          false,
+          {
+            "$exact": "undefined"
+          },
+          false
+        ],
+        "otherOutcome": {
+          "rejected": true,
+          "same": false,
+          "code": null,
+          "missingSession": false
+        }
+      }
+    }
+  ]
+}

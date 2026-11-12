@@ -1,0 +1,44 @@
+diff --git a/src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs b/src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs
+index 8f66f6d..25c710b 100644
+--- a/src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs
++++ b/src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs
+@@ -28,7 +28,11 @@ export function _absFrom(base, input) {
+   return isAbsolute(input) ? pathResolve(input) : pathResolve(base, input);
+ }
+ 
+-const notSelf = (baseCwd) => (root) => pathResolve(root) !== pathResolve(baseCwd);
++// Windows paths compare without case: the graph cache keys a root lowercased, so a case-sensitive test took a
++// sentinel-free cwd's own cached root for a child and federated the cwd into itself.
++const rootKey = (p) => (process.platform === 'win32' ? pathResolve(p).toLowerCase() : pathResolve(p));
++const notSelf = (baseCwd) => (root) => rootKey(root) !== rootKey(baseCwd);
++export { notSelf as _notSelf };
+ 
+ /**
+  * Decide whether — and over which roots — this call federates. `active`
+diff --git a/src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.test.mjs b/src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.test.mjs
+new file mode 100644
+index 0000000..ff962d9
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.test.mjs
+@@ -0,0 +1,21 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { _notSelf } from './federation.mjs';
++
++test('a cwd is never a federation child of itself, in whatever case Windows spells it', () => {
++  const cwd = mkdtempSync(join(tmpdir(), 'Fed-Self-'));
++  try {
++    const keep = _notSelf(cwd);
++    assert.equal(keep(cwd), false);
++    assert.equal(keep(join(cwd, '.')), false);
++    assert.equal(keep(join(cwd, 'child')), true);
++    // The graph cache keys a root lowercased; on Windows that spelling is the same directory.
++    assert.equal(keep(cwd.toLowerCase()), process.platform !== 'win32');
++    assert.equal(keep(cwd.toUpperCase()), process.platform !== 'win32');
++  } finally {
++    rmSync(cwd, { recursive: true, force: true });
++  }
++});

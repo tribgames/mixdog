@@ -184,6 +184,9 @@ pub struct ChatDecoder {
     listed_finish: bool,
     /// One dispatch per call across the recovered and the streamed path.
     dedupe: Dedupe,
+    /// The model the chunks name (`chunk-events.mjs:56`, the last non-empty one wins), which the turn reports as the one
+    /// that answered (Node's result `model: response.model || useModel`, openai-compat-chat-send.mjs:321).
+    served: String,
 }
 
 impl ChatDecoder {
@@ -213,6 +216,7 @@ impl ChatDecoder {
             normal_finish: false,
             listed_finish: false,
             dedupe: Dedupe::default(),
+            served: String::new(),
         }
     }
 
@@ -228,7 +232,7 @@ impl ChatDecoder {
         for recovered in calls {
             let call = leak::openai_call(recovered);
             self.leaked.push(call.clone());
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::Progress(ProgressKind::Tool));
             // Held until a normal finish confirms the turn ended (`drainLeakedCalls`).
             if self.normal_finish {
@@ -255,14 +259,16 @@ impl ChatDecoder {
     fn exposure_now(&self) -> Exposure {
         Exposure {
             text_emitted: self.text_emitted,
-            tool_dispatched: self.tool_dispatched,
+            // Node's `toolWorkStarted`: a streamed call being accumulated or a call recovered from text counts as tool
+            // work from the moment it starts, dispatched or not (stream-state.mjs:143).
+            tool_dispatched: self.tool_dispatched || !self.tools.is_empty() || !self.leaked.is_empty(),
             tool_input_cut: self.tool_input_cut,
         }
     }
 
     fn truncated(&self, why: &str) -> ProviderError {
         let mut err = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-        err.message = format!("SSE stream truncated: {why}");
+        err.message = format!("{} SSE stream truncated: {why}", self.owner);
         self.error(err)
     }
 
@@ -273,13 +279,22 @@ impl ChatDecoder {
         self.error(err)
     }
 
+    /// Visible output (`text`, `reasoning` or `tool`, `isVisibleStreamProgress`): the first starts the generation
+    /// (`reportProgress`, stream-state.mjs:72).
+    fn progress(&mut self, out: &mut Vec<StreamEvent>) {
+        if !self.progressed {
+            out.push(StreamEvent::OutputStarted);
+        }
+        self.progressed = true;
+    }
+
     fn emit_text(&mut self, text: &str, out: &mut Vec<StreamEvent>) {
         if text.is_empty() {
             return;
         }
         self.content.push_str(text);
         self.text_emitted = true;
-        self.progressed = true;
+        self.progress(out);
         out.push(StreamEvent::TextDelta(text.to_owned()));
     }
 
@@ -287,7 +302,7 @@ impl ChatDecoder {
         self.reasoning_source = Some(source);
         self.reasoning.push_str(text);
         if !text.is_empty() {
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::ReasoningDelta(text.to_owned()));
         }
     }
@@ -391,7 +406,7 @@ impl ChatDecoder {
             .filter(|d| !d.is_empty())
         {
             self.details.extend(details.iter().cloned());
-            self.progressed = true;
+            self.progress(out);
             out.push(StreamEvent::Progress(ProgressKind::Reasoning));
         }
         // These provider fields are aliases, never independent segments.
@@ -407,7 +422,7 @@ impl ChatDecoder {
         }
         if let Some(calls) = delta.and_then(|d| d.get("tool_calls")).and_then(JsonValue::as_array) {
             if !calls.is_empty() {
-                self.progressed = true;
+                self.progress(out);
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
             self.merge_tool_calls(calls, out);
@@ -422,6 +437,9 @@ impl ChatDecoder {
         }
         if let Some(usage) = chunk.get("usage").filter(|u| u.is_object()) {
             self.usage = Some(usage.clone());
+        }
+        if let Some(model) = chunk.get("model").and_then(JsonValue::as_str).filter(|m| !m.is_empty()) {
+            model.clone_into(&mut self.served);
         }
     }
 
@@ -480,6 +498,34 @@ impl ChatDecoder {
         out.push(StreamEvent::ReturnedCalls(leak::dedupe_list(all)));
     }
 
+    /// `normalizeCompatChatResponse`: a turn cut by `length` while it holds calls, or stopped by a content filter, is a
+    /// `ProviderIncompleteError` that carries the calls (`partialToolCalls`) and is never retried: the turn fails and
+    /// none of them runs.
+    fn incomplete_failure(&self, finish: &str) -> Option<ProviderError> {
+        if !(finish == "content_filter" || finish == "length") {
+            return None;
+        }
+        let calls: Vec<ToolCall> = if self.leaked.is_empty() {
+            self.natives.clone()
+        } else {
+            leak::dedupe_list(self.natives.iter().chain(&self.leaked).cloned().collect())
+        };
+        if finish == "length" && calls.is_empty() {
+            return None;
+        }
+        let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+        err.code = Some("PROVIDER_INCOMPLETE".into());
+        // Node's text leads with the provider's name (`${providerName} response incomplete`), which the turn's error shows.
+        err.message = format!("{} response incomplete: finish_reason={finish}", self.owner);
+        err.exposure = Exposure { text_emitted: self.text_emitted, ..Exposure::default() };
+        err.partial_tool_calls = calls;
+        if let Some(raw) = &self.usage {
+            err.partial_usage = Some(Box::new(usage_from(raw, self.profile.chat.cost)));
+            err.partial_model = Some(self.served.as_str()).filter(|m| !m.is_empty()).map(Box::from);
+        }
+        Some(err)
+    }
+
     fn in_band_error(&self, chunk: &JsonValue) -> ProviderError {
         let mut err = classify_parts(&self.profile, None, &[], chunk, SystemTime::now());
         if self.profile.chat.in_band_invalid_request_retryable && err.kind == ErrorKind::InvalidRequest {
@@ -526,6 +572,9 @@ impl ChatDecoder {
         // The stream ended: nothing is held back any more.
         let tail = self.leak.flush();
         self.relay_leak(tail, out);
+        if let Some(err) = self.incomplete_failure(&finish) {
+            return Err(err);
+        }
         self.return_calls(out);
         let saw_reasoning = self.reasoning_source.is_some();
         // An empty completion is a normal `Completed`; the retry policy's
@@ -545,6 +594,9 @@ impl ChatDecoder {
                 source,
                 details,
             )));
+        }
+        if !self.served.is_empty() {
+            out.push(StreamEvent::ServedModel(self.served.clone()));
         }
         out.push(StreamEvent::Completed {
             pricing_model: None,
@@ -575,7 +627,9 @@ impl WireDecoder for ChatDecoder {
             };
             if let Err(err) = step {
                 self.failure = Some(err.clone());
-                return Err(err);
+                // The events decoded before the error in this unit reach the caller first (Node relays each chunk
+                // before it parses the next); the stored failure ends the stream on the next call.
+                return if out.is_empty() { Err(err) } else { Ok(out) };
             }
         }
         Ok(out)
@@ -600,7 +654,9 @@ impl WireDecoder for ChatDecoder {
             Ok(()) => Ok(out),
             Err(err) => {
                 self.failure = Some(err.clone());
-                Err(err)
+                // The guard's held-back tail was relayed before the failure (Node flushes before it throws): the events
+                // go out first, as `feed` does, and the stored failure ends the stream on the next call.
+                if out.is_empty() { Err(err) } else { Ok(out) }
             }
         }
     }

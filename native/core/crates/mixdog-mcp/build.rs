@@ -9,6 +9,9 @@
 
 use std::path::PathBuf;
 
+#[path = "../../build-support/dev_only.rs"]
+mod dev_only;
+
 const ID_VAR: &str = "MIXDOG_GOOGLE_OAUTH_CLIENT_ID";
 const SECRET_VAR: &str = "MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET";
 const GENERATED: &str = "src/runtime/shared/google-oauth-client.generated.json";
@@ -32,6 +35,7 @@ fn quote(value: &str) -> String {
 }
 
 fn main() {
+    dev_only::refuse_in_release(&["test-support"]);
     println!("cargo:rerun-if-env-changed={ID_VAR}");
     println!("cargo:rerun-if-env-changed={SECRET_VAR}");
     let repo = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it")).join("../../../..");

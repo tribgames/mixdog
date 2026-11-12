@@ -1,0 +1,83 @@
+# The core's build of `native/mixdog-spawn`'s library. Cargo identifies a path package outside the workspace root by its
+# absolute path, and that identity goes into the `-C metadata` hash of the crate and of every crate above it: two
+# checkouts at one commit then named mixdog_spawn, mixdog_core_session, mixdog_core, ... differently, and no compiled
+# library could be shared between them (rustc-slot's cache). This package lives inside the root and builds the same
+# sources. Node's own build (`native/mixdog-spawn/Cargo.toml`, its lockfile, release profile and binary) is unchanged.
+#
+# [package], [lib] name, [features] and the dependencies must stay those of `native/mixdog-spawn/Cargo.toml`
+# (mixdog-testkit `tests/native_mirrors.rs` fails when they drift). The build script is this package's own: the original's
+# other work is the Windows version resource, which only the original's executable links.
+[package]
+name = "mixdog-spawn"
+version = "0.1.12"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "mixdog_spawn"
+path = "../../../mixdog-spawn/src/lib.rs"
+# Its tests run in Node's build of the package, where their fixtures are found relative to its manifest.
+test = false
+doctest = false
+
+[features]
+default = []
+core = [
+    "dep:async-trait",
+    "dep:base64",
+    "dep:bytes",
+    "dep:mixdog-app-protocol",
+    "dep:mixdog-core-api",
+    "dep:mixdog-js",
+    "dep:mixdog-protocol",
+    "dep:mixdog-rt",
+    "dep:tokio",
+    "dep:tokio-util",
+    "serde_json/preserve_order",
+    "tokio/time",
+    "windows-sys/Win32_System_IO",
+    "windows-sys/Win32_System_Console",
+    "windows-sys/Win32_System_Pipes",
+    "windows-sys/Win32_NetworkManagement_IpHelper",
+    "windows-sys/Win32_Networking_WinSock",
+]
+lease-clock = ["core"]
+scripted-shell = ["core"]
+core-test = [
+    "core",
+    "lease-clock",
+    "mixdog-rt/test-support",
+    "mixdog-core-api/mock",
+    "tokio/rt-multi-thread",
+    "tokio/macros",
+    "tokio/time",
+    "tokio/test-util",
+    "windows-sys/Win32_System_Diagnostics_ToolHelp",
+]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = { version = "0.1", optional = true }
+base64 = { version = "0.22", optional = true }
+bytes = { version = "1", optional = true }
+mixdog-app-protocol = { path = "../mixdog-app-protocol", optional = true }
+mixdog-core-api = { path = "../mixdog-core-api", optional = true }
+mixdog-js = { path = "../mixdog-js", optional = true }
+mixdog-protocol = { path = "../mixdog-protocol", optional = true }
+mixdog-rt = { path = "../mixdog-rt", optional = true }
+tokio = { version = "1", features = ["sync"], optional = true }
+tokio-util = { version = "0.7", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -1,0 +1,298 @@
+{
+  "id": "openrouter-reroute-unsupported",
+  "provider": "openrouter",
+  "config": {
+    "enabled": true,
+    "preconnect": false,
+    "apiKey": "or-fixture"
+  },
+  "sends": [
+    {
+      "model": "anthropic/claude-sonnet-4.5",
+      "tools": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "Before."
+        },
+        {
+          "role": "assistant",
+          "content": "Earlier answer.",
+          "reasoningContent": "Earlier thought.",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "Earlier thought.",
+              "signature": "sig-earlier"
+            }
+          ]
+        }
+      ],
+      "opts": {},
+      "sessionId": "sess-1",
+      "pin": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "wire": "messages",
+        "profileId": "openrouter:messages",
+        "source": "family"
+      },
+      "pinAfter": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "wire": "chat",
+        "profileId": "openrouter:chat",
+        "source": "reroute",
+        "reroutedFrom": "messages",
+        "reroutedReason": "unsupported",
+        "loweredAssistantCount": 1
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/messages",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "Anthropic/JS 0.137.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-timeout": "600",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "0.137.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "anthropic-version": "2023-06-01",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "494"
+          },
+          "body": "{\"model\":\"anthropic/claude-sonnet-4.5\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"Earlier thought.\",\"signature\":\"sig-earlier\"},{\"type\":\"text\",\"text\":\"Earlier answer.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "answer": {
+            "status": 400,
+            "body": "{\"error\":{\"message\":\"This model is not available on the /v1/messages endpoint.\",\"code\":400}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/chat/completions",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "298"
+          },
+          "body": "{\"model\":\"anthropic/claude-sonnet-4.5\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"Earlier answer.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 2
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": {
+          "provider": "openrouter",
+          "model": "anthropic/claude-sonnet-4.5",
+          "wire": "chat",
+          "profileId": "openrouter:chat",
+          "source": "reroute",
+          "reroutedFrom": "messages",
+          "reroutedReason": "unsupported",
+          "loweredAssistantCount": 1
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-sonnet-4.5",
+      "tools": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "Before."
+        },
+        {
+          "role": "assistant",
+          "content": "Earlier answer.",
+          "reasoningContent": "Earlier thought.",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "Earlier thought.",
+              "signature": "sig-earlier"
+            }
+          ]
+        }
+      ],
+      "opts": {},
+      "sessionId": "sess-1",
+      "pin": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "wire": "chat",
+        "profileId": "openrouter:chat",
+        "source": "reroute",
+        "reroutedFrom": "messages",
+        "reroutedReason": "unsupported",
+        "loweredAssistantCount": 1
+      },
+      "pinAfter": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "wire": "chat",
+        "profileId": "openrouter:chat",
+        "source": "reroute",
+        "reroutedFrom": "messages",
+        "reroutedReason": "unsupported",
+        "loweredAssistantCount": 1
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/chat/completions",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "298"
+          },
+          "body": "{\"model\":\"anthropic/claude-sonnet-4.5\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"Earlier answer.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": {
+          "provider": "openrouter",
+          "model": "anthropic/claude-sonnet-4.5",
+          "wire": "chat",
+          "profileId": "openrouter:chat",
+          "source": "reroute",
+          "reroutedFrom": "messages",
+          "reroutedReason": "unsupported",
+          "loweredAssistantCount": 1
+        }
+      }
+    }
+  ]
+}

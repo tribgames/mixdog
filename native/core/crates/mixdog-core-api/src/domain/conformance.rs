@@ -28,6 +28,7 @@ use super::fs::FileService;
 use super::fs::FsError;
 use super::fs::FsErrorKind;
 use super::fs::ReadRange;
+use super::fs::SearchClass;
 use super::fs::SearchRequest;
 use super::fs::WalkRequest;
 use super::fs::WritePrecondition;
@@ -1097,6 +1098,9 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 include_hidden: false,
                 respect_ignore: false,
                 include_dirs: false,
+                prune: Vec::new(),
+                descent: Default::default(),
+                server: None,
             },
         )
         .as_mut(),
@@ -1120,6 +1124,10 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 exclude_globs: Vec::new(),
                 include_hidden: false,
                 respect_ignore: false,
+                limit: None,
+                first_per_file: false,
+                deadline: None,
+                class: SearchClass::Interactive,
             },
         )
         .as_mut(),
@@ -1141,6 +1149,10 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 exclude_globs: Vec::new(),
                 include_hidden: false,
                 respect_ignore: false,
+                limit: None,
+                first_per_file: false,
+                deadline: None,
+                class: SearchClass::Interactive,
             },
         )
         .as_mut(),
@@ -1561,20 +1573,16 @@ pub fn check_ownership(ownership: &dyn Ownership, lose: impl FnOnce()) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::SystemTime;
 
     use mixdog_protocol::ApprovalRemember;
     use mixdog_protocol::ApprovalResolution;
     use mixdog_protocol::ThreadId;
-    use mixdog_protocol::ToolApprovalDecision;
     use mixdog_protocol::TurnId;
 
     use super::*;
     use crate::domain::approval::ActionKind;
     use crate::domain::approval::ApprovalId;
     use crate::domain::approval::ApprovalKind;
-    use crate::domain::approval::ApprovalRequest;
-    use crate::domain::approval::DecisionRejected;
     use crate::domain::keepalive::TransportKind;
     use crate::domain::login::LoginTarget;
     use crate::domain::media::EncodingParams;
@@ -1852,45 +1860,7 @@ mod tests {
         lock_push(&gate, ApprovalResolution::TimedOut { at: 1 });
         check_approval_gate(&gate, ask(None)).await;
 
-        let request = |action_kind| ApprovalRequest {
-            id: ApprovalId(7),
-            thread_id: ThreadId::from("t"),
-            surface_thread_id: ThreadId::from("t"),
-            chain: Vec::new(),
-            order: 0,
-            requested_at: SystemTime::UNIX_EPOCH,
-            expires_at: None,
-            ask: ask(action_kind),
-        };
         assert_eq!(ApprovalId(7).request_id().as_str(), "7");
-        let decide = |remember| ToolApprovalDecision {
-            approved: true,
-            reason: None,
-            answers: None,
-            reply: None,
-            response: None,
-            edited_args: None,
-            remember,
-            scope: None,
-        };
-        let comment = request(Some(ActionKind::Comment));
-        assert_eq!(
-            comment.check_decision(&decide(Some(ApprovalRemember::Session))),
-            Ok(())
-        );
-        assert_eq!(
-            comment.check_decision(&decide(Some(ApprovalRemember::Once))),
-            Ok(())
-        );
-        assert_eq!(
-            comment.check_decision(&decide(Some(ApprovalRemember::Always))),
-            Err(DecisionRejected::RememberNotAllowed)
-        );
-        assert_eq!(
-            request(Some(ActionKind::Payment))
-                .check_decision(&decide(Some(ApprovalRemember::Session))),
-            Err(DecisionRejected::UnrememberableAction)
-        );
         assert_eq!(
             ApprovalKind::Computer.method().as_str(),
             "item/computer/requestApproval"

@@ -127,12 +127,10 @@ impl Desktop {
 #[async_trait::async_trait]
 impl HostChannel for Desktop {
     async fn request(&self, _capability: HostCapability, method: Method, _params: Value) -> Result<Value, HostError> {
-        let count = {
-            let mut asked = self.asked.lock().unwrap();
-            asked.push(method.as_str().to_owned());
-            asked.len()
-        };
-        self.reached.send_replace(count);
+        self.asked.lock().unwrap().push(method.as_str().to_owned());
+        // Counted under the channel's own lock: two asks at once each published the length they saw, and the later
+        // publication could be the smaller one, leaving the count one short for good.
+        self.reached.send_modify(|reached| *reached += 1);
         if !self.displays {
             std::future::pending::<()>().await;
         }
@@ -455,14 +453,14 @@ impl Harness {
 
     async fn closed(&self, connection: ConnectionId) {
         let mut seen = self.closed.clone();
-        let got = tokio::time::timeout(FRAME_WAIT, seen.wait_for(|closed| closed.contains(&connection))).await;
+        let got = mixdog_rt::time::timeout(FRAME_WAIT, seen.wait_for(|closed| closed.contains(&connection))).await;
         got.unwrap_or_else(|_| panic!("connection {connection:?} was never closed")).expect("the core ended");
     }
 
     async fn viewing(&self, wanted: &[&str]) {
         let wanted: Vec<String> = wanted.iter().map(|id| (*id).to_owned()).collect();
         let mut seen = self.published.remote_viewing.subscribe();
-        let got = tokio::time::timeout(FRAME_WAIT, seen.wait_for(|ids| *ids == wanted)).await;
+        let got = mixdog_rt::time::timeout(FRAME_WAIT, seen.wait_for(|ids| *ids == wanted)).await;
         got.unwrap_or_else(|_| panic!("the viewed sessions never became {wanted:?}")).expect("the publisher ended");
     }
 }
@@ -520,7 +518,7 @@ impl Client {
     async fn call(&mut self, request: &Value) -> Value {
         self.to_server.send(Incoming::Text(request.to_string())).unwrap();
         loop {
-            let next = tokio::time::timeout(FRAME_WAIT, self.from_server.recv()).await.expect("the server wrote no frame for the request");
+            let next = mixdog_rt::time::timeout(FRAME_WAIT, self.from_server.recv()).await.expect("the server wrote no frame for the request");
             let frame: Value = serde_json::from_str(&next.expect("the server ended")).unwrap();
             if frame["id"] == request["id"] {
                 return frame;
@@ -547,7 +545,7 @@ impl Frames for Phone {
 /// (Node's desktop also sends a phone frames nobody asked for) neither extend it nor are lost, so a reply that never comes fails here.
 async fn reply_within(from: &mut impl Frames, id: u64, within: Duration) -> (Value, Vec<Value>) {
     let mut others = Vec::new();
-    let waited = tokio::time::timeout(within, async {
+    let waited = mixdog_rt::time::timeout(within, async {
         loop {
             let frame: Value = serde_json::from_str(&from.next_frame().await).unwrap();
             if frame["id"] == id {
@@ -716,7 +714,7 @@ async fn an_unpaired_device_loses_its_access_at_once_and_its_connection_when_the
     h.runtime.close().await;
 }
 
-const BROWSER_STREAMS: &str = include_str!("../../../../../fixtures/browser-streams/streams.json");
+const BROWSER_STREAMS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/browser-streams/streams.json");
 
 /// A phone's browser stream ends at its device's unpair and at the relay's close, through the production wiring (the runtime's unpair
 /// and close → `PairedDeviceCleanup` → the live view): Node's unpair drops the device from its streams (`remote-relay.ts:619`,
@@ -725,7 +723,7 @@ const BROWSER_STREAMS: &str = include_str!("../../../../../fixtures/browser-stre
 /// told it in `an unpaired phone that alone streams a session stops the desktop view`: the subscribe's request, then the drop's.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once() {
-    let all: Value = serde_json::from_str(BROWSER_STREAMS).unwrap();
+    let all: Value = serde_json::from_str(&BROWSER_STREAMS).unwrap();
     let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired phone that alone streams a session stops the desktop view").unwrap();
     let (subscribe, unpair) = (&scenario["steps"][0], &scenario["steps"][3]);
     assert_eq!((subscribe["method"].as_str(), unpair["op"].as_str()), (Some("browserRemoteStream"), Some("unpair")));
@@ -757,7 +755,7 @@ async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once()
 /// the patched Node answered in `an unpaired device whose connections stay open is refused and sent nothing`.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
-    let all: Value = serde_json::from_str(BROWSER_STREAMS).unwrap();
+    let all: Value = serde_json::from_str(&BROWSER_STREAMS).unwrap();
     let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired device whose connections stay open is refused and sent nothing").unwrap();
     let (steps, recorded) = (&scenario["steps"], &scenario["recorded"]);
     assert_eq!(
@@ -907,11 +905,11 @@ async fn the_leg_redials_on_the_backoff_node_recorded_and_a_phone_pairs_again_on
     h.runtime.close().await;
 }
 
-const FILE_DOWNLOADS: &str = include_str!("../../../../../fixtures/file-downloads/file-downloads.json");
+const FILE_DOWNLOADS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-downloads/file-downloads.json");
 
 /// The frame Node's phone got for the `n`th call of the scenario `name`, which must be of the phone method `method`, without its id.
 fn download_call(name: &str, n: usize, method: &str) -> Value {
-    let recording: Value = serde_json::from_str(FILE_DOWNLOADS).unwrap();
+    let recording: Value = serde_json::from_str(&FILE_DOWNLOADS).unwrap();
     let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no scenario {name}"));
     let step = scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{name}: no call {n}"));
     assert_eq!(step["method"], method, "{name}: call {n}");
@@ -946,9 +944,9 @@ async fn switching_remote_access_off_ends_every_download_of_the_phones() {
     h.runtime.stop().await.unwrap();
     h.closed(connection).await;
     h.runtime.start(false).await.unwrap();
-    tokio::time::timeout(FRAME_WAIT, h.relay.legs.recv()).await.expect("the core never dialed the relay again").expect("the relay ended");
+    mixdog_rt::time::timeout(FRAME_WAIT, h.relay.legs.recv()).await.expect("the core never dialed the relay again").expect("the relay ended");
     let mut up = h.runtime.watch_connected();
-    tokio::time::timeout(FRAME_WAIT, up.wait_for(|up| *up)).await.expect("the new leg never came up").expect("the runtime ended");
+    mixdog_rt::time::timeout(FRAME_WAIT, up.wait_for(|up| *up)).await.expect("the new leg never came up").expect("the runtime ended");
     let (mut again, _) = h.connect("p2", CRED).await;
     let begin = download_frame(&mut again, 4, "transfer/redeemGrant", json!({ "grantId": unbegun })).await;
     assert_eq!(begin, download_call("revoke all", 3, "fileDownloadBegin"), "the unbegun grant after the relay closed");
@@ -1433,7 +1431,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         assert_eq!(scenario["revokeOutcome"].as_str().unwrap().starts_with("rejected"), outcome.is_err(), "{name}");
         let envelopes: Vec<&str> = scenario["envelopesAtUnpair"].as_array().unwrap().iter().map(|kind| kind.as_str().unwrap()).collect();
         assert!(envelopes.first() == Some(&"revoke-client") && envelopes.iter().all(|kind| !matches!(*kind, "frame" | "close-client")), "{name}: Node's desktop sent the relay the revoke and the phone nothing: {envelopes:?}");
-        tokio::time::timeout(FRAME_WAIT, h.relay.frame(|frame| frame["type"] == "revoke-client")).await.unwrap_or_else(|_| panic!("{name}: the revoke never reached the relay"));
+        mixdog_rt::time::timeout(FRAME_WAIT, h.relay.frame(|frame| frame["type"] == "revoke-client")).await.unwrap_or_else(|_| panic!("{name}: the revoke never reached the relay"));
         assert_eq!(scenario["desktopClosedPhone"], Value::Null);
         assert_eq!(phone.arrived().await, sent, "{name}: the unpair sent the phone nothing and closed nothing");
 
@@ -1487,7 +1485,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
                 replayed.push(path);
             }
             let mut reached = h.desktop.reached.subscribe();
-            tokio::time::timeout(FRAME_WAIT, reached.wait_for(|count| *count >= calls.len())).await.unwrap_or_else(|_| panic!("{name}: the screen asks never reached the window")).unwrap();
+            mixdog_rt::time::timeout(FRAME_WAIT, reached.wait_for(|count| *count >= calls.len())).await.unwrap_or_else(|_| panic!("{name}: the screen asks never reached the window")).unwrap();
             asks.send(&json!({ "id": 5200, "method": "thread/list", "params": {} }).to_string());
             let (_, before_it) = reply_within(asks, 5200, FRAME_WAIT).await;
             for path in calls {

@@ -448,7 +448,7 @@ fn spawn_feed(inner: Arc<Inner>, now_ms: i64, delayed: bool) {
     let handle = inner.handle.clone();
     handle.spawn(async move {
         if delayed {
-            tokio::time::sleep(FEED_EVERY).await;
+            mixdog_rt::time::sleep(FEED_EVERY).await;
         }
         let rows = {
             let mut feed = inner.feed.lock().unwrap_or_else(PoisonError::into_inner);
@@ -523,7 +523,7 @@ impl TraceStore {
             let mut now = now_ms;
             loop {
                 run_retention(&task_db, retention_days, now).await;
-                tokio::time::sleep(RETENTION_EVERY).await;
+                mixdog_rt::time::sleep(RETENTION_EVERY).await;
                 now += i64::try_from(RETENTION_EVERY.as_millis()).unwrap_or(i64::MAX);
             }
         });
@@ -632,7 +632,7 @@ fn spawn_flush(inner: Arc<Inner>, now_ms: i64, delayed: bool) {
     let handle = inner.handle.clone();
     handle.spawn(async move {
         if delayed {
-            tokio::time::sleep(FLUSH_DELAY).await;
+            mixdog_rt::time::sleep(FLUSH_DELAY).await;
             inner.queue.lock().unwrap_or_else(PoisonError::into_inner).timer_armed = false;
         }
         flush(&inner, now_ms).await;

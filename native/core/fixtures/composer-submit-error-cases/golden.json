@@ -1,0 +1,148 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a send to a switched-off room member shows the refusal in the UI language",
+      "observed": {
+        "languages": [
+          {
+            "value": "ko",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "ja",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "zh-CN",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "zh-TW",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "es",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "fr",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "de",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "it",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "pt-BR",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "ru",
+            "hasString": true,
+            "hasGeneric": true
+          },
+          {
+            "value": "vi",
+            "hasString": true,
+            "hasGeneric": true
+          }
+        ],
+        "original": {
+          "message": "\"Release\" is switched off.",
+          "code": "ROOM_MEMBER_SWITCHED_OFF",
+          "details": {
+            "name": "Release"
+          }
+        },
+        "relayFrame": {
+          "id": 1,
+          "ok": false,
+          "error": "\"Release\" is switched off.",
+          "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+          "errorParams": {
+            "name": "Release"
+          }
+        },
+        "namedTexts": [
+          "\"Release\" 봇이 꺼져 있습니다.",
+          "\"Release\" 봇이 꺼져 있습니다.",
+          "\"Release\" 봇이 꺼져 있습니다."
+        ],
+        "bareRelayFrame": {
+          "id": 1,
+          "ok": false,
+          "error": "\"Release\" is switched off.",
+          "errorCode": "ROOM_MEMBER_SWITCHED_OFF"
+        },
+        "bareTexts": [
+          "이 봇이 꺼져 있습니다.",
+          "이 봇이 꺼져 있습니다.",
+          "이 봇이 꺼져 있습니다."
+        ],
+        "otherMessage": "Write a message to send.",
+        "proseWithoutCode": "\"Release\" is switched off."
+      }
+    },
+    {
+      "case": "error params are whitelisted strings, and the relay redacts them like the message",
+      "observed": {
+        "params": {
+          "accepted": {
+            "name": "Rel"
+          },
+          "refused": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "otherCodes": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        "ipcDetails": null,
+        "relayDetails": null,
+        "fileFrame": {
+          "id": 1,
+          "ok": false,
+          "error": "x",
+          "errorCode": "ENOENT"
+        },
+        "secretFrame": {
+          "id": 1,
+          "ok": false,
+          "error": "x",
+          "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+          "errorParams": {
+            "name": "[redacted]"
+          }
+        },
+        "secretInFrame": false
+      }
+    }
+  ]
+}

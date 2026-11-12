@@ -45,7 +45,7 @@ use crate::domains::ai_account::failure::Failure;
 
 /// The Node recording; a profile's `baseURL`s name the recorder's loopback endpoint.
 pub(super) fn recording() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/model-lists/node-model-lists.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/model-lists/node-model-lists.json")).unwrap()
 }
 
 /// Node's recording of a default route naming an OAuth provider (model-lists-statusline): the reads after its statusline-usage warm-up, and the reads before it (the warm-up delayed).
@@ -316,6 +316,7 @@ pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: O
             home_dir: dir.path().to_path_buf(),
             io: io(),
             gated_off: Arc::new(|name| GATED.contains(&name)),
+            local: None,
         }),
         fail,
     });

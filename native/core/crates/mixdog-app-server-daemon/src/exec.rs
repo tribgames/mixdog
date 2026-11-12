@@ -14,7 +14,6 @@ use std::sync::OnceLock;
 use std::sync::Weak;
 use std::time::Duration;
 use std::time::Instant;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use crate::domain_seams::settings_effects::ConfiguredShell;
@@ -53,7 +52,7 @@ fn host_oem() -> Option<&'static str> {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Bound of the completion channel. A full channel is backpressure: the completing job's task
@@ -210,6 +209,8 @@ pub fn build_exec(
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             maintenance: tokens.maintenance_io,
+            spawn: tokens.spawn_io,
+            pty: tokens.pty_io,
         },
         spill_dir: data_dir.join("scratch").join("jobs"),
         data_dir: Some(data_dir.to_path_buf()),
@@ -224,6 +225,7 @@ pub fn build_exec(
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.
         powershell: cfg!(windows),
+        warm_standby: true,
         wake: wakes.clone(),
         policy: Arc::new(NodeCommandPolicy),
         now_ms: Arc::new(now_ms),
@@ -241,6 +243,7 @@ mod tests {
     use mixdog_core_api::domain::mock::MockFileService;
     use mixdog_core_api::domain::mock::MockProgress;
     use mixdog_core_api::domain::tool::*;
+    use mixdog_protocol::ProcessHandle;
     use mixdog_protocol::ToolCallId;
     use mixdog_protocol::TurnId;
     use mixdog_tools::exec::ShellTool;
@@ -376,8 +379,10 @@ mod tests {
     struct Rig {
         dir: tempfile::TempDir,
         processes: LocalProcessManager,
+        runtime: Arc<ExecRuntime>,
         shell: ShellTool,
         task: TaskTool,
+        configured: Arc<ConfiguredShell>,
     }
 
     async fn rig() -> Rig {
@@ -385,21 +390,38 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let processes = LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
         let shell_path = crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.unwrap();
+        let configured = Arc::new(ConfiguredShell::default());
         let (exec, _events) = build_exec(
             &tokens,
             dir.path(),
             dir.path().join("launchers"),
             shell_path,
-            Arc::new(ConfiguredShell::default()),
+            Arc::clone(&configured),
             SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
             ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
         );
-        Rig { dir, processes, shell: ShellTool::new(exec.runtime.clone()), task: TaskTool::new(exec.runtime) }
+        Rig {
+            dir,
+            processes,
+            runtime: exec.runtime.clone(),
+            shell: ShellTool::new(exec.runtime.clone()),
+            task: TaskTool::new(exec.runtime),
+            configured,
+        }
     }
 
     impl Rig {
         async fn run(&self, call: &str, command: &str) -> String {
-            text(self.shell.call(&ctx(self.dir.path(), call, self.processes.clone()), serde_json::json!({"command": command})).await)
+            self.run_in(self.dir.path(), call, command).await
+        }
+
+        async fn run_in(&self, cwd: &Path, call: &str, command: &str) -> String {
+            text(self.shell.call(&ctx(cwd, call, self.processes.clone()), serde_json::json!({"command": command})).await)
+        }
+
+        /// The standby parked next, once it is.
+        async fn parked(&self) -> ProcessHandle {
+            mixdog_rt::time::timeout(Duration::from_secs(30), self.runtime.wait_parked_standby()).await.expect("no standby was parked")
         }
 
         async fn task(&self, call: &str, args: serde_json::Value) -> String {
@@ -443,6 +465,275 @@ mod tests {
         assert_eq!(gate.view(&rig.task("r2", read).await, "task-s1"), want["cancelled"]["read"].as_str().unwrap());
         let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
         assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["cancelled"]["tail"].as_str().unwrap());
+    }
+
+    /// Every PowerShell command runs under Node's pwsh startup script (`fixtures/shell-pwsh-bootstrap/golden.json`,
+    /// recorded from Node b6f10295a by `record-shell-pwsh-bootstrap.mjs`): a parse error reads `ParserError: <message>`
+    /// in UTF-8, non-ASCII stdout and stderr arrive intact, and an error record keeps pwsh's own view.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn powershell_commands_read_as_nodes_through_its_startup_script() {
+        let want: serde_json::Value =
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-pwsh-bootstrap/golden.json")).unwrap();
+        assert_eq!(want["standbyArgs"][4], mixdog_tools::exec::POWERSHELL_BOOTSTRAP);
+        let rig = rig().await;
+        let mut wrong = Vec::new();
+        for (i, case) in want["cases"].as_array().unwrap().iter().enumerate() {
+            let ran = rig.run(&format!("p{i}"), case["input"]["command"].as_str().unwrap()).await;
+            if ran != case["text"].as_str().unwrap() {
+                wrong.push(format!("{}: {ran:?}", case["name"]));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// PowerShell commands run in the warm standby as in Node (`fixtures/shell-warm-standby/golden.json`, recorded from
+    /// Node b6f10295a by `record-shell-warm-standby.mjs`): a command taken by the parked standby runs in its folder (one
+    /// whose name needs the Base64 hand-off) for PowerShell and .NET with its session's TEMP, and the next command, in the
+    /// next standby, does not see the global it set; a command from another folder (another environment) does not take
+    /// the standby and runs cold. Commands of 1 MiB, 1 MiB + 1 byte, one the hand-off prelude pushes past 1 MiB when it is
+    /// taken and one of 5 MiB each run whole cold and warm, past the helper's 1 MiB input queue. A variable of this process's environment changed
+    /// after a standby was parked reaches the next command, which does not take that standby. Whether each command ran
+    /// in the parked standby is told, as Node's recording tells it, by the process id it prints last. Each standby runs
+    /// one command, and shutdown ends the parked one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn powershell_commands_run_in_the_warm_standby_as_nodes_do() {
+        use mixdog_core_api::domain::process::ProcessEvent;
+        use mixdog_core_api::domain::process::ProcessManager;
+        let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-warm-standby/golden.json")).unwrap();
+        // Read by no other test; every standby is parked with this value, as in the recording.
+        // SAFETY: no other thread of this test binary reads or writes MIXDOG_STANDBY_PROBE.
+        unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", "parked") };
+        let calls: Vec<(usize, serde_json::Value)> = want["calls"].as_array().unwrap().iter().cloned().enumerate().collect();
+        // The recording runs every call in one runtime. Each run of sized commands (cold from folder A, cold from folder B,
+        // then warm from B) starts there from a standby parked for B; here each run replays in a runtime of its own, beside
+        // the others, after the two calls that bring it to that standby (1 runs cold from A and parks one for A, 4 misses it
+        // from B and parks one for B). The last call changes this process's environment: it runs when all others are done.
+        let sized: Vec<usize> = calls.iter().filter(|(_, call)| call["input"]["size"].is_u64()).map(|(i, _)| *i).collect();
+        let (first, last) = (sized[0], calls.len() - 1);
+        assert_eq!(sized, (first..last).collect::<Vec<_>>(), "the sized commands run together, before the last call");
+        assert!(sized.chunks(3).all(|run| run.len() == 3 && ["A", "B", "B"].iter().zip(run).all(|(ws, i)| calls[*i].1["ws"] == *ws)));
+        assert!(calls[1].1["ws"] == "A" && calls[1].1["parked"] == false && calls[4].1["ws"] == "B" && calls[4].1["taken"] == false);
+        assert!(!calls[last].1["setAfterPark"].is_null());
+        let runs: Vec<_> = sized
+            .chunks(3)
+            .map(|run| {
+                let calls: Vec<(usize, serde_json::Value)> = [1, 4].iter().chain(run).map(|i| calls[*i].clone()).collect();
+                tokio::spawn(async move {
+                    let rig = rig().await;
+                    let replayed = replay_standby(&rig, &calls).await;
+                    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+                    replayed
+                })
+            })
+            .collect();
+        let rig = rig().await;
+        let (mut wrong, used) = replay_standby(&rig, &calls[..first]).await;
+        assert!(used.len() >= 2 && used[0] != used[1], "each standby runs one command: {used:?}");
+        for run in runs {
+            wrong.extend(run.await.unwrap().0);
+        }
+        wrong.extend(replay_standby(&rig, &calls[last..]).await.0);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+        let parked = rig.parked().await;
+        let mut events = rig.processes.subscribe(&parked, Some(0)).unwrap();
+        rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+        let ended = mixdog_rt::time::timeout(Duration::from_secs(30), async {
+            loop {
+                if let Some(ProcessEvent::Exited { .. }) | None = events.next().await {
+                    return;
+                }
+            }
+        });
+        ended.await.expect("shutdown ended the parked standby");
+        assert_eq!(rig.runtime.parked_standby(), None, "nothing is parked after shutdown");
+    }
+
+    /// Replays `calls` (index and recorded call) of the warm-standby recording on `rig`, in order: what differs from the
+    /// recording, and the standbys that ran a command. Whether a command ran in the parked standby is told, as Node's
+    /// recording tells it, by the process id it prints last.
+    #[allow(clippy::disallowed_methods, reason = "the replay makes its folders on the test thread")]
+    async fn replay_standby(rig: &Rig, calls: &[(usize, serde_json::Value)]) -> (Vec<String>, Vec<ProcessHandle>) {
+        use mixdog_core_api::domain::process::ProcessManager;
+        // The recorder's `sizedCommand`.
+        let sized = |size: usize| {
+            let head = "$null = $PSScriptRoot; $s = '";
+            let tail = "'; Write-Output ('len|' + $s.Length); Write-Output \"pid|$PID\"";
+            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
+        };
+        let (a, b) = (rig.dir.path().join("ws-a it\u{2019}s"), rig.dir.path().join("ws-b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let mut temp: Option<String> = None;
+        let (mut wrong, mut used) = (Vec::new(), Vec::new());
+        for (i, call) in calls {
+            let parked = if call["parked"].as_bool().unwrap() { Some(rig.parked().await) } else { None };
+            let parked_pid = parked.as_ref().and_then(|h| rig.processes.list().into_iter().find(|p| &p.handle == h)).map(|p| p.pid);
+            if let Some(value) = call["setAfterPark"]["MIXDOG_STANDBY_PROBE"].as_str() {
+                // SAFETY: as in the test.
+                unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", value) };
+            }
+            let dir = if call["ws"] == "A" { &a } else { &b };
+            let command = match call["input"]["size"].as_u64() {
+                Some(size) => sized(size as usize),
+                None => call["input"]["command"].as_str().unwrap().to_owned(),
+            };
+            let ran = rig.run_in(dir, &format!("w{i}"), &command).await;
+            let (body, pid) = ran.trim_end().rsplit_once("pid|").unwrap_or_else(|| panic!("call {i}: no pid line in {ran:?}"));
+            let body = body.strip_suffix('\n').map(|b| b.strip_suffix('\r').unwrap_or(b)).unwrap();
+            let taken = parked_pid == Some(pid.parse().unwrap());
+            // The session's TEMP, as the first call prints it.
+            if let Some(cold) = body.lines().find_map(|line| line.strip_prefix("cold|")) {
+                temp = Some(cold.split('|').nth(1).unwrap().to_owned());
+            }
+            let mut view = body.replace(&*a.to_string_lossy(), "<A>").replace(&*b.to_string_lossy(), "<B>");
+            if let Some(temp) = &temp {
+                view = view.replace(temp.as_str(), "<TEMP>");
+            }
+            if view != call["text"].as_str().unwrap() || taken != call["taken"].as_bool().unwrap() {
+                wrong.push(format!("{i}: taken {taken} {view:?}"));
+            }
+            if taken {
+                used.extend(parked);
+            }
+        }
+        (wrong, used)
+    }
+
+    /// A shell that never reads the script it is fed is held and limited as in Node (`fixtures/shell-unread-stdin/golden.json`,
+    /// recorded by `record-shell-unread-stdin.mjs` with the same stand-in, `testdata/unread_stdin_shell.rs`): the write of a
+    /// 1 MiB command waits on the full pipe, and meanwhile a run limit ends the shell with the timeout's answer and the hold
+    /// moves it to the background, each before the stand-in's 30 s are up. Node's warm standby was off; here the stand-in may
+    /// be parked and taken, which feeds it the same way.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[allow(clippy::disallowed_methods, reason = "the test builds its stand-in shell on the test thread")]
+    async fn a_shell_that_never_reads_its_input_is_held_and_limited_as_nodes() {
+        use mixdog_core_api::domain::process::ProcessManager;
+        let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-unread-stdin/golden.json")).unwrap();
+        let rig = rig().await;
+        let standin = rig.dir.path().join("standin").join("pwsh.exe");
+        std::fs::create_dir_all(standin.parent().unwrap()).unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/testdata/unread_stdin_shell.rs");
+        let built = std::process::Command::new("rustc").arg("-O").arg("-o").arg(&standin).arg(&source).status().unwrap();
+        assert!(built.success(), "the stand-in shell did not build");
+        rig.configured.set(&standin.to_string_lossy());
+        // The recorder's `sizedCommand`.
+        let sized = |size: usize| {
+            let head = "$null = $PSScriptRoot; $s = '";
+            let tail = "'; Write-Output ('len|' + $s.Length)";
+            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
+        };
+        let life = Duration::from_millis(want["standinLifeMs"].as_u64().unwrap());
+        let mut wrong = Vec::new();
+        for (i, case) in want["cases"].as_array().unwrap().iter().enumerate() {
+            let mut input = case["input"].clone();
+            let size = input.as_object_mut().unwrap().remove("size").unwrap().as_u64().unwrap() as usize;
+            input["command"] = serde_json::Value::String(sized(size));
+            let call = format!("u{i}");
+            let started = std::time::Instant::now();
+            // An answer after the stand-in's life is wrong already, so the wait ends there.
+            let ran = mixdog_rt::time::timeout(life, rig.shell.call(&ctx(rig.dir.path(), &call, rig.processes.clone()), input))
+                .await
+                .unwrap_or_else(|_| panic!("{}: no answer within the stand-in's {life:?}", case["name"]));
+            let ran = text(ran);
+            let answered = started.elapsed();
+            let view: String = ran
+                .replace(&format!("task-{call}"), "<TASK>")
+                .lines()
+                .map(|line| {
+                    if line.starts_with("started: ") {
+                        "started: <TIME>".to_owned()
+                    } else if line.starts_with("logs: ") {
+                        "logs: <LOGS>".to_owned()
+                    } else {
+                        line.to_owned()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + if ran.ends_with('\n') { "\n" } else { "" };
+            if view != case["text"].as_str().unwrap() || answered >= life {
+                wrong.push(format!("{}: after {answered:?} {view:?}", case["name"]));
+            }
+        }
+        for process in ProcessManager::list(&rig.processes) {
+            let _ = ProcessManager::kill(&rig.processes, &process.handle);
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// The shell tool's command of `size` bytes: a PowerShell script that answers the length of its one long string.
+    #[cfg(windows)]
+    fn long_command(size: usize) -> (String, usize) {
+        let head = "$null = $PSScriptRoot; $s = '";
+        let tail = "'; Write-Output ('len|' + $s.Length)";
+        let len = size - head.len() - tail.len();
+        (format!("{head}{}{tail}", "a".repeat(len)), len)
+    }
+
+    /// A PowerShell command just over the 1 MiB input queue of the process helper (it goes in more than one piece, and the
+    /// shell reads it whole) goes through the shell tool and answers its length. The 50 MiB case is `pwsh_50_mib_command`.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_command_just_over_the_input_queue_answers_its_length() {
+        let rig = rig().await;
+        let (command, len) = long_command(1024 * 1024 + 4096);
+        let ran = rig.run("over", &command).await;
+        assert!(ran.contains(&format!("len|{len}")), "{}", &ran[..ran.len().min(400)]);
+    }
+
+    /// A 50 MiB PowerShell command goes through the shell tool and answers its length; the call's duration and how far it
+    /// raised this process's peak working set and peak committed memory (`K32GetProcessMemoryInfo`) over a warm-up call's
+    /// are printed (`-- --nocapture`). It takes 53 s and 414 MiB, so it is run by the `pwsh-50-mib` profile only.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "the 50 MiB measurement: `nextest run --profile pwsh-50-mib --run-ignored only -p mixdog-app-server-daemon`"]
+    async fn pwsh_50_mib_command() {
+        #[repr(C)]
+        #[derive(Default)]
+        struct Counters {
+            cb: u32,
+            page_faults: u32,
+            peak_working_set: usize,
+            working_set: usize,
+            quota_peak_paged: usize,
+            quota_paged: usize,
+            quota_peak_nonpaged: usize,
+            quota_nonpaged: usize,
+            pagefile: usize,
+            peak_pagefile: usize,
+        }
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn K32GetProcessMemoryInfo(process: isize, counters: *mut Counters, cb: u32) -> i32;
+        }
+        let peaks = || {
+            let mut c = Counters { cb: std::mem::size_of::<Counters>() as u32, ..Counters::default() };
+            // SAFETY: `c` is a PROCESS_MEMORY_COUNTERS of the size given; the pseudo-handle needs no closing.
+            assert_ne!(unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) }, 0);
+            (c.peak_working_set, c.peak_pagefile)
+        };
+        let rig = rig().await;
+        assert!(rig.run("warm", "Write-Output hi").await.contains("hi"));
+        let (command, len) = long_command(50 * 1024 * 1024);
+        let (ws, commit) = peaks();
+        let start = std::time::Instant::now();
+        let ran = rig.run("big", &command).await;
+        let took = start.elapsed();
+        drop(command);
+        let (ws_after, commit_after) = peaks();
+        assert!(ran.contains(&format!("len|{len}")), "{}", &ran[..ran.len().min(400)]);
+        let mib = |bytes: usize| bytes as f64 / 1048576.0;
+        println!(
+            "50 MiB command: {:.1} s; peak working set {:.0} -> {:.0} MiB (+{:.0}), peak commit {:.0} -> {:.0} MiB (+{:.0})",
+            took.as_secs_f64(),
+            mib(ws),
+            mib(ws_after),
+            mib(ws_after - ws),
+            mib(commit),
+            mib(commit_after),
+            mib(commit_after - commit)
+        );
     }
 
     /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.

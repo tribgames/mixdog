@@ -118,6 +118,25 @@ pub struct ToolCall {
     pub native_type: Option<String>,
 }
 
+/// `providerMetadata.accountRouting`: the roster account of `provider` that served a message.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AccountRouting {
+    pub provider: String,
+    pub account_id: String,
+    /// The account the session stays bound to (`sessionAccountId`); `None` on a message read back where the
+    /// stored routing named none.
+    pub session_account_id: Option<String>,
+}
+
+/// The account pool's stages (Node `onStageChange`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum AccountStage {
+    /// `'reconnecting', { message }`: the pool moves on to the next account.
+    Switching { message: String },
+    /// `'account-changed', { provider, accountId, at }`: a fallback became the selected account.
+    Changed { provider: String, account_id: String, at: i64 },
+}
+
 /// A provider-opaque replay envelope. Only its owner reads it back.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ProviderReplay {
@@ -167,6 +186,13 @@ pub struct Message {
     /// same shape; every other codec ignores it. The `clear_at` messages
     /// themselves are never stored: they derive from this text alone.
     pub turn_reminder: Option<String>,
+    /// Assistant only: the roster account that served this turn, as its stored `providerMetadata.accountRouting`
+    /// names it. An account pool passes this message's replay state to that account alone.
+    pub account_routing: Option<AccountRouting>,
+    /// User and tool only (Node `meta.sentRequestTail`): the message a provider request ended with when a restart
+    /// or cancel cut it. An Anthropic wire keeps later user text beside it as sibling blocks instead of folding it
+    /// in, so the cached prefix that request wrote is sent unchanged.
+    pub sent_request_tail: bool,
     provider_replay: Vec<ProviderReplay>,
 }
 
@@ -185,12 +211,19 @@ impl Message {
             native_tool_search: None,
             source: None,
             turn_reminder: None,
+            account_routing: None,
+            sent_request_tail: false,
             provider_replay: Vec::new(),
         }
     }
 
     pub fn push_replay(&mut self, replay: ProviderReplay) {
         self.provider_replay.push(replay);
+    }
+
+    /// Keeps only the envelopes `keep` accepts.
+    pub fn retain_replay(&mut self, keep: impl FnMut(&ProviderReplay) -> bool) {
+        self.provider_replay.retain(keep);
     }
 
     /// The only read access to replay envelopes: a provider never replays
@@ -330,6 +363,35 @@ pub struct RequestOptions {
     pub source_type: Option<String>,
     /// Node `opts.onToolExcluded`: where a tool the adapter leaves out of this request is reported.
     pub on_tool_excluded: Option<ToolExclusionSink>,
+    /// Node `session.wireRoute`: the wire the session pinned for a provider and model. A gateway sends on it while
+    /// it names the gateway and the request's model and the model is still offered there (`sendWireRoute`).
+    pub wire_pin: Option<WirePin>,
+}
+
+/// A session's pinned wire route (Node `session.wireRoute`: `{ provider, model, wire }`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct WirePin {
+    pub provider: String,
+    pub model: String,
+    /// `chat`, `responses`, `messages` or `gemini`.
+    pub wire: String,
+    /// The stored route when it is a reroute (Node `source: 'reroute'`): every send on it reports it back
+    /// (`wireReroute`), and its first `loweredAssistantCount` assistant turns go without their wire-native replay.
+    pub reroute: Option<JsonValue>,
+}
+
+impl WirePin {
+    /// The pin a stored `wireRoute` names; `None` without provider, model and wire.
+    pub fn from_route(route: &JsonValue) -> Option<Self> {
+        let field = |key: &str| route.get(key).and_then(JsonValue::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        let reroute = (route.get("source").and_then(JsonValue::as_str) == Some("reroute")).then(|| route.clone());
+        Some(Self { provider: field("provider")?, model: field("model")?, wire: field("wire")?, reroute })
+    }
+
+    /// `loweredAssistantCount` of a rerouted pin; 0 otherwise.
+    pub fn lowered_assistants(&self) -> usize {
+        self.reroute.as_ref().and_then(|r| r.get("loweredAssistantCount")).and_then(JsonValue::as_u64).unwrap_or(0) as usize
+    }
 }
 
 /// The session's saved provider-native state (Node `session.providerState`).
@@ -684,6 +746,30 @@ pub enum StreamEvent {
     /// `send` result `model`: Gemini's dated redirect). The usage ledger books the send under it and the turn's
     /// response reports it.
     ServedModel(String),
+    /// Provider facts about the turn that the committed assistant message keeps (Node result `providerMetadata`, copied
+    /// onto the turn by `assistantEchoFields`): Anthropic's `anthropicFallbacks`, which the usage ledger also reads to
+    /// book the answer as substituted. The last one stands.
+    ProviderMetadata(JsonValue),
+    /// The id the provider gave the response (Node result `responseId`: OpenAI's HTTP/SSE Responses route), which the
+    /// usage ledger books the send under. Folds into nothing else.
+    ResponseId(String),
+    /// The roster account that served the answer (Node `recordServingAccount`: the result's
+    /// `providerMetadata.accountRouting`). The turn's assistant message stores it, and a later send of the
+    /// same provider reads it to give each account only its own replay state.
+    AccountRouting(AccountRouting),
+    /// A notice of the account roster's walk (Node's pool `onStageChange('reconnecting' | 'account-changed')`),
+    /// in the order Node raises it: a switch before the next account's request, a committed change after the
+    /// answer. Folds into nothing.
+    AccountStage(AccountStage),
+    /// The gateway refused the model on the routed wire and the send went out once more on another one (Node
+    /// `sendOnRoute`'s `wireReroute`): the session's new `wireRoute`, whole, as Node stores it. A session whose pin
+    /// named this provider and model takes it. Folds into nothing.
+    WireRerouted(JsonValue),
+    /// The model began its output (Node's `firstOutputAt`, generation-window.mjs): raised once per attempt by a
+    /// decoder whose Node stream stamps it, at the wire event Node stamps (an Anthropic content block opening, a
+    /// Responses output item added, a compatible Chat stream's first visible delta). The accounting layer times the
+    /// first-output wait from it (`ttftMs`). Folds into nothing.
+    OutputStarted,
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -816,6 +902,14 @@ pub enum DeliveryState {
     Accepted,
 }
 
+/// Where a WebSocket send failed (Node `wsFailurePhase`): before a socket was acquired (the acquire, the upgrade), or
+/// after it (the frame send or the stream itself).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WsPhase {
+    Handshake,
+    Stream,
+}
+
 /// The facts that end a link or stream (SPEC §4.9 cases 1–4).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TransportFault {
@@ -846,6 +940,26 @@ pub enum TransportFault {
     Io {
         os_code: Option<i32>,
     },
+}
+
+impl TransportFault {
+    /// The errno name Node gives the socket error of this fault (`error.code`): `ECONNRESET` for a reset,
+    /// and for a connect or I/O failure the name of its OS error: `ECONNREFUSED`, `ETIMEDOUT` or `EPIPE`.
+    /// The OS error is read through the platform's own mapping, so a Windows or a Unix number names the same code.
+    pub fn errno_name(&self) -> Option<&'static str> {
+        use std::io::ErrorKind as K;
+        match self {
+            Self::Reset => Some("ECONNRESET"),
+            Self::Connect { os_code: Some(code) } | Self::Io { os_code: Some(code) } => match std::io::Error::from_raw_os_error(*code).kind() {
+                K::ConnectionRefused => Some("ECONNREFUSED"),
+                K::TimedOut => Some("ETIMEDOUT"),
+                K::BrokenPipe => Some("EPIPE"),
+                K::ConnectionReset => Some("ECONNRESET"),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
 
 /// Classified once at the adapter boundary; downstream reads fields only.
@@ -880,6 +994,9 @@ pub struct ProviderError {
     /// The replay envelope of the items a cut stream had finished (Node `partialProviderReplay`), when the wire keeps
     /// one: the response builder folds it into the failed attempt's partial.
     pub partial_replay: Option<Box<ProviderReplay>>,
+    /// The calls a response cut by its length or a content filter held (Node `partialToolCalls` of the
+    /// `ProviderIncompleteError`): none was dispatched or will run, and the turn fails with this error.
+    pub partial_tool_calls: Vec<ToolCall>,
     /// A page the user must open to unblock the account (Antigravity
     /// `VALIDATION_REQUIRED`: the `google.rpc.Help` link, else
     /// `metadata.validation_url`, else `metadata.validation_link`). Read from
@@ -912,6 +1029,9 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
+    /// The failure came from a WebSocket send, and where (Node `wsFailurePhase`); the loop keeps such a failure
+    /// when a retry follows it, since an outage that ends later surfaces that one.
+    pub ws_phase: Option<WsPhase>,
 }
 
 impl ProviderError {
@@ -932,12 +1052,14 @@ impl ProviderError {
             partial_usage: None,
             partial_model: None,
             partial_replay: None,
+            partial_tool_calls: Vec::new(),
             verification_url: None,
             rejected_tool: None,
             account_blocked: false,
             unsafe_to_retry: false,
             timed_out: false,
             quota_limit: None,
+            ws_phase: None,
             notices: Vec::new(),
         }
     }
@@ -997,6 +1119,13 @@ pub struct FirstResponseBudget {
 pub trait ModelStream: Send {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>>;
     fn delivery(&self) -> DeliveryState;
+    /// Given once by the consumer, before the stream is polled. A stream whose `next` goes on to await something else once
+    /// the send's wire has delivered its terminal event (the usage ledger writing the completed row, the key pool binding
+    /// the serving key) calls `left` inside that `next`, before the await: from then on a pending `next` is not a wait for
+    /// the wire. Required, with no default, so that every stream decides: a wrapper hands `left` to the stream it wraps,
+    /// a stream that produces attempts to each attempt's stream as it is created, and only a leaf whose `next` awaits
+    /// nothing after the wire's terminal event ignores it.
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>);
 }
 
 #[async_trait]
@@ -1004,6 +1133,12 @@ pub trait ProviderAdapter: Send + Sync {
     fn id(&self) -> &ProviderId;
     fn codec(&self) -> &dyn WireCodec;
     fn retry_policy(&self) -> &RetryPolicy;
+    /// The retry policy of a send to `model`: a provider that reaches some models through another engine (Vertex AI's
+    /// open models over Chat Completions) retries those as that engine does. The provider's own by default; a wrapper
+    /// forwards its inner provider's.
+    fn retry_policy_for(&self, _model: &str) -> &RetryPolicy {
+        self.retry_policy()
+    }
     fn keepalive(&self) -> &KeepaliveSchedule;
     /// Exactly one attempt; never retries internally. Dropping the future
     /// aborts the attempt.
@@ -1026,6 +1161,10 @@ pub trait ProviderAdapter: Send + Sync {
     /// cancelled it. Called by the loop once per group, before any other send; a provider that
     /// accounts sends writes what the group held back. Nothing to do by default.
     async fn settle_send(&self, _group: &str, _end: SendEnd) {}
+    /// The logical send `group` is over for good, however it ended (answer, error, cancel, the caller's future
+    /// dropped, a panic): let go what it holds that other sends wait for. Synchronous, so a drop outside any
+    /// runtime can call it. Required: a wrapper must forward it; a stateless adapter writes an explicit no-op.
+    fn release_send(&self, group: &str);
     /// The session was deleted (`__mixdogCloseProviderConnectionsForSession(id,
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
@@ -1044,6 +1183,12 @@ pub trait ProviderAdapter: Send + Sync {
     /// `provider.nativeDocuments`: `Some(false)` means the provider takes no document block of any
     /// kind, so every document variant is lowered to text. Unset by default.
     fn native_documents(&self) -> Option<bool> {
+        None
+    }
+    /// `instance.constructor.inputExcludesCache` where the instance's class is not told by its registered name: a
+    /// custom provider on the anthropic protocol is an `AnthropicProvider` subclass (`custom-provider.mjs:162`) and
+    /// inherits `true`. `None` leaves the answer to the name (`accounted::input_excludes_cache`).
+    fn input_excludes_cache(&self) -> Option<bool> {
         None
     }
     /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`

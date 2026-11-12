@@ -207,13 +207,13 @@ where
 {
     let (mut sink, mut stream) = socket.split();
     redial.on_open();
-    let stable = tokio::time::sleep(config.stable_reset.unwrap_or(Duration::MAX / 4));
+    let stable = mixdog_rt::time::sleep(config.stable_reset.unwrap_or(Duration::MAX / 4));
     tokio::pin!(stable);
     let mut stable_done = config.stable_reset.is_none();
     if events.send(LegEvent::Open).await.is_err() {
         return Ended::Cancelled;
     }
-    let mut beat = tokio::time::interval(config.heartbeat);
+    let mut beat = mixdog_rt::time::interval(config.heartbeat);
     beat.tick().await;
     let mut alive = true;
     // A write that fails does not end the leg on the spot. Node's `ws` reads the socket whatever the
@@ -299,7 +299,7 @@ pub async fn run_leg(
         let delay = redial.after_close(code);
         tokio::select! {
             () = cancel.cancelled() => return,
-            () = tokio::time::sleep(delay) => {}
+            () = mixdog_rt::time::sleep(delay) => {}
         }
     }
 }

@@ -1,0 +1,97 @@
+{
+  "note": null,
+  "platform": "win32",
+  "cases": [
+    {
+      "cwd": "C:\\Project\\mixdog",
+      "base": {
+        "PATH": "A;B",
+        "MIXDOG_SESSION_CWD": "C:\\wrong-session"
+      },
+      "env": {
+        "PATH": "<LAUNCHER>;A;B",
+        "MIXDOG_SESSION_CWD": "C:\\Project\\mixdog",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {
+        "PATH": "A;B"
+      },
+      "env": {
+        "PATH": "<LAUNCHER>;A;B",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MIXDOG_SESSION_CWD": "C:\\x",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {
+        "PATH": "<LAUNCHER>;A"
+      },
+      "env": {
+        "PATH": "<LAUNCHER>;A",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MIXDOG_SESSION_CWD": "C:\\x",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {
+        "PATH": "A;;B"
+      },
+      "env": {
+        "PATH": "<LAUNCHER>;A;B",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MIXDOG_SESSION_CWD": "C:\\x",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {},
+      "env": {
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MIXDOG_SESSION_CWD": "C:\\x",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "PATH": "<LAUNCHER>"
+      }
+    },
+    {
+      "cwd": "C:\\x",
+      "base": {
+        "PATH": "A",
+        "PYTHONUTF8": "0",
+        "PYTHONIOENCODING": "latin-1",
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8",
+        "OPENAI_API_KEY": "k",
+        "NODE_OPTIONS": "--x",
+        "HOME": "h"
+      },
+      "env": {
+        "PATH": "<LAUNCHER>;A",
+        "PYTHONUTF8": "0",
+        "PYTHONIOENCODING": "latin-1",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "HOME": "h",
+        "MIXDOG_SESSION_CWD": "C:\\x"
+      }
+    }
+  ]
+}

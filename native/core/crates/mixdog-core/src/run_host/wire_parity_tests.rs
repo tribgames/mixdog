@@ -39,8 +39,8 @@ use super::process_tests::world;
 use mixdog_ai::transport::loopback::{Loopback, Script, RANDOM};
 
 const SESSION: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/session.json");
-const SCENARIOS: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/scenarios.json");
-const NODE: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-recording.json");
+const SCENARIOS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/scenarios.json");
+const NODE: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-recording.json");
 const CAPTURE: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-wire-capture.mjs");
 const SERVER: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/wire-server.mjs");
 
@@ -55,7 +55,7 @@ const FAR: u64 = 4_102_444_800_000;
 const DEADLINE: Duration = Duration::from_secs(30);
 
 async fn within<T>(what: impl std::fmt::Display, future: impl std::future::Future<Output = T>) -> T {
-    match tokio::time::timeout(DEADLINE, future).await {
+    match mixdog_rt::time::timeout(DEADLINE, future).await {
         Ok(value) => value,
         Err(_) => panic!("timed out after {} ms awaiting {what}", DEADLINE.as_millis()),
     }
@@ -187,6 +187,8 @@ impl mixdog_ai::oauth::Pace for RecordedPace {
         let ms = duration.as_millis() as u64;
         self.0.push(json!({ "kind": "sleep", "ms": ms }));
         self.1.fetch_add(ms, Ordering::SeqCst);
+        // The recorder's pause is a `setImmediate` (`node-wire-capture.mjs`): one turn of the loop.
+        mixdog_rt::time::immediate().await;
     }
 
     fn draw(&self) -> f64 {
@@ -227,7 +229,7 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     let _alone = within("the end of this process's other replay", REPLAY.lock()).await;
     mixdog_ai::reset_process_state();
     let session: Value = serde_json::from_str(SESSION).unwrap();
-    let doc: Value = serde_json::from_str(SCENARIOS).unwrap();
+    let doc: Value = serde_json::from_str(&SCENARIOS).unwrap();
     let now = doc["nowMs"].as_u64().unwrap();
 
     let model = "gpt-6.1-sol";
@@ -286,6 +288,9 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     // The latest send of the run and its reply: what a compaction scenario forks.
     let mut last_send: Option<(ModelRequest, ModelResponse)> = None;
     for scenario in selected(doc["scenarios"].as_array().unwrap(), only) {
+        // The event loop turns once between scenarios, as the recorder's does (`node-wire-capture.mjs`): undici gives a
+        // socket whose answer ended back to its pool one `setImmediate` later.
+        mixdog_rt::time::immediate().await;
         let id = text(&scenario["id"]);
         let provider = scenario["provider"].as_str().unwrap();
         let model = match provider {
@@ -329,6 +334,24 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
         } else {
             builder.build(provider, &config(provider)).await.unwrap()
         };
+        // A provider built just now has sent its socket warm-up (`preconnect`, a HEAD that ends its connection); in the
+        // recording every warm-up is answered before the scenario's first request starts (rank 2 against 3), and Node
+        // reads that answer and handles its socket's close while the send is still on its way out. Here the send would
+        // dispatch at once, so the replay lets the warm-up settle first: its client vacated, in its place in the pool.
+        // Grok warms its origin as its send starts (`header()`), and in the recording that warm-up is answered and its
+        // socket's close handled before the send dispatches (Node's token read is file I/O, slower than the loopback
+        // answer); the replay warms first, so the send's own warm-up finds the origin warmed, as Node's gate would.
+        let warmed_first = node.iter().find(|n| n["id"] == scenario["id"]).and_then(|n| n["traffic"][0]["line"].as_str());
+        if provider == "grok-oauth" && warmed_first.is_some_and(|line| line.starts_with("HEAD ")) {
+            let http: Arc<dyn mixdog_ai::transport::HttpSend> = tapped.clone();
+            mixdog_ai::transport::preconnect::preconnect(
+                &http,
+                "https://cli-chat-proxy.grok.com",
+                mixdog_ai::providers::grok::auth::now_ms(),
+                std::env::var("MIXDOG_LLM_KEEPALIVE_MS").ok(),
+            );
+        }
+        within(format_args!("{id}: the warm-up's end"), tapped.settled()).await;
         let stored = stored_session(&session, scenario, node);
         let outcome = if scenario["compaction"] == true {
             // The compaction summary as the core's compaction sends it (`RequestFork`, the fork of the session's
@@ -650,7 +673,7 @@ fn verify_manifest(node: &Value, only: Option<&str>) {
     assert_eq!(manifest["replaced"][0]["value"], RANDOM);
     // The recorded payload itself: the text of `scenarios` as the recorder wrote it, hashed before it was written.
     if only.is_none() {
-        assert_eq!(manifest["scenariosRecordedSha256"], sha256(recorded_scenarios_text(NODE).as_bytes()), "node-recording.json's scenarios changed since the recording (re-record, never hand-edit)");
+        assert_eq!(manifest["scenariosRecordedSha256"], sha256(recorded_scenarios_text(&NODE).as_bytes()), "node-recording.json's scenarios changed since the recording (re-record, never hand-edit)");
     }
 }
 
@@ -672,7 +695,7 @@ const CLAIMS: [(&str, &str); 4] = [
 
 #[test]
 fn every_recorded_scenario_is_claimed_by_exactly_one_test() {
-    let node: Value = serde_json::from_str(NODE).unwrap();
+    let node: Value = serde_json::from_str(&NODE).unwrap();
     let unclaimed: Vec<String> = node["scenarios"]
         .as_array()
         .unwrap()
@@ -699,7 +722,7 @@ async fn differences(provider: &str) -> Vec<String> {
             let file = std::env::var("MIXDOG_WIRE_NODE").expect("MIXDOG_WIRE_NODE names the recording of the one scenario");
             serde_json::from_str(&std::fs::read_to_string(file).expect("the recording of the one scenario")).unwrap()
         }
-        None => serde_json::from_str(NODE).unwrap(),
+        None => serde_json::from_str(&NODE).unwrap(),
     };
     verify_manifest(&node, only.as_deref());
     let rust = record_all(only.as_deref(), node["scenarios"].as_array().unwrap()).await;
@@ -739,7 +762,7 @@ fn upgrade_headers(list: &mut [Value]) -> &mut Vec<Value> {
 /// header order, an extra scenario, a changed provider.
 #[test]
 fn the_comparator_reports_what_a_looser_one_hides() {
-    let node: Value = serde_json::from_str(NODE).unwrap();
+    let node: Value = serde_json::from_str(&NODE).unwrap();
     let scenarios = node["scenarios"].as_array().unwrap().clone();
     assert!(compare(&scenarios, &scenarios, "openai-oauth").is_empty());
     let mutate = |change: &dyn Fn(&mut Vec<Value>)| {

@@ -1,0 +1,3241 @@
+{
+  "domain": "memory-core-index",
+  "source": "src/runtime/memory/lib/core-memory-index.test.mjs",
+  "clock": {
+    "dateNowMs": 1800000000000,
+    "reason": "virtual clock, never advanced"
+  },
+  "cases": [
+    {
+      "name": "real scoped indices persist, compact independently, append on move, and reject stale requests (test line 44)",
+      "steps": [
+        {
+          "label": "first sync",
+          "result": {
+            "$exact": "map",
+            "entries": [
+              [
+                "\"alpha\"",
+                {
+                  "revision": "<uuid-1>",
+                  "recordIds": [
+                    150,
+                    170
+                  ]
+                }
+              ],
+              [
+                "\"beta\"",
+                {
+                  "revision": "<uuid-2>",
+                  "recordIds": [
+                    200
+                  ]
+                }
+              ],
+              [
+                "null",
+                {
+                  "revision": "<uuid-3>",
+                  "recordIds": [
+                    81
+                  ]
+                }
+              ]
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-1>\",\"recordIds\":[150,170]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"beta\"",
+                "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.null",
+                "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-1>\",\"recordIds\":[150,170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "indexedCoreRecord after the first sync",
+          "probes": [
+            {
+              "label": "common 81",
+              "row": {
+                "id": 81,
+                "project_id": null
+              },
+              "id": 1,
+              "project_id": null,
+              "record_id": 81,
+              "index_revision": "<uuid-3>"
+            },
+            {
+              "label": "alpha 150",
+              "row": {
+                "id": 150,
+                "project_id": "alpha"
+              },
+              "id": 1,
+              "project_id": "alpha",
+              "record_id": 150,
+              "index_revision": "<uuid-1>"
+            },
+            {
+              "label": "beta 200",
+              "row": {
+                "id": 200,
+                "project_id": "beta"
+              },
+              "id": 1,
+              "project_id": "beta",
+              "record_id": 200,
+              "index_revision": "<uuid-2>"
+            },
+            {
+              "label": "alpha 170",
+              "row": {
+                "id": 170,
+                "project_id": "alpha"
+              },
+              "id": 2,
+              "project_id": "alpha",
+              "record_id": 170,
+              "index_revision": "<uuid-1>"
+            },
+            {
+              "label": "unknown 999",
+              "row": {
+                "id": 999,
+                "project_id": "alpha"
+              },
+              "id": null,
+              "project_id": "alpha",
+              "record_id": 999,
+              "index_revision": null
+            }
+          ]
+        },
+        {
+          "label": "sync again returns the same indices",
+          "result": {
+            "$exact": "map",
+            "entries": [
+              [
+                "\"alpha\"",
+                {
+                  "revision": "<uuid-1>",
+                  "recordIds": [
+                    150,
+                    170
+                  ]
+                }
+              ],
+              [
+                "\"beta\"",
+                {
+                  "revision": "<uuid-2>",
+                  "recordIds": [
+                    200
+                  ]
+                }
+              ],
+              [
+                "null",
+                {
+                  "revision": "<uuid-3>",
+                  "recordIds": [
+                    81
+                  ]
+                }
+              ]
+            ]
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-1>\",\"recordIds\":[150,170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "resolve alpha 1 with its revision",
+          "result": 150,
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-1>\",\"recordIds\":[150,170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "resolve beta 1 with alpha's revision",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "memory indices changed; list memories again before editing or deleting",
+            "props": {}
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-1>\",\"recordIds\":[150,170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "resolve alpha 1 without a revision",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "index_revision required; list memories before editing or deleting",
+            "props": {}
+          },
+          "statements": [],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-1>\",\"recordIds\":[150,170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "after deleting alpha 150: sync (compaction)",
+          "result": {
+            "$exact": "map",
+            "entries": [
+              [
+                "\"alpha\"",
+                {
+                  "revision": "<uuid-4>",
+                  "recordIds": [
+                    170
+                  ]
+                }
+              ],
+              [
+                "\"beta\"",
+                {
+                  "revision": "<uuid-2>",
+                  "recordIds": [
+                    200
+                  ]
+                }
+              ],
+              [
+                "null",
+                {
+                  "revision": "<uuid-3>",
+                  "recordIds": [
+                    81
+                  ]
+                }
+              ]
+            ]
+          },
+          "remaining": {
+            "id": 1,
+            "project_id": "alpha",
+            "record_id": 170,
+            "index_revision": "<uuid-4>"
+          },
+          "alphaRevisionChanged": true,
+          "betaRevisionKept": true,
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-4>\",\"recordIds\":[170]}"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-4>\",\"recordIds\":[170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "resolve alpha 1 with the old revision",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "memory indices changed; list memories again before editing or deleting",
+            "props": {}
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-4>\",\"recordIds\":[170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "resolve alpha 1 with the new revision",
+          "result": 170,
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-4>\",\"recordIds\":[170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "after adding alpha 201: sync",
+          "result": {
+            "$exact": "map",
+            "entries": [
+              [
+                "\"alpha\"",
+                {
+                  "revision": "<uuid-5>",
+                  "recordIds": [
+                    170,
+                    201
+                  ]
+                }
+              ],
+              [
+                "\"beta\"",
+                {
+                  "revision": "<uuid-2>",
+                  "recordIds": [
+                    200
+                  ]
+                }
+              ],
+              [
+                "null",
+                {
+                  "revision": "<uuid-3>",
+                  "recordIds": [
+                    81
+                  ]
+                }
+              ]
+            ]
+          },
+          "probe": {
+            "id": 2,
+            "project_id": "alpha",
+            "record_id": 201,
+            "index_revision": "<uuid-5>"
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-5>\",\"recordIds\":[170,201]}"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-5>\",\"recordIds\":[170,201]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-3>\",\"recordIds\":[81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              },
+              {
+                "id": 201,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "New",
+                "summary": "New alpha memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "after moving common 81 to alpha: sync (append on move)",
+          "result": {
+            "$exact": "map",
+            "entries": [
+              [
+                "\"alpha\"",
+                {
+                  "revision": "<uuid-6>",
+                  "recordIds": [
+                    170,
+                    201,
+                    81
+                  ]
+                }
+              ],
+              [
+                "\"beta\"",
+                {
+                  "revision": "<uuid-2>",
+                  "recordIds": [
+                    200
+                  ]
+                }
+              ],
+              [
+                "null",
+                {
+                  "revision": "<uuid-7>",
+                  "recordIds": []
+                }
+              ]
+            ]
+          },
+          "probes": [
+            {
+              "id": 3,
+              "project_id": "alpha",
+              "record_id": 81,
+              "index_revision": "<uuid-6>"
+            },
+            {
+              "id": 1,
+              "project_id": "alpha",
+              "record_id": 170,
+              "index_revision": "<uuid-6>"
+            }
+          ],
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-6>\",\"recordIds\":[170,201,81]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.null",
+                "{\"revision\":\"<uuid-7>\",\"recordIds\":[]}"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-6>\",\"recordIds\":[170,201,81]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-7>\",\"recordIds\":[]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              },
+              {
+                "id": 201,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "New",
+                "summary": "New alpha memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "resolve common 1 with the old common revision",
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "memory indices changed; list memories again before editing or deleting",
+            "props": {}
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-6>\",\"recordIds\":[170,201,81]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-7>\",\"recordIds\":[]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              },
+              {
+                "id": 201,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "New",
+                "summary": "New alpha memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "after adding common 202: sync",
+          "result": {
+            "$exact": "map",
+            "entries": [
+              [
+                "\"alpha\"",
+                {
+                  "revision": "<uuid-6>",
+                  "recordIds": [
+                    170,
+                    201,
+                    81
+                  ]
+                }
+              ],
+              [
+                "\"beta\"",
+                {
+                  "revision": "<uuid-2>",
+                  "recordIds": [
+                    200
+                  ]
+                }
+              ],
+              [
+                "null",
+                {
+                  "revision": "<uuid-8>",
+                  "recordIds": [
+                    202
+                  ]
+                }
+              ]
+            ]
+          },
+          "probe": {
+            "id": 1,
+            "project_id": null,
+            "record_id": 202,
+            "index_revision": "<uuid-8>"
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.null",
+                "{\"revision\":\"<uuid-8>\",\"recordIds\":[202]}"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-6>\",\"recordIds\":[170,201,81]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-8>\",\"recordIds\":[202]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              },
+              {
+                "id": 201,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "New",
+                "summary": "New alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 202,
+                "project_id": null,
+                "status": "active",
+                "element": "New common",
+                "summary": "New common memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "after archiving alpha 170: sync",
+          "result": {
+            "$exact": "map",
+            "entries": [
+              [
+                "\"alpha\"",
+                {
+                  "revision": "<uuid-9>",
+                  "recordIds": [
+                    201,
+                    81
+                  ]
+                }
+              ],
+              [
+                "\"beta\"",
+                {
+                  "revision": "<uuid-2>",
+                  "recordIds": [
+                    200
+                  ]
+                }
+              ],
+              [
+                "null",
+                {
+                  "revision": "<uuid-8>",
+                  "recordIds": [
+                    202
+                  ]
+                }
+              ]
+            ]
+          },
+          "probes": [
+            {
+              "id": 1,
+              "project_id": "alpha",
+              "record_id": 201,
+              "index_revision": "<uuid-9>"
+            },
+            {
+              "id": null,
+              "project_id": "alpha",
+              "record_id": 170,
+              "index_revision": null
+            }
+          ],
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-9>\",\"recordIds\":[201,81]}"
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\":\"<uuid-9>\",\"recordIds\":[201,81]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\":\"<uuid-2>\",\"recordIds\":[200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\":\"<uuid-8>\",\"recordIds\":[202]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "archived",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              },
+              {
+                "id": 201,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "New",
+                "summary": "New alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 202,
+                "project_id": null,
+                "status": "active",
+                "element": "New common",
+                "summary": "New common memory",
+                "agent_id": null
+              }
+            ]
+          },
+          "summaryOf170": "Second alpha memory"
+        }
+      ]
+    },
+    {
+      "name": "lists and TUI requests carry per-scope indices and their matching revisions (test line 94; the TUI parser is not recorded, its formatted input is)",
+      "steps": [
+        {
+          "label": "list '*' curated",
+          "result": {
+            "entries": [
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": null,
+                "agent_id": null,
+                "element": "Common",
+                "summary": "Common preference",
+                "status": "active",
+                "injection_enabled": 1,
+                "record_id": 81,
+                "index_revision": "<uuid-10>"
+              },
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": "alpha",
+                "agent_id": null,
+                "element": "First",
+                "summary": "First alpha memory",
+                "status": "active",
+                "injection_enabled": 1,
+                "record_id": 150,
+                "index_revision": "<uuid-11>"
+              },
+              {
+                "source": "curated",
+                "id": 2,
+                "project_id": "alpha",
+                "agent_id": null,
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "status": "active",
+                "injection_enabled": 1,
+                "record_id": 170,
+                "index_revision": "<uuid-11>"
+              },
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": "beta",
+                "agent_id": null,
+                "element": "Beta",
+                "summary": "Beta memory",
+                "status": "active",
+                "injection_enabled": 1,
+                "record_id": 200,
+                "index_revision": "<uuid-12>"
+              }
+            ],
+            "nextOffset": null
+          },
+          "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-10> Common — Common preference\nid=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nid=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory\nid=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-12> Beta — Beta memory",
+          "roundTrip": {
+            "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-10> Common — Common preference\nid=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nid=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory\nid=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-12> Beta — Beta memory",
+            "parsed": [
+              {
+                "value": "core-common-1",
+                "label": "#1",
+                "meta": "",
+                "description": "Common preference",
+                "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-10> Common — Common preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-10>",
+                "_element": "Common",
+                "_summary": "Common preference",
+                "_projectId": null,
+                "_origElement": "Common",
+                "_origSummary": "Common preference"
+              },
+              {
+                "value": "core-alpha-1",
+                "label": "#1",
+                "meta": "alpha",
+                "description": "First alpha memory",
+                "_line": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-11>",
+                "_element": "First",
+                "_summary": "First alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "First",
+                "_origSummary": "First alpha memory"
+              },
+              {
+                "value": "core-alpha-2",
+                "label": "#2",
+                "meta": "alpha",
+                "description": "Second alpha memory",
+                "_line": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+                "_action": "core-entry",
+                "_id": 2,
+                "_indexRevision": "<uuid-11>",
+                "_element": "Second",
+                "_summary": "Second alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "Second",
+                "_origSummary": "Second alpha memory"
+              },
+              {
+                "value": "core-beta-1",
+                "label": "#1",
+                "meta": "beta",
+                "description": "Beta memory",
+                "_line": "id=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-12> Beta — Beta memory",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-12>",
+                "_element": "Beta",
+                "_summary": "Beta memory",
+                "_projectId": "beta",
+                "_origElement": "Beta",
+                "_origSummary": "Beta memory"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": null,
+                  "summary": "Common preference",
+                  "index_revision": "<uuid-10>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "alpha",
+                  "summary": "First alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 2,
+                  "project_id": "alpha",
+                  "summary": "Second alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "beta",
+                  "summary": "Beta memory",
+                  "index_revision": "<uuid-12>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 4,
+              "listed": 4
+            }
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-11>\",\"recordIds\":[150,170]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"beta\"",
+                "{\"revision\":\"<uuid-12>\",\"recordIds\":[200]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.null",
+                "{\"revision\":\"<uuid-10>\",\"recordIds\":[81]}"
+              ]
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 150 THEN 1 WHEN 170 THEN 2 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                "*",
+                51,
+                0,
+                false,
+                false,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "label": "resolve every listed entry with its own revision (what a list consumer sends back)",
+          "resolves": [
+            {
+              "projectId": null,
+              "id": 1,
+              "result": 81,
+              "expectRecordId": 81
+            },
+            {
+              "projectId": "alpha",
+              "id": 1,
+              "result": 150,
+              "expectRecordId": 150
+            },
+            {
+              "projectId": "alpha",
+              "id": 2,
+              "result": 170,
+              "expectRecordId": 170
+            },
+            {
+              "projectId": "beta",
+              "id": 1,
+              "result": 200,
+              "expectRecordId": 200
+            }
+          ],
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "alpha scope_only limit 1",
+          "result": {
+            "entries": [
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": "alpha",
+                "agent_id": null,
+                "element": "First",
+                "summary": "First alpha memory",
+                "status": "active",
+                "injection_enabled": 1,
+                "record_id": 150,
+                "index_revision": "<uuid-11>"
+              }
+            ],
+            "nextOffset": 1
+          },
+          "formatted": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nMore memories: call list with offset=1 and the same project scope/include_inactive.",
+          "roundTrip": {
+            "formatted": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nMore memories: call list with offset=1 and the same project scope/include_inactive.",
+            "parsed": [
+              {
+                "value": "core-alpha-1",
+                "label": "#1",
+                "meta": "alpha",
+                "description": "First alpha memory",
+                "_line": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-11>",
+                "_element": "First",
+                "_summary": "First alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "First",
+                "_origSummary": "First alpha memory"
+              },
+              {
+                "value": "core-1",
+                "label": "More memories: call list with offset=1 and the same project scope/include_inactive.",
+                "description": "",
+                "_line": "More memories: call list with offset=1 and the same project scope/include_inactive."
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "alpha",
+                  "summary": "First alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 2,
+              "listed": 1
+            }
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 150 THEN 1 WHEN 170 THEN 2 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                "alpha",
+                2,
+                0,
+                false,
+                true,
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "label": "alpha scope_only limit 1 at nextOffset",
+          "result": {
+            "entries": [
+              {
+                "source": "curated",
+                "id": 2,
+                "project_id": "alpha",
+                "agent_id": null,
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "status": "active",
+                "injection_enabled": 1,
+                "record_id": 170,
+                "index_revision": "<uuid-11>"
+              }
+            ],
+            "nextOffset": null
+          },
+          "formatted": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+          "roundTrip": {
+            "formatted": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+            "parsed": [
+              {
+                "value": "core-alpha-2",
+                "label": "#2",
+                "meta": "alpha",
+                "description": "Second alpha memory",
+                "_line": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+                "_action": "core-entry",
+                "_id": 2,
+                "_indexRevision": "<uuid-11>",
+                "_element": "Second",
+                "_summary": "Second alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "Second",
+                "_origSummary": "Second alpha memory"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 2,
+                  "project_id": "alpha",
+                  "summary": "Second alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 1,
+              "listed": 1
+            }
+          },
+          "statements": [
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 150 THEN 1 WHEN 170 THEN 2 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                "alpha",
+                2,
+                1,
+                false,
+                true,
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public mutations resolve scope and version before touching the stable record (test line 125)",
+      "steps": [
+        {
+          "label": "list common",
+          "args": {
+            "op": "list",
+            "project_id": "common",
+            "scope_only": true,
+            "source": "curated",
+            "format": "json"
+          },
+          "result": {
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}",
+            "entries": [
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": null,
+                "agent_id": null,
+                "element": "Common",
+                "summary": "Common preference",
+                "status": "active",
+                "injection_enabled": true,
+                "record_id": 81,
+                "index_revision": "<uuid-13>"
+              }
+            ],
+            "nextOffset": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}"
+              }
+            ],
+            "isError": false
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-14>\",\"recordIds\":[150,170]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"beta\"",
+                "{\"revision\":\"<uuid-15>\",\"recordIds\":[200]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.null",
+                "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 150 THEN 1 WHEN 170 THEN 2 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                null,
+                51,
+                0,
+                false,
+                true,
+                null
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-14>\", \"recordIds\": [150, 170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "list alpha",
+          "args": {
+            "op": "list",
+            "project_id": "alpha",
+            "scope_only": true,
+            "source": "curated",
+            "format": "json"
+          },
+          "result": {
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"First\",\"summary\":\"First alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":150,\"index_revision\":\"<uuid-14>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-14>\"}],\"nextOffset\":null}",
+            "entries": [
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": "alpha",
+                "agent_id": null,
+                "element": "First",
+                "summary": "First alpha memory",
+                "status": "active",
+                "injection_enabled": true,
+                "record_id": 150,
+                "index_revision": "<uuid-14>"
+              },
+              {
+                "source": "curated",
+                "id": 2,
+                "project_id": "alpha",
+                "agent_id": null,
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "status": "active",
+                "injection_enabled": true,
+                "record_id": 170,
+                "index_revision": "<uuid-14>"
+              }
+            ],
+            "nextOffset": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"First\",\"summary\":\"First alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":150,\"index_revision\":\"<uuid-14>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-14>\"}],\"nextOffset\":null}"
+              }
+            ],
+            "isError": false
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 150 THEN 1 WHEN 170 THEN 2 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                "alpha",
+                51,
+                0,
+                false,
+                true,
+                null
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-14>\", \"recordIds\": [150, 170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "edit with the old global id (common 81) is refused",
+          "args": {
+            "op": "edit",
+            "project_id": "common",
+            "id": 81,
+            "index_revision": "<uuid-13>",
+            "summary": "Wrong"
+          },
+          "result": {
+            "text": "core edit failed: no memory index=81 in project=COMMON",
+            "isError": true,
+            "content": [
+              {
+                "type": "text",
+                "text": "core edit failed: no memory index=81 in project=COMMON"
+              }
+            ]
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-14>\", \"recordIds\": [150, 170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 150,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "First",
+                "summary": "First alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "delete alpha 1",
+          "args": {
+            "op": "delete",
+            "project_id": "alpha",
+            "id": 1,
+            "index_revision": "<uuid-14>"
+          },
+          "result": {
+            "text": "core deleted (project=alpha id=1): First. Remaining indices were compacted; list memories before the next write.",
+            "content": [
+              {
+                "type": "text",
+                "text": "core deleted (project=alpha id=1): First. Remaining indices were compacted; list memories before the next write."
+              }
+            ],
+            "isError": false
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "SELECT project_id, agent_id FROM core_entries WHERE id = $1",
+              "params": [
+                150
+              ]
+            },
+            {
+              "sql": "DELETE FROM core_entries WHERE id = $1\n       AND project_id IS NOT DISTINCT FROM $2 AND agent_id IS NOT DISTINCT FROM $3 RETURNING *",
+              "params": [
+                150,
+                "alpha",
+                null
+              ]
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-16>\",\"recordIds\":[170]}"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n      SELECT id, summary, project_id, agent_id, updated_at\n      FROM core_entries\n      WHERE status IS NULL OR status = 'active'\n      ORDER BY project_id NULLS FIRST, id ASC\n    ",
+              "params": []
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-16>\", \"recordIds\": [170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "edit alpha 1 with the stale revision is refused",
+          "args": {
+            "op": "edit",
+            "project_id": "alpha",
+            "id": 1,
+            "index_revision": "<uuid-14>",
+            "summary": "Wrong"
+          },
+          "result": {
+            "text": "core edit failed: memory indices changed; list memories again before editing or deleting",
+            "isError": true,
+            "content": [
+              {
+                "type": "text",
+                "text": "core edit failed: memory indices changed; list memories again before editing or deleting"
+              }
+            ]
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-16>\", \"recordIds\": [170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "list alpha",
+          "args": {
+            "op": "list",
+            "project_id": "alpha",
+            "scope_only": true,
+            "source": "curated",
+            "format": "json"
+          },
+          "result": {
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-16>\"}],\"nextOffset\":null}",
+            "entries": [
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": "alpha",
+                "agent_id": null,
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "status": "active",
+                "injection_enabled": true,
+                "record_id": 170,
+                "index_revision": "<uuid-16>"
+              }
+            ],
+            "nextOffset": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-16>\"}],\"nextOffset\":null}"
+              }
+            ],
+            "isError": false
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 170 THEN 1 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                "alpha",
+                51,
+                0,
+                false,
+                true,
+                null
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-16>\", \"recordIds\": [170]}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "alpha",
+                "status": "active",
+                "element": "Second",
+                "summary": "Second alpha memory",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "move alpha 1 to beta",
+          "args": {
+            "op": "edit",
+            "project_id": "alpha",
+            "id": 1,
+            "index_revision": "<uuid-16>",
+            "target_project_id": "beta",
+            "summary": "Moved"
+          },
+          "result": {
+            "text": "core edited (project=beta id=2 index_revision=<uuid-17>): Moved — Moved",
+            "content": [
+              {
+                "type": "text",
+                "text": "core edited (project=beta id=2 index_revision=<uuid-17>): Moved — Moved"
+              }
+            ],
+            "isError": false
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "SELECT * FROM core_entries WHERE id = $1",
+              "params": [
+                170
+              ]
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SET LOCAL lock_timeout = '5s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "core:alpha"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "core:beta"
+              ]
+            },
+            {
+              "sql": "SELECT * FROM core_entries WHERE id = $1 FOR UPDATE",
+              "params": [
+                170
+              ]
+            },
+            {
+              "sql": "\n    SELECT id, status FROM core_entries\n    WHERE project_id IS NOT DISTINCT FROM $1 AND agent_id IS NOT DISTINCT FROM $4 AND element = $2\n      AND ($3::bigint IS NULL OR id <> $3)\n    ORDER BY id LIMIT 2 FOR UPDATE\n  ",
+              "params": [
+                "beta",
+                "Moved",
+                170,
+                null
+              ]
+            },
+            {
+              "sql": "UPDATE core_entries\n       SET element = $1, summary = $2, category = $3, project_id = $4, updated_at = $5\n       WHERE id = $6",
+              "params": [
+                "Moved",
+                "Moved",
+                "rule",
+                "beta",
+                1800000000000,
+                170
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"alpha\"",
+                "{\"revision\":\"<uuid-18>\",\"recordIds\":[]}"
+              ]
+            },
+            {
+              "sql": "\n          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)\n          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value\n        ",
+              "params": [
+                "memory.core.index.\"beta\"",
+                "{\"revision\":\"<uuid-17>\",\"recordIds\":[200,170]}"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n      SELECT id, summary, project_id, agent_id, updated_at\n      FROM core_entries\n      WHERE status IS NULL OR status = 'active'\n      ORDER BY project_id NULLS FIRST, id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Moved",
+                "summary": "Moved",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "list beta",
+          "args": {
+            "op": "list",
+            "project_id": "beta",
+            "scope_only": true,
+            "source": "curated",
+            "format": "json"
+          },
+          "result": {
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Beta\",\"summary\":\"Beta memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":200,\"index_revision\":\"<uuid-17>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Moved\",\"summary\":\"Moved\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-17>\"}],\"nextOffset\":null}",
+            "entries": [
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": "beta",
+                "agent_id": null,
+                "element": "Beta",
+                "summary": "Beta memory",
+                "status": "active",
+                "injection_enabled": true,
+                "record_id": 200,
+                "index_revision": "<uuid-17>"
+              },
+              {
+                "source": "curated",
+                "id": 2,
+                "project_id": "beta",
+                "agent_id": null,
+                "element": "Moved",
+                "summary": "Moved",
+                "status": "active",
+                "injection_enabled": true,
+                "record_id": 170,
+                "index_revision": "<uuid-17>"
+              }
+            ],
+            "nextOffset": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Beta\",\"summary\":\"Beta memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":200,\"index_revision\":\"<uuid-17>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Moved\",\"summary\":\"Moved\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-17>\"}],\"nextOffset\":null}"
+              }
+            ],
+            "isError": false
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 200 THEN 1 WHEN 170 THEN 2 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                "beta",
+                51,
+                0,
+                false,
+                true,
+                null
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Moved",
+                "summary": "Moved",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "list common",
+          "args": {
+            "op": "list",
+            "project_id": "common",
+            "scope_only": true,
+            "source": "curated",
+            "format": "json"
+          },
+          "result": {
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}",
+            "entries": [
+              {
+                "source": "curated",
+                "id": 1,
+                "project_id": null,
+                "agent_id": null,
+                "element": "Common",
+                "summary": "Common preference",
+                "status": "active",
+                "injection_enabled": true,
+                "record_id": 81,
+                "index_revision": "<uuid-13>"
+              }
+            ],
+            "nextOffset": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}"
+              }
+            ],
+            "isError": false
+          },
+          "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "memory.core.index."
+              ]
+            },
+            {
+              "sql": "\n      SELECT id, project_id, agent_id FROM core_entries\n      WHERE status IS NULL OR status = 'active' ORDER BY id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "SELECT key, value FROM meta WHERE key LIKE $1",
+              "params": [
+                "memory.core.index.%"
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 200 THEN 1 WHEN 170 THEN 2 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
+              "params": [
+                null,
+                51,
+                0,
+                false,
+                true,
+                null
+              ]
+            }
+          ],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Moved",
+                "summary": "Moved",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "edit without id",
+          "args": {
+            "op": "edit",
+            "project_id": "alpha",
+            "summary": "x"
+          },
+          "result": {
+            "text": "core edit failed: memory index must be a positive integer",
+            "isError": true,
+            "content": [
+              {
+                "type": "text",
+                "text": "core edit failed: memory index must be a positive integer"
+              }
+            ]
+          },
+          "statements": [],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Moved",
+                "summary": "Moved",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        },
+        {
+          "label": "edit without revision",
+          "args": {
+            "op": "edit",
+            "project_id": "beta",
+            "id": 1,
+            "summary": "x"
+          },
+          "result": {
+            "text": "core edit failed: index_revision required; list memories before editing or deleting",
+            "isError": true,
+            "content": [
+              {
+                "type": "text",
+                "text": "core edit failed: index_revision required; list memories before editing or deleting"
+              }
+            ]
+          },
+          "statements": [],
+          "tables": {
+            "meta": [
+              {
+                "key": "memory.core.index.\"alpha\"",
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
+              },
+              {
+                "key": "memory.core.index.\"beta\"",
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
+              },
+              {
+                "key": "memory.core.index.null",
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
+              }
+            ],
+            "core_entries": [
+              {
+                "id": 81,
+                "project_id": null,
+                "status": "active",
+                "element": "Common",
+                "summary": "Common preference",
+                "agent_id": null
+              },
+              {
+                "id": 170,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Moved",
+                "summary": "Moved",
+                "agent_id": null
+              },
+              {
+                "id": 200,
+                "project_id": "beta",
+                "status": "active",
+                "element": "Beta",
+                "summary": "Beta memory",
+                "agent_id": null
+              }
+            ]
+          }
+        }
+      ],
+      "files": [
+        {
+          "path": "core-memory.json",
+          "text": "{\"version\":1,\"revision\":2,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":\"<uuid-13>\",\"summary\":\"Common preference\",\"projectId\":null,\"agentId\":null,\"updatedAt\":1800000000000},{\"id\":2,\"indexRevision\":\"<uuid-17>\",\"summary\":\"Moved\",\"projectId\":\"beta\",\"agentId\":null,\"updatedAt\":1800000000000},{\"id\":1,\"indexRevision\":\"<uuid-17>\",\"summary\":\"Beta memory\",\"projectId\":\"beta\",\"agentId\":null,\"updatedAt\":1800000000000}]}\n"
+        }
+      ]
+    }
+  ]
+}

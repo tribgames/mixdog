@@ -345,6 +345,7 @@ impl ModelCatalog for Fakes {
                 id: s(r, "id"),
                 display: s(r, "display"),
                 catalog_complete: r.get("catalogComplete") == Some(&Value::Bool(true)),
+                row: r.clone(),
             })
             .collect())
     }

@@ -1,0 +1,76 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs --tree <tree>",
+  "entry": "Cases 14 and 90 ran the real src/tui/session/session-api.mjs createSessionApiA and session-api-ext.mjs createSessionApiB with scripted dependencies (queue, state setter, restore hooks); case 75 ran src/tui/session/tui-steering-persist.mjs on a temp MIXDOG_DATA_DIR (spool files recorded with their path and bytes); case 139 ran the real HTTP session transport (behind a TCP tap that records every HTTP exchange) + session service + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, 64 gated reads and one abort. Did not run a real runtime or any TUI rendering.",
+  "exclusions": [
+    "case 75: spool paths are recorded as relative to the runtime root with the separator Node produced (a backslash on Windows); the root itself (a temp dir) is not recorded. Files are listed in the directory-walk order the OS returns them, not sorted",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine's roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads \"<CWD> (JSON-escaped)\"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised",
+    "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\"",
+    "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
+    "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
+    "BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production",
+    "BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store's own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed",
+    "BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)",
+    "BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 241038,
+      "path": "recording.json",
+      "sha256": "425513f575e389551cb7500e089d5601fdfcb64d7ff2f9f7cd9b6955261b7219"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "3bbd21f382d6762424a1305dc976f5babc2a6836cd631d6fce898125c61240cb"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs",
+  "recorderSha256": "60185fdea316676a0c4d6a5ffe400a5d9bcea30d2a4b5df6707a1f3bfa9ecf2a",
+  "replay": "Replayed at what a client sees by native/core/crates/mixdog-app-server/src/tests/session_transport.rs (the server over a real session thread): case 14 a_held_submission_is_reclaimed_by_its_id (turn/interrupt {restorePrompt, submissionId} on a thread holding the submission answers Node's aborted/restoreText/pastedImages/pastedTexts/restoredSubmissionIds, and nothing of it is left), 75 a_queued_submission_keeps_its_id_across_a_restart (a prompt submitted while a turn runs is kept in the session log with its clientSubmissionId; a core restarted on that store hands it back by that id with its text; Node's spool file path, steeringPersistId and submittedAt are Node's storage), 139 a_stop_is_answered_while_reads_are_in_flight (turn/interrupt answered while thread/read calls are in flight) — the core holds 16 C1 calls of a connection in flight and refuses the rest with inflightLimit; the shipped client (packages/protocol-client/src/client.ts run/awaitRetryTrigger, SPEC R7) resends a refused call once a C1 answer has arrived and never surfaces the refusal, so the replay is that client and every one of the 64 reads is answered, as in Node. Node's scripted abort result (restoreText, pastedTexts of its stub) is not compared. Not replayed: 90 (the Node TUI's commandBusy state while it restores: client code, Rust-side client work).",
+  "set": "session-transport-steering-recovery",
+  "testFile": "scripts/session-transport/steering-recovery.test.mjs",
+  "totalBytes": 241038,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

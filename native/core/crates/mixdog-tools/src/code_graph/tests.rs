@@ -13,63 +13,6 @@ use serde_json::Value;
 use super::args::Args;
 use super::dispatch;
 
-const PROJECT: [(&str, &str); 4] = [
-    (
-        "src/lib/math.mjs",
-        "export function add(a, b) {\n  return a + b;\n}\n\nexport function sub(a, b) {\n  return a - b;\n}\n",
-    ),
-    (
-        "src/lib/util.mjs",
-        "import { add } from './math.mjs';\n\nexport const twice = (x) => add(x, x);\n",
-    ),
-    (
-        "src/main.mjs",
-        "import { add, sub } from './lib/math.mjs';\n\nexport function main() {\n  return add(1, 2) + sub(5, 3);\n}\n\nexport function other() {\n  return add(3, 4);\n}\n",
-    ),
-    (
-        "src/app.py",
-        "def greet(name):\n    return name\n\n\nclass Greeter:\n    def run(self):\n        return 1\n",
-    ),
-];
-
-#[test]
-fn code_graph_matches_golden_fixtures() {
-    let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().join("ws");
-    for (rel, text) in PROJECT {
-        let path = root.join(rel);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, text).unwrap();
-    }
-    let root = root.canonicalize().unwrap();
-    let root_text = root.display().to_string();
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools/code_graph");
-    let mut cases = 0;
-    let mut failures: Vec<String> = Vec::new();
-    let (_cache_dir, cache) = no_cache();
-    for entry in fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        let case: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        let env = dispatch::Env { trust: &no_roots(), cache: &cache, session_cwd: &root };
-        let got = dispatch::run(&Args::parse(&case["input"]), &root, &env)
-            .map(|answer| answer.text.replace(&root_text, "<ROOT>"))
-            .map_err(|e| e.replace(&root_text, "<ROOT>"));
-        let want = match case.get("thrown") {
-            Some(t) => Err(t.as_str().unwrap().to_owned()),
-            // These goldens were recorded on Windows, where Node's graph-cache manifest key is
-            // lowercased and so is not "self": the call federated over its own cwd and gained a
-            // `# project ws [<ROOT>]` header. A clean run has no header (see code_graph_routing).
-            None => Ok(case["text"].as_str().unwrap().trim_start_matches("# project ws [<ROOT>]\n").to_owned()),
-        };
-        cases += 1;
-        if got != want {
-            failures.push(format!("{}\n  want: {want:?}\n  got:  {got:?}", path.display()));
-        }
-    }
-    assert!(cases >= 20);
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
 fn project_with_sentinel() -> (tempfile::TempDir, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("proj");

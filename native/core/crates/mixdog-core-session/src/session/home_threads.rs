@@ -46,6 +46,7 @@ impl DirectoryHomeThreads {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
         let deps = self.directory.deps();
+        deps.store.unheld().await;
         let (store, id) = (deps.store.clone(), thread.clone());
         let read = deps
             .lanes

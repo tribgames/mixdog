@@ -491,7 +491,7 @@ pub struct TokioTimer;
 
 impl IdleTimer for TokioTimer {
     fn sleep_until(&self, deadline: Instant) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)))
+        Box::pin(mixdog_rt::time::sleep_until(tokio::time::Instant::from_std(deadline)))
     }
 }
 
@@ -1722,6 +1722,20 @@ pub fn staged_payload() -> std::io::Result<(PathBuf, File)> {
     }
 }
 
+/// An opened attachment as `stageSessionAttachment` (session-attachments.ts) writes it: `<temp>/mixdog-attachments/<first 16 of the
+/// id>-<view name>`, written over (0600 on Unix), so it previews through the ordinary file calls.
+pub fn stage_attachment(id: &str, name: &str, bytes: &[u8]) -> WsResult<PathBuf> {
+    let directory = std::env::temp_dir().join("mixdog-attachments");
+    std::fs::create_dir_all(&directory)?;
+    let file = directory.join(format!("{}-{name}", id.get(..16).unwrap_or(id)));
+    let mut options = File::options();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(&file)?.write_all(bytes)?;
+    Ok(file)
+}
+
 /// The private folder of one staged download (`mkdtemp`, 0700 on Unix).
 fn staged_folder() -> std::io::Result<PathBuf> {
     let folder = std::env::temp_dir().join(format!("mixdog-download-{}", new_id().replace('-', "")));
@@ -2046,16 +2060,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Nothing open: the wait has nothing to end at.
         let mut waiting = Box::pin(t.wait_idle_due(&*manual));
-        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
         let id = t.begin_staged("o", dir.path(), "a.txt", 4).unwrap();
         let part = dir.path().join(format!(".{id}.part"));
         // Begun at 0: due at 120 000 ms, not before.
         manual.advance(119_999);
-        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
         // A chunk written at 119 999 ms moves the deadline to 239 999 ms.
         assert_eq!(t.write_chunk("o", &id, Some(0), "aGk=").unwrap(), 2);
         manual.advance(120_000 - 1);
-        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
         manual.advance(1);
         waiting.await;
         t.sweep_idle();
@@ -2085,7 +2099,7 @@ mod tests {
 
     /// What the recording of Node's service holds at the `n`th step with `op` of the scenario `name`.
     fn recorded(name: &str, op: &str, n: usize) -> serde_json::Value {
-        let recording: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/file-downloads/file-downloads.json")).unwrap();
+        let recording: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/file-downloads/file-downloads.json")).unwrap();
         let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"));
         scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == op).nth(n).unwrap_or_else(|| panic!("{name} {op} {n}")).clone()
     }

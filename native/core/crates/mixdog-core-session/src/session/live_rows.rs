@@ -268,6 +268,10 @@ pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts
 }
 
 #[cfg(test)]
+#[path = "live_rows_usage_tests.rs"]
+mod usage_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -1167,6 +1167,14 @@
         "threadId": {
           "type": "string"
         },
+        "toolCalls": {
+          "description": "On `completed`: the tool calls the response streamed, in stream order, each `{ id, name, arguments }` (Node's `onAssistantToolCallObserved`, which a headless exec shows as the call's `item.started` before the request's completion). Absent when the response called no tool.",
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "turnId": {
           "type": "string"
         },
@@ -1770,15 +1778,192 @@
           "type": "object"
         },
         {
-          "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
+          "description": "Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).",
           "properties": {
-            "pricing_model": {
+            "type": {
+              "enum": [
+                "providerMetadata"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "responseId"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
+          "properties": {
+            "accountId": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "sessionAccountId": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "request_ms": {
+            "type": {
+              "enum": [
+                "accountRouting"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "accountId",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`); credential-shaped text in the message is redacted.",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountSwitching"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`). The PC's account id never leaves it (Node's `scalarDetail` drops it): provider and time only.",
+          "properties": {
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountChanged"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool of the request the PC's adapter left out for its input schema (`ToolExclusionReport`, Node `onToolExcluded`); credential-shaped text in each string is redacted.",
+          "properties": {
+            "index": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "pointer": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "toolExcluded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "message",
+            "name",
+            "pointer",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole (`StreamEvent::WireRerouted`, Node `wireReroute`).",
+          "properties": {
+            "route": true,
+            "type": {
+              "enum": [
+                "wireRerouted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "route",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model began its output, which the usage ledger times the first-output wait from (`StreamEvent::OutputStarted`, Node `firstOutputAt`).",
+          "properties": {
+            "type": {
+              "enum": [
+                "outputStarted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
+          "properties": {
+            "pricingModel": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "requestMs": {
               "format": "uint64",
               "minimum": 0.0,
               "type": [
@@ -4039,6 +4224,23 @@
       ],
       "type": "object"
     },
+    "ThreadStageUpdatedParams": {
+      "description": "`thread/stage/updated`: a run stage a client shows as its status, not a transcript row (Node's `onStageChange` relayed to the turn's `applyStageChange`: the spinner's mode and verb), with the stage's detail.",
+      "properties": {
+        "detail": true,
+        "stage": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadStartedParams": {
       "properties": {
         "thread": {
@@ -5561,6 +5763,24 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadStatusChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/stage/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadStageUpdatedParams"
         }
       },
       "required": [

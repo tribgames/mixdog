@@ -1,0 +1,221 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-spawn-model-settings.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch applied, with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
+  "exclusions": [
+    "the job id in the answer of a spawn that started: the recorder's stand-in task is `job-1`, the Rust board generates its own id, so the replay reads the board's id as `job-1` (the rest of every answer is compared whole)",
+    "the session spec the real spawn preparer hands to session creation is a projection, not the whole spec: compared are agent, presetName, preset, prompt and the tag; left out are runtimeSpec (the recorder's `resolveRuntimeSpec` is a stand-in, not the runtime registry), cwd (the recorder resolves it against the host's working directory), and owner, parentSessionId, ownerSessionId, visibility, clientHostPid, sourceType, sourceName, agentTag, taskType, permission, cacheKeyOverride and mcpScopeId (fixed by the caller context and the agent's definition, the same in every scenario here; the whole spec of a spawn is compared in fixtures/agent/flows/spawn.json)",
+    "the follow-up send of a scenario with `followUp` runs the real send flow on a canonical surface with a busy worker whose session is the one the spawn created (agent, presetName, provider, model, effort, fast, autoEffort and cwd `/work`); its answer and the calls it made (setRoute, observe, enqueueTurn) are compared whole, the session store and the turn queue are stand-ins",
+    "the session itself, the tag binding and the model catalog behind the listing are stand-ins on both sides (the catalog rows are the recorded input, as the model picker hydrates them)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 214292,
+      "path": "cases.json",
+      "sha256": "29fe885c35067b954932072aa5a8382a694baf777ea5706823cae583966f97c1"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
+      "paths": [
+        "src/session-runtime/services/agent-tool/model-select.mjs",
+        "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+        "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+        "src/session-runtime/services/agent-tool/tool-def.mjs",
+        "src/tui/app/model-picker/route-selection/effort.mjs"
+      ],
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
+    },
+    "patches": [
+      {
+        "file": "node-fix-spawn-model-settings.patch",
+        "paths": [
+          "src/session-runtime/services/agent-tool/model-select.mjs",
+          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
+          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
+          "src/session-runtime/services/agent-tool/tool-def.mjs",
+          "src/tui/app/model-picker/route-selection/effort.mjs"
+        ],
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 5
+    },
+    "srcSha256": "3722607211674f49a1f8be9bc8d33e11bc8029c7269481e970bae1847fd11e71",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-spawn-model-settings.mjs",
+  "recorderSha256": "541e07ff8316ba905a572c1c352799247646ad965c60bed817d585df77643c6b",
+  "scenarios": [
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_preset_route"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_alone_takes_the_models_defaults"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_alone_with_the_catalog_default_effort"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_alone_with_its_saved_fast"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_with_effort"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_with_fast"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_with_effort_and_fast_off"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_that_does_not_offer_the_effort"
+    },
+    {
+      "answer": "Error: agent spawn: model \"xai/grok-plain\" does not support fast; leave fast out",
+      "created": 0,
+      "name": "fast_on_a_model_without_fast_is_refused"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "fast_off_on_a_model_without_fast"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_with_a_stored_effort_it_does_not_offer"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_with_a_stored_effort_and_an_effort_it_does_not_offer"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_without_effort_options"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_with_an_effort_it_offers"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "an_effort_the_model_does_not_offer_is_snapped"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_keeps_its_settings"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "the_agents_own_model_with_effort_and_fast"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_model_narrowed_by_provider"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "an_agent_without_fallbacks_pins_a_model"
+    },
+    {
+      "answer": "Error: agent spawn: model \"nothing like it\" not found; available: openai/gpt-fas",
+      "created": 0,
+      "name": "an_unknown_name"
+    },
+    {
+      "answer": "Error: agent spawn: model \"twin\" is ambiguous: openai/twin-a, openai/twin-b; pas",
+      "created": 0,
+      "name": "an_ambiguous_name"
+    },
+    {
+      "answer": "Error: agent spawn: provider \"ghost\" has no available models",
+      "created": 0,
+      "name": "a_provider_without_models"
+    },
+    {
+      "answer": "Error: agent spawn: provider requires model",
+      "created": 0,
+      "name": "a_provider_without_a_model"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_resumed_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_worker_spawned_on_another_named_model_keeps_it_when_the_configuration_moves"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_worker_spawned_without_a_model_follows_the_moved_configuration"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "no_catalog_takes_the_route_as_asked"
+    },
+    {
+      "answer": "Error: agent spawn: model requires provider on this surface",
+      "created": 0,
+      "name": "no_catalog_and_no_provider"
+    }
+  ],
+  "set": "spawn-model-settings",
+  "totalBytes": 214292
+}

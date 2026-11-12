@@ -109,6 +109,7 @@ impl ModelStream for Script {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
 }
 
 /// One provider: answers the replies in order, remembers the requests, and moves
@@ -163,6 +164,7 @@ fn reply_events(reply: &Value) -> Result<Vec<StreamEvent>, ProviderError> {
 
 #[async_trait]
 impl ProviderAdapter for Provider {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

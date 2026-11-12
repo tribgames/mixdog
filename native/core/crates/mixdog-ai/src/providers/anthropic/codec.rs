@@ -66,6 +66,9 @@ pub struct AnthropicConfig {
     /// The API-key route's `disableBetaHeaders`: no first-party-only request
     /// features, no server-side fallback, no mid-conversation effort updates.
     pub disable_beta_headers: bool,
+    /// A user-defined (`custom-*`) endpoint: no first-party base betas, only those its request body needs
+    /// (`requestBetasFor` `base: ''`).
+    pub custom_endpoint: bool,
     /// The provider's configured `extraHeaders`, sent on the API-key route's
     /// messages and listing requests. They replace a default header of the
     /// same name (`anthropic-version`, `x-api-key`), except `anthropic-beta`
@@ -81,6 +84,12 @@ pub struct AnthropicConfig {
     pub message_threads: bool,
     /// The thread state of every conversation: the process-wide one.
     pub threads: Arc<Threads>,
+    /// A gateway's map from its routing slug to the Claude id the capabilities are read from
+    /// (`config.capabilityModel`); the request still names the slug.
+    pub capability_model: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    /// A gateway's own reasoning control (`config.messagesEffort`): the effort to send, `none` for no thinking at
+    /// all, or `None` to keep the engine's own handling.
+    pub gateway_effort: Option<Arc<dyn Fn(&ModelRequest) -> Option<String> + Send + Sync>>,
 }
 
 /// Layers `extra` over `headers`: a same-named header (any case) is replaced,
@@ -105,11 +114,14 @@ impl AnthropicConfig {
             max_output_tokens: None,
             cli_version: DEFAULT_CLI_VERSION.to_owned(),
             disable_beta_headers: false,
+            custom_endpoint: false,
             extra_headers: Vec::new(),
             listing: ListingLookup::new(),
             fast_mode: Arc::clone(fast_mode::process()),
             message_threads: std::env::var("MIXDOG_ANTHROPIC_MESSAGE_THREADS").map_or(true, |v| v != "0"),
             threads: Arc::clone(threads::process()),
+            capability_model: None,
+            gateway_effort: None,
         }
     }
 
@@ -178,12 +190,44 @@ impl WireCodec for AnthropicCodec {
 
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
         let known = body_tool_names(self, request, ToolNames::Named);
-        Box::new(AnthropicDecoder::new(self.owner.clone()).with_known_tools(known))
+        Box::new(AnthropicDecoder::for_model(self.owner.clone(), &request.model).with_known_tools(known))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify_response(response)
+        let mut error = classify_response(response);
+        // The API-key engine posts through the Anthropic SDK, whose error names the refusal its own way.
+        if self.flavor == Flavor::ApiKey {
+            error.message = super::errors::sdk_message(response);
+        }
+        error
     }
+}
+
+/// The Messages body of Claude on Vertex AI (`_sendClaude`, vertex-ai.mjs:449-466): the request as the API-key route
+/// builds it for the provider `vertex-ai` with beta headers off (no fast mode, no server-side fallback), and whether the
+/// body defers a tool (the one request feature whose beta Vertex takes under its own name). `model` is the Vertex model
+/// id, which the catalog is asked about.
+pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest, model: &str) -> Result<(serde_json::Map<String, Value>, bool), ProviderError> {
+    let mut sent = request.clone();
+    model.clone_into(&mut sent.model);
+    sent.options.fast = false;
+    let caps = caps(model);
+    let cfg = BodyConfig {
+        flavor: Flavor::ApiKey,
+        provider_name: "vertex-ai",
+        owner: &ProviderId::from("anthropic"),
+        caps: caps.as_ref(),
+        cache: CacheStrategy::default(),
+        max_output_tokens: None,
+        first_party: false,
+        official_url: false,
+        beta_headers: false,
+        fast_mode: fast_mode::process(),
+        gateway_effort: None,
+    };
+    let built = build_body(&cfg, &sent)?;
+    let body = serde_json::from_slice(&built.bytes).expect("a built body is a JSON object");
+    Ok((body, built.betas.tool_search))
 }
 
 /// The wire request with its body and beta names replaced by a thread plan's.
@@ -208,6 +252,8 @@ pub(super) fn beta_names(wire: &WireRequest) -> Vec<String> {
 /// A request built for one attempt, before any thread plan.
 pub(super) struct Plain {
     pub wire: WireRequest,
+    /// The body's prefix fingerprint, recorded when the request is sent.
+    pub prefix: super::prefix_trace::Fingerprint,
 }
 
 impl AnthropicCodec {
@@ -252,8 +298,12 @@ impl AnthropicCodec {
 
     /// The full request, unthreaded: what Node's request builder makes and a cache warm sends.
     pub(super) fn encode_plain(&self, request: &ModelRequest) -> Result<Plain, ProviderError> {
-        let caps = (self.config.caps)(&request.model);
+        // A gateway's capabilities are read from the Claude id its slug stands for; the wire names the slug.
+        let capability = self.config.capability_model.as_ref().and_then(|map| map(&request.model));
+        let caps = (self.config.caps)(capability.as_deref().unwrap_or(&request.model));
+        let gateway_effort = self.config.gateway_effort.as_ref().and_then(|control| control(request));
         let cfg = BodyConfig {
+            gateway_effort: gateway_effort.as_deref(),
             flavor: self.flavor,
             provider_name: self.flavor.provider_name(),
             owner: &self.owner,
@@ -266,7 +316,11 @@ impl AnthropicCodec {
             fast_mode: &self.config.fast_mode,
         };
         let built = build_body(&cfg, request)?;
-        let beta = beta_header(self.flavor, built.betas);
+        let beta = if self.config.custom_endpoint {
+            super::betas::custom_beta_header(built.betas)
+        } else {
+            beta_header(self.flavor, built.betas)
+        };
         let mut headers = vec![("anthropic-version".to_owned(), ANTHROPIC_VERSION.to_owned())];
         // The API-key route with beta headers off sends none; the OAuth route
         // always does.
@@ -285,6 +339,8 @@ impl AnthropicCodec {
         let content_type = if self.flavor == Flavor::OAuth { "Content-Type" } else { "content-type" };
         headers.push((content_type.to_owned(), "application/json".to_owned()));
         if self.flavor == Flavor::ApiKey {
+            // The Anthropic SDK client Node sends this route through asks for JSON (fixtures/provider-wire/hosted-search/anthropic).
+            headers.push(("accept".to_owned(), "application/json".to_owned()));
             layer_extra_headers(&mut headers, &self.config.extra_headers);
         }
         Ok(Plain {
@@ -295,6 +351,7 @@ impl AnthropicCodec {
                 headers,
                 body: built.bytes,
             },
+            prefix: built.prefix,
         })
     }
 }

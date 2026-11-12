@@ -1,0 +1,160 @@
+{
+  "cases": 6,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-project-recency-failure-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no daemon, no Electron",
+    "runs": "apps/desktop SessionHost + DesktopProjectRegistry over shared/projects.mjs with a scripted daemon client; fs.renameSync / fs.readFileSync patched to fail on the registry file"
+  },
+  "exclusions": {
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.items": "the desktop host's transcript items of the session; the core answers the thread summary, which carries no transcript (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.queued": "the desktop host's queued submissions of the session; the core answers no queue in the thread summary (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteEnabled": "the desktop host's remote-control flag; the core's thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[*].{result,retry}.snapshot.remoteSessionId": "the desktop host's remote session id; the core's thread summary has no counterpart (owner: the host-side snapshot, desktop SessionHost)",
+    "$.cases[1].observed.runs[1]": "the corrupt-registry cause, not replayable until a boot behaviour is decided: the core refuses to start on a corrupt core state where Node sets the registry aside and starts empty. Node, finding projects.json unparsable, moves it to projects.json.corrupt-<ts>, starts an empty registry and carries on (the task is accepted, the recency write is a successful no-op). The core keeps the registry in state/core.sqlite; a core state it cannot open aborts composition (mixdog-app-server-daemon compose.rs CoreState::open, ComposeError::State; mixdog-store sqlite.rs open_schema, DbError::Rebuild), so the daemon does not start, nothing is set aside and nothing is replaced. Product difference, open (owner: the daemon's compose step)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11812,
+      "path": "golden.json",
+      "sha256": "360931769b2a2fa059d865cfc52089f4d71356c5ad1b75df939a1e0c91d69c71"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.snapshot.cwd",
+      "$.cases[0].observed.snapshot.currentProject",
+      "$.cases[0].observed.snapshot.desktopSession.projectPath",
+      "$.cases[0].observed.hostSnapshot.cwd",
+      "$.cases[0].observed.hostSnapshot.currentProject",
+      "$.cases[0].observed.hostSnapshot.desktopSession.projectPath",
+      "$.cases[0].observed.registryFile",
+      "$.cases[0].observed.originalRegistry",
+      "$.cases[1].observed.runs[0].draft.projectPath",
+      "$.cases[1].observed.runs[0].result.snapshot.cwd",
+      "$.cases[1].observed.runs[0].result.snapshot.currentProject",
+      "$.cases[1].observed.runs[0].receipt.signature",
+      "$.cases[1].observed.runs[0].retry.snapshot.cwd",
+      "$.cases[1].observed.runs[0].retry.snapshot.currentProject",
+      "$.cases[1].observed.runs[1].draft.projectPath",
+      "$.cases[1].observed.runs[1].result.snapshot.cwd",
+      "$.cases[1].observed.runs[1].result.snapshot.currentProject",
+      "$.cases[1].observed.runs[1].receipt.signature",
+      "$.cases[1].observed.runs[1].retry.snapshot.cwd",
+      "$.cases[1].observed.runs[1].retry.snapshot.currentProject",
+      "$.cases[2].observed.startFiles.desktop-projects.json.hidden[0]",
+      "$.cases[2].observed.entered[0]",
+      "$.cases[2].observed.knownPath",
+      "$.cases[2].observed.project",
+      "$.cases[3].observed.runs[0].registryFile",
+      "$.cases[3].observed.runs[0].originalRegistry",
+      "$.cases[3].observed.runs[1].registryFile",
+      "$.cases[3].observed.runs[1].originalRegistry",
+      "$.cases[3].observed.runs[2].registryFile",
+      "$.cases[3].observed.runs[2].originalRegistry",
+      "$.cases[3].observed.runs[3].registryFile",
+      "$.cases[3].observed.runs[3].originalRegistry",
+      "$.cases[3].observed.runs[4].registryFile",
+      "$.cases[3].observed.runs[4].originalRegistry",
+      "$.cases[4].observed.registryFile",
+      "$.cases[4].observed.originalRegistry",
+      "$.cases[5].observed.snapshot.cwd",
+      "$.cases[5].observed.snapshot.currentProject",
+      "$.cases[5].observed.snapshot.desktopSession.projectPath",
+      "$.cases[5].observed.project"
+    ],
+    "reason": "per-run temp root written <root>; the receipt signature is a sha256 over the per-run project path, written <sha256 of the per-run project path> (only the strings that are exactly 64 hex digits)"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-project-recency-failure-cases.mjs",
+  "recorderSha256": "8f4f89f6c8d7e44287307b07a3964317259a08b219c00938df0ed3abe5804500",
+  "replay": {
+    "compare": "mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside",
+    "entry": "Drive these public items on o1: mixdog-store/src/registry.rs:282 add; mixdog-store/src/registry.rs:309 touch_selected; mixdog-store/src/registry.rs:335 remove; mixdog-store/src/registry.rs:354 rename; startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222).",
+    "existsButNotPublicOnO1": [
+      "a recency write failure that does not stop the work exists for set_cwd: mixdog-core-session/src/session/thread_settings.rs:754 logs the touch_selected failure and continues (private trait-impl method :714; trait ProjectFolders :100 / touch_selected :110 is public)"
+    ],
+    "missingOnO1": [
+      "startProjectTask / submitNewTask continuing when only the recency write fails: new_task.rs:531, :573 hold no recency code"
+    ],
+    "normalised": {
+      "dataDir": "<root>, wherever it occurs; separators as Node produced them (backslashes on win32, doubled inside JSON text)"
+    },
+    "protocolMethods": [
+      "startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222)"
+    ],
+    "rustTargets": [
+      {
+        "line": 282,
+        "name": "add",
+        "path": "native/core/crates/mixdog-store/src/registry.rs"
+      },
+      {
+        "line": 309,
+        "name": "touch_selected",
+        "path": "native/core/crates/mixdog-store/src/registry.rs"
+      },
+      {
+        "line": 335,
+        "name": "remove",
+        "path": "native/core/crates/mixdog-store/src/registry.rs"
+      },
+      {
+        "line": 354,
+        "name": "rename",
+        "path": "native/core/crates/mixdog-store/src/registry.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "project-recency-failure-cases",
+  "totalBytes": 11812,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

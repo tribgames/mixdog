@@ -50,6 +50,9 @@ async fn saturating_a_class_is_answered_at_once_and_retries_ride_on_own_response
     assert!(rest.iter().all(|wire| wire.body.get("result").is_some()));
 }
 
+// The recorded model-proxy burst and refusal are replayed from the wire through this admission to the real
+// `ModelProxyService` in model_proxy_wire.rs.
+
 #[tokio::test(start_paused = true)]
 async fn control_requests_stay_admitted_while_a_class_is_saturated() {
     let rig = Rig::gated(&["terminal"]);

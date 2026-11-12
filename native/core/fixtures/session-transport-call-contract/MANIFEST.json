@@ -1,0 +1,76 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-transport-call-contract.mjs --tree <tree>",
+  "entry": "Ran src/tui/session/oauth-flows.mjs, src/standalone/session-service.mjs createSessionService().handleCall (scripted runtime factory / readStoredSession / listSessions / log), the real HTTP session transport + session-client attachSession and createSession (callId cache, client registry, remote runtime proxy) with the stub runtimes of scripts/session-transport/_shared.mjs, and src/standalone/session-proxy/transitions.mjs createTransitions. A TCP tap in front of the transport records every HTTP exchange (status line, headers in order, body). Did not run the log-summary and call-cache-metric cases (see notRecorded).",
+  "exclusions": [
+    "cases 48 and 451 are listed in notRecorded with their reasons",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine's roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads \"<CWD> (JSON-escaped)\"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised",
+    "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\"",
+    "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
+    "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
+    "BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production",
+    "BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store's own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed",
+    "BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)",
+    "BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 219857,
+      "path": "recording.json",
+      "sha256": "a0b5d95d09a754a1ed5830480eddb470d65f7cd537878bff57c16b55a9fb0eb1"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "3bbd21f382d6762424a1305dc976f5babc2a6836cd631d6fce898125c61240cb"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-call-contract.mjs",
+  "recorderSha256": "157a55dc8f12977218042824370cf80f6e3a995aa19a4654ad6e969a6b81438c",
+  "replay": "Replayed at what a client sees by native/core/crates/mixdog-app-server/src/tests/session_transport.rs (the server over a real session thread): case 438 a_retried_start_with_the_same_op_runs_once (turn/start retried with the same opId and payload answers the first answer; the thread holds the prompt once), 507 a_reused_op_with_another_payload_fails_closed (another payload under the same opId is refused, opIdConflict, and changes nothing), 243 unsubscribing_never_interrupts_the_running_turn (thread/unsubscribe of a viewer leaves the turn to complete; the attached client sees the answer), 130 an_unknown_thread_is_refused_and_nothing_is_created (thread/read of an unknown id is refused; nothing loaded or written). Node's scripted runtime values (revision, full, reservedOnly, its call list, the HTTP exchange log) are not compared. Not replayed: 15 (the OAuth registry's status/complete/cancel answers are replayed from fixtures/login-status by mixdog-core-domains ai_account/tests.rs provider_sign_in_feeds_publish_the_statuses_node_answered; this case's flow starts with url null, which no core sign-in start produces: LoginState::Authorize carries a URL); 82 (no thread list rides a session answer: the core's thread/start, thread/read and thread/name/set answers are typed by mixdog-app-protocol with no list field, and thread/list is the one route); 299 (Node's session.read actions getProfile/getOutputStyle/getTheme have no core method; a core failure is a JSON-RPC error by construction and an answer is serde JSON, which holds no non-serializable value); 320 and 369 (a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed); 465 (the Node TUI's remote-runtime proxy: client code, Rust-side client work). Case 156 replayed as the_same_op_from_another_connection_is_answered_once — DIFFERS from Node by design: the core scopes op ids to the thread (mixdog-core-session session/ops.rs), so the same opId from a second connection is answered with the first answer and runs once; no real caller can produce that collision: every opId is random (packages/protocol-client/src/client.ts:804 uuidv7 from crypto.getRandomValues, used by desktop and phone; src/standalone/protocol-session/index.mjs:28 uuidv7; native/core run_host agent_home_deps.rs:82, directory_sessions.rs:63, tool_pool/session_port.rs Uuid::now_v7; agent_send_world.rs:373 Uuid::new_v4; app-server server.rs:775 steer ids scoped by connection), so a repeat is one client retrying after a reconnect.",
+  "set": "session-transport-call-contract",
+  "testFile": "scripts/session-transport/call-contract.test.mjs",
+  "totalBytes": 219857,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

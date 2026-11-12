@@ -84,7 +84,7 @@ use crate::held_requests::HeldRequests;
 use crate::held_requests::RunInfo;
 
 /// The recorded scenarios. The golden is read as the recorder wrote it, never edited.
-const GOLDEN: &str = include_str!("../../../fixtures/held-runs/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/held-runs/golden.json");
 
 struct NoStamps;
 
@@ -504,7 +504,7 @@ fn merged(mut step: Value, seen: Value) -> Value {
 async fn replay(scenario: &Value) -> Value {
     let mut scene = Scene::new(scenario["now"].as_i64().expect("now"));
     *scene.home.stall.lock().unwrap() = scenario["stallDelivery"].as_str().unwrap_or_default().to_owned();
-    let sessions = serde_json::from_str::<Value>(GOLDEN).unwrap()["sessions"].clone();
+    let sessions = serde_json::from_str::<Value>(&GOLDEN).unwrap()["sessions"].clone();
     let session_of = |name: &Value| sessions[name.as_str().unwrap()].as_str().expect("a recorded session").to_owned();
     let mut seen = Seen { rows: 0, persisted: 0, pushes: 0, asks: 0 };
     let mut marks = Vec::new();
@@ -657,7 +657,7 @@ async fn replay(scenario: &Value) -> Value {
 
 #[tokio::test(start_paused = true)]
 async fn every_run_node_holds_is_held_and_every_run_it_does_not_hold_is_not() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
     assert_eq!(scenarios.len(), 18, "the recorded scenario list");
     for scenario in scenarios {
@@ -770,7 +770,7 @@ async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
     use mixdog_core_api::mock::MockCore;
     use mixdog_core_api::mock::MockLimits;
 
-    let member = serde_json::from_str::<Value>(GOLDEN).unwrap()["sessions"]["room"].as_str().expect("the recorded room member session").to_owned();
+    let member = serde_json::from_str::<Value>(&GOLDEN).unwrap()["sessions"]["room"].as_str().expect("the recorded room member session").to_owned();
     let cases = [
         Surface { name: "a desktop watching the member's thread", header: Some(json!({})), attendees: &[DESKTOP_ON_MEMBER], attended: true },
         Surface { name: "a phone watching the member's thread", header: Some(json!({})), attendees: &[Attendee { kind: "phone", inbox: false, watches: &["MEMBER"] }], attended: true },

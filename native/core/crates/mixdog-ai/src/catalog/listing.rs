@@ -96,6 +96,12 @@ impl ListingLookup {
         })
     }
 
+    /// `getModelMetadataSync(model, provider)?.outputTokens`: the model's declared output limit in the resident
+    /// tables (the built-in rows included), when positive.
+    pub fn output_tokens(&self, provider: &str, model: &str) -> Option<u64> {
+        self.with(|lookup, _| lookup.lookup(model, provider, None)?.get("outputTokens")?.as_u64().filter(|n| *n > 0))
+    }
+
     /// `sanitizeModelList(rows, { provider })`, read against the resident
     /// models.dev table, the clock and `MIXDOG_MODEL_STALE_MONTHS`.
     pub fn sanitize_listed(&self, provider: &str, rows: Vec<ModelRecord>) -> Vec<ModelRecord> {
@@ -335,7 +341,7 @@ mod tests {
         let models_dev = project_models_dev(&json(MODELS_DEV));
         let rosters = rosters();
         let lookup = Lookup { litellm: &litellm, models_dev: &models_dev, rosters: &rosters };
-        let golden = json(GOLDEN);
+        let golden = json(&GOLDEN);
         let cases = golden["enriched"].as_array().unwrap();
         assert!(cases.len() >= 13);
         for case in cases {

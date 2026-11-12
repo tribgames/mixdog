@@ -157,7 +157,7 @@ async fn cancel_ends_the_retry_wait() {
     let cancel = CancellationToken::new();
     let stopper = cancel.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
         stopper.cancel();
     });
     let err = broker
@@ -215,17 +215,20 @@ impl ModelStream for ScriptedStream {
         let Some((after, event)) = self.0.pop_front() else {
             return std::future::pending().await;
         };
-        tokio::time::sleep(after).await;
+        mixdog_rt::time::sleep(after).await;
         Some(Ok(event))
     }
 
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
 }
 
 #[async_trait]
 impl ProviderAdapter for Scripted {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         self.inner.id()
     }

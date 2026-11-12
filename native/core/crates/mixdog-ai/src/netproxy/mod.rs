@@ -40,6 +40,8 @@ pub use self::setting::NetworkProxySetting;
 pub use self::system::SystemProxy;
 
 #[cfg(test)]
+mod system_replay_tests;
+#[cfg(test)]
 mod tests;
 
 type Listener = Arc<dyn Fn(u64) + Send + Sync>;

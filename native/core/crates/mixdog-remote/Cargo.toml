@@ -47,19 +47,23 @@ uuid = { workspace = true, features = ["v4"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 # WP-WEBRTC tests
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net", "test-util"] }
 tempfile = { workspace = true }
 # LR §9 tests: a phone through the in-process relay connection into the real server over the mock core.
-mixdog-app-server = { workspace = true }
+mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-app-protocol = { workspace = true, features = ["codegen"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-app-protocol = { workspace = true }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-protocol = { workspace = true, features = ["codegen"] }
+mixdog-protocol = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 

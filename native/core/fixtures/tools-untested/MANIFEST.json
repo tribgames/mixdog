@@ -1,0 +1,133 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-tools-untested.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "agent-tool-call-ids": "a call object that is both streamed and in the final batch (the identity cases of the Node test) is not recorded: the Rust core receives the final batch as separate values; the same scenarios are recorded with separate values",
+    "exec-deadline": "holdEnd and holdEndAt come from Node's own armDeadlines (its text is taken from shell-command.mjs of the tree, which does not export it) run on timers and a clock the recorder owns and advances to each due timer; holdEnd is compared only for calls with background enabled and a hold above 0, the only ones whose wait reaches that decision in the core; holdEndAt is compared when the hold ends by promoting (background, threshold) and not when it ends at the run limit (enforce, timeout), where the time is Node's timeout; of `armed`, the hold's timer (autoBackground: whether it was armed, and its delay) is compared for every call, the limit's timer (timeout) is not, its delay being Node's timeout; Node's timeout and promotedTimeoutMs are not compared (the core cuts the foreground window where it waits, from the same hold and cap); MIXDOG_SHELL_BACKGROUND_MAX_MS, an operator net the Node test does not cover, is not recorded: the core applies it to the foreground run as well as to the promoted job",
+    "exec-env": "the skill launcher directory is the recording's data folder under the sandbox: stored as <LAUNCHER>",
+    "exec-hoist-long": "the command text is not repeated in a plan that equals it (`<SAME>`, `<COMMAND>`): a 30 KB command would be stored three times; the replay compares the plan with the command it was given",
+    "fs-list-page": "NaN and Infinity are not recorded as head_limit: JSON carries neither (a client's request cannot hold them) and the recording would store null, a different input",
+    "fs-markers": "capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them",
+    "scm-locks": "the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; each key is recorded whole with the key of the sandbox root (a checkout-dependent prefix) replaced by <ROOT>, and the replay writes the core's `/` separators for the recorded `\\`; the \"rejected\" outcome of an aborted wait is a list apart from the events, because the order of a promise's rejection handler against another task's start is a tick of Node's promise queue, not a behaviour"
+  },
+  "fileCount": 14,
+  "files": [
+    {
+      "bytes": 178206,
+      "path": "agent-repeat-signature.json",
+      "sha256": "74de0d3ccfec35c6d7257863be55a8132f4ac4feb5ba22c6fb3f52d7fe48858e"
+    },
+    {
+      "bytes": 6837,
+      "path": "agent-tool-call-ids.json",
+      "sha256": "437b82bc31e27eab51091aa71bf122c0cd0f77f9ca4180a2f8c6ecb9d98b6165"
+    },
+    {
+      "bytes": 4341,
+      "path": "exec-benign.json",
+      "sha256": "f1ec1a836302757dbd232a1d6b6512041918598edfbf4a9607c88dbe67a53961"
+    },
+    {
+      "bytes": 118059,
+      "path": "exec-deadline.json",
+      "sha256": "ff0a72472d955b3233ee05f82717b3c295c00e50917601725193fe85d7250f8a"
+    },
+    {
+      "bytes": 2127,
+      "path": "exec-env.json",
+      "sha256": "bf4112640b6cfa852c42707a8b1b5575eac42edd6bded469c994302ed36aa2ff"
+    },
+    {
+      "bytes": 459482,
+      "path": "exec-hoist-long.json",
+      "sha256": "a8dc38e3b8412f063897a9b8d4e3461a7de2fa64285baf3e9a967680390ab334"
+    },
+    {
+      "bytes": 60341,
+      "path": "fs-list-page.json",
+      "sha256": "30a5426722c25e174619f5a02ac9c84151eec49df144b770a16243f7cf57bf50"
+    },
+    {
+      "bytes": 2838,
+      "path": "fs-markers.json",
+      "sha256": "3cfb8cd672f1b80416672a84abfd9c9590c6dfd2feb4509bfb7ab62d87a9a5a3"
+    },
+    {
+      "bytes": 8769,
+      "path": "fs-patch-parse.json",
+      "sha256": "ee42899d4556fcb2caa58293c82da734edd33ab2dedd37195af0aac97469a7d5"
+    },
+    {
+      "bytes": 654317,
+      "path": "fs-shell-output.json",
+      "sha256": "6408909d99723a6580ff32c0a7e044934505de69a6bf4b9dde6076784b51315a"
+    },
+    {
+      "bytes": 10852,
+      "path": "scm-locks.json",
+      "sha256": "dad908aa3d5c3031c4908f13c070541f8666d924bd906a7b2e2dcc4fea52af2e"
+    },
+    {
+      "bytes": 9937,
+      "path": "trace-classify.json",
+      "sha256": "e7733667fc64c2af4b1dd8b89341b9ba841a2e19d84ce5b587353e467b605143"
+    },
+    {
+      "bytes": 9447,
+      "path": "web-extract.json",
+      "sha256": "4f9f4c428b4dc39779e3710a23eb497393d00e746b47f06ac36bdc8f2cf5f5b3"
+    },
+    {
+      "bytes": 15787,
+      "path": "web-search-format.json",
+      "sha256": "833baee4e713f0a2860f2772c0b94c95fb3ae0d20d8b61654c0938f22dc03625"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "modules": [
+    "exec-benign",
+    "exec-deadline",
+    "exec-hoist-long",
+    "exec-env",
+    "fs-markers",
+    "fs-shell-output",
+    "trace-classify",
+    "agent-tool-call-ids",
+    "agent-repeat-signature",
+    "scm-locks",
+    "fs-list-page",
+    "web-extract",
+    "web-search-format",
+    "fs-patch-parse"
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tools-untested.mjs",
+  "recorderSha256": "d6a295534deac36b529a43344dce73216c8504d0878f37b8afaad66ef3a2bb45",
+  "set": "tools-untested",
+  "totalBytes": 1541340
+}

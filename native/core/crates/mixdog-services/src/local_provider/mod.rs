@@ -24,6 +24,8 @@ mod extract_twin_tests;
 #[cfg(test)]
 mod process_twin_tests;
 #[cfg(test)]
+mod send_queue_replay_tests;
+#[cfg(test)]
 mod twin_tests;
 
 pub use installations::Installations;

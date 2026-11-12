@@ -2876,6 +2876,29 @@
     },
     {
       "class": "C2",
+      "method": "room/send",
+      "mutation": {
+        "domain": "room",
+        "kind": "op"
+      },
+      "opScope": {
+        "domain": "room",
+        "kind": "domain"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "RoomSendParams",
+      "result": "JsonValue",
+      "scope": {
+        "key": "room",
+        "kind": "global"
+      }
+    },
+    {
+      "class": "C2",
       "method": "room/reset",
       "mutation": {
         "domain": "room",
@@ -10702,6 +10725,11 @@
       "delivery": null,
       "method": "ui/screenSessions/changed",
       "params": "UiScreenSessionsChangedParams"
+    },
+    {
+      "delivery": null,
+      "method": "remote/connectionTimeline",
+      "params": "RemoteConnectionTimelineParams"
     }
   ],
   "serverNotifications": [
@@ -10719,6 +10747,11 @@
       "delivery": "thread",
       "method": "thread/status/changed",
       "params": "ThreadStatusChangedParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/stage/updated",
+      "params": "ThreadStageUpdatedParams"
     },
     {
       "delivery": "thread",

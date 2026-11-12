@@ -208,6 +208,11 @@ pub struct ModelRequestUpdatedParams {
     /// Node's usage delta summary of the request, on `completed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<JsonValue>,
+    /// On `completed`: the tool calls the response streamed, in stream order, each `{ id, name, arguments }` (Node's
+    /// `onAssistantToolCallObserved`, which a headless exec shows as the call's `item.started` before the request's
+    /// completion). Absent when the response called no tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<JsonValue>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -844,6 +849,19 @@ pub struct ThreadStartedParams {
 pub struct ThreadStatusChangedParams {
     pub thread_id: ThreadId,
     pub status: ThreadStatus,
+}
+
+/// `thread/stage/updated`: a run stage a client shows as its status, not a transcript row (Node's `onStageChange`
+/// relayed to the turn's `applyStageChange`: the spinner's mode and verb), with the stage's detail.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadStageUpdatedParams {
+    pub thread_id: ThreadId,
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

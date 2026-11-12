@@ -1,0 +1,64 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the real embedder",
+    "runs": "embedRecallQuery (recall-embedding-readiness.mjs) with scripted isReady / canWarmup / warmup / embed / onWarmupError and an AbortSignal; setTimeout/clearTimeout are wrapped only to record the armed delay and whether it was cleared"
+  },
+  "exclusions": "none: case 47 (timeout fallback) is recorded here with virtual timers (the wait timer is recorded and fired by hand; no real time passes)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 19030,
+      "path": "golden.json",
+      "sha256": "f9ca9868300d9bedff332b724820f90f1edc9d2ae46fa148624d4b0ebc842bc6"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "timer handles": "only the armed delay and the cleared flag are kept",
+    "trace": "each scenario has an ordered `trace`: {step} = an action of the recorder (clock step, abort, release of a gate it holds), {event} = what the product did (product call, timer armed/cleared) or what settled (warmup settled/rejected, recall call settled/rejected), in the order they happened"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs",
+  "recorderSha256": "0a3485d1bfa97f8ee2ad0787a9b61daee274f7de8c97d2470abef4934b137f63",
+  "replay": "embed_recall_query (mixdog-services memory/recall/readiness.rs), the core's embedRecallQuery: the product's recall reaches it through RecallEmbedder::query_vector (readiness.rs, wired as the recall's QueryEmbedder in memory/boot.rs MemoryStack), which waits for a cold model at most cold_embed_wait() (MIXDOG_RECALL_COLD_EMBED_WAIT_MS, 3 s) and falls back to lexical recall. The replay (memory/replays/recall_readiness.rs, one test per case and further shape) scripts the embedder as the recorder did, gives the call a CancellationToken carrying the recorded abort reason, observes the wait's timer (armed delay, cleared, fired) through a test-only seam, fires it by advancing the paused tokio clock by the recorded delay, and compares per scenario the result or rejection whole, the injected-error identity, the ordered calls, the ordered trace (recorder steps at their recorded places, product events, settles) and the timer summary",
+  "set": "memory-recall-readiness",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 19030,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

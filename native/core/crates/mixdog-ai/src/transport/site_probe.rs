@@ -63,7 +63,7 @@ pub(crate) fn capture_logs() -> (impl Fn() -> Vec<String>, mixdog_rt::node_log::
 }
 /// The recording of one site.
 pub(crate) fn recorded(site: &str) -> Value {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
     golden["sites"][site].clone()
 }
 

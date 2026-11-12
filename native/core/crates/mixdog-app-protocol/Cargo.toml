@@ -22,6 +22,7 @@ ts-rs = { workspace = true, optional = true, features = ["serde-json-impl", "no-
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 # Self dependency: a test build of this package (`cargo test`, `cargo nextest`) resolves the
 # `codegen` feature on, so the golden tests run in the plain workspace test run without
 # `required-features` skipping them. Dev-dependency features do not reach `cargo build`.
@@ -29,7 +30,7 @@ mixdog-app-protocol = { workspace = true, features = ["codegen"] }
 pretty_assertions = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-protocol = { workspace = true, features = ["codegen"] }
+mixdog-protocol = { workspace = true }
