@@ -6,14 +6,14 @@
     "exec-env": "the skill launcher directory is the recording's data folder under the sandbox: stored as <LAUNCHER>",
     "exec-hoist-long": "the command text is not repeated in a plan that equals it (`<SAME>`, `<COMMAND>`): a 30 KB command would be stored three times; the replay compares the plan with the command it was given",
     "fs-markers": "capMarker cursor/fullPath and windowMarker offsetKey are not recorded: the Rust markers have no caller that passes them",
-    "scm-locks": "the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; the \"rejected\" outcome of an aborted wait is a list apart from the events, because the order of a promise's rejection handler against another task's start is a tick of Node's promise queue, not a behaviour"
+    "scm-locks": "the realpath spelling of the Node key test is textually the directory itself on the recording machine, so it is not a separate case; each key is recorded whole with the key of the sandbox root (a checkout-dependent prefix) replaced by <ROOT>, and the replay writes the core's `/` separators for the recorded `\\`; the \"rejected\" outcome of an aborted wait is a list apart from the events, because the order of a promise's rejection handler against another task's start is a tick of Node's promise queue, not a behaviour"
   },
   "fileCount": 14,
   "files": [
     {
-      "bytes": 166333,
+      "bytes": 178206,
       "path": "agent-repeat-signature.json",
-      "sha256": "af6662d0cc61a751c7d6fcc91c9989ac6fa6ec41ca2c2d60577dd19e61fc980f"
+      "sha256": "74de0d3ccfec35c6d7257863be55a8132f4ac4feb5ba22c6fb3f52d7fe48858e"
     },
     {
       "bytes": 6837,
@@ -31,9 +31,9 @@
       "sha256": "eb7b8cae737644d15313c23f07c35c814cb1b96e210f2a9685c110cb516c125e"
     },
     {
-      "bytes": 863,
+      "bytes": 2127,
       "path": "exec-env.json",
-      "sha256": "17b8674a76e83dd47effe9f50d537f3a5e30c83ff87f57b03a4793834757357b"
+      "sha256": "bf4112640b6cfa852c42707a8b1b5575eac42edd6bded469c994302ed36aa2ff"
     },
     {
       "bytes": 459482,
@@ -41,9 +41,9 @@
       "sha256": "a8dc38e3b8412f063897a9b8d4e3461a7de2fa64285baf3e9a967680390ab334"
     },
     {
-      "bytes": 12119,
+      "bytes": 13151,
       "path": "fs-list-page.json",
-      "sha256": "22b2a43c4f174162fa35cf773344571c37eca88c130148db6123145f42533512"
+      "sha256": "ae56818bae9407c189d87cd7ad2a1ce02ec2d635b49f9f12eb7be6cc0ee69f8e"
     },
     {
       "bytes": 2838,
@@ -61,9 +61,9 @@
       "sha256": "6408909d99723a6580ff32c0a7e044934505de69a6bf4b9dde6076784b51315a"
     },
     {
-      "bytes": 10730,
+      "bytes": 10852,
       "path": "scm-locks.json",
-      "sha256": "1d53908f3baa5979a799927ab3b88296de9b12c9322caa8a478e5da43dea024e"
+      "sha256": "dad908aa3d5c3031c4908f13c070541f8666d924bd906a7b2e2dcc4fea52af2e"
     },
     {
       "bytes": 9937,
@@ -71,9 +71,9 @@
       "sha256": "e7733667fc64c2af4b1dd8b89341b9ba841a2e19d84ce5b587353e467b605143"
     },
     {
-      "bytes": 4273,
+      "bytes": 9447,
       "path": "web-extract.json",
-      "sha256": "b59b9253ca56ab3a76ae218988eb0c622fbf592426b089929b96e385b68e4e8d"
+      "sha256": "4f9f4c428b4dc39779e3710a23eb497393d00e746b47f06ac36bdc8f2cf5f5b3"
     },
     {
       "bytes": 15787,
@@ -126,7 +126,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-untested.mjs",
-  "recorderSha256": "3c6c78fdb91b185557b995361c204de469285770eed9298f8c5c14581d1905b2",
+  "recorderSha256": "ff0d3cddb86036ff35462ee23878a1a754e29c5adbfe9090bcc0f7f5dc34e606",
   "set": "tools-untested",
-  "totalBytes": 1440575
+  "totalBytes": 1460040
 }
