@@ -32,6 +32,12 @@ pub trait SecretVault: Send + Sync {
     async fn is_fallback(&self, _account: &str) -> Result<bool, VaultError> {
         Ok(false)
     }
+
+    /// Names the storage this vault reads, so what a store over it yields is told apart from another storage's. By
+    /// default the vault instance (its address); a vault over a shared storage names that storage.
+    fn identity(&self) -> String {
+        format!("vault {:p}", self as *const Self as *const ())
+    }
 }
 
 /// A vault call failed. `unrun` says the call never ran (the lane that makes it refused or
@@ -150,15 +156,16 @@ pub struct ApiKeyStore {
     env: Arc<dyn Environment>,
     /// A remote-mode server holds no model credentials.
     remote_client: bool,
-    /// Which store this is: two stores (configurations) can hold different accounts under one provider name, so a slot
-    /// that is not an environment variable carries it. Clones are the same store.
-    id: u64,
+    /// The storage this store reads ([`SecretVault::identity`]): two vaults can hold different accounts under one provider
+    /// name, so a source that is not an environment variable carries it; stores over one vault read the same keys and share
+    /// their sources, a rebuilt store's read retiring what the earlier one yielded. Clones are the same store.
+    id: String,
 }
 
 impl ApiKeyStore {
     pub fn new(vault: Arc<dyn SecretVault>, env: Arc<dyn Environment>, remote_client: bool) -> Self {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        Self { vault, env, remote_client, id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) }
+        let id = vault.identity();
+        Self { vault, env, remote_client, id }
     }
 
     /// A key variable's value, as the environment holds it.
@@ -204,7 +211,7 @@ impl ApiKeyStore {
         // Not counted here: the store behind the vault performs (and counts) the read.
         match self.vault.get(account).await {
             Ok(value) => {
-                crate::oauth::carried::keep(&keychain_source(account), &value.as_deref().into_iter().collect::<Vec<_>>());
+                crate::oauth::carried::keep(&self.stored_source(account), &value.as_deref().into_iter().collect::<Vec<_>>());
                 Ok(value)
             }
             Err(error) if error.unrun => Err(error),
@@ -215,6 +222,11 @@ impl ApiKeyStore {
     /// The source of a key in `provider`'s config entry of this store.
     fn config_source(&self, provider: &str) -> String {
         format!("config {provider} of store {}", self.id)
+    }
+
+    /// The source of a value read out of keychain `account` through this store's vault.
+    fn stored_source(&self, account: &str) -> String {
+        format!("{} of store {}", keychain_source(account), self.id)
     }
 
     /// A configured key: its source is the provider's config entry in this store.
@@ -268,7 +280,7 @@ impl ApiKeyStore {
         }
         match self.environment_key_name(provider.trim()) {
             Some(name) => format!("env {name}"),
-            None => format!("{} of store {}", keychain_source(&api_key_account(provider.trim())), self.id),
+            None => self.stored_source(&api_key_account(provider.trim())),
         }
     }
 
@@ -470,6 +482,36 @@ mod tests {
         vault.set("agent.xai.apiKey", "stored").await.unwrap();
         assert_eq!(s.get("xai").await.unwrap().as_deref(), Some("stored"));
         assert!(s.has("xai").await.unwrap());
+    }
+
+    /// A store built again over the same storage reads the same keys: its read of a replaced key retires what the earlier
+    /// store yielded.
+    #[tokio::test]
+    async fn stores_over_one_vault_share_their_sources() {
+        crate::oauth::carried::reset_registry();
+        let vault = Arc::new(MemoryVault::default());
+        let build = || ApiKeyStore::new(vault.clone(), Arc::new(Env(HashMap::new())), false);
+        vault.set("agent.same-vault-provider.apiKey", "same-vault-key-old-4e7a").await.unwrap();
+        assert_eq!(build().get("same-vault-provider").await.unwrap().as_deref(), Some("same-vault-key-old-4e7a"));
+        vault.set("agent.same-vault-provider.apiKey", "same-vault-key-new-4e7a").await.unwrap();
+        assert_eq!(build().get("same-vault-provider").await.unwrap().as_deref(), Some("same-vault-key-new-4e7a"));
+        // A retired value stays a credential: one pinned (the new key), one retired (the old).
+        let counts = crate::oauth::carried::registry().counts();
+        assert_eq!((counts.held, counts.retired), (1, 1), "the replaced key retired");
+    }
+
+    /// Two storages holding different keys under one provider name never retire each other's.
+    #[tokio::test]
+    async fn stores_over_two_vaults_keep_both_keys_redacted() {
+        crate::oauth::carried::reset_registry();
+        let (one, other) = (Arc::new(MemoryVault::default()), Arc::new(MemoryVault::default()));
+        one.set("agent.two-vault-provider.apiKey", "two-vault-key-one-8c1d").await.unwrap();
+        other.set("agent.two-vault-provider.apiKey", "two-vault-key-other-8c1d").await.unwrap();
+        for vault in [one, other] {
+            ApiKeyStore::new(vault, Arc::new(Env(HashMap::new())), false).get("two-vault-provider").await.unwrap();
+        }
+        let counts = crate::oauth::carried::registry().counts();
+        assert_eq!((counts.held, counts.retired), (2, 0), "both keys pinned, neither retired");
     }
 
     #[tokio::test]
