@@ -76,15 +76,15 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-ws-connect.mjs",
-  "recorderSha256": "b6ce2bf9d93710279559b8237c664eeea28dfdbbb13815baeb2f42d803ac3384",
+  "recorderSha256": "1d79b2af30978cba75a4996a737d348a548cfb20716bf73960d70a2d0b503d90",
   "scenarios": [
+    "stuck-then-open",
+    "stuck-twice-then-open",
     "all-stuck",
     "all-stuck-oauth",
-    "lone-leg-reset",
-    "reset-beside-a-stuck-leg",
     "status-ends-the-race",
-    "stuck-then-open",
-    "stuck-twice-then-open"
+    "lone-leg-reset",
+    "reset-beside-a-stuck-leg"
   ],
   "set": "provider-ws-connect",
   "totalBytes": 6037

@@ -581,7 +581,7 @@ fn openai_mode_token(raw: Option<String>) -> String {
 
 /// The pin `MIXDOG_OAI_TRANSPORT` puts on the WebSocket (`resolveResponsesTransportPolicy`): `ws-full` sends full
 /// frames, `ws-delta` delta frames, neither moves to HTTP/SSE; every other setting is `auto`.
-fn openai_mode(raw: Option<String>) -> TransportMode {
+pub fn openai_mode(raw: Option<String>) -> TransportMode {
     match openai_mode_token(raw).as_str() {
         "ws-full" | "wsfull" | "full" | "ws" | "websocket-full" => TransportMode::WsFull,
         "ws-delta" | "wsdelta" | "delta" | "websocket-delta" => TransportMode::WsDelta,

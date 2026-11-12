@@ -413,30 +413,36 @@ async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
         script.extend((script.len()..8).map(|_| Dialed::Stuck));
         let dial = Dial::with(script);
         let adapter = Arc::new(adapter(node["auth"] == "openai-oauth", Arc::default(), dial.clone()).with_mode(TransportMode::WsDelta));
-        let dials_node: Vec<u64> = node["events"].as_array().unwrap().iter().filter(|e| e["on"] == "dial").map(|e| e["t"].as_u64().unwrap()).collect();
+        let events = node["events"].as_array().unwrap();
         let want = &node["outcome"];
         let ends_at = want["t"].as_u64().unwrap();
-        // The acquire runs as a task of its own. When it completes is read as an event: its future resolving, stamped by the
-        // runtime's clock at that moment. The clock moves only by explicit advances, to the instants Node's recording names
-        // (a dial began, the acquire ended); at each one the dial Node made there is awaited as an event too.
+        // The acquire runs as a task of its own; its completion is read as an event (its future resolving). The clock moves
+        // only by explicit advances, to the instants of Node's events in the order recorded (every event up to the end of
+        // the acquire is walked: a dial began, a scripted upgrade answered) and to the end of the acquire; at each dial
+        // event the dial Node made there is awaited as an event too.
         let (done_tx, mut done_rx) = tokio::sync::oneshot::channel();
-        let started = tokio::time::Instant::now();
         tokio::spawn({
             let adapter = adapter.clone();
             async move {
                 let outcome = adapter.attempt(request(vec![say(Role::User, "hi")])).await.map(|_| ());
-                let _ = done_tx.send((outcome, tokio::time::Instant::now()));
+                let _ = done_tx.send(outcome);
             }
         });
-        let mut instants: Vec<u64> = dials_node.iter().copied().chain([ends_at]).collect();
-        instants.sort_unstable();
-        instants.dedup();
         let mut began = dial.began.subscribe();
         let mut now = 0;
-        for &at in &instants {
+        let mut want_dials = 0;
+        for event in events {
+            let at = event["t"].as_u64().unwrap();
+            // What the recording holds after the acquire ended (the server seeing the connections close) is not the acquire's.
+            if at > ends_at {
+                break;
+            }
             tokio::time::advance(std::time::Duration::from_millis(at - now)).await;
             now = at;
-            let want_dials = dials_node.iter().filter(|t| **t <= at).count() as u32;
+            if event["on"] == "dial" {
+                want_dials += 1;
+                assert_eq!(event["conn"].as_u64().unwrap(), u64::from(want_dials), "{id}: the dials are numbered in order");
+            }
             // A lost wake-up shows as this wait running out its deadline (on the virtual clock) before the dial began.
             tokio::time::timeout(std::time::Duration::from_millis(1), began.wait_for(|n| *n >= want_dials))
                 .await
@@ -450,12 +456,12 @@ async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
                 );
             }
         }
-        let (outcome, completed_at) = tokio::time::timeout(std::time::Duration::from_millis(1), done_rx)
+        tokio::time::advance(std::time::Duration::from_millis(ends_at - now)).await;
+        let outcome = tokio::time::timeout(std::time::Duration::from_millis(1), done_rx)
             .await
             .unwrap_or_else(|_| panic!("{id}: the acquire had not completed by its recorded end, {ends_at} ms: a stuck upgrade is never replaced"))
             .unwrap();
-        assert_eq!((completed_at - started).as_millis() as u64, ends_at, "{id}: when the acquire completed");
-        assert_eq!(*dial.dials.lock().unwrap() as usize, dials_node.len(), "{id}: every dial of the acquire");
+        assert_eq!(*dial.dials.lock().unwrap(), want_dials, "{id}: every dial of the acquire");
         match (outcome, want["ok"].as_bool().unwrap()) {
             (Ok(_), true) => {}
             (Err(error), false) => {

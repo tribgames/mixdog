@@ -487,6 +487,12 @@ impl GoogleCodec {
 
 #[cfg(test)]
 mod tests {
+    use mixdog_core_api::domain::provider::Content;
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::RequestOptions;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::ToolDefinition;
+
     use super::*;
 
     struct Traits;
@@ -499,15 +505,75 @@ mod tests {
         }
     }
 
-    /// Node's `antigravityFunctionCallingMode` over `{}`, `any`, ` Auto ` and `bogus` (recorded from the Node tree).
+    const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/provider-env-switches/cases.json");
+
+    /// The request id is a per-request random draw; both sides are compared with it replaced by one marker.
+    fn mark_request_id(body: &str) -> String {
+        let key = "\"requestId\":\"agent-";
+        let at = body.find(key).expect("a request id") + key.len();
+        format!("{}<random>{}", &body[..at], &body[at + 36..])
+    }
+
+    /// Node's Antigravity sends, one per value of `MIXDOG_ANTIGRAVITY_FC_MODE` (unset, `any`, ` Auto `, `bogus`, ... on one
+    /// provider instance, so each send read its own value): the request the codec encodes under the same value, whole.
     #[test]
-    fn the_fc_mode_setting_names_the_default_tool_mode_as_node_does() {
-        let mode = |raw: Option<&str>| {
-            GoogleCodec::antigravity("o", "p", "2.19.1", Arc::new(Traits)).with_function_calling_mode(raw).dialect().default_tool_mode
+    fn the_fc_mode_setting_changes_the_request_as_nodes_send_did() {
+        let doc: serde_json::Value = serde_json::from_str(&RECORDING).unwrap();
+        let case = doc["cases"].as_array().unwrap().iter().find(|c| c["id"] == "antigravity-fc-mode").unwrap();
+        let input = &case["input"];
+        let settings = input["settings"].as_array().unwrap();
+        // The GET request is the provider's background update check; the manifest declares it not compared.
+        let mut posts = Vec::new();
+        for request in case["requests"].as_array().unwrap() {
+            if request["method"] == "POST" {
+                posts.push(request);
+            }
+        }
+        assert_eq!(posts.len(), settings.len(), "one request per send");
+        let message = |m: &serde_json::Value| {
+            let role = if m["role"] == "system" { Role::System } else { Role::User };
+            Message::new(role, Content::Text(m["content"].as_str().unwrap().into()))
         };
-        assert_eq!(mode(None), Some("VALIDATED"));
-        assert_eq!(mode(Some("any")), Some("ANY"));
-        assert_eq!(mode(Some(" Auto ")), Some("AUTO"));
-        assert_eq!(mode(Some("bogus")), Some("VALIDATED"));
+        let request = ModelRequest {
+            model: input["model"].as_str().unwrap().into(),
+            messages: input["messages"].as_array().unwrap().iter().map(message).collect(),
+            tools: input["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| ToolDefinition {
+                    name: t["name"].as_str().unwrap().into(),
+                    description: t["description"].as_str().unwrap().into(),
+                    input_schema: t["inputSchema"].clone(),
+                    defer_loading: false,
+                    freeform: None,
+                })
+                .collect(),
+            options: RequestOptions::default(),
+        };
+        for (node, setting) in posts.iter().zip(settings) {
+            let raw = setting.as_str();
+            let codec = GoogleCodec::antigravity(node["origin"].as_str().unwrap(), "fixture-project", "2.19.1", Arc::new(Traits)).with_function_calling_mode(raw);
+            let wire = codec.encode(&request).unwrap();
+            assert_eq!(wire.url, format!("{}{}", node["origin"].as_str().unwrap(), node["path"].as_str().unwrap()), "{raw:?}: url");
+            // The headers the Node HTTP client adds under the product's own, and the bearer the adapter sets after the
+            // codec has encoded, are declared not compared; names are compared as HTTP reads them, in any case.
+            const NOT_COMPARED: [&str; 7] = ["host", "connection", "accept-language", "sec-fetch-mode", "accept-encoding", "content-length", "authorization"];
+            let mut recorded = Vec::new();
+            for pair in node["headers"].as_array().unwrap() {
+                let name = pair[0].as_str().unwrap().to_ascii_lowercase();
+                if !NOT_COMPARED.contains(&name.as_str()) {
+                    recorded.push((name, pair[1].as_str().unwrap().to_owned()));
+                }
+            }
+            let mut sent = Vec::new();
+            for (name, value) in &wire.headers {
+                if !NOT_COMPARED.contains(&name.as_str()) {
+                    sent.push((name.to_ascii_lowercase(), value.clone()));
+                }
+            }
+            assert_eq!(sent, recorded, "{raw:?}: headers");
+            assert_eq!(mark_request_id(&String::from_utf8(wire.body).unwrap()), mark_request_id(node["body"].as_str().unwrap()), "{raw:?}: body");
+        }
     }
 }

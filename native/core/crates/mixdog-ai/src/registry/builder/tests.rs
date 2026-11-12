@@ -203,12 +203,3 @@ async fn a_name_without_an_adapter_says_why() {
     assert!(!b.available("gated") && b.available("openai"));
     assert!(!b.oauth_credentials_usable("openai-oauth").await.unwrap());
 }
-#[test]
-fn the_openai_transport_setting_pins_the_socket_as_node_does() {
-    let mode = |s: &str| openai_mode(Some(s.to_owned()));
-    assert_eq!(mode("ws-full"), TransportMode::WsFull);
-    assert_eq!(mode(" WS_Delta "), TransportMode::WsDelta);
-    assert_eq!(mode("http-sse"), TransportMode::Auto);
-    assert_eq!(mode("quantum"), TransportMode::Auto);
-    assert_eq!(openai_mode(None), TransportMode::Auto);
-}

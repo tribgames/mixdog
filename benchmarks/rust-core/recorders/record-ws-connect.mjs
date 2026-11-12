@@ -38,7 +38,9 @@ const settle = () => new Promise((resolve) => realSetTimeout(resolve, 100));
 /** Runs every timer due by `target` (ms since `T0`), each at its own time, letting the loopback I/O settle after each. */
 async function advanceTo(target) {
   for (;;) {
-    const due = [...clock.timers.values()].filter((t) => t.due <= base + target).sort((a, b) => a.due - b.due || a.id - b.id)[0];
+    // The next timer in due-time order (registration order among equal times) that is due by `target`.
+    let due = null;
+    for (const t of clock.timers.values()) if (t.due <= base + target && (due === null || t.due < due.due || (t.due === due.due && t.id < due.id))) due = t;
     if (!due) break;
     clock.timers.delete(due.id);
     clock.now = Math.max(clock.now, due.due);
@@ -59,7 +61,7 @@ const { WebSocketServer } = await import(pathToFileURL(join(tree, 'node_modules/
 const wss = new WebSocketServer({ noServer: true });
 const server = http.createServer();
 server.on('upgrade', (req, socket, head) => {
-  upgradePorts.add(socket.remotePort);
+  upgradePorts[socket.remotePort] = true;
   const n = ++seen;
   const action = script[n - 1] ?? 'stuck';
   // An upgrade is stamped with the instant its leg's dial began: it arrives in real I/O time, which the virtual clock may already have left.
@@ -78,12 +80,15 @@ server.on('upgrade', (req, socket, head) => {
     socket.end(`HTTP/1.1 ${code} Fixture\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`);
   }
 });
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+await new Promise((resolve, reject) => {
+  server.once('error', (error) => reject(new Error(`recorder: the loopback server did not listen: ${error.message}`)));
+  server.listen(0, '127.0.0.1', resolve);
+});
 const port = server.address().port;
 // The product dials TLS to the provider's host; the recorder's connect is a plain one to the loopback server.
 let dialed = 0;
 // A connection that never asks to upgrade (the Codex route's connection warm-up) is no WebSocket leg: its dial is left out.
-const upgradePorts = new Set();
+const upgradePorts = {};
 server.on('request', (_req, res) => res.end());
 tls.connect = () => {
   // The leg's own start: the moment the product asks for a connection.
@@ -137,7 +142,7 @@ for (const s of scenarios) {
   await advanceTo(s.until + 1);
   let leg = 0;
   // A dial that never asks to upgrade is not a leg. It is kept as its own kind of event so the recording shows it instead of hiding it (see the manifest: `events of kind background-dial`).
-  const events = log.map(({ port, ...e }) => (e.on !== 'dial' ? e : upgradePorts.has(port) ? { ...e, conn: ++leg } : { t: e.t, on: 'background-dial' }));
+  const events = log.map(({ port, ...e }) => (e.on !== 'dial' ? e : upgradePorts[port] ? { ...e, conn: ++leg } : { t: e.t, on: 'background-dial' }));
   writeJson(join(outDir, `${s.id}.json`), { id: s.id, auth: s.auth, script: s.script, until: s.until, events, outcome });
   console.log(`${s.id}: ${JSON.stringify(outcome)}`);
   recorded.push(s.id);
@@ -148,7 +153,7 @@ writeSetManifest(outDir, {
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <b6f tree>`,
   extra: {
-    scenarios: recorded.sort(),
+    scenarios: recorded,
     clockStartMs: T0,
     exclusions: {
       'outcome.message of a transport failure (lone-leg-reset, reset-beside-a-stuck-leg)': 'the text is `ws`/libuv wording for the reset the recorder wrote; the core states the typed transport fault and its own words. The replay compares that the race ended, when, and with a transport (not status, not acquire-timeout) failure',
