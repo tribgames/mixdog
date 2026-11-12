@@ -1392,6 +1392,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             }
         }), pre.state.publisher.clone())
         .await;
+    if let Some(pool) = &computer_pool {
+        // The desktop's computer host takes the screen captures and reports the displays (`host/computer/*`).
+        pool.attach_desktop(b.host.clone());
+    }
     late_computer_hosts.bind(computer_pool.clone()).map_err(|_| ComposeError::AlreadyBound("computer hosts"))?;
     // Directory-side inputs of the pool, bound after `TurnPath::new` (true cycles, `flip-brief.md`): the `call_tool` dispatcher resolves through the pool it sits in, the session catalog reads the surface
     // host that holds the pool, the react tool's reactions open threads on the directory, and the `agent` tool needs the `AgentPort` of `assemble(AgentParts{..})` (flip-agent-worlds-15 `LateAgentPort`).

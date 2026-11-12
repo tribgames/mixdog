@@ -178,7 +178,7 @@ fn part_of(part: &Value) -> Result<ContentPart, String> {
         "image" | "file" => {
             let mime_type = text("mimeType").or_else(|| text("mediaType")).unwrap_or_default();
             match (text("data"), text("attachmentRef"), text("url"), kind) {
-                (Some(data), _, _, "image") => Ok(ContentPart::Image(ImageSource::Base64 { data, mime_type })),
+                (Some(data), _, _, "image") => Ok(ContentPart::Image(ImageSource::Base64 { data, mime_type, width: None, height: None })),
                 (None, None, Some(url), "image") => Ok(ContentPart::Image(ImageSource::Url(url))),
                 (Some(data), _, _, _) => Ok(ContentPart::File { source: BinarySource::Base64(data), mime_type, filename: text("filename"), text: None }),
                 (None, Some(reference), _, _) => Ok(ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename: text("filename"), text: None }),
@@ -224,7 +224,7 @@ pub fn part_row(part: &ContentPart) -> Value {
             }
             row
         }
-        ContentPart::Image(ImageSource::Base64 { data, mime_type }) => json!({ "type": "image", "data": data, "mimeType": mime_type }),
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => json!({ "type": "image", "data": data, "mimeType": mime_type }),
         ContentPart::Image(ImageSource::Url(url)) => json!({ "type": "image", "url": url }),
         ContentPart::Image(ImageSource::FileId(id)) => json!({ "type": "image", "fileId": id }),
         ContentPart::File { source, mime_type, filename, text } => {

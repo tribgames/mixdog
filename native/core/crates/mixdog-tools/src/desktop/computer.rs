@@ -51,9 +51,14 @@ fn map_error(error: ComputerError, args: &Value) -> ToolError {
         ComputerError::InvalidInput { reason } => invalid("input", reason),
         ComputerError::Denied => denied("computer: PC access is not approved"),
         ComputerError::Cancelled => cancelled(),
-        // A failure of the host reads as Node's `formatComputerToolError`: `Error: …` and what to do next.
-        ComputerError::Failed { message, .. } => action_failed("computer", format_tool_error(&message, args)),
+        ComputerError::Failed { code, message } => action_failed("computer", failure_text(&code, &message, args)),
     }
+}
+
+/// What the model reads for a failure of the host: Node's `formatComputerToolError` (`Error: …` and what to do next), except for a
+/// host reply that is itself the error result (`{"ok":false,…}`), which Node returns as it is.
+pub(crate) fn failure_text(code: &str, message: &str, args: &Value) -> String {
+    if code == super::computer_backend::REPORTED_CODE { message.to_owned() } else { format_tool_error(message, args) }
 }
 
 pub struct ComputerTool {

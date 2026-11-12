@@ -167,7 +167,7 @@ fn text_of(content: &Content) -> String {
 /// to send.
 fn data_url_image(part: &ContentPart) -> Option<(String, String, &str)> {
     match part {
-        ContentPart::Image(ImageSource::Base64 { data, mime_type }) => {
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
             Some((format!("data:{mime_type};base64,{data}"), mime_type.clone(), data.as_str()))
         }
         _ => None,

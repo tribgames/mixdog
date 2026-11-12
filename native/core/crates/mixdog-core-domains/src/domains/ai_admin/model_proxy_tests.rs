@@ -43,7 +43,7 @@ fn request() -> p::ModelRequest {
         p::Role::User,
         p::Content::Parts(vec![
             p::ContentPart::Text("hi".into(), None),
-            p::ContentPart::Image(p::ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into() }),
+            p::ContentPart::Image(p::ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into(), width: None, height: None }),
             p::ContentPart::File { source: p::BinarySource::Base64("QUJD".into()), mime_type: "text/plain".into(), filename: Some("a.txt".into()), text: None },
             p::ContentPart::Document { source: p::DocumentSource::Text { media_type: None, data: "d".into() }, title: Some("T".into()) },
         ]),

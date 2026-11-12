@@ -61,6 +61,8 @@ export const HOST_CAPABILITIES = {
   media: true,
   updater: true,
   files: true,
+  // `host/computer/capture` and `host/computer/displays` (computer.ts).
+  computer: true,
 } as const satisfies HostCapabilities;
 
 /** The fields of a generated protocol params type, each still to be checked (a wire value is unknown). */

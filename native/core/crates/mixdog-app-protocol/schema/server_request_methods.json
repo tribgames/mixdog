@@ -175,6 +175,98 @@
       ],
       "type": "object"
     },
+    "HostComputerCaptureParams": {
+      "description": "Params of `host/computer/capture` (core → host): the `capture` command exactly as the loopback bridge was posted it (`computer-bridge/client.mjs`: the host command plus `session_id`).",
+      "properties": {
+        "command": true
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "HostComputerCaptureResult": {
+      "description": "Result of `host/computer/capture`: the computer host's reply value (`{ text, image? }`), as the bridge's `{ ok: true, value }` carried it. A command the host refused is a JSON-RPC error carrying the host's message.",
+      "properties": {
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HostComputerImage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "HostComputerDisplay": {
+      "description": "One display of `host/computer/displays` (`computer/host/display-reads.ts` `readDisplays`).",
+      "properties": {
+        "height": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "index": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "scale_factor": {
+          "format": "double",
+          "type": "number"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "height",
+        "id",
+        "index",
+        "primary",
+        "scale_factor",
+        "width"
+      ],
+      "type": "object"
+    },
+    "HostComputerDisplaysParams": {
+      "additionalProperties": false,
+      "description": "Params of `host/computer/displays` (core → host): none.",
+      "type": "object"
+    },
+    "HostComputerImage": {
+      "description": "The image of a computer host reply: its media type and base64 bytes.",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "mimeType"
+      ],
+      "type": "object"
+    },
     "HostFileSnapshot": {
       "description": "Result of `host/capture/fileSnapshot`: the picture of the file.",
       "properties": {
@@ -2937,6 +3029,25 @@
       },
       "result": {
         "$ref": "#/definitions/HostFileSnapshot"
+      }
+    },
+    "host/computer/capture": {
+      "params": {
+        "$ref": "#/definitions/HostComputerCaptureParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerCaptureResult"
+      }
+    },
+    "host/computer/displays": {
+      "params": {
+        "$ref": "#/definitions/HostComputerDisplaysParams"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/definitions/HostComputerDisplay"
+        },
+        "type": "array"
       }
     },
     "host/files/trashItem": {

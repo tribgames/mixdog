@@ -42,23 +42,13 @@ async function readRequestBody(request: IncomingMessage): Promise<string> {
 /** A dropped connection is the only cancellation signal left when the
  *  runtime dies before it can send session_abort. Without this the queued
  *  input keeps driving the user's desktop until the command timeout. */
-function watchDisconnect(
-  request: IncomingMessage,
-  response: ServerResponse,
-  command: ComputerCommand,
-  abortComputerSession: BridgeRequestContext['host']['abortComputerSession']
-) {
+function watchDisconnect(request: IncomingMessage, response: ServerResponse) {
   let clientGone = false;
   const requestAbort = new AbortController();
   const abortOnDisconnect = (): void => {
     if (clientGone) return;
     clientGone = true;
     requestAbort.abort();
-    if (command.action === 'wait_for_user') return;
-    if (isComputerLifecycleControl(command)) return;
-    void abortComputerSession(command).catch(() => {
-      /* host already idle */
-    });
   };
   request.once('aborted', abortOnDisconnect);
   response.once('close', () => {
@@ -125,6 +115,66 @@ function sealReply(command: ComputerCommand, value: ComputerCommandResult): void
   }
 }
 
+/** What the bridge answers for one accepted command: the sealed reply value, or the redacted message of why it failed. */
+export type BridgeAnswer = { ok: true; value: ComputerCommandResult } | { ok: false; error: string };
+
+/** Runs one accepted command to the answer the bridge puts on the wire (the HTTP bridge and the host protocol's
+ *  `host/computer/capture` share it). */
+export async function answerPublicCommand(
+  host: Parameters<typeof dispatchBridgeCommand>[0],
+  command: ComputerCommand,
+  signal: AbortSignal
+): Promise<BridgeAnswer> {
+  try {
+    const value = await dispatchBridgeCommand(host, command, signal);
+    sealReply(command, value);
+    return { ok: true, value };
+  } catch (error) {
+    // Errors are model-bound too: a remembered secret never comes back in one.
+    const message = (error as Error).message || String(error);
+    return { ok: false, error: secretInputs.redact(String(command.session_id || ''), message) };
+  }
+}
+
+/** What a command past the allowance is refused with, on the HTTP bridge (429) and the host protocol alike. */
+export const CAPACITY_REFUSAL = 'computer_capacity_exhausted: too many active requests';
+
+/** Runs one command under the bridge's one allowance of concurrent requests, for the HTTP bridge and the host
+ *  protocol alike: null when the allowance is spent; otherwise the answer. An aborted `signal` ends the session's
+ *  queued and running work the way a dropped HTTP connection always did. */
+export async function answerAdmittedCommand(
+  host: BridgeRequestContext['host'],
+  state: BridgeServerState,
+  command: ComputerCommand,
+  signal: AbortSignal
+): Promise<BridgeAnswer | null> {
+  if (state.activeRequests >= requestCapacity(command)) return null;
+  const finishFill = admitSavedLoginFill(command);
+  if (typeof finishFill === 'string') {
+    return { ok: false, error: `saved_login_unavailable: ${finishFill}; no input was sent` };
+  }
+  state.activeRequests++;
+  // The heartbeat alone reclaims too late: a burst of short sessions can
+  // exhaust the worker limit between two beats, and the caller owns none
+  // of those sessions. Reclaim on the request path as well.
+  host.reapIdleSessionWorkers();
+  const abortSession = (): void => {
+    if (command.action === 'wait_for_user' || isComputerLifecycleControl(command)) return;
+    void host.abortComputerSession(command).catch(() => {
+      /* host already idle */
+    });
+  };
+  if (signal.aborted) abortSession();
+  else signal.addEventListener('abort', abortSession, { once: true });
+  try {
+    return await answerPublicCommand(host, command, signal);
+  } finally {
+    state.activeRequests--;
+    signal.removeEventListener('abort', abortSession);
+    finishFill?.();
+  }
+}
+
 async function handleCommand(
   context: BridgeRequestContext,
   request: IncomingMessage,
@@ -138,35 +188,13 @@ async function handleCommand(
     respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
     return;
   }
-  if (state.activeRequests >= requestCapacity(command)) {
-    respond(response, 429, { ok: false, error: 'computer_capacity_exhausted: too many active requests' });
-    return;
-  }
-  const finishFill = admitSavedLoginFill(command);
-  if (typeof finishFill === 'string') {
-    respond(response, 200, { ok: false, error: `saved_login_unavailable: ${finishFill}; no input was sent` });
-    return;
-  }
-  state.activeRequests++;
-  // The heartbeat alone reclaims too late: a burst of short sessions can
-  // exhaust the worker limit between two beats, and the caller owns none
-  // of those sessions. Reclaim on the request path as well.
-  host.reapIdleSessionWorkers();
-  const disconnect = watchDisconnect(request, response, command, host.abortComputerSession);
+  const disconnect = watchDisconnect(request, response);
   try {
-    const value = await dispatchBridgeCommand(host, command, disconnect.signal);
-    sealReply(command, value);
-    if (!disconnect.clientGone()) respond(response, 200, { ok: true, value });
-  } catch (error) {
-    if (!disconnect.clientGone()) {
-      // Errors are model-bound too: a remembered secret never comes back in one.
-      const message = (error as Error).message || String(error);
-      respond(response, 200, { ok: false, error: secretInputs.redact(String(command.session_id || ''), message) });
-    }
+    const answer = await answerAdmittedCommand(host, state, command, disconnect.signal);
+    if (!answer) respond(response, 429, { ok: false, error: CAPACITY_REFUSAL });
+    else if (!disconnect.clientGone()) respond(response, 200, answer);
   } finally {
-    state.activeRequests--;
     disconnect.release();
-    finishFill?.();
   }
 }
 

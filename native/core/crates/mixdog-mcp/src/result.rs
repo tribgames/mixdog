@@ -533,7 +533,7 @@ pub async fn normalize_parts(result: &Value, spiller: &Spiller) -> Vec<Part> {
 fn tool_part(part: Part) -> ToolPart {
     match part {
         Part::Text(text) => ToolPart::Text(text),
-        Part::Image { mime, bytes } => ToolPart::Image { mime, data: ImageData::Bytes(bytes) },
+        Part::Image { mime, bytes } => ToolPart::Image { mime, data: ImageData::Bytes(bytes), width: None, height: None },
         Part::File(value) => ToolPart::Json(value),
     }
 }

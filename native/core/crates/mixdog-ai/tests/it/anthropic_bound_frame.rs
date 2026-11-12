@@ -36,6 +36,8 @@ fn message_of(node: &Value) -> Message {
             ContentPart::Image(ImageSource::Base64 {
                 data: source["data"].as_str().expect("image data").to_owned(),
                 mime_type: source["media_type"].as_str().expect("media type").to_owned(),
+                width: None,
+                height: None,
             })
         })
         .collect();

@@ -107,7 +107,7 @@ async fn normalization_equals_nodes() {
             for (part, want) in output.parts.iter().zip(want) {
                 match part {
                     ToolPart::Text(text) => assert_eq!((want["type"].as_str(), text.as_str()), (Some("text"), want["text"].as_str().unwrap()), "{input}"),
-                    ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => {
+                    ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } => {
                         assert_eq!((want["type"].as_str(), mime.as_str()), (Some("image"), want["mimeType"].as_str().unwrap()), "{input}");
                         assert_eq!(*bytes, base64::engine::general_purpose::STANDARD.decode(want["data"].as_str().unwrap()).unwrap(), "{input}");
                     }

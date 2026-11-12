@@ -149,7 +149,7 @@ fn file_block(filename: Option<&str>, mime_type: &str, data: &str) -> Value {
 fn part_to_block(part: &ContentPart) -> Value {
     match part {
         ContentPart::Text(text, _) => json!({ "type": "text", "text": text }),
-        ContentPart::Image(ImageSource::Base64 { data, mime_type }) => json!({
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => json!({
             "type": "image",
             "source": { "type": "base64", "media_type": mime_type, "data": data },
         }),

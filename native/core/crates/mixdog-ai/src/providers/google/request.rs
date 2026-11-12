@@ -86,7 +86,7 @@ fn file_part(filename: Option<&str>, mime_type: &str, data: &str) -> Value {
 fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
     Ok(Some(match part {
         ContentPart::Text(text, _) => json!({ "text": text }),
-        ContentPart::Image(ImageSource::Base64 { data, mime_type }) => {
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
             json!({ "inlineData": { "mimeType": mime_type, "data": data } })
         }
         ContentPart::Image(ImageSource::Url(uri)) | ContentPart::Image(ImageSource::FileId(uri)) => {
