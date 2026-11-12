@@ -2,8 +2,8 @@
   "command": "node benchmarks/rust-core/recorders/record-daemon-owner-lock-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "every value each case observes, in order (contender verdicts, held, intact, the delete, the file read)",
   "excluded": {
-    "only the process that took the lock knows it owns the data dir": "Rust absence: the core has no gone-row sweep (see above), so the lock does not gate a prune; a second start on the data dir is refused `AlreadyOwned` (native/core/crates/mixdog-app-server-daemon/src/startup.rs:296), as the replayed case \"a held lock refuses every other process\" shows",
-    "releasing the lock ends this process ownership of the data dir": "Rust absence: the core has no gone-row sweep to stop (see above); the release itself is replayed in \"one process holds it once; release frees it\""
+    "only the process that took the lock knows it owns the data dir": "not a core behaviour: the flag gates only the prune of an index file the core does not have (see above); a second process on the data dir is refused `AlreadyOwned` (native/core/crates/mixdog-app-server-daemon/src/startup.rs:296), as the replayed case \"a held lock refuses every other process\" shows",
+    "releasing the lock ends this process ownership of the data dir": "not a core behaviour: there is no prune to stop (see above); the release itself is replayed in \"one process holds it once; release frees it\""
   },
   "fileCount": 1,
   "files": [
@@ -42,7 +42,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-daemon-owner-lock-cases.mjs",
-  "recorderSha256": "b2829ed6cad35976004c2a8f74030702655046153a4778e562b60d50d6ba7c47",
+  "recorderSha256": "5b4f2d0adec47d40acad2ab93a6334798c56e5802373128b52172cb19a8affaa",
   "set": "daemon-owner-lock-cases",
   "totalBytes": 3107
 }
