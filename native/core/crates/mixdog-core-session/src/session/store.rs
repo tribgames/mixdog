@@ -65,6 +65,7 @@ use super::seams::ContextRead;
 use super::seams::ContextStep;
 use super::seams::EncodedRecord;
 use super::seams::HeadRead;
+use super::seams::HistoryBefore;
 use super::seams::OpenedLog;
 use super::seams::RecordCodec;
 use super::seams::SessionLog;
@@ -847,6 +848,42 @@ impl StoreThreads {
         log::read_frame_at(lane, dir, pos).map_err(|e| Self::read_error(id, e))
     }
 
+    /// The newest `want` rows of the lineage's history from `cursor` (the newest row when none), newest first, and whether
+    /// they are all that is left; `None` when a rewind moved the history under the cursor.
+    fn read_rows(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        mut cursor: Option<mixdog_store::sqlite::PageCursor>,
+        want: usize,
+    ) -> Result<Option<(Vec<ItemRecord>, bool)>, CoreError> {
+        let mut rows = Vec::new();
+        loop {
+            // One row more than wanted says whether more are left: never an index row past what the page needs.
+            let room = want - rows.len();
+            let (page, next) = match self.index.history_page_on_lane(lane, lineage, cut, cursor, WINDOW_ROWS.min(room.saturating_add(1))) {
+                Ok(page) => page,
+                Err(DbError::CursorStale) => return Ok(None),
+                Err(e) => return Err(internal("history", &e)),
+            };
+            // Only the rows still wanted are read from the log.
+            for row in page.iter().take(room) {
+                rows.push(self.history_item(lane, id, row)?);
+            }
+            if page.len() > room {
+                return Ok(Some((rows, false)));
+            }
+            // The index keeps a continuation cursor at its exact page limit, so with the wanted rows all read the
+            // next page says whether any row is left (it is read, empty, and ends the history).
+            match next {
+                Some(next) => cursor = Some(next),
+                None => return Ok(Some((rows, true))),
+            }
+        }
+    }
+
     /// The item record of one history row: its frame, its latest amend's body, and both
     /// out-of-line slots read back.
     fn history_item(
@@ -855,6 +892,8 @@ impl StoreThreads {
         id: &ThreadId,
         row: &HistoryRow,
     ) -> Result<ItemRecord, CoreError> {
+        #[cfg(any(test, feature = "test-support"))]
+        mixdog_store::read_count::add(id.as_str(), 1);
         let dir = self.dir(&row.session);
         let Record::Item(mut item) =
             log::read_frame(lane, &dir, row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))?
@@ -916,6 +955,21 @@ impl StoreThreads {
         out.sort_by_key(|divider| divider.before);
         Ok(out)
     }
+}
+
+/// The most rows one record's ids are searched back over (`Ids::next` numbers a record's rows).
+const ROWS_PER_RECORD: u128 = 64;
+
+/// The item ids of stored records that can show a row under `shown`, a client's row id: the record's own id (the first row
+/// shows it), the record that numbers its later rows `<iid>:<n>` or `<iid>:model:<at>`, or `itm_` + its 128-bit id plus the row's
+/// position. A row of another record can show `shown` only as a submission id, which the index looks up as an alias.
+fn anchor_iids(shown: &str) -> Vec<String> {
+    let mut ids = vec![shown.to_owned()];
+    ids.extend(shown.match_indices(':').filter(|(at, _)| *at > 0).map(|(at, _)| shown[..at].to_owned()));
+    if let Some(bits) = shown.strip_prefix("itm_").filter(|hex| hex.len() == 32).and_then(|hex| u128::from_str_radix(hex, 16).ok()) {
+        ids.extend((1..ROWS_PER_RECORD).map(|back| format!("itm_{:032x}", bits.wrapping_sub(back))));
+    }
+    ids
 }
 
 /// The window rows a compaction took out of the context, which a restored window still shows (1.4.5 `archived: true`): the model
@@ -1556,34 +1610,41 @@ impl ThreadStore for StoreThreads {
     ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate();
-        'read: loop {
+        loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
-            let (mut rows, mut cursor) = (Vec::new(), None);
-            let complete = loop {
-                let (page, next) = match self.index.history_page_on_lane(lane, &lineage, opened.fold.base_cut, cursor, WINDOW_ROWS) {
-                    Ok(page) => page,
-                    Err(DbError::CursorStale) => continue 'read,
-                    Err(e) => return Err(internal("history", &e)),
-                };
-                // Only the rows still wanted are read from the log.
-                let room = want - rows.len();
-                for row in page.iter().take(room) {
-                    rows.push(self.history_item(lane, id, row)?);
-                }
-                if page.len() > room {
-                    break false;
-                }
-                // The index keeps a continuation cursor at its exact page limit, so with the wanted rows all read the
-                // next page says whether any row is left (it is read, empty, and ends the history).
-                match next {
-                    Some(next) => cursor = Some(next),
-                    None => break true,
-                }
+            let Some((mut rows, complete)) = self.read_rows(lane, id, &lineage, opened.fold.base_cut, None, want)? else {
+                continue;
             };
             // Pages run newest first; the seam returns rows oldest first.
             rows.reverse();
             return Ok((opened.fold.history_rev, rows, complete));
+        }
+    }
+
+    fn history_before(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        anchor: &str,
+        rows: usize,
+    ) -> Result<Option<HistoryBefore>, CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
+        loop {
+            let opened = self.open(lane, id)?;
+            let lineage = self.lineage(lane, &opened.fold)?;
+            let cut = opened.fold.base_cut;
+            let named = self.index.history_anchor_on_lane(lane, &lineage, cut, &anchor_iids(anchor), anchor).map_err(|e| internal("history", &e))?;
+            let Some(named) = named else {
+                return Ok(None);
+            };
+            // The named record first, then the `rows` older.
+            let Some((mut records, complete)) = self.read_rows(lane, id, &lineage, cut, Some(named.cursor), rows.saturating_add(1))? else {
+                continue;
+            };
+            records.reverse();
+            return Ok(Some(HistoryBefore { rev: opened.fold.history_rev, records, complete, named: named.named }));
         }
     }
 
@@ -2158,5 +2219,25 @@ mod projector_tests {
         .expect("job ran");
         assert!(ops.expect("thread_op read on the job's thread"), "an unknown thread recorded no op");
         assert_eq!(fenced.expect("fenced_ops read on the job's thread"), Vec::<String>::new());
+    }
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::anchor_iids;
+    use crate::session::transcript::transcript_rows::Ids;
+
+    /// Every id a record's rows show names the record back: `Ids` numbers a live record's later rows from its 128-bit id, and
+    /// another record's by `<iid>:<n>`.
+    #[test]
+    fn a_rows_id_names_its_records_iid() {
+        for iid in ["itm_00000000000000000000000000000fff", "itm_ffffffffffffffffffffffffffffffff", "hist_ab12"] {
+            let mut ids = Ids::new(iid);
+            for part in 1..=40 {
+                let shown = ids.next();
+                assert!(anchor_iids(&shown).iter().any(|candidate| candidate == iid), "{iid} row {part} shows {shown}");
+            }
+        }
+        assert!(anchor_iids("itm_0000000000000000000000000000000a:model:12").contains(&"itm_0000000000000000000000000000000a".to_owned()));
     }
 }

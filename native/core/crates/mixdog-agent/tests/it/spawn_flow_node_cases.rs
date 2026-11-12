@@ -167,6 +167,9 @@ impl Sessions for Turns {
     fn descendant_session_ids(&self, _: &str) -> Vec<String> {
         Vec::new()
     }
+    fn child_session_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
     fn clear_statusline_route(&self, _: &str) {}
 }
 

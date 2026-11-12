@@ -177,6 +177,9 @@ impl Sessions for Fakes {
     fn descendant_session_ids(&self, _: &str) -> Vec<String> {
         Vec::new()
     }
+    fn child_session_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
     fn clear_statusline_route(&self, _: &str) {}
 }
 
@@ -188,6 +191,7 @@ impl Tasks for Fakes {
         None
     }
     fn cancel(&self, _: &str, _: &str) {}
+    fn cancel_owned(&self, _: &str, _: &str) {}
     fn cleanup(&self, _: &Scope, _: bool) -> Cleaned {
         Cleaned { removed: 0 }
     }

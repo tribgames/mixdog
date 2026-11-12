@@ -493,7 +493,16 @@ async fn received(f: &Fixture, name: &str, id: &str) {
     assert!(f.webhooks.claim_delivery(name, id, claim).await.unwrap());
 }
 
-async fn endpoint(f: &Fixture) -> HomeWebhookDispatch {
+/// The delivery once its run has ended. Every run holds a guard of `work` until it has settled its delivery, so the signal
+/// is `work` going idle; the deadline only turns a run that never ends into a failure naming the delivery.
+async fn settled_delivery(f: &Fixture, work: &RunningWork, name: &str, id: &str) -> (String, Option<String>) {
+    mixdog_rt::time::timeout(Duration::from_secs(10), work.idle())
+        .await
+        .unwrap_or_else(|_| panic!("the run of delivery {id} of webhook {name} never ended: the delivery stays `processing`"));
+    f.webhooks.delivery_row(name, id).await.unwrap()
+}
+
+async fn endpoint(f: &Fixture) -> (HomeWebhookDispatch, RunningWork) {
     f.webhooks
         .upsert(&EndpointRecord {
             name: "gh".into(),
@@ -504,26 +513,21 @@ async fn endpoint(f: &Fixture) -> HomeWebhookDispatch {
         })
         .await
         .unwrap();
-    HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), None, RunningWork::new())
+    let work = RunningWork::new();
+    (HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), None, work.clone()), work)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_webhook_is_answered_202_and_its_run_settles_the_delivery() {
     let f = fixture().await;
-    let dispatch = endpoint(&f).await;
+    let (dispatch, work) = endpoint(&f).await;
     received(&f, "gh", "d1").await;
     let sent = headers(&[("x-github-event", "push"), ("authorization", "Bearer secret")]);
     let reply = dispatch.handle("gh", json!({"action": "created"}), &sent, "d1", true).await.unwrap();
     assert_eq!((reply.status, reply.body), (202, json!({"status": "accepted", "handler": "session", "id": "d1"})));
 
-    // The run is its own task: wait for the delivery to leave `processing`.
-    let status = loop {
-        let (status, error) = f.webhooks.delivery_row("gh", "d1").await.unwrap();
-        if status != "processing" {
-            break (status, error);
-        }
-        tokio::task::yield_now().await;
-    };
+    // The run is its own task: wait for it to end.
+    let status = settled_delivery(&f, &work, "gh", "d1").await;
     assert_eq!(status, ("done".to_string(), None));
     let turn = &f.host.turns()[0];
     assert_eq!((turn.session_id.as_str(), turn.skill_selection.as_str()), ("sess_home_gh-bot", "Summarise the event."));
@@ -536,20 +540,39 @@ async fn a_webhook_is_answered_202_and_its_run_settles_the_delivery() {
     assert_eq!(stored.last_payload, Some(json!({"body": {"action": "created"}, "headers": {"x-github-event": "push"}})));
 }
 
+/// Node's `webhookRunPrompt` / `webhookEventSummary` over the recorded deliveries (`webhook-run-prompt/golden.json`): what the run hands
+/// the owner's session is Node's whole prompt, trusted skill-selection input and event label, the label read from every header the sender sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_reaches_the_session_as_nodes_prompt_selection_and_label() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-run-prompt/golden.json")).expect("golden");
+    let f = fixture().await;
+    let (dispatch, work) = endpoint(&f).await;
+    for (index, case) in golden["cases"].as_array().expect("cases").iter().enumerate() {
+        let mut stored = f.webhooks.load("gh").await.unwrap().unwrap();
+        stored.instructions = case["instructions"].as_str().expect("instructions").to_string();
+        f.webhooks.upsert(&stored).await.unwrap();
+        let id = format!("d{index}");
+        received(&f, "gh", &id).await;
+        let sent: Headers = case["headers"].as_object().expect("headers").iter().map(|(k, v)| (k.clone(), v.as_str().expect("text").to_string())).collect();
+        dispatch.handle("gh", case["body"].clone(), &sent, &id, true).await.unwrap();
+        settled_delivery(&f, &work, "gh", &id).await;
+        let turn = &f.host.turns()[index];
+        let name = &case["name"];
+        // The turn opens with the routine preamble; the webhook prompt is what follows it, whole (an empty instruction leaves its blank lines to the join).
+        let prompt = case["prompt"].as_str().expect("prompt").trim_start_matches('\n');
+        assert!(content_of(turn).ends_with(&format!("\n\n{prompt}")), "{name}: prompt");
+        assert_eq!(json!(turn.skill_selection), case["skillSelection"], "{name}: selection");
+        assert_eq!(json!(turn.trigger.event.clone().unwrap_or_default()), case["summary"], "{name}: label");
+    }
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_or_overlapping_webhook_run_marks_its_delivery_and_endpoint() {
     let f = fixture().await;
-    let dispatch = endpoint(&f).await;
+    let (dispatch, work) = endpoint(&f).await;
     f.host.settles.lock().unwrap().push_back(TurnSettle::Failed("provider down".into()));
     received(&f, "gh", "d1").await;
     dispatch.handle("gh", json!({}), &headers(&[]), "d1", true).await.unwrap();
-    let outcome = loop {
-        let row = f.webhooks.delivery_row("gh", "d1").await.unwrap();
-        if row.0 != "processing" {
-            break row;
-        }
-        tokio::task::yield_now().await;
-    };
+    let outcome = settled_delivery(&f, &work, "gh", "d1").await;
     assert_eq!(outcome, ("failed".to_string(), Some("provider down".to_string())));
     let stored = f.webhooks.load("gh").await.unwrap().unwrap();
     assert_eq!((stored.consecutive_failures, stored.last_failed_at.is_some()), (1, true));
@@ -557,13 +580,7 @@ async fn a_failed_or_overlapping_webhook_run_marks_its_delivery_and_endpoint() {
     let held = f.rt.runs().begin(RoutineKind::Webhook, "gh").unwrap();
     received(&f, "gh", "d2").await;
     dispatch.handle("gh", json!({}), &headers(&[]), "d2", true).await.unwrap();
-    let outcome = loop {
-        let row = f.webhooks.delivery_row("gh", "d2").await.unwrap();
-        if row.0 != "processing" {
-            break row;
-        }
-        tokio::task::yield_now().await;
-    };
+    let outcome = settled_delivery(&f, &work, "gh", "d2").await;
     drop(held);
     assert_eq!(outcome.0, "skipped");
     assert!(f.webhooks.load("gh").await.unwrap().unwrap().last_skipped_at.is_some());

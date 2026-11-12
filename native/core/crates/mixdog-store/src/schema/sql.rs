@@ -5,7 +5,7 @@
 /// transaction).
 pub const INDEX_DDL: &str = include_str!("sql/index.sql");
 pub const INDEX_APPLICATION_ID: i32 = 0x4D58_4958;
-pub const INDEX_USER_VERSION: i32 = 15;
+pub const INDEX_USER_VERSION: i32 = 16;
 
 /// `sessions.id_key`: a session id (`^[A-Za-z0-9_-]+$`, FORMAT.md §1) as bytes whose
 /// order is JavaScript `localeCompare` (ICU root collation) on the id: the primary

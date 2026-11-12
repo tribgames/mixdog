@@ -278,6 +278,60 @@ mod tests {
         assert!(scopes.allowed_for_cwd(ScopeKind::Mcp, "x", Path::new("/anywhere")));
     }
 
+    /// The scope rules against real Node's (`fixtures/extension-scopes/golden.json`, from `record-extension-scopes.mjs`): the
+    /// normalized map, the roots of an entry, `cwd` within roots, a skill's own and its plugin's scope, a server's own and its
+    /// plugin's, and one entry replaced or cleared in a config. The golden's <BASE> is this run's own folder; answers are compared
+    /// with it written back as <BASE> and every separator as "/".
+    #[test]
+    fn the_scope_rules_equal_nodes() {
+        const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/extension-scopes/golden.json");
+        let base = std::env::temp_dir().join("scope-replay-base");
+        let base_text = base.to_string_lossy().into_owned();
+        let escaped = serde_json::to_string(&base_text).unwrap();
+        let escaped = &escaped[1..escaped.len() - 1];
+        let golden: Value = serde_json::from_str(&GOLDEN.replace("<BASE>", escaped)).unwrap();
+        let back = |value: &Value| -> Value {
+            serde_json::from_str(&value.to_string().replace(escaped, "<BASE>").replace("\\\\", "/")).unwrap()
+        };
+        for case in golden["normalize"].as_array().unwrap() {
+            assert_eq!(back(&ExtensionScopes::from_config(&case["scopes"]).to_config()), back(&case["normalized"]), "{}", case["name"]);
+        }
+        for case in golden["projects"].as_array().unwrap() {
+            let scopes = ExtensionScopes::from_config(&case["scopes"]);
+            let kind = ScopeKind::parse(case["kind"].as_str().unwrap()).unwrap();
+            let got = scopes.projects(kind, case["name"].as_str().unwrap()).map_or(Value::Null, |roots| json!(roots));
+            assert_eq!(back(&got), back(&case["projects"]), "{}", case["name"]);
+        }
+        for case in golden["within"].as_array().unwrap() {
+            let roots: Vec<String> = case["projects"].as_array().unwrap().iter().map(|r| r.as_str().unwrap().to_owned()).collect();
+            assert_eq!(within_projects(Path::new(case["cwd"].as_str().unwrap()), &roots), case["within"], "{}", case["cwd"]);
+        }
+        for case in golden["skill"].as_array().unwrap() {
+            let scopes = ExtensionScopes::from_config(&case["scopes"]);
+            let skill = Skill {
+                name: case["skill"]["name"].as_str().unwrap().to_owned(),
+                description: String::new(),
+                when_to_use: String::new(),
+                file_path: std::path::PathBuf::new(),
+                source: crate::skills::SkillSource::Global,
+                plugin: case["skill"]["plugin"].as_str().map(str::to_owned),
+                requires: Vec::new(),
+                tool_dependencies: crate::skill_deps::SkillToolDependencies::none(),
+            };
+            assert_eq!(scopes.skill_allowed_for_cwd(&skill, Path::new(case["cwd"].as_str().unwrap())), case["allowed"], "{}", case["skill"]);
+        }
+        for case in golden["mcp"].as_array().unwrap() {
+            let scopes = ExtensionScopes::from_config(&case["scopes"]);
+            let got = scopes.mcp_server_allowed_for_cwd(case["server"].as_str().unwrap(), case["pluginId"].as_str(), Path::new(case["cwd"].as_str().unwrap()));
+            assert_eq!(got, case["allowed"], "{} from {}", case["server"], case["cwd"]);
+        }
+        for case in golden["withScope"].as_array().unwrap() {
+            let plugins = [json!({ "id": "unity" })];
+            let change = plan_extension_scope(&case["config"], &case["kind"], &case["entry"], &case["projects"], &plugins).unwrap();
+            assert_eq!(back(&change.config), back(&case["result"]), "{}", case["name"]);
+        }
+    }
+
     /// `extension-scopes.test.mjs` "MCP tools filter by server scope intersected with the owning plugin scope".
     #[test]
     fn a_plugin_servers_scope_is_its_own_intersected_with_its_plugins() {

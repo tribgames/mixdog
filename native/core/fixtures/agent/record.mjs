@@ -22,6 +22,8 @@ const stage = stageSet(here, ['golden', 'scenarios']);
 const loopDir = join(nodeRoot, 'src/runtime/agent/orchestrator');
 const dataRoot = mkdtempSync(join(tmpdir(), 'mixdog-agent-golden-'));
 process.env.MIXDOG_DATA_DIR = dataRoot;
+// A retried send waits no time (the retry is what a scenario records, not its pause).
+process.env.MIXDOG_TRANSPORT_RETRY_BACKOFF_MS = '0,0,0';
 
 const { agentLoop } = await import(pathToFileURL(join(loopDir, 'session/agent-loop.mjs')).href);
 const { setInternalToolsProvider } = await import(pathToFileURL(join(loopDir, 'internal-tools.mjs')).href);
@@ -79,6 +81,14 @@ const scenarios = [
     messages: [user('go')],
     escalated: 8000,
     script: [cut('aa'), cut('bb'), turn('cc', 'end_turn')],
+  },
+  // The escalation is one-shot whatever happens to the send it rode on (agent-loop-output-escalation.test.mjs): the retry of the
+  // escalated send, which fails the way Gemini's cut function call does, goes out without the override.
+  {
+    name: 'output_limit_escalation_transport_retry',
+    messages: [user('go')],
+    escalated: 128000,
+    script: [cut('', 'max_tokens'), { throw: 'malformed_function_call' }, turn('done', 'end_turn')],
   },
   {
     name: 'output_limit_exhausted',
@@ -150,6 +160,25 @@ const scenarios = [
       toolTurn('', call('c4', 'boom', { path: 'b.txt' })),
       turn('gave up', 'end_turn'),
     ],
+  },
+  // No cap on how long a turn may run (agent-loop-step-limit.test.mjs): 45 rounds of calls that fail, or of the same call with
+  // the same result, end in the model's own answer; the loop neither stops the turn nor tells the model to reply.
+  {
+    name: 'uncapped_failing_rounds',
+    messages: [user('go')],
+    script: [...Array.from({ length: 45 }, (_, i) => toolTurn(`step ${i + 1}`, call(`c${i + 1}`, 'probe', { path: 'a.txt' }))), turn('final answer', 'end_turn')],
+  },
+  {
+    name: 'uncapped_replayed_rounds',
+    messages: [user('go')],
+    script: [...Array.from({ length: 45 }, (_, i) => toolTurn(`step ${i + 1}`, call(`c${i + 1}`, 'echo', { path: 'a.txt' }))), turn('final answer', 'end_turn')],
+  },
+  // The text a reply streams reaches the turn's delta hook whole and in order (agent-loop.test.mjs, "preserves text deltas").
+  {
+    name: 'text_deltas_reach_the_hook',
+    messages: [user('go')],
+    captureDeltas: true,
+    script: [{ ...toolTurn('Now let me look', call('c1', 'echo', { a: 1 })), deltas: ['Now let ', 'me look'] }, { ...turn('final answer', 'end_turn'), deltas: ['final ', 'answer'] }],
   },
   {
     name: 'stale_ids_renamed',
@@ -241,13 +270,26 @@ async function record(scenario) {
       const index = scenario.repeatLast ? Math.min(sends, scenario.script.length) - 1 : sends - 1;
       const entry = scenario.script[index];
       if (!entry) throw new Error(`script exhausted at send ${sends}`);
+      // The reply streams its text through the loop's own delta hook before it settles.
+      for (const delta of entry.deltas ?? []) opts?.onTextDelta?.(delta);
+      // A send the provider fails the way Gemini does when it cuts a function call short: the loop retries it.
+      if (entry.throw === 'malformed_function_call') {
+        throw Object.assign(new Error('Gemini response incomplete: finishReason=MALFORMED_FUNCTION_CALL'), {
+          providerIncomplete: true,
+          code: 'PROVIDER_INCOMPLETE',
+          finishReason: 'MALFORMED_FUNCTION_CALL',
+          partialContent: '',
+        });
+      }
       return structuredClone(entry);
     },
   };
   const queues = structuredClone(scenario.steer || {});
+  const deltas = [];
   const sendOpts = {
     session,
     sessionId: scopeId,
+    ...(scenario.captureDeltas ? { onTextDelta: (chunk) => deltas.push(chunk) } : {}),
     ...(scenario.limits ? { turnLimits: scenario.limits } : {}),
     drainSteering: (_sid, { stage }) => (queues[stage] || []).splice(0).map((text) => ({ content: text, ids: ['q1'] })),
   };
@@ -274,6 +316,7 @@ async function record(scenario) {
     },
     error,
     requests,
+    ...(scenario.captureDeltas ? { deltas } : {}),
   };
 }
 
@@ -291,7 +334,14 @@ try {
 } finally {
   rmSync(dataRoot, { recursive: true, force: true });
 }
-refreshSetManifest(stage, nodeRoot);
+// `exclusions` is a list of {path, scope, reason}: the entries the set already holds stay, this recorder's own is added once.
+const loopEvents = {
+  path: 'golden/*.json',
+  scope: '"deltas": run events other than the text deltas',
+  reason: 'the loop reports to its caller only through the hooks the caller passes (agent-loop.mjs:42-49, sendOpts); this recorder installs onTextDelta alone, so Node produced no stage, tool-call, usage, steering or compaction events here and the Rust run\'s RunEvent variants other than TextDelta have no recorded counterpart in this set. What the loop did around them is compared through the transcript, the result and the requests of every scenario',
+};
+const held = JSON.parse(readFileSync(join(stage, 'MANIFEST.json'), 'utf8')).exclusions ?? [];
+refreshSetManifest(stage, nodeRoot, 'HEAD', { exclusions: [...held.filter((e) => e.path !== loopEvents.path || e.scope !== loopEvents.scope), loopEvents] });
 // The set's manifest also states what made it: this recorder, every module it loads and the Node that ran it.
 const manifestPath = join(stage, 'MANIFEST.json');
 const manifest = { ...JSON.parse(readFileSync(manifestPath, 'utf8')), ...recorderProvenance(import.meta.url), product: exactProductIdentity(nodeRoot, 'b6f10295a2f698afc85332467192de28500bd146') };

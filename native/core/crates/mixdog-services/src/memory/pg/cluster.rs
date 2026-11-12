@@ -29,7 +29,7 @@ use crate::tidy::process::{ProcessResult, Processes, RunOptions};
 
 /// First port tried for a product postmaster, and how many ports above it are scanned.
 pub const DEFAULT_PORT: u16 = 55432;
-const PORT_SPAN: u16 = 200;
+pub(crate) const PORT_SPAN: u16 = 200;
 const START_DEADLINE: Duration = Duration::from_secs(30);
 /// `await delay(250)` of Node's `startAndWaitReady`.
 const READY_POLL: Duration = Duration::from_millis(250);

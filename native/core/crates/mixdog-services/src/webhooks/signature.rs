@@ -1,12 +1,10 @@
 //! Webhook signature headers and HMAC verification (GitHub, Sentry, Stripe, generic).
 
-use std::collections::HashMap;
-
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
-/// Lower-cased header names to values.
-pub type Headers = HashMap<String, String>;
+/// Lower-cased header names to values, in the order the request sent them (a prompt lists them so, as Node's `req.headers` does).
+pub type Headers = indexmap::IndexMap<String, String>;
 
 /// (parser, header, prefix) in the order unparsed requests are probed.
 const SIGNATURE_HEADERS: [(&str, &str, &str); 4] = [

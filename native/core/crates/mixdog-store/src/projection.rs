@@ -42,8 +42,12 @@ pub enum FrameKind {
         msg: Option<MessageRow>,
         /// What a compaction can take out of a model message row (`history.facets`).
         facets: Option<Facets>,
+        /// The ids other than `iid` by which a client may name a row of this item: the submission id of a user row and the
+        /// own id of a display row (`history_alias`). A superset is harmless: the reader checks what it finds.
+        aliases: Vec<String>,
     },
-    Amend { iid: String, refs: Vec<Digest>, msg: Option<MessageRow> },
+    /// `aliases`: the ids the amended body names, added to the row it amends (the original's stay: a superset).
+    Amend { iid: String, refs: Vec<Digest>, msg: Option<MessageRow>, aliases: Vec<String> },
     Rewind { to_ordinal: u64 },
     /// `rows`: the entry iid and catalog contribution of each replacement message, in order.
     Compacted {
@@ -88,10 +92,10 @@ impl ProjectedFrame {
     /// by `MAX_REFS`).
     pub fn rows(&self) -> usize {
         let own = match &self.kind {
-            FrameKind::Item { refs, prompt, msg, .. } => {
-                2 + refs.len() + 2 * usize::from(prompt.is_some()) + usize::from(msg.is_some())
+            FrameKind::Item { refs, prompt, msg, aliases, .. } => {
+                2 + refs.len() + 2 * usize::from(prompt.is_some()) + usize::from(msg.is_some()) + aliases.len()
             }
-            FrameKind::Amend { refs, .. } => 2 + refs.len(),
+            FrameKind::Amend { refs, aliases, .. } => 2 + refs.len() + aliases.len(),
             FrameKind::Compacted { rows, dropped, .. } => {
                 1 + rows.len() + dropped.as_ref().map_or(0, |d| d.message_ids.len() + d.call_ids.len())
             }
@@ -143,6 +147,11 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
         Record::Meta(r) => (FrameKind::Other, op(&r.op)),
         Record::Item(r) => {
             let body = if r.form == Form::Message && r.model { Some(message_body(&r.body, resolve)?) } else { None };
+            let aliases = match (&body, r.form) {
+                (Some(body), _) => aliases_of(r.iid.as_str(), body, false),
+                (None, Form::Display) => aliases_of(r.iid.as_str(), &message_body(&r.body, resolve)?, true),
+                (None, Form::Message) => Vec::new(),
+            };
             (
                 FrameKind::Item {
                     iid: r.iid.as_str().to_owned(),
@@ -154,18 +163,23 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
                     prompt: prompt(r, resolve)?,
                     msg: body.as_ref().map(MessageRow::of),
                     facets: body.as_ref().map(Facets::of),
+                    aliases,
                 },
                 op(&r.op),
             )
         }
-        Record::Amend(r) => (
-            FrameKind::Amend {
-                iid: r.iid.as_str().to_owned(),
-                refs: r.refs.as_slice().to_vec(),
-                msg: Some(message_row(&r.body, resolve)?),
-            },
-            op(&r.op),
-        ),
+        Record::Amend(r) => {
+            let body = message_body(&r.body, resolve)?;
+            (
+                FrameKind::Amend {
+                    iid: r.iid.as_str().to_owned(),
+                    refs: r.refs.as_slice().to_vec(),
+                    msg: Some(MessageRow::of(&body)),
+                    aliases: aliases_of(r.iid.as_str(), &body, false),
+                },
+                op(&r.op),
+            )
+        }
         Record::Rewind(r) => (FrameKind::Rewind { to_ordinal: r.to_ordinal }, op(&r.op)),
         Record::Compacted(r) => (
             FrameKind::Compacted {
@@ -206,6 +220,19 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
         }
         Record::Checkpoint(_) | Record::Draft(_) => (FrameKind::Other, None),
     })
+}
+
+/// The ids besides `iid` that name a row of the item `body`: a submission id (`clientSubmissionId` of a display row, of a
+/// message's `meta.transcript`), and for a `display` row its own `id`.
+fn aliases_of(iid: &str, body: &Value, display: bool) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let named = [body.get("clientSubmissionId"), body.pointer("/meta/transcript/clientSubmissionId"), body.get("id").filter(|_| display)];
+    for id in named.into_iter().flatten().filter_map(Value::as_str) {
+        if !id.is_empty() && id != iid && !found.iter().any(|f| f == id) {
+            found.push(id.to_owned());
+        }
+    }
+    found
 }
 
 /// The prompt-history text of an item: its `prompt` field, trimmed (JS `trim`), when the
