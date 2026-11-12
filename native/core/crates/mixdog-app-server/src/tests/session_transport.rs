@@ -51,21 +51,19 @@ fn step<'a>(case: &'a Value, starts: &str) -> &'a Value {
 /// The recorded cases of the three sets that no test below replays, each with why (the sets' manifests say the same). A case of a set
 /// that is neither replayed nor listed here fails [`every_recorded_case_is_replayed_or_declared`], so a re-recording that adds a case
 /// cannot pass unseen. The key is the case's `testLine`, or its name for the one line two cases share.
-const NOT_REPLAYED: [(&str, &str, &str); 14] = [
-    ("session-transport-call-contract", "15", "the OAuth registry's status, complete and cancel answers are replayed from fixtures/login-status by mixdog-core-domains (ai_account/tests.rs); this case's flow starts with url null, which no core sign-in start produces"),
-    ("session-transport-call-contract", "82", "no thread list rides a session answer: the core's thread/start, thread/read and thread/name/set answers are typed with no list field, and thread/list is the one route"),
+const NOT_REPLAYED: [(&str, &str, &str); 12] = [
+    ("session-transport-call-contract", "15", "Node's OAuth registry answers a flow `register({provider, manualUrl, completeCode})` with a status whose `url` is null and a `manualUrl`, which complete and cancel then settle; the core keeps those answers in fixtures/login-status (replayed by mixdog-core-domains ai_account/tests.rs), and no core sign-in start produces a flow with a null url (`LoginState::Authorize` carries one)"),
     ("session-transport-call-contract", "call-idempotency-is-isolated-per-client-process", "the base commit's defect (one submission run twice); the case replayed is the one recorded with the fix"),
-    ("session-transport-call-contract", "299", "Node's session.read actions getProfile/getOutputStyle/getTheme have no core method; a core failure is a JSON-RPC error by construction and an answer is serde JSON, which holds no non-serializable value"),
-    ("session-transport-call-contract", "320", "a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed"),
-    ("session-transport-call-contract", "369", "a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed"),
-    ("session-transport-call-contract", "465", "no Rust counterpart: the Node TUI's remote-runtime proxy has no Rust TUI (the only Rust front end, mixdog-cli, is the `exec` command)"),
-    ("session-transport-state-lanes", "192", "no Rust counterpart of re-attaching in place: the core's client reconnects through its ladder and sends `initialize` again on each new connection (mixdog-app-server-client engine.rs `reconnect`), so Node's recorded `registrations: 1` across the reconnect has no equivalent"),
+    ("session-transport-call-contract", "320", "Node's `session.configure setRoute` whose runtime then reports another session id is answered under the addressed id (call-route.mjs re-labels the answer); a core thread's id is fixed when its actor is created and no method changes it, so no core answer can carry another id"),
+    ("session-transport-call-contract", "369", "Node's answers after that address mismatch (`session.read`, `session.subscribe`, the transitions' `applyResult`) keep the addressed id and move no binding; a core thread's id is fixed when its actor is created and no method changes it, so there is no mismatch to survive"),
+    ("session-transport-call-contract", "465", "Node's TUI remote-runtime proxy (`createSession`, `runtime.submit`, `setProgressHint`, `abortAsync`, `newSession` over `session.*` calls, and its mirrored state) has no core counterpart: the only Rust front end, mixdog-cli, is the `exec` command and holds no remote session projection"),
+    ("session-transport-state-lanes", "192", "replayed by mixdog-app-server-client tests/it/silent_connection.rs, where the client connection is"),
     ("session-transport-state-lanes", "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence", "the base commit records the String(null) defect the patch fixes; the case replayed is the one recorded with the fix"),
     ("session-transport-state-lanes", "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence--with-the-fix", "replayed by mixdog-services channels/tests_runtime.rs, where the channel transport is"),
     ("session-transport-state-lanes", "428", "replayed by mixdog-app-server-daemon late_lifecycle.rs, where the in-daemon transport is"),
     ("session-transport-state-lanes", "446", "replayed by mixdog-app-server-client tests/it/silent_connection.rs, where the client connection is"),
-    ("session-transport-state-lanes", "493", "no Rust counterpart of either: the core's client has no stream-liveness timeout (silent_connection.rs shows it keeps a silent connection) and its reconnect ladder has no budget (engine.rs `reconnect` retries until the client is closed)"),
-    ("session-transport-steering-recovery", "90", "no Rust counterpart: the Node TUI holds its own `commandBusy` while its resume restores queued steering, and there is no Rust TUI (mixdog-cli is the `exec` command); the restored queue itself is case 75"),
+    ("session-transport-state-lanes", "493", "Node's client ends a silent event stream after its liveness timeout (20 ms in the recording) and gives up when reconnects keep failing for 60 ms of wall time (a budget); the core's client has neither: it keeps a silent connection (silent_connection.rs) and its reconnect ladder retries until the client is closed (engine.rs `reconnect`)"),
+    ("session-transport-steering-recovery", "90", "Node's TUI keeps `commandBusy` set while its `resume(id, {quiet: true})` waits for the steering restore gate and releases it when the gate resolves; the core's thread restores its durable queue when it opens (case 75), and no Rust front end holds a `commandBusy`"),
 ];
 
 /// Every case of the three recordings is consumed by a test of this file (named in a `case(set, line)` or `named(set, name)` call)
@@ -812,4 +810,55 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
         event(&world.id, 9, "thread/runtime/updated", json!({ "threadId": world.id, "value": runtime(false) })),
     ]);
     whole("state-lanes-48", &client.frames, &[world.id.as_str()], expected);
+}
+
+/// call-contract case 82: the session catalog has one route and never rides a session answer: Node's create, read and rename
+/// answers carry no `sessions`, and the list answer is the one that does. The core's start, read and rename answers carry no
+/// catalog either (`thread/list` is the one route).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_thread_catalog_never_rides_a_thread_answer() {
+    let node = case("session-transport-call-contract", 82);
+    assert!(step(&node, "session.list")["ok"]["sessions"].is_array(), "Node's list answers the catalog");
+    for call in ["session.create", "session.read", "session.configure"] {
+        assert!(step(&node, call)["ok"].get("sessions").is_none(), "Node's {call} answer carries no catalog");
+    }
+    let world = World::started(echo()).await;
+    let mut client = world.client(1).await;
+    let read = world.call(&mut client, 1, "thread/read", json!({})).await;
+    let renamed = world.call(&mut client, 2, "thread/name/set", json!({ "opId": "op-rename", "title": "renamed" })).await;
+    for (call, reply) in [("thread/read", &read), ("thread/name/set", &renamed)] {
+        assert!(reply["result"].is_object(), "{call} answered: {reply}");
+        let text = reply["result"].to_string();
+        assert!(!text.contains("\"sessions\"") && !text.contains("\"threads\""), "{call} carries no catalog: {text}");
+    }
+}
+
+/// call-contract case 299: a failing read answers as a call error, a read nobody serves is refused, and the answer of a read
+/// holds what serialises (Node: `getProfile` threw, `getOutputStyle` was not on the service, `getTheme` answered
+/// `{ ok, callback: fn, when: Date(0) }`, of which the function was dropped and the date became its ISO text). The core's
+/// counterparts are `config/getProfile`, `config/getOutputStyle` and `config/getTheme`, served here by the stub the recording
+/// scripted. Not compared (the manifest says so): the error texts. Node hands the stub's own message ("stub failure") to the
+/// caller; the core never does (an internal failure answers an incident id), and an unserved method is
+/// `capabilityUnavailable` naming it, not Node's "session action getOutputStyle is unavailable".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failing_unserved_and_non_serializable_read_answer_as_node_does() {
+    let node = case("session-transport-call-contract", 299);
+    let (profile, style, theme) = (step(&node, "session.read action getProfile"), step(&node, "session.read action getOutputStyle"), step(&node, "session.read action getTheme"));
+    assert!(profile["error"].is_object() && style["error"].is_object() && theme["ok"].is_object());
+    let value = theme["ok"]["value"].clone();
+    let served = value.clone();
+    let rig = Rig::routed(&["config/getProfile", "config/getTheme"], Vec::new());
+    rig.core.mock.mock_domain().set_handler(Arc::new(move |req| match req.method.as_str() {
+        "config/getProfile" => Err(mixdog_core_api::CoreError::Internal { incident_id: "stub".into() }),
+        _ => Ok(Reply::Value(served.clone())),
+    }));
+    let wire = Wire::serve(rig).await;
+    let mut client = wire.client("PC", "desktop").await;
+    let samples = super::sample::Samples::new();
+    let mut outcomes = Vec::new();
+    for (id, method) in [(1, "config/getProfile"), (2, "config/getOutputStyle"), (3, "config/getTheme")] {
+        let reply = client.call(id, method, samples.params(method)).await;
+        outcomes.push(if reply["error"].is_object() { json!({ "error": true }) } else { json!({ "ok": reply["result"] }) });
+    }
+    assert_eq!(outcomes, [json!({ "error": true }), json!({ "error": true }), json!({ "ok": value })]);
 }
